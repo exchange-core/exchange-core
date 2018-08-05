@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+
+<configuration scan="true">
+
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd/HH:mm:ss.SSS/zzz} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <logger name="org" level="INFO"/>
+    <logger name="net" level="INFO"/>
+    <logger name="com" level="INFO"/>
+
+    <logger name="org.apache.http" level="INFO"/>
+
+    <!--<logger name="org.springframework" level="TRACE"/>-->
+
+    <!--<logger name="org.springframework.validation" level="TRACE"/>-->
+
+    <logger name="org.springframework.web.client.RestTemplate" level="DEBUG"/>
+    <logger name="org.springframework.transaction" level="DEBUG"/>
+    <logger name="org.springframework.data" level="DEBUG"/>
+    <logger name="org.springframework.integration.handler.LoggingHandler" level="DEBUG"/>
+
+
+    <logger name="org.openpredict" level="DEBUG"/>
+
+    <root level="INFO">
+        <appender-ref ref="STDOUT"/>
+    </root>
+
+</configuration>
