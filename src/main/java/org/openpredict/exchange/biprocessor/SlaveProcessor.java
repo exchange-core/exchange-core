@@ -16,9 +16,11 @@
 package org.openpredict.exchange.biprocessor;
 
 import com.lmax.disruptor.*;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
+@Slf4j
 public final class SlaveProcessor<T> implements EventProcessor {
     private static final int IDLE = 0;
     private static final int HALTED = IDLE + 1;
@@ -27,12 +29,12 @@ public final class SlaveProcessor<T> implements EventProcessor {
     private final AtomicInteger running = new AtomicInteger(IDLE);
     private final DataProvider<T> dataProvider;
     private final SequenceBarrier sequenceBarrier;
-    private final RefusingEventHandler<? super T> eventHandler;
+    private final SimpleEventHandler<? super T> eventHandler;
     private final Sequence sequence = new Sequence(Sequencer.INITIAL_CURSOR_VALUE);
 
     private long nextSequence = -1;
 
-    public SlaveProcessor(DataProvider<T> dataProvider, SequenceBarrier sequenceBarrier, RefusingEventHandler<? super T> eventHandler) {
+    public SlaveProcessor(DataProvider<T> dataProvider, SequenceBarrier sequenceBarrier, SimpleEventHandler<? super T> eventHandler) {
         this.dataProvider = dataProvider;
         this.sequenceBarrier = sequenceBarrier;
         this.eventHandler = eventHandler;
@@ -70,38 +72,37 @@ public final class SlaveProcessor<T> implements EventProcessor {
         nextSequence = sequence.get() + 1L;
     }
 
-    public void handlingCycle() {
+    public void handlingCycle(long processUpTo) {
+//        log.debug(" SLAVE processUpTo: {}", processUpTo);
+        while (true) {
+            try {
+//                log.debug(" SLAVE tryWaitFor: {}", nextSequence);
+                long availableSequence = sequenceBarrier.tryWaitFor(nextSequence, 0);
+//                log.debug(" SLAVE availableSequence: {}", availableSequence);
 
-        try {
-            long availableSequence = sequenceBarrier.tryWaitFor(nextSequence, 0);
-//            long availableSequence = sequenceBarrier.maxAvailable(nextSequence);
+//                Thread.sleep(100);
 
-            if (availableSequence < nextSequence) {
-                return;
-            }
+                // process batch
+                while (nextSequence <= availableSequence && nextSequence < processUpTo) {
+                    eventHandler.onEvent(dataProvider.get(nextSequence));
+                    nextSequence++;
+                }
 
+                // exit if processed all group
+                if (nextSequence == processUpTo) {
+                    sequence.set(nextSequence - 1);
+                    return;
+                }
 
-            if (availableSequence < nextSequence + 8000 && availableSequence > nextSequence + 32) {
-                availableSequence = nextSequence + 32;
-            }
+                sequence.set(availableSequence);
 
-            while (nextSequence <= availableSequence) {
-                eventHandler.onEvent(dataProvider.get(nextSequence), nextSequence);
-//                if (!eventHandler.onEvent(event, nextSequence)) {
-//                    availableSequence = nextSequence - 1;
-//                    break;
-//                }
+            } catch (final TimeoutException e) {
+                //
+            } catch (final Throwable ex) {
+                //exceptionHandler.handleEventException(ex, nextSequence, event);
+                sequence.set(nextSequence);
                 nextSequence++;
             }
-
-            sequence.set(availableSequence);
-
-        } catch (final TimeoutException e) {
-            //
-        } catch (final Throwable ex) {
-            //exceptionHandler.handleEventException(ex, nextSequence, event);
-            sequence.set(nextSequence);
-            nextSequence++;
         }
     }
 

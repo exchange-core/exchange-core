@@ -13,7 +13,9 @@ public enum OrderCommandType {
     ADD_USER(10),
     BALANCE_ADJUSTMENT(11),
 
-    CLEARING_OPERATION(30);
+    CLEARING_OPERATION(30),
+
+    NOP(127);
 
     private byte code;
 

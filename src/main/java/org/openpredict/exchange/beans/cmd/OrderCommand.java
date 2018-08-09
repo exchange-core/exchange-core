@@ -38,11 +38,7 @@ public class OrderCommand {
 
     // ---- false sharing section ------
 
-//    /**
-//     * Recent value of sequence barrier ME+J (after matching engine and journalling processor)
-//     * Risk processor should always first process R2 up to @availableEventSeq, then R1
-//     */
-//    public long availableEventSeq;
+    public long eventsGroup;
 
     // result code of command execution - can also be used for saving intermediate state
     public CommandResultCode resultCode;

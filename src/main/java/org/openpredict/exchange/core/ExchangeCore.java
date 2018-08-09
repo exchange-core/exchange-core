@@ -1,8 +1,8 @@
 package org.openpredict.exchange.core;
 
+import com.lmax.disruptor.BatchEventProcessor;
 import com.lmax.disruptor.EventHandler;
 import com.lmax.disruptor.RingBuffer;
-import com.lmax.disruptor.SequenceBarrier;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
 import lombok.Setter;
@@ -13,9 +13,10 @@ import org.openpredict.exchange.beans.SymbolPortfolio;
 import org.openpredict.exchange.beans.UserProfile;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
-import org.openpredict.exchange.biprocessor.RefusingEventHandler;
+import org.openpredict.exchange.biprocessor.GroupingProcessor;
+import org.openpredict.exchange.biprocessor.MasterProcessor;
+import org.openpredict.exchange.biprocessor.SimpleEventHandler;
 import org.openpredict.exchange.biprocessor.SlaveProcessor;
-import org.openpredict.exchange.biprocessor.TempProcessor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -57,41 +58,12 @@ public class ExchangeCore {
     private Disruptor<OrderCommand> disruptor;
     private RingBuffer<OrderCommand> cmdRingBuffer;
 
-    //private long lastReleaseSeqProcessed = -1;
+    private MasterProcessor procR1;
+    private SlaveProcessor<OrderCommand> procR2;
 
-//    private SubProcessor<OrderCommand> r1;
-//    private SubProcessor<OrderCommand> r2;
+    private GroupingProcessor procG;
 
-    TempProcessor<OrderCommand> procR1;
-    SlaveProcessor<OrderCommand> procR2;
-
-//    /**
-//     * This handler logs values of third sequence barrier
-//     */
-//    class LoggingBarrierHandler implements BatchStartAware, EventHandler<OrderCommand> {
-//
-//        private long lastLoggedBarrierSeq;
-//
-//        @Setter
-//        private SequenceBarrier loggedBarrier;
-//
-//        @Override
-//        public void onBatchStart(long batchSize) {
-//            if (batchSize < 1) {
-//                // TODO submit fix for the com.lmax.disruptor so this is not required
-//                return;
-//            }
-//            lastLoggedBarrierSeq = loggedBarrier.getCursor();
-////            log.debug("onBatchStart: lastLoggedBarrierSeq={} batchSize={}", lastLoggedBarrierSeq, batchSize);
-//        }
-//
-//        @Override
-//        public void onEvent(OrderCommand cmd, long seq, boolean eob) {
-//            cmd.availableEventSeq = lastLoggedBarrierSeq;
-//            //log.debug("set {}.availableEventSeq={}", seq, lastLoggedBarrierSeq);
-//        }
-//    }
-
+    private BatchEventProcessor<OrderCommand> procTest;
 
     @PostConstruct
     public void start() {
@@ -116,65 +88,80 @@ public class ExchangeCore {
             resultsConsumer.accept(cmd);
         };
 
-        RefusingEventHandler<OrderCommand> handlerR1 = this::handleRiskHold;
-        RefusingEventHandler<OrderCommand> handlerR2 = this::handlerRiskRelease;
+        SimpleEventHandler<OrderCommand> handlerR1 = this::handleRiskHold;
+        SimpleEventHandler<OrderCommand> handlerR2 = this::handlerRiskRelease;
 
-        // 1. barierMarker
-        //disruptor.handleEventsWith(loggingBarrierHandler);
+//         1. grouping processor (G)
+        disruptor.handleEventsWith((rb, bs) -> {
+            procG = new GroupingProcessor(rb, rb.newBarrier(bs));
+            return procG;
+        });
+
+//        disruptor.handleEventsWith((event, sequence, endOfBatch) -> {
+//            if((sequence & 32767) == 0){
+//                log.debug("sequence={}", sequence);
+//            }
+//        });
+
+
+//        disruptor.handleEventsWith((rb, bs) -> {
+//            procTest = new BatchEventProcessor<>(rb, rb.newBarrier(bs),
+//                    (event, sequence, endOfBatch) -> {
+//                        if ((sequence & 32767) == 0) {
+//                            log.debug("2. sequence={}", sequence);
+//                        }
+//                    });
+//
+//            return procTest;
+//        });
+//
 
         // 2. journalling (J) in parallel with risk hold (R1) + matching engine (ME)
         disruptor
-                //.after(loggingBarrierHandler)
+                .after(procG)
                 .handleEventsWith(journallingHandler);
 
-
         disruptor
-                //.after(loggingBarrierHandler)
-                .handleEventsWith((ringBuffer, barrierSequences) -> {
-                    procR1 = new TempProcessor<>(ringBuffer, ringBuffer.newBarrier(barrierSequences), handlerR1);
+                .after(procG)
+                .handleEventsWith((rb, bs) -> {
+                    procR1 = new MasterProcessor(rb, rb.newBarrier(bs), handlerR1);
                     return procR1;
                 });
         disruptor.after(procR1).handleEventsWith(matchingEngineHandler);
 
 
-//        com.lmax.disruptor.after(journallingHandler).handleEventsWith(matchingEngineHandler);
+        // 3. results handler (E) and risk release (R2) after matching engine (ME) + journalling (J)
+        disruptor.after(matchingEngineHandler, journallingHandler)
+                .then(resultsHandler);
 
-        // 3. results handler after matching engine (ME) + journalling (J)
-        disruptor.after(matchingEngineHandler, journallingHandler).then(resultsHandler);
-
-        disruptor.after(matchingEngineHandler).then((ringBuffer, barrierSequences) -> {
-            SequenceBarrier sequenceBarrier = ringBuffer.newBarrier(barrierSequences);
-            procR2 = new SlaveProcessor<>(ringBuffer, sequenceBarrier, handlerR2);
-            procR1.setSlaveProcessor(procR2);
-            // R2 barrier is set as logged barrier
-            //loggingBarrierHandler.setLoggedBarrier(sequenceBarrier);
-            return procR2;
-        });
+        disruptor.after(matchingEngineHandler)
+                .then((rb, bs) -> {
+                    procR2 = new SlaveProcessor<>(rb, rb.newBarrier(bs), handlerR2);
+                    procR1.setSlaveProcessor(procR2);
+                    return procR2;
+                });
 
 
         // TODO add second journalling handler?
 
-        // create new master processor before starting disruptors
-//        new MasterProcessor(r1, r2);
-
         log.debug("STARTING Disruptor");
 
-        // starting disruptors
+        // starting disruptor
         disruptor.start();
 
         cmdRingBuffer = disruptor.getRingBuffer();
 
 
 //        Executors.newSingleThreadScheduledExecutor().scheduleWithFixedDelay(() -> {
-//
-//            long lg = disruptor.getBarrierFor(loggingBarrierHandler).getCursor();
-//            long me = disruptor.getBarrierFor(matchingEngineHandler).getCursor();
+////            long lg = disruptor.getBarrierFor(loggingBarrierHandler).getCursor();
+////            long me = disruptor.getBarrierFor(matchingEngineHandler).getCursor();
+//            long g = procG.getSequence().get();
 //            long r1 = procR1.getSequence().get();
 //            long r2 = procR2.getSequence().get();
 //
 ////            log.debug("lg:{} r1:{} me:{} r2:{}", lg, r1.getSequence().get(), me, r2.getSequence().get());
 ////            log.debug("lg:{} r1:{} me:{} ", lg, r1.getSequence().get(), me);
-//            log.debug("lg:{} r1:{} me:{} r2:{} D={}", lg, r1, me, r2, r1-r2);
+//            log.debug("g:{} r1:{} me:{} r2:{} D={}", g, r1, -4, r2, r1-r2);
 //        }, 1001, 1000, TimeUnit.MILLISECONDS);
 
     }
@@ -188,7 +175,7 @@ public class ExchangeCore {
         disruptor.shutdown();
     }
 
-    private void handleRiskHold(OrderCommand cmd, long seq) {
+    private void handleRiskHold(OrderCommand cmd) {
 
 //        log.debug("R1 Hold {}", cmd);
 
@@ -196,14 +183,6 @@ public class ExchangeCore {
 
 //        if ((cmd.uid & 1) != mod) {
 //            return;
-//        }
-
-
-//        if (cmd.availableEventSeq > lastReleaseSeqProcessed) {
-//            log.debug("refused R1: availableEventSeq {} > lastReleaseSeqProcessed {}", cmd.availableEventSeq, lastReleaseSeqProcessed);
-//            return false;
-//        }else{
-//            //log.debug("accepted R1: availableEventSeq {} <= lastReleaseSeqProcessed {}", cmd.availableEventSeq, lastReleaseSeqProcessed);
 //        }
 
         switch (cmd.command) {
@@ -224,6 +203,10 @@ public class ExchangeCore {
 
             case BALANCE_ADJUSTMENT:
                 balanceAdjustment(cmd);
+                break;
+
+            case NOP:
+                cmd.resultCode = CommandResultCode.SUCCESS;
                 break;
         }
 
@@ -276,7 +259,7 @@ public class ExchangeCore {
         cmd.resultCode = CommandResultCode.SUCCESS;
     }
 
-    private void handlerRiskRelease(OrderCommand cmd, long seq) {
+    private void handlerRiskRelease(OrderCommand cmd) {
 
 //        log.debug("R2 Release {}", seq);
 

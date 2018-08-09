@@ -17,25 +17,28 @@ package org.openpredict.exchange.biprocessor;
 
 import com.lmax.disruptor.*;
 import lombok.Setter;
+import lombok.extern.slf4j.Slf4j;
+import org.openpredict.exchange.beans.cmd.OrderCommand;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
-public final class TempProcessor<T> implements EventProcessor {
+@Slf4j
+public final class MasterProcessor implements EventProcessor {
     private static final int IDLE = 0;
     private static final int HALTED = IDLE + 1;
     private static final int RUNNING = HALTED + 1;
 
     private final AtomicInteger running = new AtomicInteger(IDLE);
-    private final DataProvider<T> dataProvider;
+    private final DataProvider<OrderCommand> dataProvider;
     private final SequenceBarrier sequenceBarrier;
-    private final RefusingEventHandler<? super T> eventHandler;
+    private final SimpleEventHandler<OrderCommand> eventHandler;
     private final Sequence sequence = new Sequence(Sequencer.INITIAL_CURSOR_VALUE);
 
     @Setter
-    private SlaveProcessor<?> slaveProcessor;
+    private SlaveProcessor<OrderCommand> slaveProcessor;
 
-    public TempProcessor(final DataProvider<T> dataProvider, final SequenceBarrier sequenceBarrier,
-                         final RefusingEventHandler<? super T> eventHandler) {
+    public MasterProcessor(final DataProvider<OrderCommand> dataProvider, final SequenceBarrier sequenceBarrier,
+                           final SimpleEventHandler<OrderCommand> eventHandler) {
         this.dataProvider = dataProvider;
         this.sequenceBarrier = sequenceBarrier;
         this.eventHandler = eventHandler;
@@ -92,6 +95,8 @@ public final class TempProcessor<T> implements EventProcessor {
     private void processEvents() {
         long nextSequence = sequence.get() + 1L;
 
+        long currentSequenceGroup = 0;
+
         // wait until slave processor has instruced to run
         while (!slaveProcessor.isRunning()) {
             Thread.yield();
@@ -106,13 +111,19 @@ public final class TempProcessor<T> implements EventProcessor {
 
                 if (availableSequence >= nextSequence) {
                     while (nextSequence <= availableSequence) {
-                        eventHandler.onEvent(dataProvider.get(nextSequence), nextSequence);
-//                        event = dataProvider.get(nextSequence);
-//                        if (!eventHandler.onEvent(event, nextSequence)) {
-//                            availableSequence = nextSequence - 1;
-//                            break;
-//                        }
+                        OrderCommand cmd = dataProvider.get(nextSequence);
 
+//                        log.debug("process {}", nextSequence);
+                        // switch to next group - process
+                        if (cmd.eventsGroup > currentSequenceGroup) {
+//                            log.debug(" NEW GROUP: {} -> {} ns={}", currentSequenceGroup, cmd.eventsGroup, nextSequence);
+                            sequence.set(nextSequence - 1);
+                            slaveProcessor.handlingCycle(nextSequence);
+//                            log.debug("slave done");
+                            currentSequenceGroup = cmd.eventsGroup;
+                        }
+
+                        eventHandler.onEvent(cmd);
                         nextSequence++;
                     }
                     sequence.set(availableSequence);
@@ -129,7 +140,7 @@ public final class TempProcessor<T> implements EventProcessor {
                 nextSequence++;
             }
 
-            slaveProcessor.handlingCycle();
+
         }
     }
 
