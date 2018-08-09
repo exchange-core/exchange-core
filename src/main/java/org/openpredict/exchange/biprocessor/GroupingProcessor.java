@@ -91,7 +91,6 @@ public final class GroupingProcessor implements EventProcessor {
         long nextSequence = sequence.get() + 1L;
 
         long groupCounter = 0;
-        long groupSwitchNs = 0;
         long msgsInGroup = 0;
 
         long groupLastNs = 0;
@@ -128,22 +127,20 @@ public final class GroupingProcessor implements EventProcessor {
                         msgsInGroup++;
 
                         // switch group after each 8000 messages
-                        if (msgsInGroup >= 8_000) {
+                        if (msgsInGroup >= 192) {
                             groupCounter++;
                             msgsInGroup = 0;
-                            groupSwitchNs = System.nanoTime();
                         }
 
                     }
                     sequence.set(availableSequence);
-                    groupLastNs = System.nanoTime() + 10_000;
+                    groupLastNs = System.nanoTime() + 2_000;
 
                 } else if (msgsInGroup > 0 && System.nanoTime() > groupLastNs) {
                     // switch group after each 2us since first message in the group
 
                     msgsInGroup = 0;
                     groupCounter++;
-                    groupSwitchNs = System.nanoTime();
 
                     ec++;
 
