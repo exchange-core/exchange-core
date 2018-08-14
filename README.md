@@ -45,3 +45,8 @@ Benchmark configuration:
 - FIX and REST API gateways.
 - More tests and benchmarks.
 - NUMA-aware and thread affinity support.
+
+
+### How to run tests
+Latency test: mvn -Dtest=ExchangeCoreStress#latencyTest test
+
