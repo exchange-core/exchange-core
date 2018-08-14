@@ -12,6 +12,9 @@ import static com.google.common.math.Quantiles.scale;
 
 public class LatencyTools {
 
+    public static final int LATENCY_RESOLUTION = 6; // Latency resolution: 64ns
+    public static final float LATENCY_RESOLUTION_MULTIPLIER_US = (float) Math.pow(2, LATENCY_RESOLUTION) / 1000f;
+
     public static Map<String, String> createLatencyReportFast(IntLongHashMap latencies) {
         long size = latencies.values().sum();
         Map<Integer, Long> grouped = new TreeMap<>();
@@ -28,14 +31,16 @@ public class LatencyTools {
             Long v = entry.getValue();
             accum += v;
             if (accum > percentileC[stage]) {
-                float value = entry.getKey() * 0.512f;
+                float value = entry.getKey() * LATENCY_RESOLUTION_MULTIPLIER_US;
                 String timeUnit = "µs";
                 if (value > 1000) {
                     value /= 1000;
                     timeUnit = "ms";
                 }
 
-                if (value < 30) {
+                if (value < 3) {
+                    value = Math.round(value * 100) / 100f;
+                } else if (value < 30) {
                     value = Math.round(value * 10) / 10f;
                 } else {
                     value = Math.round(value);

@@ -69,7 +69,7 @@ public class ExchangeCore {
     public void start() {
         disruptor = new Disruptor<>(
                 OrderCommand::new,
-                32 * 1024,
+                64 * 1024,
                 Executors.defaultThreadFactory(),
                 ProducerType.MULTI, // multiple gateway threads are writing
                 CfgWaitStrategyType.YIELDING.create());

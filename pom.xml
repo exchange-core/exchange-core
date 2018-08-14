@@ -6,7 +6,7 @@
     <groupId>org.openpredict</groupId>
     <artifactId>exchange-core</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <packaging>pom</packaging>
+    <packaging>jar</packaging>
 
     <name>Exchange Core Project</name>
     <description>Java Exchange Market Engine</description>
@@ -218,6 +218,7 @@
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-surefire-plugin</artifactId>
                         <configuration combine.self="override">
+                            <!--<argLine>-XX:+PrintApplicationStoppedTime</argLine>-->
                             <redirectTestOutputToFile>true</redirectTestOutputToFile>
                             <includes>
                                 <include>**/IT*.java</include>

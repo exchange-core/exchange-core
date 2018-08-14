@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 
+import static org.openpredict.exchange.util.LatencyTools.LATENCY_RESOLUTION;
 import static org.openpredict.exchange.util.LatencyTools.createLatencyReportFast;
 
 @RunWith(SpringRunner.class)
@@ -125,7 +126,8 @@ public class ExchangeCoreStress {
         int numUsers = 1000;
 
 //        int targetTps = 1000000; // transactions per second
-        int targetTps = 900_000; // transactions per second
+        int targetTps = 75_000; // transactions per second
+        int targetTpsEnd = 7_000_000;
 //        int targetTps = 4_000_000; // transactions per second
 
         ArrayList<Long> uids = new ArrayList<>();
@@ -138,10 +140,10 @@ public class ExchangeCoreStress {
         List<OrderCommand> orderCommands = generator.generateCommands(numOrders, targetOrderBookOrders, uids);
         List<ApiCommand> apiCommands = generator.convertToApiCommand(orderCommands, SYMBOL);
 
-        IntLongHashMap latencies = new IntLongHashMap(100000);
+        IntLongHashMap latencies = new IntLongHashMap(20000);
 
         exchangeCore.setResultsConsumer(cmd -> {
-            int key = (int) ((System.nanoTime() - cmd.timestamp) >> 9);
+            int key = (int) ((System.nanoTime() - cmd.timestamp) >> LATENCY_RESOLUTION);
             latencies.updateValue(key, 0, x -> x + 1);
         });
 
@@ -150,7 +152,7 @@ public class ExchangeCoreStress {
         for (int j = 0; j < 10000; j++) {
 
             int nanosPerCmd = 1_000_000_000 / targetTps;
-            targetTps += 100_000;
+            targetTps += 25_000;
 
             Thread.sleep(20);
             userProfileService.reset();
@@ -159,19 +161,17 @@ public class ExchangeCoreStress {
             Thread.sleep(200);
 
             long t = System.currentTimeMillis();
-            long startNano = System.nanoTime();
+            long plannedTimestamp = System.nanoTime();
 
             long latenciesSum = latencies.sum();
 
-            long c = 0;
             for (ApiCommand cmd : apiCommands) {
                 // calculate planned time and spin if too early
-                long plannedTimestamp = startNano + c * nanosPerCmd;
                 while (System.nanoTime() < plannedTimestamp) {
                 }
                 cmd.timestamp = plannedTimestamp;
                 apiCore.submitCommand(cmd);
-                c++;
+                plannedTimestamp += nanosPerCmd;
             }
 
             // wait until last response received
@@ -189,6 +189,10 @@ public class ExchangeCoreStress {
 //                log.info("Warmup completed, RESET latency stat");
             latencies.clear();
 //            }
+
+            if (targetTps > targetTpsEnd) {
+                break;
+            }
         }
     }
 

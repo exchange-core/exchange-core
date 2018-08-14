@@ -103,7 +103,7 @@ public final class GroupingProcessor implements EventProcessor {
 
                 // should spin and also check another barrier
                 //log.debug("tryWait");
-                long availableSequence = sequenceBarrier.tryWaitFor(nextSequence, 0);
+                long availableSequence = sequenceBarrier.tryWaitFor(nextSequence, 1000);
                 //long availableSequence = sequenceBarrier.waitFor(nextSequence);
                 //log.debug("availableSequence={}", availableSequence);
 
@@ -134,7 +134,7 @@ public final class GroupingProcessor implements EventProcessor {
 
                     }
                     sequence.set(availableSequence);
-                    groupLastNs = System.nanoTime() + 2_000;
+                    groupLastNs = System.nanoTime() + 1000;
 
                 } else if (msgsInGroup > 0 && System.nanoTime() > groupLastNs) {
                     // switch group after each 2us since first message in the group

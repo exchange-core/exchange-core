@@ -1,9 +1,9 @@
-2018-08-05/19:03:58.246/CEST [main] INFO  o.s.b.t.c.SpringBootTestContextBootstrapper - Neither @ContextConfiguration nor @ContextHierarchy found for test class [org.openpredict.exchange.tests.ExchangeCoreStress], using SpringBootContextLoader
-2018-08-05/19:03:58.256/CEST [main] INFO  o.s.t.c.s.AbstractContextLoader - Could not detect default resource locations for test class [org.openpredict.exchange.tests.ExchangeCoreStress]: no resource found for suffixes {-context.xml, Context.groovy}.
-2018-08-05/19:03:58.256/CEST [main] INFO  o.s.t.c.s.AnnotationConfigContextLoaderUtils - Could not detect default configuration classes for test class [org.openpredict.exchange.tests.ExchangeCoreStress]: ExchangeCoreStress does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
-2018-08-05/19:03:58.396/CEST [main] INFO  o.s.b.t.c.SpringBootTestContextBootstrapper - Found @SpringBootConfiguration org.openpredict.exchange.ExchangeCoreApplication for test class org.openpredict.exchange.tests.ExchangeCoreStress
-2018-08-05/19:03:58.503/CEST [main] INFO  o.s.b.t.c.SpringBootTestContextBootstrapper - Loaded default TestExecutionListener class names from location [META-INF/spring.factories]: [org.springframework.boot.test.mock.mockito.MockitoTestExecutionListener, org.springframework.boot.test.mock.mockito.ResetMocksTestExecutionListener, org.springframework.boot.test.autoconfigure.restdocs.RestDocsTestExecutionListener, org.springframework.boot.test.autoconfigure.web.client.MockRestServiceServerResetTestExecutionListener, org.springframework.boot.test.autoconfigure.web.servlet.MockMvcPrintOnlyOnFailureTestExecutionListener, org.springframework.boot.test.autoconfigure.web.servlet.WebDriverTestExecutionListener, org.springframework.test.context.web.ServletTestExecutionListener, org.springframework.test.context.support.DirtiesContextBeforeModesTestExecutionListener, org.springframework.test.context.support.DependencyInjectionTestExecutionListener, org.springframework.test.context.support.DirtiesContextTestExecutionListener, org.springframework.test.context.transaction.TransactionalTestExecutionListener, org.springframework.test.context.jdbc.SqlScriptsTestExecutionListener]
-2018-08-05/19:03:58.525/CEST [main] INFO  o.s.b.t.c.SpringBootTestContextBootstrapper - Using TestExecutionListeners: [org.springframework.test.context.support.DirtiesContextBeforeModesTestExecutionListener@5552768b, org.springframework.boot.test.mock.mockito.MockitoTestExecutionListener@3c947bc5, org.springframework.boot.test.autoconfigure.SpringBootDependencyInjectionTestExecutionListener@609db43b, org.springframework.test.context.support.DirtiesContextTestExecutionListener@55f616cf, org.springframework.boot.test.mock.mockito.ResetMocksTestExecutionListener@1356d4d4, org.springframework.boot.test.autoconfigure.restdocs.RestDocsTestExecutionListener@c03cf28, org.springframework.boot.test.autoconfigure.web.client.MockRestServiceServerResetTestExecutionListener@1329eff, org.springframework.boot.test.autoconfigure.web.servlet.MockMvcPrintOnlyOnFailureTestExecutionListener@6497b078, org.springframework.boot.test.autoconfigure.web.servlet.WebDriverTestExecutionListener@41c2284a]
+2018-08-13/23:47:08.493/CEST [main] INFO  o.s.b.t.c.SpringBootTestContextBootstrapper - Neither @ContextConfiguration nor @ContextHierarchy found for test class [org.openpredict.exchange.tests.ExchangeCoreStress], using SpringBootContextLoader
+2018-08-13/23:47:08.515/CEST [main] INFO  o.s.t.c.s.AbstractContextLoader - Could not detect default resource locations for test class [org.openpredict.exchange.tests.ExchangeCoreStress]: no resource found for suffixes {-context.xml, Context.groovy}.
+2018-08-13/23:47:08.516/CEST [main] INFO  o.s.t.c.s.AnnotationConfigContextLoaderUtils - Could not detect default configuration classes for test class [org.openpredict.exchange.tests.ExchangeCoreStress]: ExchangeCoreStress does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2018-08-13/23:47:08.719/CEST [main] INFO  o.s.b.t.c.SpringBootTestContextBootstrapper - Found @SpringBootConfiguration org.openpredict.exchange.ExchangeCoreApplication for test class org.openpredict.exchange.tests.ExchangeCoreStress
+2018-08-13/23:47:08.851/CEST [main] INFO  o.s.b.t.c.SpringBootTestContextBootstrapper - Loaded default TestExecutionListener class names from location [META-INF/spring.factories]: [org.springframework.boot.test.mock.mockito.MockitoTestExecutionListener, org.springframework.boot.test.mock.mockito.ResetMocksTestExecutionListener, org.springframework.boot.test.autoconfigure.restdocs.RestDocsTestExecutionListener, org.springframework.boot.test.autoconfigure.web.client.MockRestServiceServerResetTestExecutionListener, org.springframework.boot.test.autoconfigure.web.servlet.MockMvcPrintOnlyOnFailureTestExecutionListener, org.springframework.boot.test.autoconfigure.web.servlet.WebDriverTestExecutionListener, org.springframework.test.context.web.ServletTestExecutionListener, org.springframework.test.context.support.DirtiesContextBeforeModesTestExecutionListener, org.springframework.test.context.support.DependencyInjectionTestExecutionListener, org.springframework.test.context.support.DirtiesContextTestExecutionListener, org.springframework.test.context.transaction.TransactionalTestExecutionListener, org.springframework.test.context.jdbc.SqlScriptsTestExecutionListener]
+2018-08-13/23:47:08.861/CEST [main] INFO  o.s.b.t.c.SpringBootTestContextBootstrapper - Using TestExecutionListeners: [org.springframework.test.context.support.DirtiesContextBeforeModesTestExecutionListener@69fb6037, org.springframework.boot.test.mock.mockito.MockitoTestExecutionListener@36d585c, org.springframework.boot.test.autoconfigure.SpringBootDependencyInjectionTestExecutionListener@87a85e1, org.springframework.test.context.support.DirtiesContextTestExecutionListener@671a5887, org.springframework.boot.test.mock.mockito.ResetMocksTestExecutionListener@5552768b, org.springframework.boot.test.autoconfigure.restdocs.RestDocsTestExecutionListener@3c947bc5, org.springframework.boot.test.autoconfigure.web.client.MockRestServiceServerResetTestExecutionListener@609db43b, org.springframework.boot.test.autoconfigure.web.servlet.MockMvcPrintOnlyOnFailureTestExecutionListener@55f616cf, org.springframework.boot.test.autoconfigure.web.servlet.WebDriverTestExecutionListener@1356d4d4]
   .   ____          _            __ _ _
  /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
 ( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
@@ -12,120 +12,335 @@
  =========|_|==============|___/=/_/_/_/
  :: Spring Boot ::        (v2.0.2.RELEASE)
 
-2018-08-05/19:03:58.728/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - Starting ExchangeCoreStress on sun with PID 4723 (started by mzheravin in /home/mzheravin/openpredict/src/openpredict/openpredict-exchange-core)
-2018-08-05/19:03:58.729/CEST [main] DEBUG o.o.e.tests.ExchangeCoreStress - Running with Spring Boot v2.0.2.RELEASE, Spring v5.0.6.RELEASE
-2018-08-05/19:03:58.730/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - No active profile set, falling back to default profiles: default
-2018-08-05/19:03:58.750/CEST [main] INFO  o.s.c.a.AnnotationConfigApplicationContext - Refreshing org.springframework.context.annotation.AnnotationConfigApplicationContext@359df09a: startup date [Sun Aug 05 19:03:58 CEST 2018]; root of context hierarchy
-2018-08-05/19:03:59.660/CEST [main] DEBUG o.o.exchange.core.ExchangeCore - STARTING Disruptor
-2018-08-05/19:03:59.946/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - Started ExchangeCoreStress in 1.383 seconds (JVM running for 2.457)
-2018-08-05/19:04:00.076/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - 4086 Orders num: 419 (0% done)
-2018-08-05/19:04:03.543/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - total commands: 2996391
-2018-08-05/19:04:03.543/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - completed:171749 rejected:0 reduce:172101
-2018-08-05/19:04:03.543/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - place limit: 259949 (8.675404%)
-2018-08-05/19:04:03.543/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - place market: 85052 (2.8384814%)
-2018-08-05/19:04:03.543/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - cancel: 172101 (5.74361%)
-2018-08-05/19:04:03.543/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - move: 2479289 (82.74251%)
-2018-08-05/19:04:03.550/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - Average order book size: ASK=388.14072 BID=391.4112 (732 samples)
-2018-08-05/19:04:03.551/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - Average limit orders number in the order book:1051.7595 (target:1000)
-2018-08-05/19:04:03.551/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - Commands success=100.0%
-2018-08-05/19:04:08.974/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 0. 0.8981987 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=75.0µs, 99.9%=14.2ms, 99.99%=14.4ms, 99.999%=14.5ms}
-2018-08-05/19:04:12.948/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 1. 1.0001305 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=1.5µs, 99.9%=45.0µs, 99.99%=244.0µs, 99.999%=428.0µs}
-2018-08-05/19:04:16.529/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 2. 1.0999967 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=1.5µs, 99.9%=49.0µs, 99.99%=430.0µs, 99.999%=665.0µs}
-2018-08-05/19:04:19.819/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 3. 1.2004771 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=2.0µs, 99.9%=29.2µs, 99.99%=266.0µs, 99.999%=480.0µs}
-2018-08-05/19:04:22.923/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 4. 1.300517 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=2.0µs, 99.9%=36.0µs, 99.99%=122.0µs, 99.999%=219.0µs}
-2018-08-05/19:04:25.912/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 5. 1.4001827 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=2.0µs, 99.9%=24.1µs, 99.99%=122.0µs, 99.999%=224.0µs}
-2018-08-05/19:04:28.760/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 6. 1.5011979 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=2.0µs, 99.9%=24.1µs, 99.99%=113.0µs, 99.999%=212.0µs}
-2018-08-05/19:04:31.489/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 7. 1.5997816 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=2.6µs, 99.9%=26.1µs, 99.99%=123.0µs, 99.999%=206.0µs}
-2018-08-05/19:04:34.098/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 8. 1.7005624 MT/s {50.0%=0.0µs, 90.0%=0.5µs, 99.0%=4.1µs, 99.9%=65.0µs, 99.99%=186.0µs, 99.999%=227.0µs}
-2018-08-05/19:04:36.613/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 9. 1.8017986 MT/s {50.0%=0.0µs, 90.0%=0.5µs, 99.0%=4.1µs, 99.9%=41.0µs, 99.99%=129.0µs, 99.999%=227.0µs}
-2018-08-05/19:04:39.059/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 10. 1.9000578 MT/s {50.0%=0.0µs, 90.0%=0.5µs, 99.0%=4.1µs, 99.9%=30.0µs, 99.99%=119.0µs, 99.999%=221.0µs}
-2018-08-05/19:04:41.404/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 11. 2.000261 MT/s {50.0%=0.0µs, 90.0%=0.5µs, 99.0%=5.1µs, 99.9%=42.0µs, 99.99%=129.0µs, 99.999%=229.0µs}
-2018-08-05/19:04:43.679/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 12. 2.101256 MT/s {50.0%=0.0µs, 90.0%=0.5µs, 99.0%=4.6µs, 99.9%=27.1µs, 99.99%=110.0µs, 99.999%=211.0µs}
-2018-08-05/19:04:45.885/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 13. 2.2016098 MT/s {50.0%=0.0µs, 90.0%=0.5µs, 99.0%=5.6µs, 99.9%=26.6µs, 99.99%=112.0µs, 99.999%=207.0µs}
-2018-08-05/19:04:48.035/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 14. 2.3031445 MT/s {50.0%=0.0µs, 90.0%=0.5µs, 99.0%=12.3µs, 99.9%=58.0µs, 99.99%=150.0µs, 99.999%=229.0µs}
-2018-08-05/19:04:50.113/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 15. 2.4028797 MT/s {50.0%=0.0µs, 90.0%=0.5µs, 99.0%=7.2µs, 99.9%=49.0µs, 99.99%=124.0µs, 99.999%=200.0µs}
-2018-08-05/19:04:52.150/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 16. 2.499075 MT/s {50.0%=0.0µs, 90.0%=0.5µs, 99.0%=15.9µs, 99.9%=70.0µs, 99.99%=165.0µs, 99.999%=220.0µs}
-2018-08-05/19:04:54.155/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 17. 2.6055574 MT/s {50.0%=0.0µs, 90.0%=0.5µs, 99.0%=14.3µs, 99.9%=41.0µs, 99.99%=176.0µs, 99.999%=226.0µs}
-2018-08-05/19:04:56.113/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 18. 2.7018855 MT/s {50.0%=0.0µs, 90.0%=0.5µs, 99.0%=8.2µs, 99.9%=45.0µs, 99.99%=127.0µs, 99.999%=199.0µs}
-2018-08-05/19:04:58.039/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 19. 2.8003654 MT/s {50.0%=0.0µs, 90.0%=0.5µs, 99.0%=9.2µs, 99.9%=72.0µs, 99.99%=190.0µs, 99.999%=217.0µs}
-2018-08-05/19:04:59.926/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 20. 2.906296 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=14.8µs, 99.9%=61.0µs, 99.99%=183.0µs, 99.999%=230.0µs}
-2018-08-05/19:05:01.774/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 21. 3.0023959 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=15.4µs, 99.9%=73.0µs, 99.99%=207.0µs, 99.999%=229.0µs}
-2018-08-05/19:05:03.593/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 22. 3.1050684 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=19.5µs, 99.9%=116.0µs, 99.99%=219.0µs, 99.999%=240.0µs}
-2018-08-05/19:05:05.379/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 23. 3.2046962 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=17.4µs, 99.9%=64.0µs, 99.99%=191.0µs, 99.999%=238.0µs}
-2018-08-05/19:05:07.125/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 24. 3.2963595 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=29.7µs, 99.9%=3.5ms, 99.99%=4.2ms, 99.999%=4.3ms}
-2018-08-05/19:05:08.861/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 25. 3.4011247 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=10.8µs, 99.9%=52.0µs, 99.99%=167.0µs, 99.999%=217.0µs}
-2018-08-05/19:05:10.565/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 26. 3.5086546 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=11.3µs, 99.9%=54.0µs, 99.99%=165.0µs, 99.999%=214.0µs}
-2018-08-05/19:05:12.249/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 27. 3.6101096 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=11.8µs, 99.9%=61.0µs, 99.99%=171.0µs, 99.999%=217.0µs}
-2018-08-05/19:05:13.912/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 28. 3.7038207 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=11.3µs, 99.9%=57.0µs, 99.99%=177.0µs, 99.999%=222.0µs}
-2018-08-05/19:05:15.552/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 29. 3.7977073 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=11.8µs, 99.9%=58.0µs, 99.99%=177.0µs, 99.999%=220.0µs}
-2018-08-05/19:05:17.177/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 30. 3.9066374 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=11.3µs, 99.9%=59.0µs, 99.99%=172.0µs, 99.999%=213.0µs}
-2018-08-05/19:05:18.782/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 31. 3.995188 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=11.8µs, 99.9%=63.0µs, 99.99%=183.0µs, 99.999%=223.0µs}
-2018-08-05/19:05:20.345/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 32. 4.115922 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=12.3µs, 99.9%=73.0µs, 99.99%=183.0µs, 99.999%=222.0µs}
-2018-08-05/19:05:21.901/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 33. 4.202512 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=13.3µs, 99.9%=69.0µs, 99.99%=170.0µs, 99.999%=208.0µs}
-2018-08-05/19:05:23.446/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 34. 4.3051596 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=15.4µs, 99.9%=77.0µs, 99.99%=187.0µs, 99.999%=222.0µs}
-2018-08-05/19:05:24.986/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 35. 4.4064574 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=17.9µs, 99.9%=101.0µs, 99.99%=172.0µs, 99.999%=207.0µs}
-2018-08-05/19:05:26.482/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 36. 4.4990854 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=16.4µs, 99.9%=108.0µs, 99.99%=202.0µs, 99.999%=223.0µs}
-2018-08-05/19:05:27.979/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 37. 4.602751 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=15.9µs, 99.9%=77.0µs, 99.99%=189.0µs, 99.999%=222.0µs}
-2018-08-05/19:05:29.446/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 38. 4.7113066 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=14.8µs, 99.9%=70.0µs, 99.99%=190.0µs, 99.999%=221.0µs}
-2018-08-05/19:05:30.918/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 39. 4.8019085 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=16.9µs, 99.9%=72.0µs, 99.99%=189.0µs, 99.999%=217.0µs}
-2018-08-05/19:05:32.365/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 40. 4.904077 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=16.4µs, 99.9%=66.0µs, 99.99%=159.0µs, 99.999%=187.0µs}
-2018-08-05/19:05:33.795/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 41. 5.002322 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=20.5µs, 99.9%=80.0µs, 99.99%=208.0µs, 99.999%=237.0µs}
-2018-08-05/19:05:35.217/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 42. 5.1045847 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=18.4µs, 99.9%=71.0µs, 99.99%=183.0µs, 99.999%=206.0µs}
-2018-08-05/19:05:36.646/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 43. 5.202068 MT/s {50.0%=0.5µs, 90.0%=1.0µs, 99.0%=19.5µs, 99.9%=76.0µs, 99.99%=196.0µs, 99.999%=217.0µs}
-2018-08-05/19:05:38.033/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 44. 5.3221865 MT/s {50.0%=0.5µs, 90.0%=1.5µs, 99.0%=21.5µs, 99.9%=80.0µs, 99.99%=193.0µs, 99.999%=215.0µs}
-2018-08-05/19:05:39.422/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 45. 5.408648 MT/s {50.0%=0.5µs, 90.0%=1.5µs, 99.0%=19.5µs, 99.9%=83.0µs, 99.99%=200.0µs, 99.999%=223.0µs}
-2018-08-05/19:05:40.811/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 46. 5.518215 MT/s {50.0%=0.5µs, 90.0%=1.5µs, 99.0%=23.0µs, 99.9%=98.0µs, 99.99%=196.0µs, 99.999%=218.0µs}
-2018-08-05/19:05:42.197/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 47. 5.6217465 MT/s {50.0%=0.5µs, 90.0%=1.5µs, 99.0%=24.1µs, 99.9%=89.0µs, 99.99%=200.0µs, 99.999%=221.0µs}
-2018-08-05/19:05:43.576/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 48. 5.707412 MT/s {50.0%=0.5µs, 90.0%=1.5µs, 99.0%=22.0µs, 99.9%=76.0µs, 99.99%=201.0µs, 99.999%=222.0µs}
-2018-08-05/19:05:44.945/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 49. 5.8069596 MT/s {50.0%=0.5µs, 90.0%=2.0µs, 99.0%=25.1µs, 99.9%=82.0µs, 99.99%=201.0µs, 99.999%=220.0µs}
-2018-08-05/19:05:46.304/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 50. 5.9100413 MT/s {50.0%=0.5µs, 90.0%=2.0µs, 99.0%=27.1µs, 99.9%=158.0µs, 99.99%=212.0µs, 99.999%=225.0µs}
-2018-08-05/19:05:47.651/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 51. 6.0289555 MT/s {50.0%=0.5µs, 90.0%=2.0µs, 99.0%=25.6µs, 99.9%=120.0µs, 99.99%=205.0µs, 99.999%=223.0µs}
-2018-08-05/19:05:48.983/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 52. 6.1401453 MT/s {50.0%=32.0µs, 90.0%=234.0µs, 99.0%=381.0µs, 99.9%=464.0µs, 99.99%=523.0µs, 99.999%=537.0µs}
-2018-08-05/19:05:50.322/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 53. 6.203708 MT/s {50.0%=0.5µs, 90.0%=2.0µs, 99.0%=55.0µs, 99.9%=139.0µs, 99.99%=223.0µs, 99.999%=239.0µs}
-2018-08-05/19:05:51.650/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 54. 6.3215 MT/s {50.0%=0.5µs, 90.0%=2.6µs, 99.0%=38.0µs, 99.9%=120.0µs, 99.99%=220.0µs, 99.999%=235.0µs}
-2018-08-05/19:05:53.004/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 55. 6.1527534 MT/s {50.0%=11.3ms, 90.0%=17.8ms, 99.0%=19.1ms, 99.9%=19.2ms, 99.99%=19.2ms, 99.999%=19.2ms}
-2018-08-05/19:05:54.360/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 56. 6.102629 MT/s {50.0%=18.2ms, 90.0%=29.9ms, 99.0%=33.0ms, 99.9%=33.0ms, 99.99%=33.0ms, 99.999%=33.0ms}
-2018-08-05/19:05:55.737/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 57. 5.8295546 MT/s {50.0%=31.0ms, 90.0%=55.0ms, 99.0%=61.0ms, 99.9%=61.0ms, 99.99%=61.0ms, 99.999%=61.0ms}
-2018-08-05/19:05:57.128/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 58. 5.773393 MT/s {50.0%=32.0ms, 90.0%=64.0ms, 99.0%=71.0ms, 99.9%=71.0ms, 99.99%=71.0ms, 99.999%=71.0ms}
-2018-08-05/19:05:58.418/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 59. 6.7945375 MT/s {50.0%=1.0µs, 90.0%=4.6µs, 99.0%=114.0µs, 99.9%=246.0µs, 99.99%=282.0µs, 99.999%=285.0µs}
-2018-08-05/19:05:59.729/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 60. 6.5138936 MT/s {50.0%=2.0µs, 90.0%=20.3ms, 99.0%=26.9ms, 99.9%=27.5ms, 99.99%=27.6ms, 99.999%=27.6ms}
-2018-08-05/19:06:01.115/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 61. 5.9100413 MT/s {50.0%=41.0ms, 90.0%=73.0ms, 99.0%=80.0ms, 99.9%=80.0ms, 99.99%=81.0ms, 99.999%=81.0ms}
-2018-08-05/19:06:02.507/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 62. 5.8752766 MT/s {50.0%=46.0ms, 90.0%=81.0ms, 99.0%=89.0ms, 99.9%=89.0ms, 99.99%=90.0ms, 99.999%=90.0ms}
-2018-08-05/19:06:03.883/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 63. 5.898408 MT/s {50.0%=48.0ms, 90.0%=85.0ms, 99.0%=93.0ms, 99.9%=94.0ms, 99.99%=94.0ms, 99.999%=94.0ms}
-2018-08-05/19:06:05.287/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 64. 5.8868194 MT/s {50.0%=52.0ms, 90.0%=91.0ms, 99.0%=99.0ms, 99.9%=100.0ms, 99.99%=100.0ms, 99.999%=100.0ms}
-2018-08-05/19:06:06.688/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 65. 5.898408 MT/s {50.0%=53.0ms, 90.0%=93.0ms, 99.0%=101.0ms, 99.9%=102.0ms, 99.99%=102.0ms, 99.999%=102.0ms}
-2018-08-05/19:06:08.092/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 66. 5.9100413 MT/s {50.0%=55.0ms, 90.0%=97.0ms, 99.0%=107.0ms, 99.9%=108.0ms, 99.99%=108.0ms, 99.999%=108.0ms}
-2018-08-05/19:06:09.505/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 67. 5.8752766 MT/s {50.0%=60.0ms, 90.0%=106.0ms, 99.0%=116.0ms, 99.9%=117.0ms, 99.99%=117.0ms, 99.999%=117.0ms}
-2018-08-05/19:06:10.909/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 68. 5.921721 MT/s {50.0%=61.0ms, 90.0%=108.0ms, 99.0%=118.0ms, 99.9%=119.0ms, 99.99%=119.0ms, 99.999%=119.0ms}
-2018-08-05/19:06:12.322/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 69. 5.898408 MT/s {50.0%=64.0ms, 90.0%=112.0ms, 99.0%=123.0ms, 99.9%=124.0ms, 99.99%=124.0ms, 99.999%=124.0ms}
-2018-08-05/19:06:13.728/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 70. 5.898408 MT/s {50.0%=66.0ms, 90.0%=117.0ms, 99.0%=128.0ms, 99.9%=129.0ms, 99.99%=130.0ms, 99.999%=130.0ms}
-2018-08-05/19:06:15.140/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 71. 5.8868194 MT/s {50.0%=68.0ms, 90.0%=121.0ms, 99.0%=133.0ms, 99.9%=134.0ms, 99.99%=134.0ms, 99.999%=134.0ms}
-2018-08-05/19:06:16.552/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 72. 5.8868194 MT/s {50.0%=71.0ms, 90.0%=126.0ms, 99.0%=138.0ms, 99.9%=140.0ms, 99.99%=140.0ms, 99.999%=140.0ms}
-2018-08-05/19:06:17.968/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 73. 5.921721 MT/s {50.0%=73.0ms, 90.0%=129.0ms, 99.0%=142.0ms, 99.9%=143.0ms, 99.99%=143.0ms, 99.999%=143.0ms}
-2018-08-05/19:06:19.269/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 74. 6.8410754 MT/s {50.0%=21.1ms, 90.0%=67.0ms, 99.0%=77.0ms, 99.9%=78.0ms, 99.99%=78.0ms, 99.999%=78.0ms}
-2018-08-05/19:06:20.607/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 75. 6.416255 MT/s {50.0%=56.0ms, 90.0%=99.0ms, 99.0%=109.0ms, 99.9%=110.0ms, 99.99%=110.0ms, 99.999%=110.0ms}
-2018-08-05/19:06:21.952/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 76. 6.485695 MT/s {50.0%=56.0ms, 90.0%=99.0ms, 99.0%=109.0ms, 99.9%=110.0ms, 99.99%=110.0ms, 99.999%=110.0ms}
-2018-08-05/19:06:23.343/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 77. 6.1150837 MT/s {50.0%=73.0ms, 90.0%=128.0ms, 99.0%=140.0ms, 99.9%=142.0ms, 99.99%=142.0ms, 99.999%=142.0ms}
-2018-08-05/19:06:24.745/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 78. 6.1150837 MT/s {50.0%=75.0ms, 90.0%=133.0ms, 99.0%=146.0ms, 99.9%=147.0ms, 99.99%=147.0ms, 99.999%=147.0ms}
-2018-08-05/19:06:26.154/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 79. 6.102629 MT/s {50.0%=77.0ms, 90.0%=136.0ms, 99.0%=150.0ms, 99.9%=151.0ms, 99.99%=151.0ms, 99.999%=151.0ms}
-2018-08-05/19:06:27.556/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 80. 6.1275887 MT/s {50.0%=78.0ms, 90.0%=138.0ms, 99.0%=151.0ms, 99.9%=153.0ms, 99.99%=153.0ms, 99.999%=153.0ms}
-2018-08-05/19:06:28.913/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 81. 6.471687 MT/s {50.0%=66.0ms, 90.0%=117.0ms, 99.0%=129.0ms, 99.9%=130.0ms, 99.99%=130.0ms, 99.999%=130.0ms}
-2018-08-05/19:06:30.278/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 82. 6.485695 MT/s {50.0%=69.0ms, 90.0%=121.0ms, 99.0%=133.0ms, 99.9%=134.0ms, 99.99%=134.0ms, 99.999%=134.0ms}
-2018-08-05/19:06:31.543/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 83. 7.624405 MT/s {50.0%=49.0ms, 90.0%=66.0ms, 99.0%=69.0ms, 99.9%=70.0ms, 99.99%=70.0ms, 99.999%=70.0ms}
-2018-08-05/19:06:32.763/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 84. 8.120301 MT/s {50.0%=25.1ms, 90.0%=43.0ms, 99.0%=47.0ms, 99.9%=48.0ms, 99.99%=48.0ms, 99.999%=48.0ms}
-2018-08-05/19:06:33.994/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 85. 8.011741 MT/s {50.0%=29.2ms, 90.0%=50.0ms, 99.0%=55.0ms, 99.9%=55.0ms, 99.99%=55.0ms, 99.999%=55.0ms}
-2018-08-05/19:06:35.172/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 86. 8.054814 MT/s {50.0%=30.0ms, 90.0%=52.0ms, 99.0%=57.0ms, 99.9%=58.0ms, 99.99%=58.0ms, 99.999%=58.0ms}
-2018-08-05/19:06:36.404/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 87. 8.076526 MT/s {50.0%=30.0ms, 90.0%=53.0ms, 99.0%=58.0ms, 99.9%=59.0ms, 99.99%=59.0ms, 99.999%=59.0ms}
-2018-08-05/19:06:37.537/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 88. 9.697059 MT/s {50.0%=280.0µs, 90.0%=535.0µs, 99.0%=917.0µs, 99.9%=1.0ms, 99.99%=1.1ms, 99.999%=1.1ms}
-2018-08-05/19:06:38.682/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 89. 9.760231 MT/s {50.0%=246.0µs, 90.0%=465.0µs, 99.0%=675.0µs, 99.9%=799.0µs, 99.99%=866.0µs, 99.999%=883.0µs}
-2018-08-05/19:06:39.847/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 90. 9.889079 MT/s {50.0%=268.0µs, 90.0%=575.0µs, 99.0%=881.0µs, 99.9%=1.0ms, 99.99%=1.1ms, 99.999%=1.1ms}
-2018-08-05/19:06:41.086/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 91. 8.054814 MT/s {50.0%=39.0ms, 90.0%=66.0ms, 99.0%=72.0ms, 99.9%=72.0ms, 99.99%=72.0ms, 99.999%=72.0ms}
-2018-08-05/19:06:42.311/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 92. 8.011741 MT/s {50.0%=39.0ms, 90.0%=69.0ms, 99.0%=76.0ms, 99.9%=77.0ms, 99.99%=77.0ms, 99.999%=77.0ms}
-2018-08-05/19:06:43.484/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 93. 9.191383 MT/s {50.0%=26.8ms, 90.0%=31.0ms, 99.0%=32.0ms, 99.9%=33.0ms, 99.99%=33.0ms, 99.999%=33.0ms}
-2018-08-05/19:06:44.642/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 94. 9.792128 MT/s {50.0%=8.9ms, 90.0%=14.1ms, 99.0%=15.3ms, 99.9%=15.6ms, 99.99%=15.7ms, 99.999%=15.7ms}
-2018-08-05/19:06:45.805/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 95. 10.055003 MT/s {50.0%=6.5ms, 90.0%=9.8ms, 99.0%=10.8ms, 99.9%=10.9ms, 99.99%=11.0ms, 99.999%=11.0ms}
-2018-08-05/19:06:46.934/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 96. 10.021375 MT/s {50.0%=8.1ms, 90.0%=12.8ms, 99.0%=13.9ms, 99.9%=14.1ms, 99.99%=14.2ms, 99.999%=14.2ms}
-2018-08-05/19:06:48.131/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 97. 7.990376 MT/s {50.0%=48.0ms, 90.0%=84.0ms, 99.0%=92.0ms, 99.9%=93.0ms, 99.99%=93.0ms, 99.999%=93.0ms}
-2018-08-05/19:06:49.355/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 98. 8.25452 MT/s {50.0%=48.0ms, 90.0%=80.0ms, 99.0%=83.0ms, 99.9%=84.0ms, 99.99%=84.0ms, 99.999%=84.0ms}
-2018-08-05/19:06:50.552/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 99. 8.944451 MT/s {50.0%=41.0ms, 90.0%=55.0ms, 99.0%=59.0ms, 99.9%=59.0ms, 99.99%=59.0ms, 99.999%=59.0ms}
-2018-08-05/19:06:51.791/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 100. 8.011741 MT/s {50.0%=52.0ms, 90.0%=92.0ms, 99.0%=100.0ms, 99.9%=101.0ms, 99.99%=101.0ms, 99.999%=101.0ms}
+2018-08-13/23:47:09.169/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - Starting ExchangeCoreStress on sun with PID 2869 (started by mzheravin in /home/mzheravin/exchange-core)
+2018-08-13/23:47:09.170/CEST [main] DEBUG o.o.e.tests.ExchangeCoreStress - Running with Spring Boot v2.0.2.RELEASE, Spring v5.0.6.RELEASE
+2018-08-13/23:47:09.171/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - No active profile set, falling back to default profiles: default
+2018-08-13/23:47:09.200/CEST [main] INFO  o.s.c.a.AnnotationConfigApplicationContext - Refreshing org.springframework.context.annotation.AnnotationConfigApplicationContext@4082ba93: startup date [Mon Aug 13 23:47:09 CEST 2018]; root of context hierarchy
+2018-08-13/23:47:10.407/CEST [main] DEBUG o.o.exchange.core.ExchangeCore - STARTING Disruptor
+2018-08-13/23:47:10.783/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - Started ExchangeCoreStress in 1.857 seconds (JVM running for 3.622)
+2018-08-13/23:47:11.010/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - 4086 Orders num: 421 (0% done)
+2018-08-13/23:47:15.484/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - total commands: 2996533
+2018-08-13/23:47:15.484/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - completed:171766 rejected:0 reduce:171500
+2018-08-13/23:47:15.484/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - place limit: 259022 (8.644056%)
+2018-08-13/23:47:15.484/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - place market: 85366 (2.8488257%)
+2018-08-13/23:47:15.485/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - cancel: 171500 (5.723281%)
+2018-08-13/23:47:15.485/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - move: 2480645 (82.78384%)
+2018-08-13/23:47:15.493/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - Average order book size: ASK=386.94263 BID=387.7418 (732 samples)
+2018-08-13/23:47:15.493/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - Average limit orders number in the order book:1043.1613 (target:1000)
+2018-08-13/23:47:15.493/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - Commands success=100.0%
+2018-08-13/23:47:57.124/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 0. 0.07498831 MT/s {50.0%=0.83µs, 90.0%=1.28µs, 99.0%=3.1µs, 99.9%=71.0µs, 99.99%=9.6ms, 99.999%=12.9ms}
+2018-08-13/23:48:28.078/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 1. 0.09999777 MT/s {50.0%=0.83µs, 90.0%=1.22µs, 99.0%=2.5µs, 99.9%=50.0µs, 99.99%=315.0µs, 99.999%=901.0µs}
+2018-08-13/23:48:52.918/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 2. 0.12499616 MT/s {50.0%=0.83µs, 90.0%=1.15µs, 99.0%=2.05µs, 99.9%=54.0µs, 99.99%=395.0µs, 99.999%=909.0µs}
+2018-08-13/23:49:13.755/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 3. 0.15001416 MT/s {50.0%=0.83µs, 90.0%=1.22µs, 99.0%=2.75µs, 99.9%=57.0µs, 99.99%=541.0µs, 99.999%=1.73ms}
+2018-08-13/23:49:31.726/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 4. 0.17500047 MT/s {50.0%=0.83µs, 90.0%=1.15µs, 99.0%=2.75µs, 99.9%=47.0µs, 99.99%=153.0µs, 99.999%=1.2ms}
+2018-08-13/23:49:47.569/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 5. 0.19999553 MT/s {50.0%=0.83µs, 90.0%=1.15µs, 99.0%=2.5µs, 99.9%=49.0µs, 99.99%=139.0µs, 99.999%=422.0µs}
+2018-08-13/23:50:01.757/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 6. 0.22501563 MT/s {50.0%=0.83µs, 90.0%=1.15µs, 99.0%=3.2µs, 99.9%=57.0µs, 99.99%=213.0µs, 99.999%=662.0µs}
+2018-08-13/23:50:14.602/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 7. 0.24998191 MT/s {50.0%=0.83µs, 90.0%=1.15µs, 99.0%=3.0µs, 99.9%=53.0µs, 99.99%=148.0µs, 99.999%=490.0µs}
+2018-08-13/23:50:26.364/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 8. 0.2750122 MT/s {50.0%=0.9µs, 90.0%=1.22µs, 99.0%=3.3µs, 99.9%=62.0µs, 99.99%=565.0µs, 99.999%=903.0µs}
+2018-08-13/23:50:37.218/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 9. 0.3000133 MT/s {50.0%=0.9µs, 90.0%=1.22µs, 99.0%=3.7µs, 99.9%=79.0µs, 99.99%=2.52ms, 99.999%=3.4ms}
+2018-08-13/23:50:47.294/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 10. 0.32510936 MT/s {50.0%=0.83µs, 90.0%=1.22µs, 99.0%=2.94µs, 99.9%=54.0µs, 99.99%=138.0µs, 99.999%=563.0µs}
+2018-08-13/23:50:56.722/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 11. 0.35002136 MT/s {50.0%=0.83µs, 90.0%=1.15µs, 99.0%=3.5µs, 99.9%=68.0µs, 99.99%=619.0µs, 99.999%=1.07ms}
+2018-08-13/23:51:05.577/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 12. 0.37508237 MT/s {50.0%=0.83µs, 90.0%=1.15µs, 99.0%=2.94µs, 99.9%=42.0µs, 99.99%=90.0µs, 99.999%=242.0µs}
+2018-08-13/23:51:13.929/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 13. 0.39996436 MT/s {50.0%=0.9µs, 90.0%=1.22µs, 99.0%=3.9µs, 99.9%=66.0µs, 99.99%=476.0µs, 99.999%=610.0µs}
+2018-08-13/23:51:21.825/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 14. 0.42516077 MT/s {50.0%=0.83µs, 90.0%=1.15µs, 99.0%=4.0µs, 99.9%=60.0µs, 99.99%=311.0µs, 99.999%=692.0µs}
+2018-08-13/23:51:29.339/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 15. 0.45006505 MT/s {50.0%=0.83µs, 90.0%=1.15µs, 99.0%=3.6µs, 99.9%=51.0µs, 99.99%=153.0µs, 99.999%=247.0µs}
+2018-08-13/23:51:36.561/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 16. 0.47503692 MT/s {50.0%=0.83µs, 90.0%=1.15µs, 99.0%=20.8µs, 99.9%=15.8ms, 99.99%=20.6ms, 99.999%=21.1ms}
+2018-08-13/23:51:43.399/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 17. 0.4999221 MT/s {50.0%=0.83µs, 90.0%=1.15µs, 99.0%=3.6µs, 99.9%=51.0µs, 99.99%=472.0µs, 99.999%=986.0µs}
+2018-08-13/23:51:49.950/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 18. 0.5251547 MT/s {50.0%=0.83µs, 90.0%=1.09µs, 99.0%=3.0µs, 99.9%=41.0µs, 99.99%=79.0µs, 99.999%=172.0µs}
+2018-08-13/23:51:56.262/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 19. 0.5500244 MT/s {50.0%=0.83µs, 90.0%=1.15µs, 99.0%=4.4µs, 99.9%=92.0µs, 99.99%=787.0µs, 99.999%=973.0µs}
+2018-08-13/23:52:02.335/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 20. 0.5750399 MT/s {50.0%=0.83µs, 90.0%=1.09µs, 99.0%=3.7µs, 99.9%=57.0µs, 99.99%=208.0µs, 99.999%=522.0µs}
+2018-08-13/23:52:08.188/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 21. 0.6001468 MT/s {50.0%=0.83µs, 90.0%=1.15µs, 99.0%=3.6µs, 99.9%=45.0µs, 99.99%=106.0µs, 99.999%=201.0µs}
+2018-08-13/23:52:13.851/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 22. 0.62492865 MT/s {50.0%=0.9µs, 90.0%=1.28µs, 99.0%=5.3µs, 99.9%=77.0µs, 99.99%=120.0µs, 99.999%=196.0µs}
+2018-08-13/23:52:19.331/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 23. 0.6501482 MT/s {50.0%=0.83µs, 90.0%=1.22µs, 99.0%=4.4µs, 99.9%=57.0µs, 99.99%=137.0µs, 99.999%=348.0µs}
+2018-08-13/23:52:24.636/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 24. 0.675199 MT/s {50.0%=0.83µs, 90.0%=1.09µs, 99.0%=4.3µs, 99.9%=61.0µs, 99.99%=353.0µs, 99.999%=677.0µs}
+2018-08-13/23:52:29.776/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 25. 0.7002882 MT/s {50.0%=0.83µs, 90.0%=1.22µs, 99.0%=4.6µs, 99.9%=46.0µs, 99.99%=108.0µs, 99.999%=191.0µs}
+2018-08-13/23:52:34.770/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 26. 0.7252016 MT/s {50.0%=0.83µs, 90.0%=1.22µs, 99.0%=5.1µs, 99.9%=53.0µs, 99.99%=805.0µs, 99.999%=1.07ms}
+2018-08-13/23:52:39.624/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 27. 0.7502587 MT/s {50.0%=0.83µs, 90.0%=1.15µs, 99.0%=4.5µs, 99.9%=46.0µs, 99.99%=169.0µs, 99.999%=459.0µs}
+2018-08-13/23:52:44.356/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 28. 0.77509904 MT/s {50.0%=0.83µs, 90.0%=1.22µs, 99.0%=6.0µs, 99.9%=66.0µs, 99.99%=387.0µs, 99.999%=677.0µs}
+2018-08-13/23:52:48.966/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 29. 0.7999287 MT/s {50.0%=0.83µs, 90.0%=1.09µs, 99.0%=4.9µs, 99.9%=51.0µs, 99.99%=87.0µs, 99.999%=206.0µs}
+2018-08-13/23:52:53.467/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 30. 0.82503664 MT/s {50.0%=0.83µs, 90.0%=1.15µs, 99.0%=5.5µs, 99.9%=63.0µs, 99.99%=724.0µs, 99.999%=1.02ms}
+2018-08-13/23:52:57.845/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 31. 0.85032153 MT/s {50.0%=0.77µs, 90.0%=1.09µs, 99.0%=6.0µs, 99.9%=104.0µs, 99.99%=753.0µs, 99.999%=860.0µs}
+2018-08-13/23:53:02.131/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 32. 0.87566715 MT/s {50.0%=0.83µs, 90.0%=1.09µs, 99.0%=5.1µs, 99.9%=53.0µs, 99.99%=151.0µs, 99.999%=289.0µs}
+2018-08-13/23:53:06.318/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 33. 0.9001301 MT/s {50.0%=0.77µs, 90.0%=1.15µs, 99.0%=6.4µs, 99.9%=58.0µs, 99.99%=471.0µs, 99.999%=686.0µs}
+2018-08-13/23:53:10.425/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 34. 0.9251414 MT/s {50.0%=0.77µs, 90.0%=1.15µs, 99.0%=6.0µs, 99.9%=64.0µs, 99.99%=822.0µs, 99.999%=1.01ms}
+2018-08-13/23:53:14.438/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 35. 0.9506767 MT/s {50.0%=0.7µs, 90.0%=1.15µs, 99.0%=6.7µs, 99.9%=89.0µs, 99.99%=729.0µs, 99.999%=862.0µs}
+2018-08-13/23:53:18.372/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 36. 0.9754339 MT/s {50.0%=0.7µs, 90.0%=1.15µs, 99.0%=8.2µs, 99.9%=123.0µs, 99.99%=429.0µs, 99.999%=610.0µs}
+2018-08-13/23:53:22.238/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 37. 0.9998442 MT/s {50.0%=0.7µs, 90.0%=1.09µs, 99.0%=8.2µs, 99.9%=115.0µs, 99.99%=821.0µs, 99.999%=1.08ms}
+2018-08-13/23:53:26.003/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 38. 1.0255076 MT/s {50.0%=0.7µs, 90.0%=1.22µs, 99.0%=9.7µs, 99.9%=75.0µs, 99.99%=140.0µs, 99.999%=228.0µs}
+2018-08-13/23:53:29.718/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 39. 1.0503094 MT/s {50.0%=0.7µs, 90.0%=1.09µs, 99.0%=7.9µs, 99.9%=66.0µs, 99.99%=774.0µs, 99.999%=1.02ms}
+2018-08-13/23:53:33.367/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 40. 1.0751822 MT/s {50.0%=0.7µs, 90.0%=1.09µs, 99.0%=8.3µs, 99.9%=73.0µs, 99.99%=165.0µs, 99.999%=223.0µs}
+2018-08-13/23:53:36.958/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 41. 1.1000488 MT/s {50.0%=0.64µs, 90.0%=1.09µs, 99.0%=10.2µs, 99.9%=77.0µs, 99.99%=1.22ms, 99.999%=1.45ms}
+2018-08-13/23:53:40.472/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 42. 1.1260928 MT/s {50.0%=0.7µs, 90.0%=1.09µs, 99.0%=8.1µs, 99.9%=71.0µs, 99.99%=565.0µs, 99.999%=758.0µs}
+2018-08-13/23:53:43.937/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 43. 1.1507423 MT/s {50.0%=0.64µs, 90.0%=0.96µs, 99.0%=9.6µs, 99.9%=58.0µs, 99.99%=167.0µs, 99.999%=244.0µs}
+2018-08-13/23:53:47.352/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 44. 1.1751109 MT/s {50.0%=0.64µs, 90.0%=1.02µs, 99.0%=8.3µs, 99.9%=53.0µs, 99.99%=126.0µs, 99.999%=261.0µs}
+2018-08-13/23:53:50.692/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 45. 1.2005341 MT/s {50.0%=0.58µs, 90.0%=1.28µs, 99.0%=9.3µs, 99.9%=73.0µs, 99.99%=905.0µs, 99.999%=1.09ms}
+2018-08-13/23:53:54.007/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 46. 1.2255759 MT/s {50.0%=0.64µs, 90.0%=1.02µs, 99.0%=8.4µs, 99.9%=66.0µs, 99.99%=170.0µs, 99.999%=241.0µs}
+2018-08-13/23:53:57.259/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 47. 1.2495968 MT/s {50.0%=0.58µs, 90.0%=1.02µs, 99.0%=10.6µs, 99.9%=67.0µs, 99.99%=225.0µs, 99.999%=376.0µs}
+2018-08-13/23:54:00.465/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 48. 1.2756633 MT/s {50.0%=0.51µs, 90.0%=0.96µs, 99.0%=10.0µs, 99.9%=84.0µs, 99.99%=945.0µs, 99.999%=1.09ms}
+2018-08-13/23:54:03.635/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 49. 1.3000143 MT/s {50.0%=0.51µs, 90.0%=1.02µs, 99.0%=10.8µs, 99.9%=73.0µs, 99.99%=299.0µs, 99.999%=447.0µs}
+2018-08-13/23:54:06.763/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 50. 1.3264865 MT/s {50.0%=0.64µs, 90.0%=1.02µs, 99.0%=10.4µs, 99.9%=65.0µs, 99.99%=144.0µs, 99.999%=250.0µs}
+2018-08-13/23:54:09.843/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 51. 1.3510067 MT/s {50.0%=0.64µs, 90.0%=1.02µs, 99.0%=9.1µs, 99.9%=60.0µs, 99.99%=165.0µs, 99.999%=306.0µs}
+2018-08-13/23:54:12.885/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 52. 1.3751873 MT/s {50.0%=0.64µs, 90.0%=1.02µs, 99.0%=9.4µs, 99.9%=62.0µs, 99.99%=262.0µs, 99.999%=443.0µs}
+2018-08-13/23:54:15.870/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 53. 1.400249 MT/s {50.0%=0.7µs, 90.0%=1.09µs, 99.0%=9.9µs, 99.9%=59.0µs, 99.99%=135.0µs, 99.999%=253.0µs}
+2018-08-13/23:54:18.829/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 54. 1.4262413 MT/s {50.0%=0.51µs, 90.0%=0.96µs, 99.0%=10.8µs, 99.9%=62.0µs, 99.99%=121.0µs, 99.999%=249.0µs}
+2018-08-13/23:54:21.739/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 55. 1.4511056 MT/s {50.0%=0.58µs, 90.0%=1.09µs, 99.0%=11.8µs, 99.9%=71.0µs, 99.99%=143.0µs, 99.999%=230.0µs}
+2018-08-13/23:54:24.628/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 56. 1.4768522 MT/s {50.0%=0.64µs, 90.0%=1.09µs, 99.0%=10.8µs, 99.9%=71.0µs, 99.99%=216.0µs, 99.999%=350.0µs}
+2018-08-13/23:54:27.480/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 57. 1.5012691 MT/s {50.0%=0.58µs, 90.0%=1.09µs, 99.0%=11.2µs, 99.9%=63.0µs, 99.99%=99.0µs, 99.999%=241.0µs}
+2018-08-13/23:54:30.301/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 58. 1.5265068 MT/s {50.0%=0.51µs, 90.0%=1.09µs, 99.0%=13.9µs, 99.9%=75.0µs, 99.99%=151.0µs, 99.999%=239.0µs}
+2018-08-13/23:54:33.097/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 59. 1.5501981 MT/s {50.0%=0.58µs, 90.0%=0.96µs, 99.0%=8.5µs, 99.9%=63.0µs, 99.99%=141.0µs, 99.999%=248.0µs}
+2018-08-13/23:54:35.861/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 60. 1.576293 MT/s {50.0%=0.64µs, 90.0%=0.96µs, 99.0%=7.7µs, 99.9%=60.0µs, 99.99%=145.0µs, 99.999%=225.0µs}
+2018-08-13/23:54:38.614/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 61. 1.5998574 MT/s {50.0%=0.64µs, 90.0%=1.22µs, 99.0%=11.2µs, 99.9%=72.0µs, 99.99%=147.0µs, 99.999%=226.0µs}
+2018-08-13/23:54:41.323/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 62. 1.6258997 MT/s {50.0%=0.7µs, 90.0%=1.22µs, 99.0%=11.6µs, 99.9%=98.0µs, 99.99%=904.0µs, 99.999%=1.06ms}
+2018-08-13/23:54:43.998/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 63. 1.6500733 MT/s {50.0%=0.58µs, 90.0%=1.15µs, 99.0%=12.5µs, 99.9%=64.0µs, 99.99%=172.0µs, 99.999%=298.0µs}
+2018-08-13/23:54:46.646/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 64. 1.6740408 MT/s {50.0%=0.64µs, 90.0%=1.09µs, 99.0%=11.0µs, 99.9%=75.0µs, 99.99%=150.0µs, 99.999%=253.0µs}
+2018-08-13/23:54:49.265/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 65. 1.6996783 MT/s {50.0%=0.58µs, 90.0%=1.15µs, 99.0%=13.0µs, 99.9%=74.0µs, 99.99%=267.0µs, 99.999%=372.0µs}
+2018-08-13/23:54:51.858/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 66. 1.7271084 MT/s {50.0%=0.58µs, 90.0%=1.22µs, 99.0%=14.8µs, 99.9%=164.0µs, 99.99%=1.01ms, 99.999%=1.13ms}
+2018-08-13/23:54:54.436/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 67. 1.7513343 MT/s {50.0%=0.58µs, 90.0%=1.22µs, 99.0%=10.9µs, 99.9%=70.0µs, 99.99%=175.0µs, 99.999%=229.0µs}
+2018-08-13/23:54:56.987/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 68. 1.7762495 MT/s {50.0%=0.58µs, 90.0%=1.22µs, 99.0%=14.0µs, 99.9%=79.0µs, 99.99%=237.0µs, 99.999%=311.0µs}
+2018-08-13/23:54:59.479/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 69. 1.8018839 MT/s {50.0%=0.58µs, 90.0%=1.28µs, 99.0%=11.9µs, 99.9%=107.0µs, 99.99%=624.0µs, 99.999%=742.0µs}
+2018-08-13/23:55:01.961/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 70. 1.828269 MT/s {50.0%=0.58µs, 90.0%=1.15µs, 99.0%=9.9µs, 99.9%=64.0µs, 99.99%=138.0µs, 99.999%=252.0µs}
+2018-08-13/23:55:04.421/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 71. 1.8508543 MT/s {50.0%=0.58µs, 90.0%=1.28µs, 99.0%=12.7µs, 99.9%=72.0µs, 99.99%=137.0µs, 99.999%=227.0µs}
+2018-08-13/23:55:06.884/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 72. 1.8763514 MT/s {50.0%=0.58µs, 90.0%=1.34µs, 99.0%=13.9µs, 99.9%=68.0µs, 99.99%=164.0µs, 99.999%=265.0µs}
+2018-08-13/23:55:09.318/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 73. 1.9013534 MT/s {50.0%=0.58µs, 90.0%=1.22µs, 99.0%=12.3µs, 99.9%=67.0µs, 99.99%=159.0µs, 99.999%=255.0µs}
+2018-08-13/23:55:11.734/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 74. 1.9270309 MT/s {50.0%=0.51µs, 90.0%=1.66µs, 99.0%=15.1µs, 99.9%=71.0µs, 99.99%=151.0µs, 99.999%=238.0µs}
+2018-08-13/23:55:14.137/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 75. 1.9534113 MT/s {50.0%=0.51µs, 90.0%=1.66µs, 99.0%=13.6µs, 99.9%=77.0µs, 99.99%=142.0µs, 99.999%=231.0µs}
+2018-08-13/23:55:16.517/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 76. 1.9753019 MT/s {50.0%=0.51µs, 90.0%=1.02µs, 99.0%=8.5µs, 99.9%=56.0µs, 99.99%=163.0µs, 99.999%=258.0µs}
+2018-08-13/23:55:18.878/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 77. 1.9990214 MT/s {50.0%=0.51µs, 90.0%=1.28µs, 99.0%=11.8µs, 99.9%=70.0µs, 99.99%=159.0µs, 99.999%=258.0µs}
+2018-08-13/23:55:21.223/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 78. 2.028797 MT/s {50.0%=0.51µs, 90.0%=1.73µs, 99.0%=13.7µs, 99.9%=146.0µs, 99.99%=982.0µs, 99.999%=1.08ms}
+2018-08-13/23:55:23.546/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 79. 2.0538266 MT/s {50.0%=0.58µs, 90.0%=1.47µs, 99.0%=12.4µs, 99.9%=73.0µs, 99.99%=159.0µs, 99.999%=234.0µs}
+2018-08-13/23:55:25.849/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 80. 2.0780396 MT/s {50.0%=0.51µs, 90.0%=1.92µs, 99.0%=12.0µs, 99.9%=81.0µs, 99.99%=217.0µs, 99.999%=284.0µs}
+2018-08-13/23:55:28.129/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 81. 2.1013556 MT/s {50.0%=0.51µs, 90.0%=2.05µs, 99.0%=13.8µs, 99.9%=70.0µs, 99.99%=152.0µs, 99.999%=244.0µs}
+2018-08-13/23:55:30.402/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 82. 2.1282194 MT/s {50.0%=0.51µs, 90.0%=1.54µs, 99.0%=11.3µs, 99.9%=70.0µs, 99.99%=178.0µs, 99.999%=257.0µs}
+2018-08-13/23:55:32.662/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 83. 2.1495934 MT/s {50.0%=0.51µs, 90.0%=2.11µs, 99.0%=11.8µs, 99.9%=66.0µs, 99.99%=147.0µs, 99.999%=238.0µs}
+2018-08-13/23:55:34.887/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 84. 2.177713 MT/s {50.0%=0.58µs, 90.0%=1.41µs, 99.0%=10.9µs, 99.9%=70.0µs, 99.99%=254.0µs, 99.999%=348.0µs}
+2018-08-13/23:55:37.101/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 85. 2.201714 MT/s {50.0%=0.58µs, 90.0%=2.11µs, 99.0%=12.1µs, 99.9%=65.0µs, 99.99%=135.0µs, 99.999%=220.0µs}
+2018-08-13/23:55:39.300/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 86. 2.2262504 MT/s {50.0%=0.51µs, 90.0%=1.28µs, 99.0%=9.9µs, 99.9%=63.0µs, 99.99%=183.0µs, 99.999%=275.0µs}
+2018-08-13/23:55:41.482/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 87. 2.2513397 MT/s {50.0%=0.51µs, 90.0%=2.5µs, 99.0%=12.8µs, 99.9%=79.0µs, 99.99%=194.0µs, 99.999%=284.0µs}
+2018-08-13/23:55:43.658/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 88. 2.2787325 MT/s {50.0%=0.58µs, 90.0%=2.69µs, 99.0%=18.6µs, 99.9%=306.0µs, 99.99%=533.0µs, 99.999%=594.0µs}
+2018-08-13/23:55:45.823/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 89. 2.3032537 MT/s {50.0%=0.58µs, 90.0%=2.11µs, 99.0%=17.1µs, 99.9%=85.0µs, 99.99%=161.0µs, 99.999%=215.0µs}
+2018-08-13/23:55:47.971/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 90. 2.3265007 MT/s {50.0%=0.58µs, 90.0%=2.56µs, 99.0%=18.3µs, 99.9%=89.0µs, 99.99%=185.0µs, 99.999%=223.0µs}
+2018-08-13/23:55:50.103/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 91. 2.3520668 MT/s {50.0%=0.58µs, 90.0%=1.92µs, 99.0%=11.3µs, 99.9%=62.0µs, 99.99%=131.0µs, 99.999%=213.0µs}
+2018-08-13/23:55:52.224/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 92. 2.3763149 MT/s {50.0%=0.58µs, 90.0%=2.43µs, 99.0%=12.7µs, 99.9%=72.0µs, 99.99%=348.0µs, 99.999%=447.0µs}
+2018-08-13/23:55:54.338/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 93. 2.4029937 MT/s {50.0%=0.58µs, 90.0%=2.24µs, 99.0%=12.5µs, 99.9%=63.0µs, 99.99%=168.0µs, 99.999%=247.0µs}
+2018-08-13/23:55:56.418/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 94. 2.4263425 MT/s {50.0%=0.58µs, 90.0%=2.11µs, 99.0%=14.1µs, 99.9%=57.0µs, 99.99%=151.0µs, 99.999%=229.0µs}
+2018-08-13/23:55:58.505/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 95. 2.4501498 MT/s {50.0%=0.58µs, 90.0%=2.37µs, 99.0%=14.6µs, 99.9%=69.0µs, 99.99%=182.0µs, 99.999%=246.0µs}
+2018-08-13/23:56:00.581/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 96. 2.4744284 MT/s {50.0%=0.58µs, 90.0%=1.73µs, 99.0%=13.1µs, 99.9%=67.0µs, 99.99%=153.0µs, 99.999%=225.0µs}
+2018-08-13/23:56:02.632/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 97. 2.4991937 MT/s {50.0%=0.58µs, 90.0%=1.92µs, 99.0%=13.8µs, 99.9%=78.0µs, 99.99%=297.0µs, 99.999%=356.0µs}
+2018-08-13/23:56:04.695/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 98. 2.5244591 MT/s {50.0%=0.51µs, 90.0%=3.5µs, 99.0%=16.3µs, 99.9%=67.0µs, 99.99%=167.0µs, 99.999%=238.0µs}
+2018-08-13/23:56:06.728/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 99. 2.550241 MT/s {50.0%=0.58µs, 90.0%=3.1µs, 99.0%=12.4µs, 99.9%=62.0µs, 99.99%=194.0µs, 99.999%=256.0µs}
+2018-08-13/23:56:08.757/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 100. 2.5765548 MT/s {50.0%=0.58µs, 90.0%=2.37µs, 99.0%=16.1µs, 99.9%=73.0µs, 99.99%=257.0µs, 99.999%=332.0µs}
+2018-08-13/23:56:10.768/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 101. 2.603417 MT/s {50.0%=0.58µs, 90.0%=2.3µs, 99.0%=19.2µs, 99.9%=403.0µs, 99.99%=850.0µs, 99.999%=906.0µs}
+2018-08-13/23:56:12.774/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 102. 2.6308455 MT/s {50.0%=0.58µs, 90.0%=2.05µs, 99.0%=12.8µs, 99.9%=83.0µs, 99.99%=304.0µs, 99.999%=386.0µs}
+2018-08-13/23:56:14.768/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 103. 2.651799 MT/s {50.0%=0.64µs, 90.0%=2.5µs, 99.0%=15.0µs, 99.9%=66.0µs, 99.99%=246.0µs, 99.999%=314.0µs}
+2018-08-13/23:56:16.743/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 104. 2.6802619 MT/s {50.0%=0.58µs, 90.0%=2.37µs, 99.0%=13.3µs, 99.9%=68.0µs, 99.99%=167.0µs, 99.999%=227.0µs}
+2018-08-13/23:56:18.716/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 105. 2.704452 MT/s {50.0%=0.64µs, 90.0%=3.9µs, 99.0%=14.8µs, 99.9%=90.0µs, 99.99%=213.0µs, 99.999%=276.0µs}
+2018-08-13/23:56:20.672/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 106. 2.7315705 MT/s {50.0%=0.64µs, 90.0%=3.7µs, 99.0%=14.4µs, 99.9%=94.0µs, 99.99%=191.0µs, 99.999%=255.0µs}
+2018-08-13/23:56:22.619/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 107. 2.7541664 MT/s {50.0%=0.64µs, 90.0%=2.18µs, 99.0%=12.7µs, 99.9%=82.0µs, 99.99%=172.0µs, 99.999%=238.0µs}
+2018-08-13/23:56:24.567/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 108. 2.777139 MT/s {50.0%=0.64µs, 90.0%=3.1µs, 99.0%=18.9µs, 99.9%=72.0µs, 99.99%=157.0µs, 99.999%=217.0µs}
+2018-08-13/23:56:26.504/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 109. 2.800498 MT/s {50.0%=0.58µs, 90.0%=4.5µs, 99.0%=20.0µs, 99.9%=115.0µs, 99.99%=247.0µs, 99.999%=294.0µs}
+2018-08-13/23:56:28.430/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 110. 2.8322618 MT/s {50.0%=0.64µs, 90.0%=4.5µs, 99.0%=17.7µs, 99.9%=77.0µs, 99.99%=188.0µs, 99.999%=229.0µs}
+2018-08-13/23:56:30.347/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 111. 2.853841 MT/s {50.0%=0.64µs, 90.0%=4.0µs, 99.0%=20.8µs, 99.9%=175.0µs, 99.99%=622.0µs, 99.999%=668.0µs}
+2018-08-13/23:56:32.253/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 112. 2.8812819 MT/s {50.0%=0.58µs, 90.0%=4.4µs, 99.0%=21.0µs, 99.9%=87.0µs, 99.99%=256.0µs, 99.999%=327.0µs}
+2018-08-13/23:56:34.144/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 113. 2.9064336 MT/s {50.0%=0.64µs, 90.0%=3.8µs, 99.0%=19.2µs, 99.9%=97.0µs, 99.99%=259.0µs, 99.999%=297.0µs}
+2018-08-13/23:56:36.036/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 114. 2.9320283 MT/s {50.0%=0.64µs, 90.0%=3.3µs, 99.0%=19.8µs, 99.9%=93.0µs, 99.99%=222.0µs, 99.999%=255.0µs}
+2018-08-13/23:56:37.913/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 115. 2.958078 MT/s {50.0%=0.64µs, 90.0%=2.56µs, 99.0%=12.5µs, 99.9%=82.0µs, 99.99%=215.0µs, 99.999%=266.0µs}
+2018-08-13/23:56:39.788/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 116. 2.9757032 MT/s {50.0%=0.58µs, 90.0%=2.62µs, 99.0%=14.3µs, 99.9%=80.0µs, 99.99%=319.0µs, 99.999%=377.0µs}
+2018-08-13/23:56:41.654/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 117. 3.0025382 MT/s {50.0%=0.58µs, 90.0%=4.4µs, 99.0%=15.3µs, 99.9%=80.0µs, 99.99%=205.0µs, 99.999%=253.0µs}
+2018-08-13/23:56:43.510/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 118. 3.0298617 MT/s {50.0%=0.64µs, 90.0%=2.56µs, 99.0%=12.5µs, 99.9%=60.0µs, 99.99%=158.0µs, 99.999%=214.0µs}
+2018-08-13/23:56:45.353/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 119. 3.0576868 MT/s {50.0%=0.58µs, 90.0%=4.4µs, 99.0%=14.8µs, 99.9%=72.0µs, 99.99%=246.0µs, 99.999%=298.0µs}
+2018-08-13/23:56:47.194/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 120. 3.073367 MT/s {50.0%=0.64µs, 90.0%=5.6µs, 99.0%=24.0µs, 99.9%=96.0µs, 99.99%=202.0µs, 99.999%=245.0µs}
+2018-08-13/23:56:49.015/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 121. 3.1052155 MT/s {50.0%=0.58µs, 90.0%=4.6µs, 99.0%=15.1µs, 99.9%=69.0µs, 99.99%=169.0µs, 99.999%=216.0µs}
+2018-08-13/23:56:50.836/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 122. 3.1213884 MT/s {50.0%=0.64µs, 90.0%=4.0µs, 99.0%=16.6µs, 99.9%=82.0µs, 99.99%=206.0µs, 99.999%=260.0µs}
+2018-08-13/23:56:52.642/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 123. 3.1542454 MT/s {50.0%=0.64µs, 90.0%=3.3µs, 99.0%=13.8µs, 99.9%=70.0µs, 99.99%=198.0µs, 99.999%=247.0µs}
+2018-08-13/23:56:54.439/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 124. 3.1844134 MT/s {50.0%=0.7µs, 90.0%=4.1µs, 99.0%=21.1µs, 99.9%=78.0µs, 99.99%=222.0µs, 99.999%=276.0µs}
+2018-08-13/23:56:56.246/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 125. 3.204848 MT/s {50.0%=0.64µs, 90.0%=3.7µs, 99.0%=16.8µs, 99.9%=84.0µs, 99.99%=253.0µs, 99.999%=300.0µs}
+2018-08-13/23:56:58.029/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 126. 3.2255468 MT/s {50.0%=0.64µs, 90.0%=5.2µs, 99.0%=21.8µs, 99.9%=162.0µs, 99.99%=273.0µs, 99.999%=298.0µs}
+2018-08-13/23:56:59.816/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 127. 3.257101 MT/s {50.0%=0.58µs, 90.0%=5.2µs, 99.0%=21.5µs, 99.9%=100.0µs, 99.99%=289.0µs, 99.999%=339.0µs}
+2018-08-13/23:57:01.596/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 128. 3.2748995 MT/s {50.0%=0.64µs, 90.0%=3.5µs, 99.0%=24.1µs, 99.9%=494.0µs, 99.99%=989.0µs, 99.999%=1.04ms}
+2018-08-13/23:57:03.365/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 129. 3.3001466 MT/s {50.0%=0.64µs, 90.0%=3.5µs, 99.0%=16.3µs, 99.9%=74.0µs, 99.99%=188.0µs, 99.999%=240.0µs}
+2018-08-13/23:57:05.124/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 130. 3.3331845 MT/s {50.0%=0.64µs, 90.0%=3.8µs, 99.0%=19.2µs, 99.9%=78.0µs, 99.99%=185.0µs, 99.999%=231.0µs}
+2018-08-13/23:57:06.869/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 131. 3.3518267 MT/s {50.0%=0.7µs, 90.0%=3.6µs, 99.0%=17.0µs, 99.9%=92.0µs, 99.99%=212.0µs, 99.999%=249.0µs}
+2018-08-13/23:57:08.626/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 132. 3.374474 MT/s {50.0%=0.7µs, 90.0%=4.7µs, 99.0%=25.1µs, 99.9%=81.0µs, 99.99%=198.0µs, 99.999%=215.0µs}
+2018-08-13/23:57:10.347/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 133. 3.4012861 MT/s {50.0%=0.7µs, 90.0%=5.4µs, 99.0%=24.6µs, 99.9%=126.0µs, 99.99%=221.0µs, 99.999%=241.0µs}
+2018-08-13/23:57:12.093/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 134. 3.4324548 MT/s {50.0%=0.7µs, 90.0%=4.9µs, 99.0%=144.0µs, 99.9%=2.19ms, 99.99%=2.44ms, 99.999%=2.47ms}
+2018-08-13/23:57:13.819/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 135. 3.4562087 MT/s {50.0%=0.7µs, 90.0%=4.5µs, 99.0%=23.4µs, 99.9%=91.0µs, 99.99%=194.0µs, 99.999%=234.0µs}
+2018-08-13/23:57:15.545/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 136. 3.480294 MT/s {50.0%=0.7µs, 90.0%=5.8µs, 99.0%=28.4µs, 99.9%=89.0µs, 99.99%=199.0µs, 99.999%=215.0µs}
+2018-08-13/23:57:17.264/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 137. 3.504717 MT/s {50.0%=0.77µs, 90.0%=4.7µs, 99.0%=27.3µs, 99.9%=80.0µs, 99.99%=170.0µs, 99.999%=192.0µs}
+2018-08-13/23:57:18.957/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 138. 3.5294855 MT/s {50.0%=0.7µs, 90.0%=5.5µs, 99.0%=30.0µs, 99.9%=291.0µs, 99.99%=567.0µs, 99.999%=606.0µs}
+2018-08-13/23:57:20.660/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 139. 3.5588279 MT/s {50.0%=0.7µs, 90.0%=6.1µs, 99.0%=25.7µs, 99.9%=148.0µs, 99.99%=246.0µs, 99.999%=284.0µs}
+2018-08-13/23:57:22.364/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 140. 3.5843697 MT/s {50.0%=0.77µs, 90.0%=5.0µs, 99.0%=28.7µs, 99.9%=98.0µs, 99.99%=216.0µs, 99.999%=253.0µs}
+2018-08-13/23:57:24.049/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 141. 3.6059363 MT/s {50.0%=0.7µs, 90.0%=6.2µs, 99.0%=28.7µs, 99.9%=264.0µs, 99.99%=457.0µs, 99.999%=496.0µs}
+2018-08-13/23:57:25.732/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 142. 3.636569 MT/s {50.0%=0.7µs, 90.0%=6.3µs, 99.0%=28.3µs, 99.9%=136.0µs, 99.99%=211.0µs, 99.999%=225.0µs}
+2018-08-13/23:57:27.408/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 143. 3.663243 MT/s {50.0%=0.77µs, 90.0%=7.0µs, 99.0%=33.0µs, 99.9%=212.0µs, 99.99%=282.0µs, 99.999%=306.0µs}
+2018-08-13/23:57:29.087/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 144. 3.6767275 MT/s {50.0%=0.77µs, 90.0%=6.4µs, 99.0%=19.4µs, 99.9%=92.0µs, 99.99%=218.0µs, 99.999%=252.0µs}
+2018-08-13/23:57:30.756/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 145. 3.6994233 MT/s {50.0%=0.77µs, 90.0%=6.5µs, 99.0%=20.7µs, 99.9%=103.0µs, 99.99%=220.0µs, 99.999%=254.0µs}
+2018-08-13/23:57:32.364/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 146. 3.7316723 MT/s {50.0%=0.77µs, 90.0%=6.4µs, 99.0%=21.8µs, 99.9%=88.0µs, 99.99%=219.0µs, 99.999%=249.0µs}
+2018-08-13/23:57:34.034/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 147. 3.7597654 MT/s {50.0%=0.77µs, 90.0%=6.5µs, 99.0%=23.0µs, 99.9%=121.0µs, 99.99%=214.0µs, 99.999%=240.0µs}
+2018-08-13/23:57:35.690/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 148. 3.7835011 MT/s {50.0%=0.77µs, 90.0%=6.3µs, 99.0%=20.6µs, 99.9%=103.0µs, 99.99%=193.0µs, 99.999%=216.0µs}
+2018-08-13/23:57:37.337/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 149. 3.7978873 MT/s {50.0%=0.77µs, 90.0%=4.4µs, 99.0%=20.9µs, 99.9%=89.0µs, 99.99%=197.0µs, 99.999%=238.0µs}
+2018-08-13/23:57:38.986/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 150. 3.8318834 MT/s {50.0%=0.7µs, 90.0%=5.7µs, 99.0%=18.4µs, 99.9%=88.0µs, 99.99%=216.0µs, 99.999%=244.0µs}
+2018-08-13/23:57:40.639/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 151. 3.8615117 MT/s {50.0%=0.77µs, 90.0%=4.9µs, 99.0%=25.3µs, 99.9%=86.0µs, 99.99%=210.0µs, 99.999%=245.0µs}
+2018-08-13/23:57:42.280/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 152. 3.8714898 MT/s {50.0%=0.83µs, 90.0%=7.2µs, 99.0%=28.2µs, 99.9%=120.0µs, 99.99%=251.0µs, 99.999%=288.0µs}
+2018-08-13/23:57:43.903/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 153. 3.9068227 MT/s {50.0%=1.02µs, 90.0%=8.6µs, 99.0%=56.0µs, 99.9%=338.0µs, 99.99%=376.0µs, 99.999%=387.0µs}
+2018-08-13/23:57:45.506/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 154. 3.9376254 MT/s {50.0%=0.96µs, 90.0%=6.6µs, 99.0%=46.0µs, 99.9%=272.0µs, 99.99%=345.0µs, 99.999%=359.0µs}
+2018-08-13/23:57:47.121/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 155. 3.9532096 MT/s {50.0%=1.02µs, 90.0%=8.8µs, 99.0%=49.0µs, 99.9%=258.0µs, 99.99%=281.0µs, 99.999%=287.0µs}
+2018-08-13/23:57:48.738/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 156. 3.9794595 MT/s {50.0%=0.96µs, 90.0%=8.1µs, 99.0%=46.0µs, 99.9%=405.0µs, 99.99%=431.0µs, 99.999%=445.0µs}
+2018-08-13/23:57:50.352/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 157. 4.0007114 MT/s {50.0%=0.7µs, 90.0%=5.7µs, 99.0%=22.7µs, 99.9%=111.0µs, 99.99%=257.0µs, 99.999%=284.0µs}
+2018-08-13/23:57:51.956/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 158. 4.0330186 MT/s {50.0%=0.77µs, 90.0%=5.4µs, 99.0%=28.0µs, 99.9%=158.0µs, 99.99%=233.0µs, 99.999%=271.0µs}
+2018-08-13/23:57:53.552/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 159. 4.065852 MT/s {50.0%=0.77µs, 90.0%=7.0µs, 99.0%=44.0µs, 99.9%=302.0µs, 99.99%=350.0µs, 99.999%=364.0µs}
+2018-08-13/23:57:55.155/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 160. 4.0769157 MT/s {50.0%=0.77µs, 90.0%=6.9µs, 99.0%=26.5µs, 99.9%=136.0µs, 99.99%=278.0µs, 99.999%=295.0µs}
+2018-08-13/23:57:56.749/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 161. 4.1161165 MT/s {50.0%=0.7µs, 90.0%=4.4µs, 99.0%=17.9µs, 99.9%=114.0µs, 99.99%=254.0µs, 99.999%=286.0µs}
+2018-08-13/23:57:58.317/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 162. 4.133149 MT/s {50.0%=0.9µs, 90.0%=6.8µs, 99.0%=44.0µs, 99.9%=265.0µs, 99.99%=296.0µs, 99.999%=305.0µs}
+2018-08-13/23:57:59.898/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 163. 4.1676397 MT/s {50.0%=0.96µs, 90.0%=7.1µs, 99.0%=44.0µs, 99.9%=214.0µs, 99.99%=247.0µs, 99.999%=258.0µs}
+2018-08-13/23:58:01.462/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 164. 4.185102 MT/s {50.0%=0.96µs, 90.0%=7.4µs, 99.0%=48.0µs, 99.9%=234.0µs, 99.99%=259.0µs, 99.999%=270.0µs}
+2018-08-13/23:58:03.036/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 165. 4.1968246 MT/s {50.0%=0.9µs, 90.0%=8.3µs, 99.0%=48.0µs, 99.9%=391.0µs, 99.99%=419.0µs, 99.999%=427.0µs}
+2018-08-13/23:58:04.607/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 166. 4.232391 MT/s {50.0%=0.9µs, 90.0%=7.9µs, 99.0%=53.0µs, 99.9%=306.0µs, 99.99%=330.0µs, 99.999%=340.0µs}
+2018-08-13/23:58:06.179/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 167. 4.2564387 MT/s {50.0%=0.9µs, 90.0%=6.5µs, 99.0%=41.0µs, 99.9%=114.0µs, 99.99%=205.0µs, 99.999%=235.0µs}
+2018-08-13/23:58:07.737/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 168. 4.2930274 MT/s {50.0%=0.96µs, 90.0%=7.6µs, 99.0%=52.0µs, 99.9%=260.0µs, 99.99%=284.0µs, 99.999%=295.0µs}
+2018-08-13/23:58:09.288/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 169. 4.3115582 MT/s {50.0%=0.96µs, 90.0%=7.7µs, 99.0%=52.0µs, 99.9%=263.0µs, 99.99%=283.0µs, 99.999%=291.0µs}
+2018-08-13/23:58:10.841/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 170. 4.33025 MT/s {50.0%=0.96µs, 90.0%=7.9µs, 99.0%=59.0µs, 99.9%=393.0µs, 99.99%=412.0µs, 99.999%=420.0µs}
+2018-08-13/23:58:12.389/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 171. 4.368124 MT/s {50.0%=0.83µs, 90.0%=7.4µs, 99.0%=36.0µs, 99.9%=161.0µs, 99.99%=206.0µs, 99.999%=227.0µs}
+2018-08-13/23:58:13.942/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 172. 4.380896 MT/s {50.0%=0.9µs, 90.0%=6.4µs, 99.0%=54.0µs, 99.9%=282.0µs, 99.99%=314.0µs, 99.999%=324.0µs}
+2018-08-13/23:58:15.482/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 173. 4.400195 MT/s {50.0%=0.83µs, 90.0%=5.5µs, 99.0%=25.3µs, 99.9%=92.0µs, 99.99%=209.0µs, 99.999%=236.0µs}
+2018-08-13/23:58:17.003/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 174. 4.439308 MT/s {50.0%=0.83µs, 90.0%=5.6µs, 99.0%=26.2µs, 99.9%=137.0µs, 99.99%=267.0µs, 99.999%=281.0µs}
+2018-08-13/23:58:18.560/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 175. 4.4591265 MT/s {50.0%=0.9µs, 90.0%=6.3µs, 99.0%=36.0µs, 99.9%=92.0µs, 99.99%=201.0µs, 99.999%=218.0µs}
+2018-08-13/23:58:20.092/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 176. 4.4791226 MT/s {50.0%=1.09µs, 90.0%=8.1µs, 99.0%=59.0µs, 99.9%=239.0µs, 99.99%=265.0µs, 99.999%=277.0µs}
+2018-08-13/23:58:21.631/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 177. 4.5060644 MT/s {50.0%=1.15µs, 90.0%=11.1µs, 99.0%=1.64ms, 99.9%=2.92ms, 99.99%=3.0ms, 99.999%=3.1ms}
+2018-08-13/23:58:23.136/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 178. 4.5402017 MT/s {50.0%=1.02µs, 90.0%=7.7µs, 99.0%=91.0µs, 99.9%=399.0µs, 99.99%=421.0µs, 99.999%=429.0µs}
+2018-08-13/23:58:24.663/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 179. 4.560933 MT/s {50.0%=0.96µs, 90.0%=7.7µs, 99.0%=427.0µs, 99.9%=866.0µs, 99.99%=977.0µs, 99.999%=990.0µs}
+2018-08-13/23:58:26.182/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 180. 4.5888715 MT/s {50.0%=0.9µs, 90.0%=7.7µs, 99.0%=46.0µs, 99.9%=127.0µs, 99.99%=236.0µs, 99.999%=263.0µs}
+2018-08-13/23:58:27.689/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 181. 4.602969 MT/s {50.0%=0.9µs, 90.0%=5.8µs, 99.0%=30.0µs, 99.9%=183.0µs, 99.99%=275.0µs, 99.999%=301.0µs}
+2018-08-13/23:58:29.195/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 182. 4.631427 MT/s {50.0%=0.96µs, 90.0%=8.6µs, 99.0%=63.0µs, 99.9%=204.0µs, 99.99%=255.0µs, 99.999%=268.0µs}
+2018-08-13/23:58:30.710/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 183. 4.6530013 MT/s {50.0%=0.96µs, 90.0%=8.5µs, 99.0%=54.0µs, 99.9%=184.0µs, 99.99%=243.0µs, 99.999%=268.0µs}
+2018-08-13/23:58:32.206/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 184. 4.68941 MT/s {50.0%=1.02µs, 90.0%=8.7µs, 99.0%=77.0µs, 99.9%=204.0µs, 99.99%=266.0µs, 99.999%=288.0µs}
+2018-08-13/23:58:33.695/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 185. 4.7115297 MT/s {50.0%=1.15µs, 90.0%=10.4µs, 99.0%=445.0µs, 99.9%=843.0µs, 99.99%=884.0µs, 99.999%=893.0µs}
+2018-08-13/23:58:35.197/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 186. 4.7338595 MT/s {50.0%=1.02µs, 90.0%=8.7µs, 99.0%=64.0µs, 99.9%=199.0µs, 99.99%=293.0µs, 99.999%=309.0µs}
+2018-08-13/23:58:36.689/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 187. 4.763963 MT/s {50.0%=0.96µs, 90.0%=8.4µs, 99.0%=33.0µs, 99.9%=135.0µs, 99.99%=217.0µs, 99.999%=236.0µs}
+2018-08-13/23:58:38.196/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 188. 4.7791595 MT/s {50.0%=0.96µs, 90.0%=6.7µs, 99.0%=42.0µs, 99.9%=161.0µs, 99.99%=243.0µs, 99.999%=252.0µs}
+2018-08-13/23:58:39.684/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 189. 4.809844 MT/s {50.0%=1.6µs, 90.0%=13.0µs, 99.0%=208.0µs, 99.9%=688.0µs, 99.99%=715.0µs, 99.999%=722.0µs}
+2018-08-13/23:58:41.172/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 190. 4.825335 MT/s {50.0%=1.66µs, 90.0%=12.4µs, 99.0%=126.0µs, 99.9%=595.0µs, 99.99%=621.0µs, 99.999%=631.0µs}
+2018-08-13/23:58:42.644/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 191. 4.8487587 MT/s {50.0%=1.54µs, 90.0%=11.8µs, 99.0%=249.0µs, 99.9%=814.0µs, 99.99%=847.0µs, 99.999%=861.0µs}
+2018-08-13/23:58:44.135/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 192. 4.8724117 MT/s {50.0%=3.1µs, 90.0%=19.3µs, 99.0%=460.0µs, 99.9%=790.0µs, 99.99%=836.0µs, 99.999%=849.0µs}
+2018-08-13/23:58:45.611/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 193. 4.9043097 MT/s {50.0%=1.79µs, 90.0%=13.2µs, 99.0%=77.0µs, 99.9%=214.0µs, 99.99%=261.0µs, 99.999%=269.0µs}
+2018-08-13/23:58:47.079/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 194. 4.9204154 MT/s {50.0%=0.9µs, 90.0%=6.8µs, 99.0%=44.0µs, 99.9%=178.0µs, 99.99%=243.0µs, 99.999%=253.0µs}
+2018-08-13/23:58:48.546/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 195. 4.944774 MT/s {50.0%=1.02µs, 90.0%=9.3µs, 99.0%=67.0µs, 99.9%=323.0µs, 99.99%=366.0µs, 99.999%=373.0µs}
+2018-08-13/23:58:50.013/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 196. 4.969375 MT/s {50.0%=1.41µs, 90.0%=10.4µs, 99.0%=411.0µs, 99.9%=721.0µs, 99.99%=758.0µs, 99.999%=772.0µs}
+2018-08-13/23:58:51.482/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 197. 4.9942217 MT/s {50.0%=1.02µs, 90.0%=7.7µs, 99.0%=51.0µs, 99.9%=232.0µs, 99.99%=266.0µs, 99.999%=279.0µs}
+2018-08-13/23:58:52.937/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 198. 5.0277395 MT/s {50.0%=1.47µs, 90.0%=10.0µs, 99.0%=126.0µs, 99.9%=563.0µs, 99.99%=629.0µs, 99.999%=638.0µs}
+2018-08-13/23:58:54.393/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 199. 5.0446687 MT/s {50.0%=1.09µs, 90.0%=9.0µs, 99.0%=68.0µs, 99.9%=142.0µs, 99.99%=210.0µs, 99.999%=233.0µs}
+2018-08-13/23:58:55.850/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 200. 5.070276 MT/s {50.0%=2.37µs, 90.0%=16.3µs, 99.0%=263.0µs, 99.9%=619.0µs, 99.99%=649.0µs, 99.999%=657.0µs}
+2018-08-13/23:58:57.301/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 201. 5.104826 MT/s {50.0%=1.28µs, 90.0%=10.4µs, 99.0%=124.0µs, 99.9%=596.0µs, 99.99%=629.0µs, 99.999%=638.0µs}
+2018-08-13/23:58:58.746/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 202. 5.1310496 MT/s {50.0%=1.09µs, 90.0%=8.4µs, 99.0%=62.0µs, 99.9%=240.0µs, 99.99%=260.0µs, 99.999%=267.0µs}
+2018-08-13/23:59:00.191/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 203. 5.148682 MT/s {50.0%=1.02µs, 90.0%=7.8µs, 99.0%=70.0µs, 99.9%=587.0µs, 99.99%=985.0µs, 99.999%=1.02ms}
+2018-08-13/23:59:01.631/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 204. 5.1753592 MT/s {50.0%=2.11µs, 90.0%=17.3µs, 99.0%=188.0µs, 99.9%=359.0µs, 99.99%=392.0µs, 99.999%=400.0µs}
+2018-08-13/23:59:03.055/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 205. 5.2023144 MT/s {50.0%=1.6µs, 90.0%=10.8µs, 99.0%=69.0µs, 99.9%=143.0µs, 99.99%=238.0µs, 99.999%=249.0µs}
+2018-08-13/23:59:04.469/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 206. 5.2295513 MT/s {50.0%=1.47µs, 90.0%=11.0µs, 99.0%=73.0µs, 99.9%=386.0µs, 99.99%=403.0µs, 99.999%=409.0µs}
+2018-08-13/23:59:05.901/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 207. 5.2570753 MT/s {50.0%=2.18µs, 90.0%=17.2µs, 99.0%=80.0µs, 99.9%=356.0µs, 99.99%=407.0µs, 99.999%=414.0µs}
+2018-08-13/23:59:07.316/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 208. 5.2848907 MT/s {50.0%=1.66µs, 90.0%=14.1µs, 99.0%=158.0µs, 99.9%=281.0µs, 99.99%=300.0µs, 99.999%=307.0µs}
+2018-08-13/23:59:08.739/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 209. 5.322439 MT/s {50.0%=6.3µs, 90.0%=63.0µs, 99.0%=1.05ms, 99.9%=1.14ms, 99.99%=1.17ms, 99.999%=1.17ms}
+2018-08-13/23:59:10.165/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 210. 5.3414135 MT/s {50.0%=5.8µs, 90.0%=135.0µs, 99.0%=1.08ms, 99.9%=1.18ms, 99.99%=1.2ms, 99.999%=1.21ms}
+2018-08-13/23:59:11.588/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 211. 5.370131 MT/s {50.0%=1.54µs, 90.0%=13.5µs, 99.0%=569.0µs, 99.9%=851.0µs, 99.99%=885.0µs, 99.999%=896.0µs}
+2018-08-13/23:59:13.014/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 212. 5.370131 MT/s {50.0%=4.3µs, 90.0%=40.0µs, 99.0%=421.0µs, 99.9%=748.0µs, 99.99%=783.0µs, 99.999%=796.0µs}
+2018-08-13/23:59:14.428/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 213. 5.408904 MT/s {50.0%=1.98µs, 90.0%=14.3µs, 99.0%=86.0µs, 99.9%=384.0µs, 99.99%=399.0µs, 99.999%=404.0µs}
+2018-08-13/23:59:15.840/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 214. 5.428502 MT/s {50.0%=2.69µs, 90.0%=204.0µs, 99.0%=484.0µs, 99.9%=496.0µs, 99.99%=515.0µs, 99.999%=528.0µs}
+2018-08-13/23:59:17.262/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 215. 5.4581656 MT/s {50.0%=2.3µs, 90.0%=23.9µs, 99.0%=731.0µs, 99.9%=1.03ms, 99.99%=1.07ms, 99.999%=1.08ms}
+2018-08-13/23:59:18.664/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 216. 5.488156 MT/s {50.0%=1.54µs, 90.0%=10.6µs, 99.0%=112.0µs, 99.9%=325.0µs, 99.99%=348.0µs, 99.999%=353.0µs}
+2018-08-13/23:59:20.058/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 217. 5.518477 MT/s {50.0%=2.11µs, 90.0%=14.5µs, 99.0%=146.0µs, 99.9%=512.0µs, 99.99%=535.0µs, 99.999%=539.0µs}
+2018-08-13/23:59:21.444/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 218. 5.5594306 MT/s {50.0%=7.9µs, 90.0%=95.0µs, 99.0%=1.15ms, 99.9%=1.25ms, 99.99%=1.27ms, 99.999%=1.28ms}
+2018-08-13/23:59:22.846/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 219. 5.549135 MT/s {50.0%=1.66µs, 90.0%=12.0µs, 99.0%=125.0µs, 99.9%=426.0µs, 99.99%=451.0µs, 99.999%=456.0µs}
+2018-08-13/23:59:24.240/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 220. 5.590547 MT/s {50.0%=3.6µs, 90.0%=32.0µs, 99.0%=726.0µs, 99.9%=966.0µs, 99.99%=1.0ms, 99.999%=1.01ms}
+2018-08-13/23:59:25.637/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 221. 5.611485 MT/s {50.0%=1.34µs, 90.0%=9.2µs, 99.0%=115.0µs, 99.9%=373.0µs, 99.99%=399.0µs, 99.999%=407.0µs}
+2018-08-13/23:59:26.982/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 222. 5.653836 MT/s {50.0%=7.8µs, 90.0%=2.43ms, 99.0%=3.3ms, 99.9%=3.4ms, 99.99%=3.5ms, 99.999%=3.5ms}
+2018-08-13/23:59:28.438/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 223. 5.538878 MT/s {50.0%=5.2ms, 90.0%=13.3ms, 99.0%=13.8ms, 99.9%=13.9ms, 99.99%=14.0ms, 99.999%=14.0ms}
+2018-08-13/23:59:29.816/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 224. 5.675252 MT/s {50.0%=1.28µs, 90.0%=9.5µs, 99.0%=170.0µs, 99.9%=387.0µs, 99.99%=404.0µs, 99.999%=411.0µs}
+2018-08-13/23:59:31.188/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 225. 5.707682 MT/s {50.0%=1.34µs, 90.0%=10.6µs, 99.0%=410.0µs, 99.9%=553.0µs, 99.99%=582.0µs, 99.999%=592.0µs}
+2018-08-13/23:59:32.556/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 226. 5.7404847 MT/s {50.0%=7.8µs, 90.0%=84.0µs, 99.0%=1.1ms, 99.9%=1.22ms, 99.99%=1.25ms, 99.999%=1.25ms}
+2018-08-13/23:59:33.932/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 227. 5.7736664 MT/s {50.0%=5.4µs, 90.0%=91.0µs, 99.0%=1.17ms, 99.9%=1.29ms, 99.99%=1.32ms, 99.999%=1.32ms}
+2018-08-13/23:59:35.294/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 228. 5.7736664 MT/s {50.0%=1.34µs, 90.0%=8.4µs, 99.0%=78.0µs, 99.9%=534.0µs, 99.99%=549.0µs, 99.999%=554.0µs}
+2018-08-13/23:59:36.686/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 229. 5.8072343 MT/s {50.0%=1.41µs, 90.0%=8.5µs, 99.0%=76.0µs, 99.9%=539.0µs, 99.99%=553.0µs, 99.999%=557.0µs}
+2018-08-13/23:59:38.252/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 230. 5.370131 MT/s {50.0%=12.8ms, 90.0%=36.0ms, 99.0%=44.0ms, 99.9%=47.0ms, 99.99%=47.0ms, 99.999%=47.0ms}
+2018-08-13/23:59:39.883/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 231. 5.2848907 MT/s {50.0%=26.2ms, 90.0%=47.0ms, 99.0%=54.0ms, 99.9%=56.0ms, 99.99%=56.0ms, 99.999%=56.0ms}
+2018-08-13/23:59:41.247/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 232. 5.8640566 MT/s {50.0%=5.8µs, 90.0%=63.0µs, 99.0%=1.69ms, 99.9%=1.91ms, 99.99%=1.95ms, 99.999%=1.96ms}
+2018-08-13/23:59:42.608/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 233. 5.8870983 MT/s {50.0%=1.92µs, 90.0%=27.8µs, 99.0%=1.7ms, 99.9%=1.89ms, 99.99%=1.91ms, 99.999%=1.92ms}
+2018-08-13/23:59:43.957/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 234. 5.9337287 MT/s {50.0%=1.92µs, 90.0%=12.9µs, 99.0%=1.13ms, 99.9%=1.47ms, 99.99%=1.5ms, 99.999%=1.51ms}
+2018-08-13/23:59:45.317/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 235. 5.9337287 MT/s {50.0%=5.4µs, 90.0%=83.0µs, 99.0%=1.17ms, 99.9%=1.49ms, 99.99%=1.52ms, 99.999%=1.52ms}
+2018-08-13/23:59:46.692/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 236. 5.9691896 MT/s {50.0%=58.0µs, 90.0%=1.83ms, 99.0%=2.36ms, 99.9%=2.44ms, 99.99%=2.47ms, 99.999%=2.48ms}
+2018-08-13/23:59:48.072/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 237. 5.981104 MT/s {50.0%=1.54µs, 90.0%=10.2µs, 99.0%=1.22ms, 99.9%=1.81ms, 99.99%=1.83ms, 99.999%=1.83ms}
+2018-08-13/23:59:49.439/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 238. 6.029241 MT/s {50.0%=4.5µs, 90.0%=56.0µs, 99.0%=680.0µs, 99.9%=1.24ms, 99.99%=1.26ms, 99.999%=1.27ms}
+2018-08-13/23:59:50.800/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 239. 6.0171347 MT/s {50.0%=1.98µs, 90.0%=76.0µs, 99.0%=2.11ms, 99.9%=2.65ms, 99.99%=2.74ms, 99.999%=2.75ms}
+2018-08-13/23:59:52.208/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 240. 5.945502 MT/s {50.0%=9.5µs, 90.0%=8.1ms, 99.0%=9.8ms, 99.9%=9.9ms, 99.99%=10.0ms, 99.999%=10.0ms}
+2018-08-13/23:59:53.809/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 241. 5.569764 MT/s {50.0%=35.0ms, 90.0%=48.0ms, 99.0%=49.0ms, 99.9%=49.0ms, 99.99%=49.0ms, 99.999%=49.0ms}
+2018-08-13/23:59:55.533/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 242. 5.370131 MT/s {50.0%=34.0ms, 90.0%=62.0ms, 99.0%=67.0ms, 99.9%=68.0ms, 99.99%=68.0ms, 99.999%=68.0ms}
+2018-08-13/23:59:57.211/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 243. 5.303598 MT/s {50.0%=38.0ms, 90.0%=68.0ms, 99.0%=77.0ms, 99.9%=78.0ms, 99.99%=79.0ms, 99.999%=79.0ms}
+2018-08-13/23:59:58.920/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 244. 5.331909 MT/s {50.0%=41.0ms, 90.0%=71.0ms, 99.0%=77.0ms, 99.9%=78.0ms, 99.99%=79.0ms, 99.999%=79.0ms}
+2018-08-14/00:00:00.670/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 245. 5.2755866 MT/s {50.0%=41.0ms, 90.0%=72.0ms, 99.0%=82.0ms, 99.9%=83.0ms, 99.99%=83.0ms, 99.999%=84.0ms}
+2018-08-14/00:00:02.439/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 246. 5.2570753 MT/s {50.0%=45.0ms, 90.0%=77.0ms, 99.0%=86.0ms, 99.9%=88.0ms, 99.99%=89.0ms, 99.999%=89.0ms}
+2018-08-14/00:00:03.792/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 247. 6.2297983 MT/s {50.0%=5.1µs, 90.0%=38.0µs, 99.0%=1.42ms, 99.9%=1.64ms, 99.99%=1.66ms, 99.999%=1.67ms}
+2018-08-14/00:00:05.145/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 248. 6.2688975 MT/s {50.0%=5.3µs, 90.0%=46.0µs, 99.0%=1.63ms, 99.9%=1.88ms, 99.99%=1.9ms, 99.999%=1.91ms}
+2018-08-14/00:00:06.499/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 249. 6.3084908 MT/s {50.0%=2.24µs, 90.0%=15.3µs, 99.0%=1.13ms, 99.9%=1.52ms, 99.99%=1.54ms, 99.999%=1.55ms}
+2018-08-14/00:00:07.834/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 250. 6.3084908 MT/s {50.0%=2.3µs, 90.0%=17.3µs, 99.0%=950.0µs, 99.9%=1.35ms, 99.99%=1.37ms, 99.999%=1.38ms}
+2018-08-14/00:00:09.600/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 251. 5.468126 MT/s {50.0%=38.0ms, 90.0%=67.0ms, 99.0%=73.0ms, 99.9%=73.0ms, 99.99%=73.0ms, 99.999%=73.0ms}
+2018-08-14/00:00:10.939/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 252. 6.3756022 MT/s {50.0%=3.3µs, 90.0%=24.2µs, 99.0%=1.09ms, 99.9%=1.45ms, 99.99%=1.47ms, 99.999%=1.48ms}
+2018-08-14/00:00:12.288/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 253. 6.3891964 MT/s {50.0%=2.62µs, 90.0%=14.8µs, 99.0%=1.34ms, 99.9%=1.69ms, 99.99%=1.72ms, 99.999%=1.73ms}
+2018-08-14/00:00:13.628/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 254. 6.430328 MT/s {50.0%=3.3µs, 90.0%=24.4µs, 99.0%=1.49ms, 99.9%=1.83ms, 99.99%=1.86ms, 99.999%=1.87ms}
+2018-08-14/00:00:14.969/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 255. 6.416559 MT/s {50.0%=3.0µs, 90.0%=20.3µs, 99.0%=1.09ms, 99.9%=1.46ms, 99.99%=1.49ms, 99.999%=1.49ms}
+2018-08-14/00:00:16.314/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 256. 6.4580455 MT/s {50.0%=3.5µs, 90.0%=25.5µs, 99.0%=1.53ms, 99.9%=1.76ms, 99.99%=1.78ms, 99.999%=1.79ms}
+2018-08-14/00:00:17.643/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 257. 6.500072 MT/s {50.0%=6.8µs, 90.0%=291.0µs, 99.0%=1.83ms, 99.9%=1.88ms, 99.99%=1.9ms, 99.999%=1.9ms}
+2018-08-14/00:00:19.107/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 258. 6.348587 MT/s {50.0%=19.1ms, 90.0%=30.0ms, 99.0%=33.0ms, 99.9%=33.0ms, 99.99%=33.0ms, 99.999%=33.0ms}
+2018-08-14/00:00:20.612/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 259. 6.0658565 MT/s {50.0%=11.4ms, 90.0%=30.0ms, 99.0%=35.0ms, 99.9%=36.0ms, 99.99%=36.0ms, 99.999%=36.0ms}
+2018-08-14/00:00:22.294/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 260. 5.653836 MT/s {50.0%=37.0ms, 90.0%=64.0ms, 99.0%=70.0ms, 99.9%=70.0ms, 99.99%=70.0ms, 99.999%=70.0ms}
+2018-08-14/00:00:23.965/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 261. 5.5594306 MT/s {50.0%=56.0ms, 90.0%=80.0ms, 99.0%=83.0ms, 99.9%=84.0ms, 99.99%=84.0ms, 99.999%=84.0ms}
+2018-08-14/00:00:25.820/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 262. 5.193298 MT/s {50.0%=57.0ms, 90.0%=102.0ms, 99.0%=118.0ms, 99.9%=120.0ms, 99.99%=120.0ms, 99.999%=120.0ms}
+2018-08-14/00:00:27.560/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 263. 5.6645236 MT/s {50.0%=40.0ms, 90.0%=68.0ms, 99.0%=73.0ms, 99.9%=74.0ms, 99.99%=74.0ms, 99.999%=74.0ms}
+2018-08-14/00:00:29.296/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 264. 5.675252 MT/s {50.0%=41.0ms, 90.0%=70.0ms, 99.0%=76.0ms, 99.9%=76.0ms, 99.99%=76.0ms, 99.999%=76.0ms}
+2018-08-14/00:00:30.613/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 265. 6.6441975 MT/s {50.0%=8.9µs, 90.0%=1.16ms, 99.0%=2.79ms, 99.9%=2.92ms, 99.99%=2.94ms, 99.999%=2.95ms}
+2018-08-14/00:00:31.926/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 266. 6.6886897 MT/s {50.0%=7.0µs, 90.0%=1.95ms, 99.0%=2.86ms, 99.9%=2.94ms, 99.99%=2.99ms, 99.999%=3.0ms}
+2018-08-14/00:00:33.237/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 267. 6.6886897 MT/s {50.0%=4.0µs, 90.0%=33.0µs, 99.0%=2.66ms, 99.9%=2.91ms, 99.99%=2.94ms, 99.999%=2.95ms}
+2018-08-14/00:00:34.553/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 268. 6.7337823 MT/s {50.0%=6.3µs, 90.0%=2.45ms, 99.0%=3.0ms, 99.9%=3.1ms, 99.99%=3.1ms, 99.999%=3.1ms}
+2018-08-14/00:00:36.251/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 269. 5.729509 MT/s {50.0%=30.0ms, 90.0%=67.0ms, 99.0%=76.0ms, 99.9%=77.0ms, 99.99%=77.0ms, 99.999%=77.0ms}
+2018-08-14/00:00:37.809/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 270. 6.090514 MT/s {50.0%=24.5ms, 90.0%=46.0ms, 99.0%=51.0ms, 99.9%=52.0ms, 99.99%=52.0ms, 99.999%=52.0ms}
+2018-08-14/00:00:39.498/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 271. 5.7736664 MT/s {50.0%=36.0ms, 90.0%=71.0ms, 99.0%=80.0ms, 99.9%=82.0ms, 99.99%=82.0ms, 99.999%=82.0ms}
+2018-08-14/00:00:40.772/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 272. 6.7948594 MT/s {50.0%=5.3µs, 90.0%=265.0µs, 99.0%=3.6ms, 99.9%=3.8ms, 99.99%=3.8ms, 99.999%=3.8ms}
+2018-08-14/00:00:42.391/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 273. 5.957322 MT/s {50.0%=33.0ms, 90.0%=57.0ms, 99.0%=65.0ms, 99.9%=66.0ms, 99.99%=66.0ms, 99.999%=66.0ms}
+2018-08-14/00:00:44.228/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 274. 5.331909 MT/s {50.0%=62.0ms, 90.0%=109.0ms, 99.0%=123.0ms, 99.9%=125.0ms, 99.99%=125.0ms, 99.999%=125.0ms}
+2018-08-14/00:00:45.949/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 275. 5.7736664 MT/s {50.0%=52.0ms, 90.0%=78.0ms, 99.0%=86.0ms, 99.9%=88.0ms, 99.99%=88.0ms, 99.999%=88.0ms}
+2018-08-14/00:00:47.783/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 276. 5.549135 MT/s {50.0%=54.0ms, 90.0%=95.0ms, 99.0%=104.0ms, 99.9%=105.0ms, 99.99%=105.0ms, 99.999%=105.0ms}
+2018-08-14/00:00:49.629/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 277. 5.528659 MT/s {50.0%=57.0ms, 90.0%=100.0ms, 99.0%=109.0ms, 99.9%=110.0ms, 99.99%=110.0ms, 99.999%=110.0ms}
+2018-08-14/00:00:51.038/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 278. 6.514202 MT/s {50.0%=9.8ms, 90.0%=24.1ms, 99.0%=29.5ms, 99.9%=31.0ms, 99.99%=31.0ms, 99.999%=31.0ms}
+2018-08-14/00:00:52.381/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 279. 6.8103023 MT/s {50.0%=7.6µs, 90.0%=3.6ms, 99.0%=13.7ms, 99.9%=14.9ms, 99.99%=15.0ms, 99.999%=15.0ms}
+2018-08-14/00:00:54.185/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 280. 5.538878 MT/s {50.0%=55.0ms, 90.0%=101.0ms, 99.0%=111.0ms, 99.9%=112.0ms, 99.99%=113.0ms, 99.999%=113.0ms}
+2018-08-14/00:00:55.666/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 281. 6.486002 MT/s {50.0%=16.2ms, 90.0%=32.0ms, 99.0%=37.0ms, 99.9%=39.0ms, 99.99%=39.0ms, 99.999%=39.0ms}
+2018-08-14/00:00:57.107/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 282. 6.486002 MT/s {50.0%=15.7ms, 90.0%=31.0ms, 99.0%=37.0ms, 99.9%=38.0ms, 99.99%=38.0ms, 99.999%=38.0ms}
+2018-08-14/00:00:58.557/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 283. 6.486002 MT/s {50.0%=18.1ms, 90.0%=35.0ms, 99.0%=40.0ms, 99.9%=42.0ms, 99.99%=42.0ms, 99.999%=42.0ms}
+2018-08-14/00:01:00.246/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 284. 5.898687 MT/s {50.0%=42.0ms, 90.0%=77.0ms, 99.0%=87.0ms, 99.9%=89.0ms, 99.99%=89.0ms, 99.999%=89.0ms}
+2018-08-14/00:01:01.605/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 285. 6.8885818 MT/s {50.0%=7.7µs, 90.0%=7.2ms, 99.0%=16.9ms, 99.9%=17.9ms, 99.99%=18.0ms, 99.999%=18.0ms}
+2018-08-14/00:01:03.402/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 286. 5.611485 MT/s {50.0%=59.0ms, 90.0%=104.0ms, 99.0%=113.0ms, 99.9%=114.0ms, 99.99%=114.0ms, 99.999%=114.0ms}
+2018-08-14/00:01:04.928/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 287. 6.4028482 MT/s {50.0%=26.3ms, 90.0%=47.0ms, 99.0%=54.0ms, 99.9%=56.0ms, 99.99%=56.0ms, 99.999%=56.0ms}
+2018-08-14/00:01:06.828/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 288. 5.632581 MT/s {50.0%=58.0ms, 90.0%=101.0ms, 99.0%=113.0ms, 99.9%=115.0ms, 99.99%=115.0ms, 99.999%=115.0ms}
+2018-08-14/00:01:08.726/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 289. 5.6645236 MT/s {50.0%=55.0ms, 90.0%=100.0ms, 99.0%=112.0ms, 99.9%=114.0ms, 99.99%=114.0ms, 99.999%=114.0ms}
+2018-08-14/00:01:10.612/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 290. 5.518477 MT/s {50.0%=62.0ms, 90.0%=117.0ms, 99.0%=128.0ms, 99.9%=129.0ms, 99.99%=129.0ms, 99.999%=129.0ms}
+2018-08-14/00:01:12.520/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 291. 5.3894477 MT/s {50.0%=72.0ms, 90.0%=129.0ms, 99.0%=145.0ms, 99.9%=147.0ms, 99.99%=147.0ms, 99.999%=147.0ms}
+2018-08-14/00:01:14.699/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 292. 5.087492 MT/s {50.0%=89.0ms, 90.0%=161.0ms, 99.0%=178.0ms, 99.9%=181.0ms, 99.99%=182.0ms, 99.999%=182.0ms}
+2018-08-14/00:01:16.607/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 293. 5.6431885 MT/s {50.0%=59.0ms, 90.0%=105.0ms, 99.0%=118.0ms, 99.9%=120.0ms, 99.99%=120.0ms, 99.999%=120.0ms}
+2018-08-14/00:01:18.466/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 294. 5.796002 MT/s {50.0%=53.0ms, 90.0%=100.0ms, 99.0%=109.0ms, 99.9%=110.0ms, 99.99%=110.0ms, 99.999%=110.0ms}
+2018-08-14/00:01:20.321/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 295. 5.7625637 MT/s {50.0%=56.0ms, 90.0%=102.0ms, 99.0%=112.0ms, 99.9%=113.0ms, 99.99%=113.0ms, 99.999%=113.0ms}
+2018-08-14/00:01:22.154/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 296. 5.5594306 MT/s {50.0%=67.0ms, 90.0%=121.0ms, 99.0%=132.0ms, 99.9%=133.0ms, 99.99%=133.0ms, 99.999%=133.0ms}
+2018-08-14/00:01:24.077/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 297. 5.4482417 MT/s {50.0%=75.0ms, 90.0%=131.0ms, 99.0%=143.0ms, 99.9%=144.0ms, 99.99%=144.0ms, 99.999%=144.0ms}
+2018-08-14/00:01:26.013/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 298. 5.331909 MT/s {50.0%=83.0ms, 90.0%=144.0ms, 99.0%=156.0ms, 99.9%=157.0ms, 99.99%=157.0ms, 99.999%=157.0ms}
+2018-08-14/00:01:27.298/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 299. 7.4913325 MT/s {50.0%=15.2µs, 90.0%=1.86ms, 99.0%=2.75ms, 99.9%=2.83ms, 99.99%=2.87ms, 99.999%=2.88ms}
+2018-08-14/00:01:28.581/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 300. 7.510108 MT/s {50.0%=12.9µs, 90.0%=1.85ms, 99.0%=2.88ms, 99.9%=2.94ms, 99.99%=2.98ms, 99.999%=2.98ms}
+2018-08-14/00:01:29.863/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 301. 7.4913325 MT/s {50.0%=35.0µs, 90.0%=2.76ms, 99.0%=3.4ms, 99.9%=4.1ms, 99.99%=4.2ms, 99.999%=4.2ms}
+2018-08-14/00:01:31.167/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 302. 7.326486 MT/s {50.0%=6.4ms, 90.0%=9.9ms, 99.0%=12.3ms, 99.9%=13.1ms, 99.99%=13.2ms, 99.999%=13.2ms}
+2018-08-14/00:01:32.483/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 303. 7.326486 MT/s {50.0%=6.1ms, 90.0%=11.1ms, 99.0%=13.8ms, 99.9%=14.7ms, 99.99%=14.8ms, 99.999%=14.8ms}
+2018-08-14/00:01:34.364/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 304. 5.538878 MT/s {50.0%=76.0ms, 90.0%=131.0ms, 99.0%=143.0ms, 99.9%=144.0ms, 99.99%=144.0ms, 99.999%=144.0ms}
+2018-08-14/00:01:35.992/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 305. 6.335165 MT/s {50.0%=42.0ms, 90.0%=73.0ms, 99.0%=82.0ms, 99.9%=84.0ms, 99.99%=84.0ms, 99.999%=84.0ms}
+2018-08-14/00:01:37.339/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 306. 7.255528 MT/s {50.0%=10.0ms, 90.0%=17.8ms, 99.0%=21.1ms, 99.9%=22.1ms, 99.99%=22.2ms, 99.999%=22.2ms}
+2018-08-14/00:01:38.845/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 307. 6.718684 MT/s {50.0%=10.2ms, 90.0%=41.0ms, 99.0%=53.0ms, 99.9%=55.0ms, 99.99%=55.0ms, 99.999%=55.0ms}
+2018-08-14/00:01:40.766/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 308. 5.590547 MT/s {50.0%=76.0ms, 90.0%=133.0ms, 99.0%=145.0ms, 99.9%=146.0ms, 99.99%=146.0ms, 99.999%=146.0ms}
+2018-08-14/00:01:42.472/CEST [Thread-2] INFO  o.s.c.a.AnnotationConfigApplicationContext - Closing org.springframework.context.annotation.AnnotationConfigApplicationContext@4082ba93: startup date [Mon Aug 13 23:47:09 CEST 2018]; root of context hierarchy
+2018-08-14/00:01:42.475/CEST [Thread-2] INFO  o.o.e.core.MatchingEngineRouter - Stopping Matching Engine disruptors...
+2018-08-14/00:01:42.475/CEST [Thread-2] INFO  o.o.e.core.MatchingEngineRouter - Matching Engine disruptors stopped
+2018-08-14/00:01:42.750/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 309. 5.2755866 MT/s {50.0%=89.0ms, 90.0%=158.0ms, 99.0%=175.0ms, 99.9%=178.0ms, 99.99%=178.0ms, 99.999%=178.0ms}
+2018-08-14/00:01:44.655/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 310. 5.3894477 MT/s {50.0%=76.0ms, 90.0%=146.0ms, 99.0%=168.0ms, 99.9%=171.0ms, 99.99%=171.0ms, 99.999%=171.0ms}
+
+Process finished with exit code 137 (interrupted by signal 9: SIGKILL)
