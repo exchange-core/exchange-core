@@ -1,9 +1,10 @@
-2018-08-05/22:21:29.603/CEST [main] INFO  o.s.b.t.c.SpringBootTestContextBootstrapper - Neither @ContextConfiguration nor @ContextHierarchy found for test class [org.openpredict.exchange.tests.ExchangeCoreStress], using SpringBootContextLoader
-2018-08-05/22:21:29.612/CEST [main] INFO  o.s.t.c.s.AbstractContextLoader - Could not detect default resource locations for test class [org.openpredict.exchange.tests.ExchangeCoreStress]: no resource found for suffixes {-context.xml, Context.groovy}.
-2018-08-05/22:21:29.613/CEST [main] INFO  o.s.t.c.s.AnnotationConfigContextLoaderUtils - Could not detect default configuration classes for test class [org.openpredict.exchange.tests.ExchangeCoreStress]: ExchangeCoreStress does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
-2018-08-05/22:21:29.747/CEST [main] INFO  o.s.b.t.c.SpringBootTestContextBootstrapper - Found @SpringBootConfiguration org.openpredict.exchange.ExchangeCoreApplication for test class org.openpredict.exchange.tests.ExchangeCoreStress
-2018-08-05/22:21:29.858/CEST [main] INFO  o.s.b.t.c.SpringBootTestContextBootstrapper - Loaded default TestExecutionListener class names from location [META-INF/spring.factories]: [org.springframework.boot.test.mock.mockito.MockitoTestExecutionListener, org.springframework.boot.test.mock.mockito.ResetMocksTestExecutionListener, org.springframework.boot.test.autoconfigure.restdocs.RestDocsTestExecutionListener, org.springframework.boot.test.autoconfigure.web.client.MockRestServiceServerResetTestExecutionListener, org.springframework.boot.test.autoconfigure.web.servlet.MockMvcPrintOnlyOnFailureTestExecutionListener, org.springframework.boot.test.autoconfigure.web.servlet.WebDriverTestExecutionListener, org.springframework.test.context.web.ServletTestExecutionListener, org.springframework.test.context.support.DirtiesContextBeforeModesTestExecutionListener, org.springframework.test.context.support.DependencyInjectionTestExecutionListener, org.springframework.test.context.support.DirtiesContextTestExecutionListener, org.springframework.test.context.transaction.TransactionalTestExecutionListener, org.springframework.test.context.jdbc.SqlScriptsTestExecutionListener]
-2018-08-05/22:21:29.880/CEST [main] INFO  o.s.b.t.c.SpringBootTestContextBootstrapper - Using TestExecutionListeners: [org.springframework.test.context.support.DirtiesContextBeforeModesTestExecutionListener@5552768b, org.springframework.boot.test.mock.mockito.MockitoTestExecutionListener@3c947bc5, org.springframework.boot.test.autoconfigure.SpringBootDependencyInjectionTestExecutionListener@609db43b, org.springframework.test.context.support.DirtiesContextTestExecutionListener@55f616cf, org.springframework.boot.test.mock.mockito.ResetMocksTestExecutionListener@1356d4d4, org.springframework.boot.test.autoconfigure.restdocs.RestDocsTestExecutionListener@c03cf28, org.springframework.boot.test.autoconfigure.web.client.MockRestServiceServerResetTestExecutionListener@1329eff, org.springframework.boot.test.autoconfigure.web.servlet.MockMvcPrintOnlyOnFailureTestExecutionListener@6497b078, org.springframework.boot.test.autoconfigure.web.servlet.WebDriverTestExecutionListener@41c2284a]
+2018-08-15/22:56:27.610/CEST [main] INFO  o.s.b.t.c.SpringBootTestContextBootstrapper - Neither @ContextConfiguration nor @ContextHierarchy found for test class [org.openpredict.exchange.tests.ExchangeCoreStress], using SpringBootContextLoader
+2018-08-15/22:56:27.618/CEST [main] INFO  o.s.t.c.s.AbstractContextLoader - Could not detect default resource locations for test class [org.openpredict.exchange.tests.ExchangeCoreStress]: no resource found for suffixes {-context.xml, Context.groovy}.
+2018-08-15/22:56:27.618/CEST [main] INFO  o.s.t.c.s.AnnotationConfigContextLoaderUtils - Could not detect default configuration classes for test class [org.openpredict.exchange.tests.ExchangeCoreStress]: ExchangeCoreStress does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2018-08-15/22:56:27.722/CEST [main] INFO  o.s.b.t.c.SpringBootTestContextBootstrapper - Found @SpringBootConfiguration org.openpredict.exchange.ExchangeCoreApplication for test class org.openpredict.exchange.tests.ExchangeCoreStress
+2018-08-15/22:56:27.812/CEST [main] INFO  o.s.b.t.c.SpringBootTestContextBootstrapper - Loaded default TestExecutionListener class names from location [META-INF/spring.factories]: [org.springframework.boot.test.mock.mockito.MockitoTestExecutionListener, org.springframework.boot.test.mock.mockito.ResetMocksTestExecutionListener, org.springframework.boot.test.autoconfigure.restdocs.RestDocsTestExecutionListener, org.springframework.boot.test.autoconfigure.web.client.MockRestServiceServerResetTestExecutionListener, org.springframework.boot.test.autoconfigure.web.servlet.MockMvcPrintOnlyOnFailureTestExecutionListener, org.springframework.boot.test.autoconfigure.web.servlet.WebDriverTestExecutionListener, org.springframework.test.context.web.ServletTestExecutionListener, org.springframework.test.context.support.DirtiesContextBeforeModesTestExecutionListener, org.springframework.test.context.support.DependencyInjectionTestExecutionListener, org.springframework.test.context.support.DirtiesContextTestExecutionListener, org.springframework.test.context.transaction.TransactionalTestExecutionListener, org.springframework.test.context.jdbc.SqlScriptsTestExecutionListener]
+2018-08-15/22:56:27.821/CEST [main] INFO  o.s.b.t.c.SpringBootTestContextBootstrapper - Using TestExecutionListeners: [org.springframework.test.context.support.DirtiesContextBeforeModesTestExecutionListener@73ee04c8, org.springframework.boot.test.mock.mockito.MockitoTestExecutionListener@7671cb68, org.springframework.boot.test.autoconfigure.SpringBootDependencyInjectionTestExecutionListener@49dc7102, org.springframework.test.context.support.DirtiesContextTestExecutionListener@6b8ca3c8, org.springframework.boot.test.mock.mockito.ResetMocksTestExecutionListener@68c72235, org.springframework.boot.test.autoconfigure.restdocs.RestDocsTestExecutionListener@10959ece, org.springframework.boot.test.autoconfigure.web.client.MockRestServiceServerResetTestExecutionListener@3a6bb9bf, org.springframework.boot.test.autoconfigure.web.servlet.MockMvcPrintOnlyOnFailureTestExecutionListener@34f7cfd9, org.springframework.boot.test.autoconfigure.web.servlet.WebDriverTestExecutionListener@65f095f8]
+
   .   ____          _            __ _ _
  /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
 ( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
@@ -12,68 +13,120 @@
  =========|_|==============|___/=/_/_/_/
  :: Spring Boot ::        (v2.0.2.RELEASE)
 
-2018-08-05/22:21:30.076/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - Starting ExchangeCoreStress on sun with PID 5995 (started by mzheravin in /home/mzheravin/openpredict/src/openpredict/openpredict-exchange-core)
-2018-08-05/22:21:30.077/CEST [main] DEBUG o.o.e.tests.ExchangeCoreStress - Running with Spring Boot v2.0.2.RELEASE, Spring v5.0.6.RELEASE
-2018-08-05/22:21:30.077/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - No active profile set, falling back to default profiles: default
-2018-08-05/22:21:30.097/CEST [main] INFO  o.s.c.a.AnnotationConfigApplicationContext - Refreshing org.springframework.context.annotation.AnnotationConfigApplicationContext@359df09a: startup date [Sun Aug 05 22:21:30 CEST 2018]; root of context hierarchy
-2018-08-05/22:21:31.014/CEST [main] DEBUG o.o.exchange.core.ExchangeCore - STARTING Disruptor
-2018-08-05/22:21:31.328/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - Started ExchangeCoreStress in 1.413 seconds (JVM running for 2.542)
-2018-08-05/22:21:31.460/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - 4086 Orders num: 419 (0% done)
-2018-08-05/22:21:36.225/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - total commands: 2996391
-2018-08-05/22:21:36.226/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - completed:171749 rejected:0 reduce:172101
-2018-08-05/22:21:36.226/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - place limit: 259949 (8.675404%)
-2018-08-05/22:21:36.226/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - place market: 85052 (2.8384814%)
-2018-08-05/22:21:36.226/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - cancel: 172101 (5.74361%)
-2018-08-05/22:21:36.226/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - move: 2479289 (82.74251%)
-2018-08-05/22:21:36.234/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - Average order book size: ASK=388.14072 BID=391.4112 (732 samples)
-2018-08-05/22:21:36.235/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - Average limit orders number in the order book:1051.7595 (target:1000)
-2018-08-05/22:21:36.235/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - Commands success=100.0%
-2018-08-05/22:21:38.533/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 0. 5.4878955 MT/s
-2018-08-05/22:21:39.840/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 1. 7.823475 MT/s
-2018-08-05/22:21:41.028/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 2. 8.891368 MT/s
-2018-08-05/22:21:42.196/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 3. 9.422613 MT/s
-2018-08-05/22:21:43.336/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 4. 10.157258 MT/s
-2018-08-05/22:21:44.440/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 5. 10.895967 MT/s
-2018-08-05/22:21:45.583/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 6. 10.3681345 MT/s
-2018-08-05/22:21:46.716/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 7. 9.824232 MT/s
-2018-08-05/22:21:47.877/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 8. 9.824232 MT/s
-2018-08-05/22:21:49.039/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 9. 9.824232 MT/s
-2018-08-05/22:21:50.198/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 10. 9.824232 MT/s
-2018-08-05/22:21:51.343/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 11. 9.792128 MT/s
-2018-08-05/22:21:52.506/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 12. 9.824232 MT/s
-2018-08-05/22:21:53.652/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 13. 10.122942 MT/s
-2018-08-05/22:21:54.787/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 14. 10.701397 MT/s
-2018-08-05/22:21:55.918/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 15. 10.895967 MT/s
-2018-08-05/22:21:57.053/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 16. 10.5879545 MT/s
-2018-08-05/22:21:58.123/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 17. 12.97139 MT/s
-2018-08-05/22:21:59.242/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 18. 11.056793 MT/s
-2018-08-05/22:22:00.353/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 19. 10.935734 MT/s
-2018-08-05/22:22:01.482/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 20. 10.895967 MT/s
-2018-08-05/22:22:02.606/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 21. 10.935734 MT/s
-2018-08-05/22:22:03.762/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 22. 9.422613 MT/s
-2018-08-05/22:22:04.891/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 23. 10.5879545 MT/s
-2018-08-05/22:22:06.019/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 24. 10.935734 MT/s
-2018-08-05/22:22:07.133/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 25. 10.935734 MT/s
-2018-08-05/22:22:08.257/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 26. 10.935734 MT/s
-2018-08-05/22:22:09.384/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 27. 11.180564 MT/s
-2018-08-05/22:22:10.504/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 28. 11.056793 MT/s
-2018-08-05/22:22:11.621/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 29. 11.016144 MT/s
-2018-08-05/22:22:12.736/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 30. 11.264627 MT/s
-2018-08-05/22:22:13.849/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 31. 11.222439 MT/s
-2018-08-05/22:22:14.963/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 32. 11.222439 MT/s
-2018-08-05/22:22:16.079/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 33. 11.222439 MT/s
-2018-08-05/22:22:17.202/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 34. 11.180564 MT/s
-2018-08-05/22:22:18.306/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 35. 10.701397 MT/s
-2018-08-05/22:22:19.420/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 36. 11.056793 MT/s
-2018-08-05/22:22:20.635/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 37. 8.277323 MT/s
-2018-08-05/22:22:21.783/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 38. 10.055003 MT/s
-2018-08-05/22:22:22.907/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 39. 11.016144 MT/s
-2018-08-05/22:22:24.029/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 40. 11.056793 MT/s
-2018-08-05/22:22:25.152/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 41. 10.701397 MT/s
-2018-08-05/22:22:26.282/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 42. 10.701397 MT/s
-2018-08-05/22:22:27.435/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 43. 9.697059 MT/s
-2018-08-05/22:22:28.098/CEST [Thread-2] INFO  o.s.c.a.AnnotationConfigApplicationContext - Closing org.springframework.context.annotation.AnnotationConfigApplicationContext@359df09a: startup date [Sun Aug 05 22:21:30 CEST 2018]; root of context hierarchy
-2018-08-05/22:22:28.100/CEST [Thread-2] INFO  o.o.e.core.MatchingEngineRouter - Stopping Matching Engine disruptors...
-2018-08-05/22:22:28.101/CEST [Thread-2] INFO  o.o.e.core.MatchingEngineRouter - Matching Engine disruptors stopped
-
-Process finished with exit code 130 (interrupted by signal 2: SIGINT)
+2018-08-15/22:56:28.015/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - Starting ExchangeCoreStress on sun with PID 5923 (started by mzheravin in /home/mzheravin/exchange-core)
+2018-08-15/22:56:28.016/CEST [main] DEBUG o.o.e.tests.ExchangeCoreStress - Running with Spring Boot v2.0.2.RELEASE, Spring v5.0.6.RELEASE
+2018-08-15/22:56:28.016/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - No active profile set, falling back to default profiles: default
+2018-08-15/22:56:28.035/CEST [main] INFO  o.s.c.a.AnnotationConfigApplicationContext - Refreshing org.springframework.context.annotation.AnnotationConfigApplicationContext@2ab4bc72: startup date [Wed Aug 15 22:56:28 CEST 2018]; root of context hierarchy
+2018-08-15/22:56:28.857/CEST [main] DEBUG o.o.exchange.core.ExchangeCore - STARTING Disruptor
+2018-08-15/22:56:28.984/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - Started ExchangeCoreStress in 1.135 seconds (JVM running for 1.958)
+2018-08-15/22:56:29.114/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - 4086 Orders num: 421 (0% done)
+2018-08-15/22:56:32.492/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - total commands: 2996533
+2018-08-15/22:56:32.492/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - completed:171766 rejected:0 reduce:171500
+2018-08-15/22:56:32.492/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - place limit: 259022 (8.644056%)
+2018-08-15/22:56:32.492/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - place market: 85366 (2.8488257%)
+2018-08-15/22:56:32.492/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - cancel: 171500 (5.723281%)
+2018-08-15/22:56:32.492/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - move: 2480645 (82.78384%)
+2018-08-15/22:56:32.501/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - Average order book size: ASK=386.94263 BID=387.7418 (732 samples)
+2018-08-15/22:56:32.501/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - Average limit orders number in the order book:1043.1613 (target:1000)
+2018-08-15/22:56:32.501/CEST [main] DEBUG o.o.e.tests.util.TestOrdersGenerator - Commands success=100.0%
+2018-08-15/22:56:35.078/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 0. 4.150323 MT/s
+2018-08-15/22:56:36.486/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 1. 6.486002 MT/s
+2018-08-15/22:56:37.780/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 2. 7.7031693 MT/s
+2018-08-15/22:56:39.263/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 3. 6.7641826 MT/s
+2018-08-15/22:56:40.660/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 4. 5.488156 MT/s
+2018-08-15/22:56:42.051/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 5. 5.7625637 MT/s
+2018-08-15/22:56:43.393/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 6. 6.090514 MT/s
+2018-08-15/22:56:44.668/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 7. 7.067295 MT/s
+2018-08-15/22:56:46.011/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 8. 5.4482417 MT/s
+2018-08-15/22:56:47.401/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 9. 5.4982257 MT/s
+2018-08-15/22:56:48.771/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 10. 5.718574 MT/s
+2018-08-15/22:56:50.092/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 11. 6.718684 MT/s
+2018-08-15/22:56:51.495/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 12. 5.4581656 MT/s
+2018-08-15/22:56:52.882/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 13. 5.580136 MT/s
+2018-08-15/22:56:54.224/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 14. 6.0171347 MT/s
+2018-08-15/22:56:55.503/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 15. 6.6294975 MT/s
+2018-08-15/22:56:56.747/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 16. 7.683418 MT/s
+2018-08-15/22:56:58.029/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 17. 6.718684 MT/s
+2018-08-15/22:56:59.435/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 18. 5.303598 MT/s
+2018-08-15/22:57:00.704/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 19. 6.7948594 MT/s
+2018-08-15/22:57:01.934/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 20. 7.803471 MT/s
+2018-08-15/22:57:03.151/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 21. 7.7832026 MT/s
+2018-08-15/22:57:04.418/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 22. 7.15163 MT/s
+2018-08-15/22:57:05.740/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 23. 5.8298306 MT/s
+2018-08-15/22:57:07.030/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 24. 6.825815 MT/s
+2018-08-15/22:57:08.363/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 25. 6.2297983 MT/s
+2018-08-15/22:57:09.748/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 26. 5.428502 MT/s
+2018-08-15/22:57:11.034/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 27. 6.904454 MT/s
+2018-08-15/22:57:12.428/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 28. 5.428502 MT/s
+2018-08-15/22:57:13.737/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 29. 6.4719934 MT/s
+2018-08-15/22:57:15.057/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 30. 6.416559 MT/s
+2018-08-15/22:57:16.455/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 31. 5.622013 MT/s
+2018-08-15/22:57:17.806/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 32. 5.922002 MT/s
+2018-08-15/22:57:19.055/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 33. 7.308617 MT/s
+2018-08-15/22:57:20.288/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 34. 7.7031693 MT/s
+2018-08-15/22:57:21.508/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 35. 7.644217 MT/s
+2018-08-15/22:57:22.774/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 36. 6.8885818 MT/s
+2018-08-15/22:57:24.143/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 37. 5.7625637 MT/s
+2018-08-15/22:57:25.437/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 38. 6.444157 MT/s
+2018-08-15/22:57:26.703/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 39. 7.100789 MT/s
+2018-08-15/22:57:27.935/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 40. 7.7230234 MT/s
+2018-08-15/22:57:29.227/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 41. 6.779486 MT/s
+2018-08-15/22:57:30.504/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 42. 7.050666 MT/s
+2018-08-15/22:57:31.809/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 43. 6.585787 MT/s
+2018-08-15/22:57:33.101/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 44. 6.500072 MT/s
+2018-08-15/22:57:34.433/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 45. 5.981104 MT/s
+2018-08-15/22:57:35.782/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 46. 6.0050764 MT/s
+2018-08-15/22:57:37.157/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 47. 5.4482417 MT/s
+2018-08-15/22:57:38.538/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 48. 5.4482417 MT/s
+2018-08-15/22:57:39.802/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 49. 7.1346025 MT/s
+2018-08-15/22:57:41.042/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 50. 7.644217 MT/s
+2018-08-15/22:57:42.330/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 51. 6.748948 MT/s
+2018-08-15/22:57:43.579/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 52. 7.454062 MT/s
+2018-08-15/22:57:44.860/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 53. 7.1176558 MT/s
+2018-08-15/22:57:46.148/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 54. 6.7948594 MT/s
+2018-08-15/22:57:47.373/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 55. 7.663767 MT/s
+2018-08-15/22:57:48.648/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 56. 6.9525127 MT/s
+2018-08-15/22:57:49.886/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 57. 7.683418 MT/s
+2018-08-15/22:57:51.166/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 58. 6.841399 MT/s
+2018-08-15/22:57:52.451/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 59. 6.872782 MT/s
+2018-08-15/22:57:53.699/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 60. 7.7031693 MT/s
+2018-08-15/22:57:54.988/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 61. 6.920399 MT/s
+2018-08-15/22:57:56.308/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 62. 6.4580455 MT/s
+2018-08-15/22:57:57.612/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 63. 6.444157 MT/s
+2018-08-15/22:57:58.920/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 64. 6.4719934 MT/s
+2018-08-15/22:58:00.285/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 65. 5.718574 MT/s
+2018-08-15/22:58:01.524/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 66. 7.7230234 MT/s
+2018-08-15/22:58:02.762/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 67. 7.663767 MT/s
+2018-08-15/22:58:04.052/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 68. 6.6886897 MT/s
+2018-08-15/22:58:05.292/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 69. 7.6247663 MT/s
+2018-08-15/22:58:06.610/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 70. 6.416559 MT/s
+2018-08-15/22:58:07.836/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 71. 7.510108 MT/s
+2018-08-15/22:58:09.067/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 72. 7.644217 MT/s
+2018-08-15/22:58:10.361/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 73. 6.7948594 MT/s
+2018-08-15/22:58:11.655/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 74. 6.748948 MT/s
+2018-08-15/22:58:13.062/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 75. 5.3991585 MT/s
+2018-08-15/22:58:14.457/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 76. 5.3991585 MT/s
+2018-08-15/22:58:15.756/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 77. 6.7337823 MT/s
+2018-08-15/22:58:17.067/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 78. 6.4028482 MT/s
+2018-08-15/22:58:18.319/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 79. 7.15163 MT/s
+2018-08-15/22:58:19.583/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 80. 6.936419 MT/s
+2018-08-15/22:58:20.827/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 81. 7.6247663 MT/s
+2018-08-15/22:58:22.065/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 82. 7.663767 MT/s
+2018-08-15/22:58:23.331/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 83. 7.100789 MT/s
+2018-08-15/22:58:24.603/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 84. 6.779486 MT/s
+2018-08-15/22:58:25.909/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 85. 6.5426483 MT/s
+2018-08-15/22:58:27.124/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 86. 7.6247663 MT/s
+2018-08-15/22:58:28.491/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 87. 5.898687 MT/s
+2018-08-15/22:58:29.779/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 88. 6.7641826 MT/s
+2018-08-15/22:58:31.019/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 89. 7.7230234 MT/s
+2018-08-15/22:58:32.270/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 90. 7.4913325 MT/s
+2018-08-15/22:58:33.572/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 91. 6.5426483 MT/s
+2018-08-15/22:58:34.815/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 92. 7.5479417 MT/s
+2018-08-15/22:58:36.101/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 93. 6.7948594 MT/s
+2018-08-15/22:58:37.388/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 94. 6.825815 MT/s
+2018-08-15/22:58:38.651/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 95. 7.417161 MT/s
+2018-08-15/22:58:39.940/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 96. 6.8570547 MT/s
+2018-08-15/22:58:41.175/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 97. 7.7429795 MT/s
+2018-08-15/22:58:42.469/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 98. 6.514202 MT/s
+2018-08-15/22:58:43.742/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - 99. 6.7337823 MT/s
+2018-08-15/22:58:43.746/CEST [main] INFO  o.o.e.tests.ExchangeCoreStress - Average: 6.689253807067871 MT/s

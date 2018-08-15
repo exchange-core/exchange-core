@@ -4,7 +4,7 @@
 
 Capable to process 5M commands per second on 7-years old hardware (Intel® Xeon® X5690) without significant latency degradation:
 
-|    |50.0% |90.0% |99.0% |99.9% |99.99% |99.999%|
+|rate|50.0% |90.0% |99.0% |99.9% |99.99% |99.999%|
 |----|------|------|------|------|-------|-------|
 |125K|0.83µs|1.15µs|1.73µs|16.2µs|550.0µs|1.47ms |
 |250K|0.83µs|1.09µs|1.92µs|22.1µs|572.0µs|1.35ms |
@@ -49,4 +49,5 @@ Benchmark configuration:
 
 ### How to run tests
 Latency test: mvn -Dtest=ExchangeCoreStress#latencyTest test
+Throughput test: mvn -Dtest=ExchangeCoreStress#throughputTest test
 

@@ -22,6 +22,7 @@ import org.springframework.test.context.junit4.SpringRunner;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 import static org.openpredict.exchange.util.LatencyTools.LATENCY_RESOLUTION;
@@ -86,12 +87,15 @@ public class ExchangeCoreStress {
             uid.add(i);
         }
 
-        exchangeCore.setResultsConsumer(resultEvent -> {
-//            log.debug("RESULT {}", resultEvent);
-        });
-
         List<OrderCommand> orderCommands = generator.generateCommands(numOrders, targetOrderBookOrders, uid);
         List<ApiCommand> apiCommands = generator.convertToApiCommand(orderCommands, SYMBOL);
+
+        AtomicInteger counter = new AtomicInteger();
+
+        exchangeCore.setResultsConsumer(resultEvent -> {
+//            log.debug("RESULT {}", resultEvent);
+            counter.decrementAndGet();
+        });
 
         List<Float> perfResults = new ArrayList<>();
         for (int j = 0; j < 100; j++) {
@@ -100,13 +104,18 @@ public class ExchangeCoreStress {
             matchingEngineRouter.reset();
             System.gc();
             Thread.sleep(200);
+            counter.set(apiCommands.size());
 
             long t = System.currentTimeMillis();
             for (ApiCommand cmd : apiCommands) {
                 apiCore.submitCommand(cmd);
             }
-            t = System.currentTimeMillis() - t;
 
+            while (counter.get() > 0) {
+                // spin until all commands have processed
+            }
+
+            t = System.currentTimeMillis() - t;
             float perfMt = (float) apiCommands.size() / (float) t / 1000.0f;
             log.info("{}. {} MT/s", j, perfMt);
             perfResults.add(perfMt);
