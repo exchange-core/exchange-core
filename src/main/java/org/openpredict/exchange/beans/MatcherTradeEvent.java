@@ -24,7 +24,7 @@ public class MatcherTradeEvent {
     public long matchedOrderUid; // 0 for rejection
     public boolean matchedOrderCompleted; // false, except when matchedOrder is completely filled
 
-    public int price; // 0 for rejection
+    public long price; // 0 for rejection
     public long size;  // ? unmatched size for rejection
     public long timestamp; // same as activeOrder related event timestamp
 

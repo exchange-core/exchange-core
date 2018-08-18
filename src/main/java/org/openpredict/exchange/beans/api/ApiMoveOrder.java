@@ -8,7 +8,7 @@ public class ApiMoveOrder extends ApiCommand {
 
     public long id;
 
-    public int newPrice;
+    public long newPrice;
     public long newSize;
 
     public long uid;

@@ -1,27 +1,36 @@
 package org.openpredict.exchange.beans;
 
 import com.google.common.base.Strings;
-import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
 import java.util.Arrays;
 
+/**
+ * L2 Market Data carrier object
+ * <p>
+ * NOTE: Can have dirty data, askSize and bidSize are important!
+ */
 @ToString
-@EqualsAndHashCode
 public class L2MarketData {
+
+    public static final int L2_SIZE = 32;
 
     public int askSize;
     public int bidSize;
 
-    public long totalVolumeAsk;
-    public long totalVolumeBid;
-
-    public int askPrices[];
+    public long askPrices[];
     public long askVolumes[];
-    public int bidPrices[];
+    public long bidPrices[];
     public long bidVolumes[];
 
-    public L2MarketData(int[] askPrices, long[] askVolumes, int[] bidPrices, long[] bidVolumes) {
+    // when published
+    public long timestamp;
+    public long referenceSeq;
+
+//    public long totalVolumeAsk;
+//    public long totalVolumeBid;
+
+    public L2MarketData(long[] askPrices, long[] askVolumes, long[] bidPrices, long[] bidVolumes) {
         this.askPrices = askPrices;
         this.askVolumes = askVolumes;
         this.bidPrices = bidPrices;
@@ -31,29 +40,28 @@ public class L2MarketData {
         this.bidSize = bidPrices.length;
     }
 
-    public L2MarketData(int preAllocatedSize) {
-        this.askPrices = new int[preAllocatedSize];
-        this.bidPrices = new int[preAllocatedSize];
-        this.askVolumes = new long[preAllocatedSize];
-        this.bidVolumes = new long[preAllocatedSize];
+    public L2MarketData(int askSize, int bidSize) {
+        this.askPrices = new long[askSize];
+        this.bidPrices = new long[bidSize];
+        this.askVolumes = new long[askSize];
+        this.bidVolumes = new long[bidSize];
     }
 
     public String dumpOrderBook() {
-        L2MarketData l2MarketData = this;
-        int priceWith = maxWidth(2, l2MarketData.askPrices, l2MarketData.bidPrices);
-        int volWith = maxWidth(2, l2MarketData.askVolumes, l2MarketData.bidVolumes);
+        int priceWith = maxWidth(2, Arrays.copyOf(askPrices, askSize), Arrays.copyOf(bidPrices, bidSize));
+        int volWith = maxWidth(2, Arrays.copyOf(askVolumes, askSize), Arrays.copyOf(bidVolumes, bidSize));
 
         StringBuilder s = new StringBuilder("Order book:\n");
         s.append(".").append(Strings.repeat("-", priceWith - 2)).append("ASKS").append(Strings.repeat("-", volWith - 1)).append(".\n");
-        for (int i = l2MarketData.askPrices.length - 1; i >= 0; i--) {
-            String price = Strings.padStart(String.valueOf(l2MarketData.askPrices[i]), priceWith, ' ');
-            String volume = Strings.padStart(String.valueOf(l2MarketData.askVolumes[i]), volWith, ' ');
+        for (int i = askSize - 1; i >= 0; i--) {
+            String price = Strings.padStart(String.valueOf(this.askPrices[i]), priceWith, ' ');
+            String volume = Strings.padStart(String.valueOf(this.askVolumes[i]), volWith, ' ');
             s.append(String.format("|%s|%s|\n", price, volume));
         }
         s.append("|").append(Strings.repeat("-", priceWith)).append("+").append(Strings.repeat("-", volWith)).append("|\n");
-        for (int i = 0; i < l2MarketData.bidPrices.length; i++) {
-            String price = Strings.padStart(String.valueOf(l2MarketData.bidPrices[i]), priceWith, ' ');
-            String volume = Strings.padStart(String.valueOf(l2MarketData.bidVolumes[i]), volWith, ' ');
+        for (int i = 0; i < bidSize; i++) {
+            String price = Strings.padStart(String.valueOf(this.bidPrices[i]), priceWith, ' ');
+            String volume = Strings.padStart(String.valueOf(this.bidVolumes[i]), volWith, ' ');
             s.append(String.format("|%s|%s|\n", price, volume));
         }
         s.append("'").append(Strings.repeat("-", priceWith - 2)).append("BIDS").append(Strings.repeat("-", volWith - 1)).append("'\n");
@@ -77,4 +85,30 @@ public class L2MarketData {
     }
 
 
+    @Override
+    public boolean equals(Object obj) {
+        if (!(obj instanceof L2MarketData)) {
+            return false;
+        }
+        L2MarketData o = (L2MarketData) obj;
+
+        if (askSize != o.askSize || bidSize != o.bidSize) {
+            return false;
+        }
+
+        for (int i = 0; i < askSize; i++) {
+            if (askPrices[i] != o.askPrices[i] || askVolumes[i] != o.askVolumes[i]) {
+                return false;
+            }
+        }
+        for (int i = 0; i < bidSize; i++) {
+            if (bidPrices[i] != o.bidPrices[i] || bidVolumes[i] != o.bidVolumes[i]) {
+                return false;
+            }
+        }
+        return true;
+
+    }
+
+    // TODO hashcode
 }

@@ -19,7 +19,7 @@ public class OrdersBucketSlow implements IOrdersBucket {
 
     @Getter
     @Setter
-    private int price;
+    private long price;
 
     //    private Long2ObjectMap<Order> entries = new Long2ObjectLinkedOpenHashMap<>();
     private LinkedHashMap<Long, Order> entries = new LinkedHashMap<>();

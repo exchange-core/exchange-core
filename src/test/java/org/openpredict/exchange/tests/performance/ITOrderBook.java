@@ -74,11 +74,9 @@ public class ITOrderBook {
 
         log.debug("orderCommands size: {}", orderCommands.size());
 
-        EventSink<L2MarketData> marketDataBuffer = new TestEventSink<>(new L2MarketData(20));
-
         List<Float> perfResults = new ArrayList<>();
         for (int j = 0; j < 1000; j++) {
-            orderBook = IOrderBook.newInstance(marketDataBuffer);
+            orderBook = IOrderBook.newInstance();
 
             long t = System.currentTimeMillis();
             OrderCommand workCmd = new OrderCommand();

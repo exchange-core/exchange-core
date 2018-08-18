@@ -25,7 +25,7 @@ public class OrderCommand {
 
     public long orderId;
     public int symbol;
-    public int price;  // optional for move  // TODO migrate back to long?
+    public long price;  // optional for move
     public long size;
 
     // required for PLACE_ORDER only;
@@ -49,7 +49,7 @@ public class OrderCommand {
     //public long matcherEventSequence;
     // ---- potential false sharing section ------
 
-    public static OrderCommand limitOrder(long orderId, int uid, int price, long size, OrderAction action) {
+    public static OrderCommand limitOrder(long orderId, int uid, long price, long size, OrderAction action) {
         OrderCommand cmd = new OrderCommand();
         cmd.command = PLACE_ORDER;
         cmd.orderId = orderId;
@@ -85,7 +85,7 @@ public class OrderCommand {
         return cmd;
     }
 
-    public static OrderCommand update(long orderId, int uid, int price, long size) {
+    public static OrderCommand update(long orderId, int uid, long price, long size) {
         OrderCommand cmd = new OrderCommand();
         cmd.command = MOVE_ORDER;
         cmd.orderId = orderId;

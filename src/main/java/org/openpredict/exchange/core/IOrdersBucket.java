@@ -51,9 +51,9 @@ public interface IOrdersBucket {
      *
      * @return bucket price
      */
-    int getPrice();
+    long getPrice();
 
-    void setPrice(int price);
+    void setPrice(long price);
 
     /**
      * Total size of all orders

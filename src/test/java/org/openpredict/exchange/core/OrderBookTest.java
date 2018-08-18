@@ -1,18 +1,17 @@
 package org.openpredict.exchange.core;
 
 import com.google.common.primitives.Longs;
-import com.lmax.disruptor.EventSink;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.MatcherEventType;
 import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.OrderAction;
+import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.tests.util.L2MarketDataHelper;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
@@ -24,10 +23,8 @@ import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.*;
 import static org.openpredict.exchange.beans.OrderAction.ASK;
 import static org.openpredict.exchange.beans.OrderAction.BID;
-import static org.openpredict.exchange.beans.OrderType.MARKET;
 import static org.openpredict.exchange.beans.cmd.CommandResultCode.MATCHING_INVALID_ORDER_ID;
 import static org.openpredict.exchange.beans.cmd.CommandResultCode.SUCCESS;
-import static org.openpredict.exchange.beans.cmd.OrderCommandType.PLACE_ORDER;
 
 /**
  * TODO add tests where orders for same UID ignored during matching
@@ -47,14 +44,11 @@ public class OrderBookTest {
 
     //private QueuedEventSink<MatcherTradeEvent> tradesConsumer;
 
-    @Mock
-    private EventSink<L2MarketData> marketDataConsumer;
-
     @Before
     public void before() {
         //tradesConsumer = new QueuedEventSink<>(MatcherTradeEvent::new, 1024);
 
-        orderBook = IOrderBook.newInstance(marketDataConsumer);
+        orderBook = IOrderBook.newInstance();
         orderBook.validateInternalState();
 
         orderBook.processCommand(OrderCommand.limitOrder(1, UID_1, 1600, 100, ASK));
@@ -70,9 +64,9 @@ public class OrderBookTest {
 
         expectedState = new L2MarketDataHelper(
                 new L2MarketData(
-                        new int[]{1599, 1600},
+                        new long[]{1599, 1600},
                         new long[]{75, 100},
-                        new int[]{1593, 1590, 1200},
+                        new long[]{1593, 1590, 1200},
                         new long[]{40, 21, 20}
                 )
         );
@@ -98,8 +92,8 @@ public class OrderBookTest {
 
 //        log.debug("{}", dumpOrderBook(orderBook.getL2MarketDataSnapshot(100000)));
 
-        assertThat(orderBook.getL2MarketDataSnapshot(10).askVolumes.length, is(0));
-        assertThat(orderBook.getL2MarketDataSnapshot(10).bidVolumes.length, is(0));
+        assertThat(orderBook.getL2MarketDataSnapshot(10).askSize, is(0));
+        assertThat(orderBook.getL2MarketDataSnapshot(10).bidSize, is(0));
 
         orderBook.validateInternalState();
     }
@@ -324,7 +318,7 @@ public class OrderBookTest {
     }
 
     @Test
-    public void shouldMatchMarketOrderByTwoLimitOrdersPartial() {
+    public void shouldMatchMarketOrderWithTwoLimitOrdersPartial() {
 
         // size=41
         OrderCommand cmd = OrderCommand.marketOrder(123, UID_2, 41, ASK);
@@ -585,16 +579,18 @@ public class OrderBookTest {
 
         TestOrdersGenerator generator = new TestOrdersGenerator();
 
-        int transactionsNumber = 100000;
+        int tranNum = 100000;
 
-        orderBook = IOrderBook.newInstance(marketDataConsumer);
+        orderBook = IOrderBook.newInstance();
         orderBook.validateInternalState();
 
-        List<OrderCommand> testCommands = generator.generateCommands(transactionsNumber, 200, Longs.asList(10, 11, 12, 13, 14, 15));
+        List<OrderCommand> testCommands = generator.generateCommands(tranNum, 200, Longs.asList(10, 11, 12, 13, 14, 15));
 
         testCommands.forEach(cmd -> {
             cmd.orderId += 100; // TODO set start id
             orderBook.processCommand(cmd);
+
+            assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
             orderBook.validateInternalState();
         });
 
@@ -602,7 +598,7 @@ public class OrderBookTest {
 
     // ------------------------------- UTILITY METHODS --------------------------
 
-    public void checkTrade(MatcherTradeEvent event, long activeId, long matchedId, int price, long size) {
+    public void checkTrade(MatcherTradeEvent event, long activeId, long matchedId, long price, long size) {
 
         assertThat(event.eventType, is(MatcherEventType.TRADE));
 

@@ -135,7 +135,7 @@ public class ExchangeCoreStress {
         int numUsers = 1000;
 
 //        int targetTps = 1000000; // transactions per second
-        int targetTps = 75_000; // transactions per second
+        int targetTps = 900_000; // transactions per second
         int targetTpsEnd = 7_000_000;
 //        int targetTps = 4_000_000; // transactions per second
 

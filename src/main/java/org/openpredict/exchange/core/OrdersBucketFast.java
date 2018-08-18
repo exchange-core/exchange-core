@@ -26,7 +26,7 @@ public class OrdersBucketFast implements IOrdersBucket {
 
     @Getter
     @Setter
-    private int price;
+    private long price;
 
     private MutableLongIntMap positions = new LongIntHashMap();
 

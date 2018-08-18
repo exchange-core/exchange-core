@@ -30,11 +30,7 @@ public class TestOrdersGenerator {
 
     public List<OrderCommand> generateCommands(int transactionsNumber, int targetOrderBookOrders, List<Long> uid) {
 
-
-        // use com.lmax.disruptor only for measuring performance, not for creating initial test (use BlockingQueue)
-        QueuedEventSink<L2MarketData> marketDataBuffer = new QueuedEventSink<>(() -> new L2MarketData(20), 128);
-
-        IOrderBook orderBook = IOrderBook.newInstance(marketDataBuffer);
+        IOrderBook orderBook = IOrderBook.newInstance();
 
         TestOrdersGeneratorSession session = new TestOrdersGeneratorSession(orderBook, targetOrderBookOrders);
         session.uid = uid;
@@ -109,10 +105,10 @@ public class TestOrdersGenerator {
     }
 
     private int updateOrderBookSizeStat(TestOrdersGeneratorSession session) {
-        L2MarketData l2MarketDataSnapshot = session.orderBook.getL2MarketDataSnapshot(2_000_000);
+        L2MarketData l2MarketDataSnapshot = session.orderBook.getL2MarketDataSnapshot(-1);
 //                log.debug("{}", dumpOrderBook(l2MarketDataSnapshot));
-        session.orderBookSizeAskStat.add(l2MarketDataSnapshot.askVolumes.length);
-        session.orderBookSizeBidStat.add(l2MarketDataSnapshot.bidVolumes.length);
+        session.orderBookSizeAskStat.add(l2MarketDataSnapshot.askSize);
+        session.orderBookSizeBidStat.add(l2MarketDataSnapshot.bidSize);
 
         int ordersNum = session.orderBook.getOrdersNum();
         // regulating OB size
