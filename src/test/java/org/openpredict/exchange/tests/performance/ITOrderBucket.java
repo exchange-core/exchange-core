@@ -141,7 +141,7 @@ public class ITOrderBucket {
 
     @Test
     public void perfAddManyOrders() {
-        int numOrdersToAdd = 20_000_000;
+        int numOrdersToAdd = 10_000_000;
         long expectedVolume = bucket.getTotalVolume();
         int expectedNumOrders = bucket.getNumOrders() + numOrdersToAdd;
         Order orders[] = new Order[numOrdersToAdd];

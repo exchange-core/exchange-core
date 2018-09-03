@@ -131,11 +131,11 @@ public class ExchangeCoreStress {
     public void latencyTest() throws Exception {
 
         int numOrders = 3_000_000;
-        int targetOrderBookOrders = 1000;
-        int numUsers = 1000;
+        int targetOrderBookOrders = 1000000;
+        int numUsers = 1000000;
 
 //        int targetTps = 1000000; // transactions per second
-        int targetTps = 900_000; // transactions per second
+        int targetTps = 500_000; // transactions per second
         int targetTpsEnd = 7_000_000;
 //        int targetTps = 4_000_000; // transactions per second
 
@@ -161,7 +161,7 @@ public class ExchangeCoreStress {
         for (int j = 0; j < 10000; j++) {
 
             int nanosPerCmd = 1_000_000_000 / targetTps;
-            targetTps += 25_000;
+            targetTps += 100_000;
 
             Thread.sleep(20);
             userProfileService.reset();

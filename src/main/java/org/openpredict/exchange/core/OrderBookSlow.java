@@ -130,6 +130,7 @@ public class OrderBookSlow extends OrderBookBase {
         }
 
         // remove empty buckets (is it necessary?)
+        // TODO can remove through iterator ??
         emptyBuckets.forEach(matchingBuckets::remove);
 
 //        log.debug("emptyBuckets: {}", emptyBuckets);

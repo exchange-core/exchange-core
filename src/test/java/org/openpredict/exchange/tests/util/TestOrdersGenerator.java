@@ -39,8 +39,9 @@ public class TestOrdersGenerator {
 
         int successfulCommands = 0;
 
-        int checkOrderBookStatEveryNthCommand = transactionsNumber / 1000;
-        checkOrderBookStatEveryNthCommand = 1 << (32 - Integer.numberOfLeadingZeros(checkOrderBookStatEveryNthCommand - 1));
+        //int checkOrderBookStatEveryNthCommand = transactionsNumber / 1000;
+        //checkOrderBookStatEveryNthCommand = 1 << (32 - Integer.numberOfLeadingZeros(checkOrderBookStatEveryNthCommand - 1));
+        int checkOrderBookStatEveryNthCommand = 1024;
         int nextSizeCheck = checkOrderBookStatEveryNthCommand;
 
         long nextUpdateTime = 0;
@@ -67,11 +68,12 @@ public class TestOrdersGenerator {
             if (i >= nextSizeCheck) {
                 nextSizeCheck += checkOrderBookStatEveryNthCommand;
 
-                int ordersNum = updateOrderBookSizeStat(session);
+                updateOrderBookSizeStat(session);
 
                 if (System.currentTimeMillis() > nextUpdateTime) {
-                    log.debug("{} Orders num: {} ({}% done)", commands.size(), ordersNum, (i * 100L / transactionsNumber));
-                    nextUpdateTime = System.currentTimeMillis() + 5000;
+                    log.debug("{} ({}% done), last limit orders num: {}",
+                            commands.size(), (i * 100L / transactionsNumber), session.lastOrderBookOrdersSize);
+                    nextUpdateTime = System.currentTimeMillis() + 3000;
                     //log.debug("{}", orderBook.getL2MarketDataSnapshot(1000));
                 }
 
@@ -104,7 +106,7 @@ public class TestOrdersGenerator {
         return commands;
     }
 
-    private int updateOrderBookSizeStat(TestOrdersGeneratorSession session) {
+    private void updateOrderBookSizeStat(TestOrdersGeneratorSession session) {
         L2MarketData l2MarketDataSnapshot = session.orderBook.getL2MarketDataSnapshot(-1);
 //                log.debug("{}", dumpOrderBook(l2MarketDataSnapshot));
         session.orderBookSizeAskStat.add(l2MarketDataSnapshot.askSize);
@@ -115,8 +117,6 @@ public class TestOrdersGenerator {
         session.lastOrderBookOrdersSize = ordersNum;
 
         session.orderBookNumOrdersStat.add(ordersNum);
-
-        return ordersNum;
     }
 
     private void matcherTradeEventEventHandler(TestOrdersGeneratorSession session, MatcherTradeEvent ev) {
@@ -154,9 +154,9 @@ public class TestOrdersGenerator {
 
         Random rand = session.rand;
 
-        boolean growOrders = session.lastOrderBookOrdersSize < session.targetOrderBookOrders;
-
-        int cmd = rand.nextInt(growOrders ? 10 : 40);
+        int lackOfOrders = session.targetOrderBookOrders - session.lastOrderBookOrdersSize;
+        boolean growOrders = lackOfOrders > 0;
+        int cmd = rand.nextInt(growOrders ? (lackOfOrders > 1000 ? 2 : 10) : 40);
 
         if (cmd < 2) {
 
