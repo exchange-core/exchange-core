@@ -63,12 +63,22 @@ public class OrderBookTest {
         orderBook.processCommand(OrderCommand.limitOrder(7, UID_1, 81200, 20, BID));
         orderBook.validateInternalState();
 
+        // FAR orders section
+        orderBook.processCommand(OrderCommand.limitOrder(8, UID_1, 201000, 28, ASK));
+        orderBook.processCommand(OrderCommand.limitOrder(9, UID_1, 201000, 32, ASK));
+        orderBook.processCommand(OrderCommand.limitOrder(10, UID_1, 200954, 10, ASK));
+        orderBook.validateInternalState();
+        orderBook.processCommand(OrderCommand.limitOrder(11, UID_1, 10000, 12, BID));
+        orderBook.processCommand(OrderCommand.limitOrder(12, UID_1, 10000, 1, BID));
+        orderBook.processCommand(OrderCommand.limitOrder(13, UID_1, 9136, 2, BID));
+        orderBook.validateInternalState();
+
         expectedState = new L2MarketDataHelper(
                 new L2MarketData(
-                        new long[]{81599, 81600},
-                        new long[]{75, 100},
-                        new long[]{81593, 81590, 81200},
-                        new long[]{40, 21, 20}
+                        new long[]{81599, 81600, 200954, 201000},
+                        new long[]{75, 100, 10, 60},
+                        new long[]{81593, 81590, 81200, 10000, 9136},
+                        new long[]{40, 21, 20, 13, 2}
                 )
         );
     }
@@ -122,7 +132,6 @@ public class OrderBookTest {
 
         //assertThat(extractEvents().size(), is(0));
     }
-
 
     @Test
     public void shouldRemoveOrder() {
@@ -370,22 +379,22 @@ public class OrderBookTest {
     @Test
     public void shouldMatchMarketOrderWithRejection() {
 
-        // size=200
-        OrderCommand cmd = OrderCommand.marketOrder(123, UID_2, 200, BID);
+        // size=270
+        OrderCommand cmd = OrderCommand.marketOrder(123, UID_2, 270, BID);
         orderBook.processCommand(cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
         orderBook.validateInternalState();
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
         // all asks matched
-        L2MarketData expected = expectedState.removeAsk(0).removeAsk(0).build();
+        L2MarketData expected = expectedState.removeAllAsks().build();
         assertEquals(expected, snapshot);
 
         List<MatcherTradeEvent> events = cmd.extractEvents();
-        assertThat(events.size(), is(4));
+        assertThat(events.size(), is(7));
 
-        // 3 trades generated and then rejection with size=25 left unmatched
-        checkRejection(events.get(3), 123L, 25L);
+        // 7 trades generated and then rejection with size=25 left unmatched
+        checkRejection(events.get(6), 123L, 25L);
     }
 
     // MARKETABLE LIMIT ORDERS
@@ -458,29 +467,31 @@ public class OrderBookTest {
     public void shouldFullyMatchMarketableLimitOrderWithAllLiquidity() {
 
         // size=1000
-        OrderCommand cmd = OrderCommand.limitOrder(123, UID_2, 81630, 1000, BID);
+        OrderCommand cmd = OrderCommand.limitOrder(123, UID_2, 220000, 1000, BID);
         orderBook.processCommand(cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
         orderBook.validateInternalState();
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
         // best asks fully matched, limit bid order placed
-        L2MarketData expected = expectedState.removeAsk(0).removeAsk(0).insertBid(0, 81630, 825).build();
+        L2MarketData expected = expectedState.removeAllAsks().insertBid(0, 220000, 755).build();
         assertEquals(expected, snapshot);
 
         // trades only, rejection not generated for limit order
         List<MatcherTradeEvent> events = cmd.extractEvents();
-        assertThat(events.size(), is(3));
+        assertThat(events.size(), is(6));
 
         checkTrade(events.get(0), 123L, 2L, 81599, 50L);
         checkTrade(events.get(1), 123L, 3L, 81599, 25L);
         checkTrade(events.get(2), 123L, 1L, 81600, 100L);
-
+        checkTrade(events.get(3), 123L, 10L, 200954, 10L);
+        checkTrade(events.get(4), 123L, 8L, 201000, 28L);
+        checkTrade(events.get(5), 123L, 9L, 201000, 32L);
     }
 
 
     // Move limit order to marketable price
-
+// TODO add into far area
     @Test
     public void shouldMoveOrderFullyMatchAsMarketable() {
 
@@ -548,13 +559,13 @@ public class OrderBookTest {
     @Test
     public void shouldMoveOrderMatchesAllLiquidity() {
 
-        OrderCommand cmd = OrderCommand.limitOrder(83, UID_2, 81594, 177, BID);
+        OrderCommand cmd = OrderCommand.limitOrder(83, UID_2, 81594, 247, BID);
         orderBook.processCommand(cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
         orderBook.validateInternalState();
 
         // downsize and move to marketable zone
-        cmd = OrderCommand.update(83, UID_2, 81601, 176);
+        cmd = OrderCommand.update(83, UID_2, 201000, 246);
         orderBook.processCommand(cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
         orderBook.validateInternalState();
@@ -562,15 +573,18 @@ public class OrderBookTest {
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
 
         // moved
-        L2MarketData expected = expectedState.removeAsk(0).removeAsk(0).insertBid(0, 81601, 1).build();
+        L2MarketData expected = expectedState.removeAllAsks().insertBid(0, 201000, 1).build();
         assertEquals(expected, snapshot);
 
         List<MatcherTradeEvent> events = cmd.extractEvents();
-        assertThat(events.size(), is(4));
+        assertThat(events.size(), is(7));
         checkReduce(events.get(0), 83L, BID, 1L, UID_2);
         checkTrade(events.get(1), 83L, 2L, 81599, 50L);
         checkTrade(events.get(2), 83L, 3L, 81599, 25L);
         checkTrade(events.get(3), 83L, 1L, 81600, 100L);
+        checkTrade(events.get(4), 83L, 10L, 200954, 10L);
+        checkTrade(events.get(5), 83L, 8L, 201000, 28L);
+        checkTrade(events.get(6), 83L, 9L, 201000, 32L);
     }
 
     @Test

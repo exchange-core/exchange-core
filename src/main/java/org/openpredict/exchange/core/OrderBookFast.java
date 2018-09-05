@@ -647,7 +647,10 @@ public class OrderBookFast extends OrderBookBase {
         int shiftLongs = shift >> 6;
         long[] src = bitSet.toLongArray();
         long[] dst = new long[src.length];
-        System.arraycopy(src, shiftLongs, dst, 0, src.length - shiftLongs);
+        int lengthCopy = src.length - shiftLongs;
+        if (lengthCopy > 0) {
+            System.arraycopy(src, shiftLongs, dst, 0, lengthCopy);
+        }
         return BitSet.valueOf(dst);
     }
 
@@ -655,7 +658,10 @@ public class OrderBookFast extends OrderBookBase {
         int shiftLongs = shift >> 6;
         long[] src = bitSet.toLongArray();
         long[] dst = new long[src.length];
-        System.arraycopy(src, 0, dst, shiftLongs, src.length - shiftLongs);
+        int lengthCopy = src.length - shiftLongs;
+        if (lengthCopy > 0) {
+            System.arraycopy(src, 0, dst, shiftLongs, lengthCopy);
+        }
         return BitSet.valueOf(dst);
     }
 

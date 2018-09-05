@@ -75,9 +75,21 @@ public class L2MarketDataHelper {
         return this;
     }
 
+    public L2MarketDataHelper removeAllAsks() {
+        askPrices = new long[0];
+        askVolumes = new long[0];
+        return this;
+    }
+
     public L2MarketDataHelper removeBid(int pos) {
         bidPrices = ArrayUtils.remove(bidPrices, pos);
         bidVolumes = ArrayUtils.remove(bidVolumes, pos);
+        return this;
+    }
+
+    public L2MarketDataHelper removeAllBids() {
+        bidPrices = new long[0];
+        bidVolumes = new long[0];
         return this;
     }
 
