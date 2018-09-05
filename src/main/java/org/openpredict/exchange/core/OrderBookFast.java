@@ -18,7 +18,7 @@ import static org.openpredict.exchange.beans.OrderAction.BID;
 @RequiredArgsConstructor
 public class OrderBookFast extends OrderBookBase {
 
-    public static final int HOT_PRICES_RANGE = 65535; // must be aligned by 64 bit, can not be lower than 1024
+    public static final int HOT_PRICES_RANGE = 65536; // must be aligned by 64 bit, can not be lower than 1024
 
     private BitSet hotAskBitSet = new BitSet(HOT_PRICES_RANGE);
     private BitSet hotBidBitSet = new BitSet(HOT_PRICES_RANGE);
@@ -315,7 +315,7 @@ public class OrderBookFast extends OrderBookBase {
         if (idx < HOT_PRICES_RANGE) {
             int nextIdx = hotAskBitSet.nextSetBit(idx);
             // log.debug("A next {} for currentPrice={} lastPrice={}", next, currentPrice, lastPrice);
-            if (nextIdx >= 0) {
+            if (nextIdx != -1) {
                 // found a bucket, but if limit is reached - no need to check far orders, just return null
                 long nextPrice = nextIdx + basePrice;
                 return nextPrice <= lastPrice ? hotAskBuckets.get(nextPrice) : null;
@@ -475,6 +475,12 @@ public class OrderBookFast extends OrderBookBase {
     }
 
 
+    /**
+     * Remove bucket for specific action and price
+     *
+     * @param action
+     * @param price
+     */
     private void removeBucket(OrderAction action, long price) {
         if (action == ASK) {
             removeAskBucket(price);
@@ -507,13 +513,14 @@ public class OrderBookFast extends OrderBookBase {
 
     private boolean updateMinAskPriceHot(int idx) {
         int nextIdx = hotAskBitSet.nextSetBit(idx);
-        if (nextIdx < 0) {
-            return false;
+        if (nextIdx == -1) {
+            // not found, have to also check far area
+            return true;
         }
 
         // found new minAskPrice in hot bitset
         minAskPrice = nextIdx + basePrice;
-        return true;
+        return false;
     }
 
     private void updateMinAskPriceFar(long price) {
@@ -533,24 +540,29 @@ public class OrderBookFast extends OrderBookBase {
             bucketsPool.addLast(farBidBuckets.remove(price));
         }
 
-        if (maxBidPrice == price) {
-            // need to update maxBidPrice
-            // if makes sence - first check hot area
-            if (idx < 0 || !updateMaxBidPriceHot(idx)) {
-                updateMaxBidPriceFar(price);
-            }
+        if (maxBidPrice != price) {
+            // no need to update maxBidPrice
+            return;
         }
+
+        // need to update maxBidPrice
+        // if makes sense - first check hot area
+        if (idx < 0 || updateMaxBidPriceHot(idx)) {
+            updateMaxBidPriceFar(price);
+        }
+
     }
 
     private boolean updateMaxBidPriceHot(int idx) {
         int nextIdx = hotBidBitSet.previousSetBit(idx);
-        if (nextIdx < 0) {
-            return false;
+        if (nextIdx == -1) {
+            // not found, have to also check far area
+            return true;
         }
 
         // found new maxBidPrice in hot bitset
         maxBidPrice = nextIdx + basePrice;
-        return true;
+        return false;
     }
 
     private void updateMaxBidPriceFar(long price) {
@@ -581,7 +593,7 @@ public class OrderBookFast extends OrderBookBase {
         if (minAskPrice != Long.MAX_VALUE) {
             // evicting ASK buckets from the HOT section into the FAR section where price >= newBasePrice + HOT_PRICES_RANGE
             int next = priceToIndex(newBasePrice - basePrice + HOT_PRICES_RANGE);
-            while ((next = hotAskBitSet.nextSetBit(next)) >= 0) {
+            while ((next = hotAskBitSet.nextSetBit(next)) != -1) {
                 IOrdersBucket bucket = hotAskBuckets.get(indexToPrice(next));
                 farAskBuckets.put(bucket.getPrice(), bucket);
                 next++;
@@ -617,7 +629,7 @@ public class OrderBookFast extends OrderBookBase {
         if (maxBidPrice != 0) {
             // evicting BID buckets from the HOT section into the FAR section where price < newBasePrice
             int next = priceToIndex(newBasePrice - basePrice - 1);
-            while ((next = hotBidBitSet.previousSetBit(next)) >= 0) {
+            while ((next = hotBidBitSet.previousSetBit(next)) != -1) {
                 IOrdersBucket bucket = hotBidBuckets.get(indexToPrice(next));
                 farBidBuckets.put(bucket.getPrice(), bucket);
                 next--;
@@ -688,7 +700,7 @@ public class OrderBookFast extends OrderBookBase {
 
         int next = priceToIndex(minAskPrice);
         int i = 0;
-        while ((next = hotAskBitSet.nextSetBit(next)) >= 0) {
+        while ((next = hotAskBitSet.nextSetBit(next)) != -1) {
             IOrdersBucket bucket = hotAskBuckets.get(indexToPrice(next));
             data.askPrices[i] = bucket.getPrice();
             data.askVolumes[i] = bucket.getTotalVolume();
@@ -724,7 +736,7 @@ public class OrderBookFast extends OrderBookBase {
 
         int next = priceToIndex(maxBidPrice);
         int i = 0;
-        while ((next = hotBidBitSet.previousSetBit(next)) >= 0) {
+        while ((next = hotBidBitSet.previousSetBit(next)) != -1) {
             IOrdersBucket bucket = hotBidBuckets.get(indexToPrice(next));
             data.bidPrices[i] = bucket.getPrice();
             data.bidVolumes[i] = bucket.getTotalVolume();
