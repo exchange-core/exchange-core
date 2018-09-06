@@ -81,8 +81,15 @@ public class OrderBookTest {
                         new long[]{40, 21, 20, 13, 2}
                 )
         );
+
+        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(25);
+        assertEquals(expectedState.build(), snapshot);
     }
 
+    /**
+     * In the end of each test remove all orders by sending market orders wit proper size.
+     * Check order book is empty.
+     */
     @After
     public void after() {
 
@@ -112,44 +119,62 @@ public class OrderBookTest {
 
     // ------------------------ TESTS WITHOUT MATCHING -----------------------
 
+    /**
+     * Just place few limit orders
+     */
     @Test
     public void shouldAddLimitOrders() {
 
-        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
-//        log.debug("{}", dumpOrderBook(snapshot));
+        orderBook.processCommand(OrderCommand.limitOrder(93, UID_1, 81598, 1, ASK));
+        expectedState.insertAsk(0, 81598, 1);
 
+        orderBook.processCommand(OrderCommand.limitOrder(94, UID_1, 81594, 9_000_000_000L, BID));
+        expectedState.insertBid(0, 81594, 9_000_000_000L);
 
-//        NavigableMap<Long, OrdersBucketSlow> askBuckets = getAskBuckets();
-//        NavigableMap<Long, OrdersBucketSlow> bidBuckets = getBidBuckets();
-//        assertThat(askBuckets.size(), is(2));
-//        assertThat(askBuckets.get(1600L).getPrice(), is(1600L));
-//        assertThat(askBuckets.get(1600L).entries.size(), is(1));
-//        assertThat(askBuckets.get(1599L).entries.size(), is(2));
-//        assertThat(bidBuckets.size(), is(3));
-//        assertThat(bidBuckets.get(1590L).entries.size(), is(2));
-
+        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(25);
         assertEquals(expectedState.build(), snapshot);
+        orderBook.validateInternalState();
 
-        //assertThat(extractEvents().size(), is(0));
+        orderBook.processCommand(OrderCommand.limitOrder(95, UID_1, 130000, 13_000_000_000L, ASK));
+        expectedState.insertAsk(3, 130000, 13_000_000_000L);
+
+        orderBook.processCommand(OrderCommand.limitOrder(96, UID_1, 1000, 4, BID));
+        expectedState.insertBid(6, 1000, 4);
+
+        snapshot = orderBook.getL2MarketDataSnapshot(25);
+        assertEquals(expectedState.build(), snapshot);
+        orderBook.validateInternalState();
+
+        //        log.debug("{}", dumpOrderBook(snapshot));
     }
 
+    /**
+     * Remove existing order
+     */
     @Test
     public void shouldRemoveOrder() {
 
-        //log.debug("{}", dumpOrderBook(orderBook.getL2MarketDataSnapshot(10)));
-
+        // remove bid order
         OrderCommand cmd = OrderCommand.cancel(5, UID_1);
-        orderBook.processCommand(cmd);
-        assertThat(cmd.resultCode, is(SUCCESS));
-        orderBook.validateInternalState();
+        processAndValidate(cmd, SUCCESS);
 
-        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
-        assertEquals(expectedState.setBidVolume(1, 1).build(), snapshot);
+        expectedState.setBidVolume(1, 1);
+        assertEquals(expectedState.build(), orderBook.getL2MarketDataSnapshot(25));
 
         List<MatcherTradeEvent> events = cmd.extractEvents();
         assertThat(events.size(), is(1));
         checkReduce(events.get(0), 5L, BID, 20L, UID_1);
 
+        // remove ask order
+        cmd = OrderCommand.cancel(2, UID_1);
+        processAndValidate(cmd, SUCCESS);
+
+        expectedState.setAskVolume(0, 25);
+        assertEquals(expectedState.build(), orderBook.getL2MarketDataSnapshot(25));
+
+        events = cmd.extractEvents();
+        assertThat(events.size(), is(1));
+        checkReduce(events.get(0), 2L, ASK, 50L, UID_1);
     }
 
     /**
@@ -176,11 +201,10 @@ public class OrderBookTest {
         events = cmdCancel3.extractEvents();
         assertThat(events.size(), is(1));
         checkReduce(events.get(0), 3L, ASK, 25L, UID_1);
-
     }
 
     @Test
-    public void shouldReturnErrorWhenRemoveUnknownOrder() {
+    public void shouldReturnErrorWhenCancelUnknownOrder() {
 
         OrderCommand cmd = OrderCommand.cancel(5291, UID_1);
         orderBook.processCommand(cmd);
