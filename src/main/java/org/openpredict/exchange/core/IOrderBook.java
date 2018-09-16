@@ -1,12 +1,12 @@
 package org.openpredict.exchange.core;
 
-import com.lmax.disruptor.EventSink;
 import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
 public interface IOrderBook {
 
+    int DEFAULT_HOT_WIDTH = 1024;
 
     void processCommand(OrderCommand cmd);
 
@@ -40,7 +40,7 @@ public interface IOrderBook {
      * @return new instance
      */
     static IOrderBook newInstance() {
-        return new OrderBookFast();
+        return new OrderBookFast(DEFAULT_HOT_WIDTH);
 //        return new OrderBookSlow();
     }
 

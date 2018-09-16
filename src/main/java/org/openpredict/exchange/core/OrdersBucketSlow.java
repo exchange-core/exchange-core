@@ -8,9 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.*;
 
 @NoArgsConstructor
 @Slf4j
@@ -129,7 +127,7 @@ public class OrdersBucketSlow implements IOrdersBucket {
             totalVolume -= reduceBy;
             callback.submit(order, reduceBy);
         }
-        
+
         return true;
     }
 
@@ -147,5 +145,10 @@ public class OrdersBucketSlow implements IOrdersBucket {
     @Override
     public Order findOrder(long orderId) {
         return entries.get(orderId);
+    }
+
+    @Override
+    public List<Order> getAllOrders() {
+        return new ArrayList<>(entries.values());
     }
 }

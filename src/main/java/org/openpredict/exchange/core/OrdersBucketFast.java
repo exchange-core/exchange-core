@@ -11,13 +11,16 @@ import org.eclipse.collections.impl.map.mutable.primitive.LongIntHashMap;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
- * Fast version of Order Bucket.
- * Implementation is optimized for fastest place/remove operations O(1).
- * Matching operation can be slow however beacuse
+ * Fast version of Order Bucket.<br/>
+ * Implementation is optimized for fastest place/remove operations O(1).<br/>
+ * Matching operation can be slower though.<br/>
  * <p>
- * Orders are stored in resizable queue array.
- * Queue is indexed by hashmap for fast cancel/update operations.
+ * Orders are stored in resizable queue array.<br/>
+ * Queue is indexed by hashmap for fast cancel/update operations.<br/>
  */
 @NoArgsConstructor
 @Slf4j
@@ -299,6 +302,13 @@ public class OrdersBucketFast implements IOrdersBucket {
             return null;
         }
         return queue[pos - 1];
+    }
+
+    @Override
+    public List<Order> getAllOrders() {
+        List<Order> result = new ArrayList<>();
+        positions.forEachValue(pos -> result.add(queue[pos - 1]));
+        return result;
     }
 
     private void printSchema() {

@@ -3,6 +3,8 @@ package org.openpredict.exchange.core;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
+import java.util.List;
+
 public interface IOrdersBucket {
 
     /**
@@ -66,6 +68,8 @@ public interface IOrdersBucket {
     void validate();
 
     Order findOrder(long orderId);
+
+    List<Order> getAllOrders();
 
     /**
      * Factory method to create new instance of the IOrdersBucket

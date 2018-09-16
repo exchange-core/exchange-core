@@ -17,14 +17,18 @@ import org.openpredict.exchange.tests.util.L2MarketDataHelper;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.notNullValue;
 import static org.junit.Assert.*;
 import static org.openpredict.exchange.beans.OrderAction.ASK;
 import static org.openpredict.exchange.beans.OrderAction.BID;
 import static org.openpredict.exchange.beans.cmd.CommandResultCode.MATCHING_INVALID_ORDER_ID;
 import static org.openpredict.exchange.beans.cmd.CommandResultCode.SUCCESS;
+import static org.openpredict.exchange.core.IOrderBook.DEFAULT_HOT_WIDTH;
 
 /**
  * TODO add tests where orders for same UID ignored during matching
@@ -39,6 +43,7 @@ public class OrderBookTest {
 
     private L2MarketDataHelper expectedState;
 
+    public static final int INITIAL_PRICE = 81600;
 
     private static final int UID_1 = 412;
     private static final int UID_2 = 413;
@@ -51,6 +56,9 @@ public class OrderBookTest {
 
         orderBook = IOrderBook.newInstance();
         orderBook.validateInternalState();
+
+        orderBook.processCommand(OrderCommand.limitOrder(0, UID_2, INITIAL_PRICE, 131, ASK));
+        orderBook.processCommand(OrderCommand.cancel(0, UID_2));
 
         orderBook.processCommand(OrderCommand.limitOrder(1, UID_1, 81600, 100, ASK));
         orderBook.processCommand(OrderCommand.limitOrder(2, UID_1, 81599, 50, ASK));
@@ -92,7 +100,10 @@ public class OrderBookTest {
      */
     @After
     public void after() {
+        clearOrderBook();
+    }
 
+    private void clearOrderBook() {
         orderBook.validateInternalState();
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10000);
 
@@ -610,6 +621,123 @@ public class OrderBookTest {
         checkTrade(events.get(5), 83L, 8L, 201000, 28L);
         checkTrade(events.get(6), 83L, 9L, 201000, 32L);
     }
+
+    @Test
+    public void sequentialBidsTest() {
+
+        // empty order book
+        clearOrderBook();
+        orderBook.validateInternalState();
+
+        // bid prices starts from here, overlap with far bid area
+        final int bottomPrice = INITIAL_PRICE - DEFAULT_HOT_WIDTH / 2 - 4;
+        // bid prices stop here, overlap with far ask area
+        final int topPrice = INITIAL_PRICE + DEFAULT_HOT_WIDTH / 2 + 21;
+
+        int orderId = 100;
+
+        // collecting expected limit order volumes for each price
+        Map<Long, Long> results = new HashMap<>();
+
+        // just setting limit ask orders
+        for (long price = topPrice; price > INITIAL_PRICE; price--) {
+            OrderCommand cmd = OrderCommand.limitOrder(orderId++, UID_1, price, 1, ASK);
+//            log.debug("BID {}", price);
+            processAndValidate(cmd, SUCCESS);
+            results.put(price, -1L);
+        }
+
+
+        for (long price = bottomPrice; price <= topPrice; price++) {
+            long size = price * price;
+            OrderCommand cmd = OrderCommand.limitOrder(orderId++, UID_2, price, size, BID);
+//            log.debug("ASK {}", price);
+            processAndValidate(cmd, SUCCESS);
+            results.compute(price, (p, v) -> v == null ? size : v + size);
+
+            //L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(100000);
+            //log.debug("A:{} B:{}", snapshot.askSize, snapshot.bidSize);
+        }
+
+        // collecting full order book
+        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(results.size() + 10);
+
+        // check the number of records, should match to expected results
+        assertThat(snapshot.bidSize, is(results.size()));
+
+        // verify expected size for each price
+        for (int i = 0; i < snapshot.bidSize; i++) {
+            long price = snapshot.bidPrices[i];
+            Long expectedSize = results.get(price);
+            assertThat(expectedSize, notNullValue());
+//            if (snapshot.askVolumes[i] != expectedSize) {
+//                log.error("volume mismatch for price {} : diff={}", price, snapshot.askVolumes[i] - expectedSize);
+//            }
+            assertThat("volume mismatch for price " + price, snapshot.bidVolumes[i], is(expectedSize));
+        }
+
+        // obviously no aks records expected (they all should be matched)
+        assertThat(snapshot.askSize, is(0));
+    }
+
+    @Test
+    public void sequentialAsksTest() {
+
+        // empty order book
+        clearOrderBook();
+        orderBook.validateInternalState();
+
+        // ask prices start from here, overlap with far ask area
+        final int topPrice = INITIAL_PRICE + DEFAULT_HOT_WIDTH / 2 + 10;
+        // ask prices stop from here, overlap with far bid area
+        final int bottomPrice = INITIAL_PRICE - DEFAULT_HOT_WIDTH / 2 - 14;
+
+        int orderId = 100;
+
+        // collecting expected limit order volumes for each price
+        Map<Long, Long> results = new HashMap<>();
+
+        // just setting limit bid orders
+        for (long price = bottomPrice; price < INITIAL_PRICE; price++) {
+            OrderCommand cmd = OrderCommand.limitOrder(orderId++, UID_1, price, 1, BID);
+//            log.debug("BID {}", price);
+            processAndValidate(cmd, SUCCESS);
+            results.put(price, -1L);
+        }
+
+
+        for (long price = topPrice; price >= bottomPrice; price--) {
+            long size = price * price;
+            OrderCommand cmd = OrderCommand.limitOrder(orderId++, UID_2, price, size, ASK);
+//            log.debug("ASK {}", price);
+            processAndValidate(cmd, SUCCESS);
+            results.compute(price, (p, v) -> v == null ? size : v + size);
+
+            //L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(100000);
+            //log.debug("A:{} B:{}", snapshot.askSize, snapshot.bidSize);
+        }
+
+        // collecting full order book
+        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(results.size() + 10);
+
+        // check the number of records, should match to expected results
+        assertThat(snapshot.askSize, is(results.size()));
+
+        // verify expected size for each price
+        for (int i = 0; i < snapshot.askSize; i++) {
+            long price = snapshot.askPrices[i];
+            Long expectedSize = results.get(price);
+            assertThat(expectedSize, notNullValue());
+//            if (snapshot.askVolumes[i] != expectedSize) {
+//                log.error("volume mismatch for price {} : diff={}", price, snapshot.askVolumes[i] - expectedSize);
+//            }
+            assertThat("volume mismatch for price " + price, snapshot.askVolumes[i], is(expectedSize));
+        }
+
+        // obviously no bid records expected
+        assertThat(snapshot.bidSize, is(0));
+    }
+
 
     @Test
     public void multipleCommandsTest() {
