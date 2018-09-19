@@ -3,9 +3,11 @@ package org.openpredict.exchange.core;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
-public interface IOrdersBucket {
+public interface IOrdersBucket extends Comparable<IOrdersBucket> {
 
     /**
      * Add order into bucket
@@ -34,10 +36,11 @@ public interface IOrdersBucket {
 
     /**
      * Try to reduce size of the order.
-     *
+     * <p>
      * orderId - order Id
      * newSize - new size
-     * @param lambda  - call if reduced
+     *
+     * @param lambda - call if reduced
      */
     boolean tryReduceSize(OrderCommand cmd, ReduceEventCallback lambda);
 
@@ -80,4 +83,15 @@ public interface IOrdersBucket {
         return new OrdersBucketFast();
 //        return new OrdersBucketSlow();
     }
+
+    // TODO to default?
+    static int hash(long price, Order[] orders) {
+        return Objects.hash(price, Arrays.hashCode(orders));
+    }
+
+    default int compareTo(IOrdersBucket other) {
+        return Long.compare(this.getPrice(), other.getPrice());
+    }
+
+    // TODO default equals
 }

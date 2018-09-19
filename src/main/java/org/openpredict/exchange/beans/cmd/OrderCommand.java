@@ -117,6 +117,19 @@ public class OrderCommand {
         return Lists.reverse(list);
     }
 
+    // Traverse and remove:
+//    private void cleanMatcherEvents() {
+//        MatcherTradeEvent ev = this.matcherEvent;
+//        this.matcherEvent = null;
+//        while (ev != null) {
+//            MatcherTradeEvent tmp = ev;
+//            ev = ev.nextEvent;
+//            tmp.nextEvent = null;
+//        }
+//    }
+//
+
+
     /**
      * Write only command data, not status or events
      *

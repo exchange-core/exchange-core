@@ -1,6 +1,8 @@
 package org.openpredict.exchange.core;
 
+import com.google.common.collect.ObjectArrays;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.ArrayUtils;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.Order;
@@ -709,6 +711,16 @@ public class OrderBookFast extends OrderBookBase {
     }
 
     @Override
+    public List<IOrdersBucket> getAllAskBuckets() {
+        return Arrays.asList(getAsksAsArray());
+    }
+
+    @Override
+    public List<IOrdersBucket> getAllBidBuckets() {
+        return Arrays.asList(getBidsAsArray());
+    }
+
+    @Override
     protected void fillAsks(final int size, L2MarketData data) {
         if (minAskPrice == Long.MAX_VALUE || size == 0) {
             data.askSize = 0;
@@ -791,6 +803,12 @@ public class OrderBookFast extends OrderBookBase {
 
     @Override
     public void validateInternalState() {
+
+        // check price in the bucket is the same as map key
+        hotAskBuckets.forEachKeyValue(this::checkBucketPriceIsTheSame);
+        hotBidBuckets.forEachKeyValue(this::checkBucketPriceIsTheSame);
+        farAskBuckets.forEach(this::checkBucketPriceIsTheSame);
+        farBidBuckets.forEach(this::checkBucketPriceIsTheSame);
 
         // check there are not same orders in the hot and far areas
         Set<Long> ordersIdsBH = dumpAllOrdersIds(hotBidBuckets.values());
@@ -881,6 +899,12 @@ public class OrderBookFast extends OrderBookBase {
         }
     }
 
+    private void checkBucketPriceIsTheSame(long p, IOrdersBucket b) {
+        if (p != b.getPrice()) {
+            throw new IllegalStateException(String.format("Bucket price %d not the same as map key %d", b.getPrice(), p));
+        }
+    }
+
     private String dumpAllOrders(Collection<IOrdersBucket> buckets) {
         return buckets.stream().map(bucket -> {
             String ordersInBucket = bucket.getAllOrders().stream().map(order -> String.valueOf(order.orderId)).collect(Collectors.joining());
@@ -934,6 +958,37 @@ public class OrderBookFast extends OrderBookBase {
         assert knownOrders == ah + af + bh + bf : "inconsistent known orders";
 
         return idMapToBucket.size();
+    }
+
+    private IOrdersBucket[] getBidsAsArray() {
+        IOrdersBucket[] farBids = farBidBuckets.values().toArray(new IOrdersBucket[farBidBuckets.size()]);
+        IOrdersBucket[] hotBids = hotBidBuckets.toSortedMap(k -> k, v -> v).values().toArray(new IOrdersBucket[hotBidBuckets.size()]);
+        ArrayUtils.reverse(hotBids);
+        return ObjectArrays.concat(hotBids, farBids, IOrdersBucket.class);
+    }
+
+    private IOrdersBucket[] getAsksAsArray() {
+        IOrdersBucket[] farAsks = farAskBuckets.values().toArray(new IOrdersBucket[farAskBuckets.size()]);
+        IOrdersBucket[] hotAsks = hotAskBuckets.toSortedMap(k -> k, v -> v).values().toArray(new IOrdersBucket[hotAskBuckets.size()]);
+        return ObjectArrays.concat(hotAsks, farAsks, IOrdersBucket.class);
+    }
+
+    @Override
+    public int hashCode() {
+        IOrdersBucket[] a = getAsksAsArray();
+        IOrdersBucket[] b = getBidsAsArray();
+        //log.debug("FAST A:{} B:{}", a, b);
+        int hash = IOrderBook.hash(a, b);
+
+        //log.debug("{} {} {} {} {}", hash, hotAskBuckets.size(), farAskBuckets.size(), hotBidBuckets.size(), farBidBuckets.size());
+        return hash;
+
+    }
+
+
+    @Override
+    public boolean equals(Object o) {
+        return IOrderBook.equals(this, o);
     }
 
 }

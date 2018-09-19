@@ -1,5 +1,8 @@
 package org.openpredict.exchange.tests.util;
 
+import lombok.Builder;
+import lombok.Getter;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.api.ApiCancelOrder;
@@ -28,7 +31,16 @@ public class TestOrdersGenerator {
     public static final double CENTRAL_MOVE_ALPHA = 0.01;
 
 
-    public List<OrderCommand> generateCommands(int transactionsNumber, int targetOrderBookOrders, List<Long> uid) {
+    @Builder
+    @Getter
+    @Setter
+    public static class GenResult {
+        private int finalOrderbookHash;
+        private List<OrderCommand> commands;
+    }
+
+
+    public GenResult generateCommands(int transactionsNumber, int targetOrderBookOrders, List<Long> uid) {
 
         IOrderBook orderBook = IOrderBook.newInstance();
 
@@ -61,9 +73,12 @@ public class TestOrdersGenerator {
                 successfulCommands++;
             }
 
+            cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
             commands.add(cmd);
 
-            cmd.extractEvents().forEach(ev -> matcherTradeEventEventHandler(session, ev));
+            // process and cleanup matcher events
+            cmd.processMatherEvents(ev -> matcherTradeEventEventHandler(session, ev));
+            cmd.matcherEvent = null;
 
             if (i >= nextSizeCheck) {
                 nextSizeCheck += checkOrderBookStatEveryNthCommand;
@@ -103,7 +118,7 @@ public class TestOrdersGenerator {
         log.debug("Average order book size: ASK={} BID={} ({} samples)", avgOrderBookSizeAsk, avgOrderBookSizeBid, session.orderBookSizeBidStat.size());
         log.debug("Average limit orders number in the order book:{} (target:{})", avgOrdersNumInOrderBook, targetOrderBookOrders);
         log.debug("Commands success={}%", succPerc);
-        return commands;
+        return GenResult.builder().commands(commands).finalOrderbookHash(orderBook.hashCode()).build();
     }
 
     private void updateOrderBookSizeStat(TestOrdersGeneratorSession session) {

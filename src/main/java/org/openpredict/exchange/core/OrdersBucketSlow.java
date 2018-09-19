@@ -5,6 +5,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
@@ -150,5 +151,24 @@ public class OrdersBucketSlow implements IOrdersBucket {
     @Override
     public List<Order> getAllOrders() {
         return new ArrayList<>(entries.values());
+    }
+
+    @Override
+    public int hashCode() {
+        return IOrdersBucket.hash(
+                price,
+                entries.values().toArray(new Order[entries.size()]));
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == this) return true;
+        if (o == null) return false;
+        if (!(o instanceof IOrdersBucket)) return false;
+        IOrdersBucket other = (IOrdersBucket) o;
+        return new EqualsBuilder()
+                .append(price, other.getPrice())
+                .append(getAllOrders(), other.getAllOrders())
+                .isEquals();
     }
 }

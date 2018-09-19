@@ -47,9 +47,11 @@ public class MatchingEngineRouter {
     }
 
     public void addOrderBook(int symbol) {
-
         orderBook = IOrderBook.newInstance();
+    }
 
+    public IOrderBook getOrderBook(){
+        return orderBook;
     }
 
     public L2MarketData getMarketData(int symbol, int size) {
@@ -76,7 +78,7 @@ public class MatchingEngineRouter {
     @PreDestroy
     public void stop() {
         log.info("Stopping Matching Engine disruptors...");
-        marketDataDisruptor.shutdown();
+        //marketDataDisruptor.shutdown();
         //matchingEngines.values().forEach(MatchingEngine::stop);
         log.info("Matching Engine disruptors stopped");
     }

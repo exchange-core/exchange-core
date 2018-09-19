@@ -250,8 +250,8 @@ public class ITExchangeCoreIntegration {
             uids.add(i);
         }
 
-        List<OrderCommand> orderCommands = generator.generateCommands(numOrders, targetOrderBookOrders, uids);
-        List<ApiCommand> apiCommands = generator.convertToApiCommand(orderCommands, SYMBOL);
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids);
+        List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands(), SYMBOL);
 
         exchangeCore.setResultsConsumer(cmd -> {
             //log.debug("Result: {}", cmd);
@@ -270,6 +270,11 @@ public class ITExchangeCoreIntegration {
             apiCore.submitCommand(cmd);
         }
         log.info("Done");
+
+        // weak compare orderBook final state just to make sure all commands executed same way
+        // TODO compare events, wait until finish
+        // assertThat(matchingEngineRouter.getOrderBook().hashCode(), Matchers.is(genResult.getFinalOrderbookHash()));
+
 
     }
 

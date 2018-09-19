@@ -1,6 +1,5 @@
 package org.openpredict.exchange.tests.performance;
 
-import com.lmax.disruptor.EventSink;
 import com.lmax.disruptor.EventTranslator;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.After;
@@ -8,11 +7,12 @@ import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.junit.MockitoJUnitRunner;
-import org.openpredict.exchange.beans.*;
+import org.openpredict.exchange.beans.L2MarketData;
+import org.openpredict.exchange.beans.MatcherEventType;
+import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.core.IOrderBook;
-import org.openpredict.exchange.tests.util.TestEventSink;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 
 import java.time.Instant;
@@ -70,8 +70,8 @@ public class ITOrderBook {
 
 
         List<Long> uid = Stream.iterate(99000L, i -> i + 1).limit(1000).collect(Collectors.toList());
-        List<OrderCommand> orderCommands = generator.generateCommands(numOrders, targetOrderBookOrders, uid);
-
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uid);
+        List<OrderCommand> orderCommands = genResult.getCommands();
         log.debug("orderCommands size: {}", orderCommands.size());
 
         List<Float> perfResults = new ArrayList<>();
@@ -86,6 +86,10 @@ public class ITOrderBook {
                 orderBook.processCommand(workCmd);
             }
             t = System.currentTimeMillis() - t;
+
+            // weak compare orderBook final state just to make sure all commands executed same way
+            // TODO compare events
+            assertThat(orderBook.hashCode(), is(genResult.getFinalOrderbookHash()));
 
             float perfMt = (float) orderCommands.size() / (float) t / 1000.0f;
             perfResults.add(perfMt);

@@ -314,6 +314,17 @@ public class OrderBookSlow extends OrderBookBase {
 
 
     @Override
+    public List<IOrdersBucket> getAllAskBuckets() {
+        return new ArrayList<>(askBuckets.values());
+    }
+
+    @Override
+    public List<IOrdersBucket> getAllBidBuckets() {
+        return new ArrayList<>(bidBuckets.values());
+    }
+
+
+    @Override
     public void validateInternalState() {
         askBuckets.values().forEach(IOrdersBucket::validate);
         bidBuckets.values().forEach(IOrdersBucket::validate);
@@ -339,6 +350,21 @@ public class OrderBookSlow extends OrderBookBase {
         assert knownOrders == askOrders + bidOrders : "inconsistent known orders";
 
         return knownOrders;
+    }
+
+    @Override
+    public int hashCode() {
+        IOrdersBucket[] a = this.askBuckets.values().toArray(new IOrdersBucket[this.askBuckets.size()]);
+        IOrdersBucket[] b = this.bidBuckets.values().toArray(new IOrdersBucket[this.bidBuckets.size()]);
+
+        //log.debug("SLOW A:{} B:{}", a, b);
+
+        return IOrderBook.hash(a, b);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return IOrderBook.equals(this, o);
     }
 
 }

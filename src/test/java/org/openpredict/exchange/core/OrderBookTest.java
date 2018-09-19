@@ -33,7 +33,6 @@ import static org.openpredict.exchange.core.IOrderBook.DEFAULT_HOT_WIDTH;
 /**
  * TODO add tests where orders for same UID ignored during matching
  * TODO cancel/update other uid not allowed
- * TODO tests for far buckets
  */
 @RunWith(MockitoJUnitRunner.class)
 @Slf4j
@@ -744,14 +743,14 @@ public class OrderBookTest {
 
         TestOrdersGenerator generator = new TestOrdersGenerator();
 
-        int tranNum = 100000;
+        int tranNum = 5000;
 
         orderBook = IOrderBook.newInstance();
         orderBook.validateInternalState();
 
-        List<OrderCommand> testCommands = generator.generateCommands(tranNum, 200, Longs.asList(10, 11, 12, 13, 14, 15));
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(tranNum, 200, Longs.asList(10, 11, 12, 13, 14, 15));
 
-        testCommands.forEach(cmd -> {
+        genResult.getCommands().forEach(cmd -> {
             cmd.orderId += 100; // TODO set start id
             orderBook.processCommand(cmd);
 

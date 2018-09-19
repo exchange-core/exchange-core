@@ -25,6 +25,8 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
+import static org.hamcrest.Matchers.is;
+import static org.junit.Assert.assertThat;
 import static org.openpredict.exchange.util.LatencyTools.LATENCY_RESOLUTION;
 import static org.openpredict.exchange.util.LatencyTools.createLatencyReportFast;
 
@@ -80,15 +82,15 @@ public class ExchangeCoreStress {
         int targetOrderBookOrders = 1000;
 
         int numUsers = 1000;
-        ArrayList<Long> uid = new ArrayList<>();
+        ArrayList<Long> uids = new ArrayList<>();
         for (long i = 1; i <= numUsers; i++) {
             apiCore.submitCommand(ApiAddUser.builder().uid(i).build());
             apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(i).amount(2_000_000_000L).build());
-            uid.add(i);
+            uids.add(i);
         }
 
-        List<OrderCommand> orderCommands = generator.generateCommands(numOrders, targetOrderBookOrders, uid);
-        List<ApiCommand> apiCommands = generator.convertToApiCommand(orderCommands, SYMBOL);
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids);
+        List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands(), SYMBOL);
 
         AtomicInteger counter = new AtomicInteger();
 
@@ -119,6 +121,10 @@ public class ExchangeCoreStress {
             float perfMt = (float) apiCommands.size() / (float) t / 1000.0f;
             log.info("{}. {} MT/s", j, perfMt);
             perfResults.add(perfMt);
+
+            // weak compare orderBook final state just to make sure all commands executed same way
+            // TODO compare events
+            assertThat(matchingEngineRouter.getOrderBook().hashCode(), is(genResult.getFinalOrderbookHash()));
         }
 
         double avg = (float) perfResults.stream().mapToDouble(x -> x).average().orElse(0);
@@ -146,8 +152,8 @@ public class ExchangeCoreStress {
             uids.add(i);
         }
 
-        List<OrderCommand> orderCommands = generator.generateCommands(numOrders, targetOrderBookOrders, uids);
-        List<ApiCommand> apiCommands = generator.convertToApiCommand(orderCommands, SYMBOL);
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids);
+        List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands(), SYMBOL);
 
         IntLongHashMap latencies = new IntLongHashMap(20000);
 
@@ -193,6 +199,10 @@ public class ExchangeCoreStress {
             float perfMt = (float) apiCommands.size() / (float) t / 1000.0f;
             Map<String, String> fmtPlace = createLatencyReportFast(latencies);
             log.info("{}. {} MT/s {}", j, perfMt, fmtPlace);
+
+            // weak compare orderBook final state just to make sure all commands executed same way
+            // TODO compare events
+            assertThat(matchingEngineRouter.getOrderBook().hashCode(), is(genResult.getFinalOrderbookHash()));
 
 //            if (j == 5) {
 //                log.info("Warmup completed, RESET latency stat");
