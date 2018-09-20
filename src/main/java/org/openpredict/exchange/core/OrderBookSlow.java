@@ -40,7 +40,7 @@ public class OrderBookSlow extends OrderBookBase {
             throw new IllegalArgumentException("duplicate orderId: " + cmd.orderId);
         }
 
-        // check if order is arketable there are matching orders
+        // check if order is marketable (if there are opposite matching orders)
         long filled = tryMatchInstantly(cmd, subtreeForMatching(cmd.action, cmd.price), 0);
         if (filled == cmd.size) {
             // fully matched as marketable before actually place - can just return
@@ -83,14 +83,15 @@ public class OrderBookSlow extends OrderBookBase {
      *
      * @param order           - LIMIT or MARKET order to match
      * @param matchingBuckets - sorted buckets map
-     * @return matched size (0 if nothing matched)
+     * @param filled          - current 'filled' value for the order
+     * @return new filled size
      */
-    private long tryMatchInstantly(OrderCommand order, SortedMap<Long, IOrdersBucket> matchingBuckets, long filled) {
+    private long tryMatchInstantly(final OrderCommand order, final SortedMap<Long, IOrdersBucket> matchingBuckets, long filled) {
 
 //        log.info("matchInstantly: {} {}", order, matchingBuckets);
 
         if (matchingBuckets.size() == 0) {
-            return 0;
+            return filled;
         }
 
         long orderSize = order.size;

@@ -244,8 +244,9 @@ public class OrderBookFast extends OrderBookBase {
      * Fully matching orders are removed from orderId index
      * Should any trades occur - they sent to tradesConsumer
      *
-     * @param order - LIMIT or MARKET order to match
-     * @return matched size (0 if nothing is matching to the order)
+     * @param order  - LIMIT or MARKET order to match
+     * @param filled - current filled value of the order
+     * @return matched size (filled - if nothing is matching to the order)
      */
     private long tryMatchInstantly(OrderCommand order, long filled) {
         OrderAction action = order.action;
