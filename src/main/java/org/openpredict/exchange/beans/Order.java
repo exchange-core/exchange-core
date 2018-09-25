@@ -36,10 +36,13 @@ public class Order extends OrderCommand {
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(orderId, action, orderType, price, size, filled, symbol, uid, timestamp);
+        return Objects.hashCode(orderId, action, orderType, price, size, filled, symbol, uid);
     }
 
 
+    /**
+     * timestamp is not included into hashCode() and equals() for repeatable results
+     */
     @Override
     public boolean equals(Object o) {
         if (o == this) return true;
@@ -56,7 +59,7 @@ public class Order extends OrderCommand {
                 .append(filled, other.filled)
                 .append(symbol, other.symbol)
                 .append(uid, other.uid)
-                .append(timestamp, other.timestamp)
+                //.append(timestamp, other.timestamp)
                 .isEquals();
     }
 

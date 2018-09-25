@@ -6,6 +6,7 @@ import org.openpredict.exchange.beans.cmd.OrderCommand;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 public interface IOrdersBucket extends Comparable<IOrdersBucket> {
 
@@ -91,6 +92,14 @@ public interface IOrdersBucket extends Comparable<IOrdersBucket> {
 
     default int compareTo(IOrdersBucket other) {
         return Long.compare(this.getPrice(), other.getPrice());
+    }
+
+    default String dumpToSingleLine() {
+        String orders = getAllOrders().stream()
+                .map(o -> String.format("id%d_L%d_F%d", o.orderId, o.size, o.filled))
+                .collect(Collectors.joining(", "));
+
+        return String.format("%d : vol:%d num:%d : %s", getPrice(), getTotalVolume(), getNumOrders(), orders);
     }
 
     // TODO default equals

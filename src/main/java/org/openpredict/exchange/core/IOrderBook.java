@@ -75,4 +75,9 @@ public interface IOrderBook {
 
     }
 
+    default void printFullOrderBook() {
+        getAllAskBuckets().forEach(a -> System.out.println(String.format("ASK %s", a.dumpToSingleLine())));
+        getAllBidBuckets().forEach(b -> System.out.println(String.format("BID %s", b.dumpToSingleLine())));
+    }
+
 }

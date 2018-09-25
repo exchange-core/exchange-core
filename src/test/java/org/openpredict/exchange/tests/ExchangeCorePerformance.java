@@ -24,6 +24,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
@@ -37,7 +39,7 @@ import static org.openpredict.exchange.util.LatencyTools.createLatencyReportFast
 })
 @TestPropertySource(locations = "classpath:it.properties")
 @Slf4j
-public class ExchangeCoreStress {
+public class ExchangeCorePerformance {
 
     @Autowired
     private ExchangeApi apiCore;
@@ -75,6 +77,7 @@ public class ExchangeCoreStress {
         matchingEngineRouter.addOrderBook(SYMBOL);
     }
 
+    // TODO shutdown disruptor if test fails
     @Test
     public void throughputTest() throws Exception {
 
@@ -82,15 +85,15 @@ public class ExchangeCoreStress {
         int targetOrderBookOrders = 1000;
 
         int numUsers = 1000;
-        ArrayList<Long> uids = new ArrayList<>();
-        for (long i = 1; i <= numUsers; i++) {
-            apiCore.submitCommand(ApiAddUser.builder().uid(i).build());
-            apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(i).amount(2_000_000_000L).build());
-            uids.add(i);
-        }
 
-        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids);
-        List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands(), SYMBOL);
+        List<Long> uids = Stream.iterate(1L, i -> i + 1).limit(numUsers).collect(Collectors.toList());
+        uids.forEach(uid -> {
+            apiCore.submitCommand(ApiAddUser.builder().uid(uid).build());
+            apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(2_000_000_000L).build());
+        });
+
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids, SYMBOL);
+        List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
 
         AtomicInteger counter = new AtomicInteger();
 
@@ -122,9 +125,12 @@ public class ExchangeCoreStress {
             log.info("{}. {} MT/s", j, perfMt);
             perfResults.add(perfMt);
 
+            //matchingEngineRouter.getOrderBook().printFullOrderBook();
+
             // weak compare orderBook final state just to make sure all commands executed same way
             // TODO compare events
             assertThat(matchingEngineRouter.getOrderBook().hashCode(), is(genResult.getFinalOrderbookHash()));
+
         }
 
         double avg = (float) perfResults.stream().mapToDouble(x -> x).average().orElse(0);
@@ -137,23 +143,22 @@ public class ExchangeCoreStress {
     public void latencyTest() throws Exception {
 
         int numOrders = 3_000_000;
-        int targetOrderBookOrders = 1000000;
-        int numUsers = 1000000;
+        int targetOrderBookOrders = 1000;
+        int numUsers = 1000;
 
 //        int targetTps = 1000000; // transactions per second
         int targetTps = 500_000; // transactions per second
         int targetTpsEnd = 7_000_000;
 //        int targetTps = 4_000_000; // transactions per second
 
-        ArrayList<Long> uids = new ArrayList<>();
-        for (long i = 1; i <= numUsers; i++) {
-            apiCore.submitCommand(ApiAddUser.builder().uid(i).build());
-            apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(i).amount(2_000_000_000L).build());
-            uids.add(i);
-        }
+        List<Long> uids = Stream.iterate(1L, i -> i + 1).limit(numUsers).collect(Collectors.toList());
+        uids.forEach(uid -> {
+            apiCore.submitCommand(ApiAddUser.builder().uid(uid).build());
+            apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(2_000_000_000L).build());
+        });
 
-        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids);
-        List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands(), SYMBOL);
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids, SYMBOL);
+        List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
 
         IntLongHashMap latencies = new IntLongHashMap(20000);
 

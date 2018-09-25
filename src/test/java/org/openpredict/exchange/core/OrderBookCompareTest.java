@@ -25,9 +25,9 @@ public class OrderBookCompareTest {
 
         long nextUpdateTime = 0;
 
-        int tranNum = 100_000;
-        int targetOrderBookOrders = 10_000;
-        int numUsers = 10_000;
+        int tranNum = 10_000_000;
+        int targetOrderBookOrders = 200_000;
+        int numUsers = 200_000;
 
         IOrderBook orderBook = new OrderBookFast(4096);
         //IOrderBook orderBook = new OrderBookSlow();
@@ -38,7 +38,7 @@ public class OrderBookCompareTest {
             uids.add(i);
         }
 
-        TestOrdersGenerator.GenResult genResult = generator.generateCommands(tranNum, targetOrderBookOrders, uids);
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(tranNum, targetOrderBookOrders, uids, 0);
 
         long i = 0;
         for (OrderCommand cmd : genResult.getCommands()) {

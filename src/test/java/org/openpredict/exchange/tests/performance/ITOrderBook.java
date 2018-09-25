@@ -68,9 +68,8 @@ public class ITOrderBook {
 
         TestOrdersGenerator generator = new TestOrdersGenerator();
 
-
         List<Long> uid = Stream.iterate(99000L, i -> i + 1).limit(1000).collect(Collectors.toList());
-        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uid);
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uid, 0);
         List<OrderCommand> orderCommands = genResult.getCommands();
         log.debug("orderCommands size: {}", orderCommands.size());
 

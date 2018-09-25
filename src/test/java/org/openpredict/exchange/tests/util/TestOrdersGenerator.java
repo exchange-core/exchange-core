@@ -26,26 +26,26 @@ import static org.junit.Assert.assertThat;
 public class TestOrdersGenerator {
 
     public static final int CENTRAL_PRICE = 100_000;
-    public static final int PRICE_DEVIATION = 5_000;
+    public static final int PRICE_DEVIATION_DEFAULT = 5_000;
 
     public static final double CENTRAL_MOVE_ALPHA = 0.01;
 
+    public static final int CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND = 1024;
 
-    @Builder
-    @Getter
-    @Setter
-    public static class GenResult {
-        private int finalOrderbookHash;
-        private List<OrderCommand> commands;
-    }
-
-
-    public GenResult generateCommands(int transactionsNumber, int targetOrderBookOrders, List<Long> uid) {
+    public GenResult generateCommands(
+            int transactionsNumber,
+            int targetOrderBookOrders,
+            List<Long> uids,
+            int symbol) {
 
         IOrderBook orderBook = IOrderBook.newInstance();
 
-        TestOrdersGeneratorSession session = new TestOrdersGeneratorSession(orderBook, targetOrderBookOrders);
-        session.uid = uid;
+        TestOrdersGeneratorSession session = new TestOrdersGeneratorSession(
+                orderBook,
+                targetOrderBookOrders,
+                PRICE_DEVIATION_DEFAULT,
+                uids,
+                symbol);
 
         List<OrderCommand> commands = new ArrayList<>();
 
@@ -53,8 +53,8 @@ public class TestOrdersGenerator {
 
         //int checkOrderBookStatEveryNthCommand = transactionsNumber / 1000;
         //checkOrderBookStatEveryNthCommand = 1 << (32 - Integer.numberOfLeadingZeros(checkOrderBookStatEveryNthCommand - 1));
-        int checkOrderBookStatEveryNthCommand = 1024;
-        int nextSizeCheck = checkOrderBookStatEveryNthCommand;
+
+        int nextSizeCheck = CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND;
 
         long nextUpdateTime = 0;
 
@@ -65,7 +65,7 @@ public class TestOrdersGenerator {
             }
 
             cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
-
+            cmd.symbol = session.symbol;
             //log.debug("{}. {}",i, cmd);
             orderBook.processCommand(cmd);
 
@@ -81,7 +81,7 @@ public class TestOrdersGenerator {
             cmd.matcherEvent = null;
 
             if (i >= nextSizeCheck) {
-                nextSizeCheck += checkOrderBookStatEveryNthCommand;
+                nextSizeCheck += CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND;
 
                 updateOrderBookSizeStat(session);
 
@@ -110,14 +110,18 @@ public class TestOrdersGenerator {
         float avgOrderBookSizeAsk = (float) session.orderBookSizeAskStat.stream().mapToInt(x -> x).average().orElse(0);
         float avgOrderBookSizeBid = (float) session.orderBookSizeBidStat.stream().mapToInt(x -> x).average().orElse(0);
         float avgOrdersNumInOrderBook = (float) session.orderBookNumOrdersStat.stream().mapToInt(x -> x).average().orElse(0);
+
         assertThat(succPerc, greaterThan(85.0f));
-        assertThat(avgOrderBookSizeAsk, greaterThan(20.0f));
-        assertThat(avgOrderBookSizeBid, greaterThan(20.0f));
-        assertThat(avgOrdersNumInOrderBook, greaterThan(50.0f));
+        if (transactionsNumber > CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND) {
+            assertThat(avgOrderBookSizeAsk, greaterThan(20.0f));
+            assertThat(avgOrderBookSizeBid, greaterThan(20.0f));
+            assertThat(avgOrdersNumInOrderBook, greaterThan(50.0f));
+        }
 
         log.debug("Average order book size: ASK={} BID={} ({} samples)", avgOrderBookSizeAsk, avgOrderBookSizeBid, session.orderBookSizeBidStat.size());
         log.debug("Average limit orders number in the order book:{} (target:{})", avgOrdersNumInOrderBook, targetOrderBookOrders);
         log.debug("Commands success={}%", succPerc);
+
         return GenResult.builder().commands(commands).finalOrderbookHash(orderBook.hashCode()).build();
     }
 
@@ -180,7 +184,7 @@ public class TestOrdersGenerator {
             long size = 1 + rand.nextInt(6) * rand.nextInt(6) * rand.nextInt(6);
 
             OrderType orderType = growOrders ? OrderType.LIMIT : OrderType.MARKET;
-            long uid = session.uid.get(rand.nextInt(session.uid.size()));
+            long uid = session.uids.get(rand.nextInt(session.uids.size()));
 
             OrderCommand placeCmd = OrderCommand.builder().command(OrderCommandType.PLACE_ORDER).uid(uid).orderId(session.seq).size(size)
                     .action(action).orderType(orderType).build();
@@ -188,7 +192,7 @@ public class TestOrdersGenerator {
             if (orderType == OrderType.LIMIT) {
                 session.actualOrders.set(session.seq);
 
-                int dev = 1 + (int) (Math.pow(rand.nextDouble(), 2) * PRICE_DEVIATION);
+                int dev = 1 + (int) (Math.pow(rand.nextDouble(), 2) * session.priceDeviation);
 
                 long p = 0;
                 int x = 4;
@@ -258,21 +262,29 @@ public class TestOrdersGenerator {
     }
 
 
-    public List<ApiCommand> convertToApiCommand(List<OrderCommand> commands, int symbol) {
+    public List<ApiCommand> convertToApiCommand(List<OrderCommand> commands) {
         return commands.stream()
                 .map(cmd -> {
                     switch (cmd.command) {
                         case PLACE_ORDER:
-                            return ApiPlaceOrder.builder().symbol(symbol).uid(cmd.uid).id(cmd.orderId)
+                            return ApiPlaceOrder.builder().symbol(cmd.symbol).uid(cmd.uid).id(cmd.orderId)
                                     .price(cmd.price).size(cmd.size).action(cmd.action).orderType(cmd.orderType).build();
                         case MOVE_ORDER:
-                            return ApiMoveOrder.builder().symbol(symbol).uid(cmd.uid).id(cmd.orderId).newPrice(cmd.price).build();
+                            return ApiMoveOrder.builder().symbol(cmd.symbol).uid(cmd.uid).id(cmd.orderId).newPrice(cmd.price).build();
                         case CANCEL_ORDER:
-                            return ApiCancelOrder.builder().symbol(symbol).uid(cmd.uid).id(cmd.orderId).build();
+                            return ApiCancelOrder.builder().symbol(cmd.symbol).uid(cmd.uid).id(cmd.orderId).build();
                     }
                     throw new IllegalStateException("unsupported type: " + cmd.command);
                 })
                 .collect(Collectors.toList());
+    }
+
+    @Builder
+    @Getter
+    @Setter
+    public static class GenResult {
+        private int finalOrderbookHash;
+        private List<OrderCommand> commands;
     }
 
 }

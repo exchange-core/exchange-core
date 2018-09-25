@@ -748,7 +748,10 @@ public class OrderBookTest {
         orderBook = IOrderBook.newInstance();
         orderBook.validateInternalState();
 
-        TestOrdersGenerator.GenResult genResult = generator.generateCommands(tranNum, 200, Longs.asList(10, 11, 12, 13, 14, 15));
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(tranNum,
+                200,
+                Longs.asList(10, 11, 12, 13, 14, 15),
+                0);
 
         genResult.getCommands().forEach(cmd -> {
             cmd.orderId += 100; // TODO set start id

@@ -1,6 +1,7 @@
 package org.openpredict.exchange.tests;
 
 import lombok.extern.slf4j.Slf4j;
+import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -250,8 +251,8 @@ public class ITExchangeCoreIntegration {
             uids.add(i);
         }
 
-        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids);
-        List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands(), SYMBOL);
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids, SYMBOL);
+        List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
 
         exchangeCore.setResultsConsumer(cmd -> {
             //log.debug("Result: {}", cmd);
@@ -273,8 +274,7 @@ public class ITExchangeCoreIntegration {
 
         // weak compare orderBook final state just to make sure all commands executed same way
         // TODO compare events, wait until finish
-        // assertThat(matchingEngineRouter.getOrderBook().hashCode(), Matchers.is(genResult.getFinalOrderbookHash()));
-
+        assertThat(matchingEngineRouter.getOrderBook().hashCode(), Matchers.is(genResult.getFinalOrderbookHash()));
 
     }
 
