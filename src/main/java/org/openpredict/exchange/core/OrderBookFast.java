@@ -728,17 +728,20 @@ public class OrderBookFast extends OrderBookBase {
             return;
         }
 
-        int next = priceToIndex(minAskPrice);
         int i = 0;
-        while ((next = hotAskBitSet.nextSetBit(next)) != -1) {
-            IOrdersBucket bucket = hotAskBuckets.get(indexToPrice(next));
-            data.askPrices[i] = bucket.getPrice();
-            data.askVolumes[i] = bucket.getTotalVolume();
-            if (++i == size) {
-                data.askSize = size;
-                return;
+        // scan hot section only if there are buckets in it
+        if (minAskPrice < basePrice + hotPricesRange) {
+            int next = priceToIndex(minAskPrice);
+            while ((next = hotAskBitSet.nextSetBit(next)) != -1) {
+                IOrdersBucket bucket = hotAskBuckets.get(indexToPrice(next));
+                data.askPrices[i] = bucket.getPrice();
+                data.askVolumes[i] = bucket.getTotalVolume();
+                if (++i == size) {
+                    data.askSize = size;
+                    return;
+                }
+                next++;
             }
-            next++;
         }
 
         // extracting buckets from far trees
@@ -763,18 +766,21 @@ public class OrderBookFast extends OrderBookBase {
             return;
         }
 
-
-        int next = priceToIndex(maxBidPrice);
         int i = 0;
-        while ((next = hotBidBitSet.previousSetBit(next)) != -1) {
-            IOrdersBucket bucket = hotBidBuckets.get(indexToPrice(next));
-            data.bidPrices[i] = bucket.getPrice();
-            data.bidVolumes[i] = bucket.getTotalVolume();
-            if (++i == size) {
-                data.bidSize = size;
-                return;
+
+        // scan hot section only if there are buckets in it
+        if (maxBidPrice >= basePrice) {
+            int next = priceToIndex(maxBidPrice);
+            while ((next = hotBidBitSet.previousSetBit(next)) != -1) {
+                IOrdersBucket bucket = hotBidBuckets.get(indexToPrice(next));
+                data.bidPrices[i] = bucket.getPrice();
+                data.bidVolumes[i] = bucket.getTotalVolume();
+                if (++i == size) {
+                    data.bidSize = size;
+                    return;
+                }
+                next--;
             }
-            next--;
         }
 
         // extracting buckets from far trees

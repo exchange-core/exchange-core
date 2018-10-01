@@ -38,7 +38,7 @@ public class OrderBookCompareTest {
             uids.add(i);
         }
 
-        TestOrdersGenerator.GenResult genResult = generator.generateCommands(tranNum, targetOrderBookOrders, uids, 0);
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(tranNum, targetOrderBookOrders, uids, 0, true);
 
         long i = 0;
         for (OrderCommand cmd : genResult.getCommands()) {
@@ -77,6 +77,7 @@ public class OrderBookCompareTest {
             assertEquals(orderBook, orderBookRef);
 
             // TODO compare events!
+            // TODO compare L2 marketdata
 
 
             if (System.currentTimeMillis() > nextUpdateTime) {

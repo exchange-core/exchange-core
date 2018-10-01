@@ -26,6 +26,8 @@ import static org.junit.Assert.assertThat;
 public class TestOrdersGenerator {
 
     public static final int CENTRAL_PRICE = 100_000;
+    public static final int MIN_PRICE = 50_000;
+    public static final int MAX_PRICE = 150_000;
     public static final int PRICE_DEVIATION_DEFAULT = 5_000;
 
     public static final double CENTRAL_MOVE_ALPHA = 0.01;
@@ -36,7 +38,8 @@ public class TestOrdersGenerator {
             int transactionsNumber,
             int targetOrderBookOrders,
             List<Long> uids,
-            int symbol) {
+            int symbol,
+            boolean enableSlidingPrice) {
 
         IOrderBook orderBook = IOrderBook.newInstance();
 
@@ -45,7 +48,9 @@ public class TestOrdersGenerator {
                 targetOrderBookOrders,
                 PRICE_DEVIATION_DEFAULT,
                 uids,
-                symbol);
+                symbol,
+                CENTRAL_PRICE,
+                enableSlidingPrice ? 1 : 0);
 
         List<OrderCommand> commands = new ArrayList<>();
 
@@ -151,6 +156,14 @@ public class TestOrdersGenerator {
                 session.numCompleted++;
             }
 
+            session.lastTradePrice = Math.min(MAX_PRICE, Math.max(MIN_PRICE, ev.price));
+
+            if (ev.price <= MIN_PRICE) {
+                session.priceDirection = 1;
+            } else if (ev.price >= MAX_PRICE) {
+                session.priceDirection = -1;
+            }
+
         } else if (ev.eventType == MatcherEventType.REJECTION) {
 //            log.debug("Rejection: {}", ev.activeOrderId);
             session.actualOrders.clear((int) ev.activeOrderId);
@@ -179,7 +192,7 @@ public class TestOrdersGenerator {
 
         if (cmd < 2) {
 
-            OrderAction action = rand.nextBoolean() ? OrderAction.ASK : OrderAction.BID;
+            OrderAction action = (rand.nextInt(6) + session.priceDirection >= 3) ? OrderAction.BID : OrderAction.ASK;
 
             long size = 1 + rand.nextInt(6) * rand.nextInt(6) * rand.nextInt(6);
 
@@ -205,7 +218,7 @@ public class TestOrdersGenerator {
                 }
 
                 //log.debug("p={} action={}", p, action);
-                int price = CENTRAL_PRICE + (int) p;
+                int price = (int) session.lastTradePrice + (int) p;
 
                 session.orderPrices.put(session.seq, price);
                 session.orderUids.put(session.seq, uid);
@@ -244,11 +257,11 @@ public class TestOrdersGenerator {
                 return null;
             }
 
-            double priceMove = (CENTRAL_PRICE - prevPrice) * CENTRAL_MOVE_ALPHA;
+            double priceMove = (session.lastTradePrice - prevPrice) * CENTRAL_MOVE_ALPHA;
             int priceMoveRounded;
-            if (prevPrice > CENTRAL_PRICE) {
+            if (prevPrice > session.lastTradePrice) {
                 priceMoveRounded = (int) Math.floor(priceMove);
-            } else if (prevPrice < CENTRAL_PRICE) {
+            } else if (prevPrice < session.lastTradePrice) {
                 priceMoveRounded = (int) Math.ceil(priceMove);
             } else {
                 priceMoveRounded = rand.nextInt(2) * 2 - 1;

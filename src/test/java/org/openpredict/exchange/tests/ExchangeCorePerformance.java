@@ -92,7 +92,7 @@ public class ExchangeCorePerformance {
             apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(2_000_000_000L).build());
         });
 
-        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids, SYMBOL);
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids, SYMBOL, false);
         List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
 
         AtomicInteger counter = new AtomicInteger();
@@ -157,7 +157,7 @@ public class ExchangeCorePerformance {
             apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(2_000_000_000L).build());
         });
 
-        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids, SYMBOL);
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids, SYMBOL, false);
         List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
 
         IntLongHashMap latencies = new IntLongHashMap(20000);

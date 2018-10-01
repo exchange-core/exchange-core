@@ -251,7 +251,7 @@ public class ITExchangeCoreIntegration {
             uids.add(i);
         }
 
-        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids, SYMBOL);
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids, SYMBOL, false);
         List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
 
         exchangeCore.setResultsConsumer(cmd -> {

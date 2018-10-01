@@ -1,5 +1,6 @@
 package org.openpredict.exchange.tests.util;
 
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.eclipse.collections.impl.map.mutable.primitive.IntIntHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
@@ -10,7 +11,7 @@ import java.util.BitSet;
 import java.util.List;
 import java.util.Random;
 
-@RequiredArgsConstructor
+@RequiredArgsConstructor()
 public class TestOrdersGeneratorSession {
 
     public final IOrderBook orderBook;
@@ -35,6 +36,13 @@ public class TestOrdersGeneratorSession {
     public final List<Integer> orderBookSizeAskStat = new ArrayList<>();
     public final List<Integer> orderBookSizeBidStat = new ArrayList<>();
     public final List<Integer> orderBookNumOrdersStat = new ArrayList<>();
+
+    @NonNull
+    public long lastTradePrice;
+
+    @NonNull
+    // set to 1 to make price move up and down
+    public int priceDirection;
 
     public long numCompleted = 0;
     public long numRejected = 0;
