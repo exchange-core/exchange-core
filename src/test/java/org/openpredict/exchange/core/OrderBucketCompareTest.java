@@ -25,7 +25,7 @@ public class OrderBucketCompareTest {
     private static final int UID_9 = 419;
 
     @Test
-    public void compareMatchScenario() {
+    public void compareBucketScenario() {
 
         Random rnd = new Random(1);
 
@@ -68,16 +68,23 @@ public class OrderBucketCompareTest {
                 assertThat(bucket, is(bucketRef));
             }
 
+
+            TradeEventCallback.TradeEventCollector events = new TradeEventCallback.TradeEventCollector();
+            TradeEventCallback.TradeEventCollector eventsRef = new TradeEventCallback.TradeEventCollector();
             long toMatch = expectedVolume / 2;
-            long totalVolume = bucket.match(toMatch, UID_9, TradeEventCallback::empty);
-            bucketRef.match(toMatch, UID_9, TradeEventCallback::empty);
+            long totalVolume = bucket.match(toMatch, UID_9, events::collect);
+            bucketRef.match(toMatch, UID_9, eventsRef::collect);
             expectedVolume -= totalVolume;
             assertThat(bucket, is(bucketRef));
+            assertThat(events, is(eventsRef));
         }
 
-        bucket.match(expectedVolume, UID_9, TradeEventCallback::empty);
-        bucketRef.match(expectedVolume, UID_9, TradeEventCallback::empty);
+        TradeEventCallback.TradeEventCollector events = new TradeEventCallback.TradeEventCollector();
+        TradeEventCallback.TradeEventCollector eventsRef = new TradeEventCallback.TradeEventCollector();
+        bucket.match(expectedVolume, UID_9, events::collect);
+        bucketRef.match(expectedVolume, UID_9, eventsRef::collect);
         assertThat(bucket, is(bucketRef));
+        assertThat(events, is(eventsRef));
     }
 
 

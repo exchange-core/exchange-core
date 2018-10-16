@@ -4,6 +4,9 @@ package org.openpredict.exchange.beans;
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
+import org.apache.commons.lang3.builder.EqualsBuilder;
+
+import java.util.Objects;
 
 @AllArgsConstructor
 @NoArgsConstructor
@@ -47,6 +50,50 @@ public class MatcherTradeEvent {
         evt.size = this.size;
         evt.timestamp = this.timestamp;
         return evt;
+    }
+
+    /**
+     * Compare next events chain as well.
+     */
+    @Override
+    public boolean equals(Object o) {
+        if (o == this) return true;
+        if (o == null) return false;
+        if (!(o instanceof MatcherTradeEvent)) return false;
+        MatcherTradeEvent other = (MatcherTradeEvent) o;
+        return new EqualsBuilder()
+                .append(symbol, other.symbol)
+                .append(activeOrderId, other.activeOrderId)
+                .append(activeOrderUid, other.activeOrderUid)
+                .append(activeOrderCompleted, other.activeOrderCompleted)
+                .append(activeOrderAction, other.activeOrderAction)
+                .append(matchedOrderId, other.matchedOrderId)
+                .append(matchedOrderUid, other.matchedOrderUid)
+                .append(matchedOrderCompleted, other.matchedOrderCompleted)
+                .append(price, other.price)
+                .append(size, other.size)
+                // ignore timestamp
+                .append(nextEvent, other.nextEvent)
+                .isEquals();
+    }
+
+    /**
+     * Includes chaining events
+     */
+    @Override
+    public int hashCode() {
+        return Objects.hash(
+                symbol,
+                activeOrderId,
+                activeOrderUid,
+                activeOrderCompleted,
+                activeOrderAction,
+                matchedOrderId,
+                matchedOrderUid,
+                matchedOrderCompleted,
+                price,
+                size,
+                nextEvent);
     }
 
 }
