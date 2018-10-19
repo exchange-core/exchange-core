@@ -158,9 +158,12 @@ public class TestOrdersGenerator {
 
             session.lastTradePrice = Math.min(MAX_PRICE, Math.max(MIN_PRICE, ev.price));
 
+//            log.debug("       {}", ev.price);
             if (ev.price <= MIN_PRICE) {
+//                log.debug("P>>>: {}", ev.price);
                 session.priceDirection = 1;
             } else if (ev.price >= MAX_PRICE) {
+//                log.debug("P<<<: {}", ev.price);
                 session.priceDirection = -1;
             }
 
@@ -192,7 +195,9 @@ public class TestOrdersGenerator {
 
         if (cmd < 2) {
 
-            OrderAction action = (rand.nextInt(6) + session.priceDirection >= 3) ? OrderAction.BID : OrderAction.ASK;
+            OrderAction action = (rand.nextInt(4) + session.priceDirection >= 2)
+                    ? OrderAction.BID
+                    : OrderAction.ASK;
 
             long size = 1 + rand.nextInt(6) * rand.nextInt(6) * rand.nextInt(6);
 

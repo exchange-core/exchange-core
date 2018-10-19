@@ -157,7 +157,12 @@ public class ExchangeCorePerformance {
             apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(2_000_000_000L).build());
         });
 
-        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids, SYMBOL, false);
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(
+                numOrders,
+                targetOrderBookOrders,
+                uids,
+                SYMBOL,
+                false);
         List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
 
         IntLongHashMap latencies = new IntLongHashMap(20000);
@@ -172,7 +177,91 @@ public class ExchangeCorePerformance {
         for (int j = 0; j < 10000; j++) {
 
             int nanosPerCmd = 1_000_000_000 / targetTps;
-            targetTps += 100_000;
+            targetTps += 50_000;
+
+            Thread.sleep(20);
+            userProfileService.reset();
+            matchingEngineRouter.reset();
+            System.gc();
+            Thread.sleep(200);
+
+            long t = System.currentTimeMillis();
+            long plannedTimestamp = System.nanoTime();
+
+            long latenciesSum = latencies.sum();
+
+            for (ApiCommand cmd : apiCommands) {
+                // calculate planned time and spin if too early
+                while (System.nanoTime() < plannedTimestamp) {
+                }
+                cmd.timestamp = plannedTimestamp;
+                apiCore.submitCommand(cmd);
+                plannedTimestamp += nanosPerCmd;
+            }
+
+            // wait until last response received
+            long expectedSum = latenciesSum + apiCommands.size();
+            while (latencies.sum() != expectedSum) {
+                //log.debug("commands not processed yet: {}", expectedSum - sum);
+            }
+            t = System.currentTimeMillis() - t;
+
+            float perfMt = (float) apiCommands.size() / (float) t / 1000.0f;
+            Map<String, String> fmtPlace = createLatencyReportFast(latencies);
+            log.info("{}. {} MT/s {}", j, perfMt, fmtPlace);
+
+            // weak compare orderBook final state just to make sure all commands executed same way
+            // TODO compare events
+            assertThat(matchingEngineRouter.getOrderBook().hashCode(), is(genResult.getFinalOrderbookHash()));
+
+//            if (j == 5) {
+//                log.info("Warmup completed, RESET latency stat");
+            latencies.clear();
+//            }
+
+            if (targetTps > targetTpsEnd) {
+                break;
+            }
+        }
+    }
+
+
+
+    // TODO fix - fails with - int DEFAULT_HOT_WIDTH = 1024;
+    @Test
+    public void latencyTestFailing() throws Exception {
+
+        int numOrders = 3_000_000;
+        int targetOrderBookOrders = 1000;
+        int numUsers = 1000;
+
+//        int targetTps = 1000000; // transactions per second
+        int targetTps = 500_000; // transactions per second
+        int targetTpsEnd = 7_000_000;
+//        int targetTps = 4_000_000; // transactions per second
+
+        List<Long> uids = Stream.iterate(1L, i -> i + 1).limit(numUsers).collect(Collectors.toList());
+        uids.forEach(uid -> {
+            apiCore.submitCommand(ApiAddUser.builder().uid(uid).build());
+            apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(2_000_000_000L).build());
+        });
+
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids, SYMBOL, true);
+        List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
+
+        IntLongHashMap latencies = new IntLongHashMap(20000);
+
+        exchangeCore.setResultsConsumer(cmd -> {
+            int key = (int) ((System.nanoTime() - cmd.timestamp) >> LATENCY_RESOLUTION);
+            latencies.updateValue(key, 0, x -> x + 1);
+        });
+
+        // TODO - first run should validate the output (orders are accepted and processed properly)
+
+        for (int j = 0; j < 10000; j++) {
+
+            int nanosPerCmd = 1_000_000_000 / targetTps;
+            targetTps += 50_000;
 
             Thread.sleep(20);
             userProfileService.reset();

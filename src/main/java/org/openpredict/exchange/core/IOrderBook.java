@@ -11,7 +11,7 @@ import java.util.Objects;
 
 public interface IOrderBook {
 
-    int DEFAULT_HOT_WIDTH = 1024; //32678
+    int DEFAULT_HOT_WIDTH = 32768;
 
     void processCommand(OrderCommand cmd);
 
