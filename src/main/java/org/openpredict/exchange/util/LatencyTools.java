@@ -12,16 +12,18 @@ import static com.google.common.math.Quantiles.scale;
 
 public class LatencyTools {
 
-    public static final int LATENCY_RESOLUTION = 6; // Latency resolution: 64ns
+    public static final int LATENCY_RESOLUTION = 5; // Latency resolution: 32ns
     public static final float LATENCY_RESOLUTION_MULTIPLIER_US = (float) Math.pow(2, LATENCY_RESOLUTION) / 1000f;
+
+    public static final double[] PERCENTILES = new double[]{50, 90, 95, 99, 99.9, 99.99};
 
     public static Map<String, String> createLatencyReportFast(IntLongHashMap latencies) {
         long size = latencies.values().sum();
-        Map<Integer, Long> grouped = new TreeMap<>();
+        TreeMap<Integer, Long> grouped = new TreeMap<>();
         latencies.forEachKeyValue(grouped::put);
+        int worstLatency = grouped.lastEntry().getKey();
 
-        double[] percentile = new double[]{50, 90, 99, 99.9, 99.99, 99.999};
-        long[] percentileC = Arrays.stream(percentile).mapToLong(p -> (long) (size * p / 100.0)).toArray();
+        long[] percentileC = Arrays.stream(PERCENTILES).mapToLong(p -> (long) (size * p / 100.0)).toArray();
 
         Map<String, String> fmt = new LinkedHashMap<>();
 
@@ -31,28 +33,34 @@ public class LatencyTools {
             Long v = entry.getValue();
             accum += v;
             if (accum > percentileC[stage]) {
-                float value = entry.getKey() * LATENCY_RESOLUTION_MULTIPLIER_US;
-                String timeUnit = "µs";
-                if (value > 1000) {
-                    value /= 1000;
-                    timeUnit = "ms";
-                }
-
-                if (value < 3) {
-                    value = Math.round(value * 100) / 100f;
-                } else if (value < 30) {
-                    value = Math.round(value * 10) / 10f;
-                } else {
-                    value = Math.round(value);
-                }
-
-                fmt.put((percentile[stage]) + "%", value + timeUnit);
+                String formattedValue = formatLatencyValueAsTime(entry.getKey());
+                fmt.put((PERCENTILES[stage]) + "%", formattedValue);
                 if (++stage >= percentileC.length) {
                     break;
                 }
             }
         }
+        fmt.put("W", formatLatencyValueAsTime(worstLatency));
         return fmt;
+    }
+
+    private static String formatLatencyValueAsTime(int v) {
+        float value = v * LATENCY_RESOLUTION_MULTIPLIER_US;
+        String timeUnit = "µs";
+        if (value > 1000) {
+            value /= 1000;
+            timeUnit = "ms";
+        }
+
+        if (value < 3) {
+            value = Math.round(value * 100) / 100f;
+        } else if (value < 30) {
+            value = Math.round(value * 10) / 10f;
+        } else {
+            value = Math.round(value);
+        }
+
+        return value + timeUnit;
     }
 
 
