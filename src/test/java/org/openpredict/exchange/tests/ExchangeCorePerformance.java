@@ -70,6 +70,8 @@ public class ExchangeCorePerformance {
 
     private static final int SYMBOL = 5991;
 
+    private int latencyMessagesCounter = 0;
+
     @Before
     public void before() {
         SymbolSpecification spec = SymbolSpecification.builder().depositBuy(22000).depositSell(32100).symbolId(SYMBOL).symbolName("XBTC").build();
@@ -142,13 +144,15 @@ public class ExchangeCorePerformance {
     @Test
     public void latencyTest() throws Exception {
 
-        int numOrders = 3_000_000;
-        int targetOrderBookOrders = 1000;
-        int numUsers = 1000;
+        final int numOrders = 3_000_000;
+        final int targetOrderBookOrders = 1000;
+        final int numUsers = 1000;
+
+        final int ignoreLatencyForFirstNMessages = numOrders / 100;
 
 //        int targetTps = 1000000; // transactions per second
         int targetTps = 500_000; // transactions per second
-        int targetTpsEnd = 7_000_000;
+        final int targetTpsEnd = 7_000_000;
 //        int targetTps = 4_000_000; // transactions per second
 
         List<Long> uids = Stream.iterate(1L, i -> i + 1).limit(numUsers).collect(Collectors.toList());
@@ -170,6 +174,10 @@ public class ExchangeCorePerformance {
         exchangeCore.setResultsConsumer(cmd -> {
             int key = (int) ((System.nanoTime() - cmd.timestamp) >> LATENCY_RESOLUTION);
             latencies.updateValue(key, 0, x -> x + 1);
+            // reset latency map after first 1% messages
+            if (latencyMessagesCounter++ == ignoreLatencyForFirstNMessages) {
+                latencies.clear();
+            }
         });
 
         // TODO - first run should validate the output (orders are accepted and processed properly)
@@ -188,11 +196,12 @@ public class ExchangeCorePerformance {
             long t = System.currentTimeMillis();
             long plannedTimestamp = System.nanoTime();
 
-            long latenciesSum = latencies.sum();
+            latencies.clear();
+            latencyMessagesCounter = 0;
 
             for (ApiCommand cmd : apiCommands) {
-                // calculate planned time and spin if too early
                 while (System.nanoTime() < plannedTimestamp) {
+                    // spin while too early for sending next message
                 }
                 cmd.timestamp = plannedTimestamp;
                 apiCore.submitCommand(cmd);
@@ -200,7 +209,7 @@ public class ExchangeCorePerformance {
             }
 
             // wait until last response received
-            long expectedSum = latenciesSum + apiCommands.size();
+            final long expectedSum = apiCommands.size() - ignoreLatencyForFirstNMessages - 1;
             while (latencies.sum() != expectedSum) {
                 //log.debug("commands not processed yet: {}", expectedSum - sum);
             }
@@ -214,17 +223,11 @@ public class ExchangeCorePerformance {
             // TODO compare events
             assertThat(matchingEngineRouter.getOrderBook().hashCode(), is(genResult.getFinalOrderbookHash()));
 
-//            if (j == 5) {
-//                log.info("Warmup completed, RESET latency stat");
-            latencies.clear();
-//            }
-
             if (targetTps > targetTpsEnd) {
                 break;
             }
         }
     }
-
 
 
     // TODO fix - fails with - int DEFAULT_HOT_WIDTH = 1024;
