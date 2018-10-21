@@ -1,6 +1,7 @@
 package org.openpredict.exchange.core;
 
 import lombok.extern.slf4j.Slf4j;
+import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.MatcherEventType;
 import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.Order;
@@ -9,6 +10,9 @@ import org.openpredict.exchange.beans.cmd.OrderCommand;
 
 import java.util.ArrayDeque;
 
+/**
+ * TODO get rid of this class in favor of new interface
+ */
 @Slf4j
 public abstract class OrderBookBase implements IOrderBook {
 
@@ -82,7 +86,7 @@ public abstract class OrderBookBase implements IOrderBook {
      *
      * @param order - market order to match
      */
-    abstract void matchMarketOrder(OrderCommand order);
+    abstract protected void matchMarketOrder(OrderCommand order);
 
     /**
      * Place new LIMIT order
@@ -90,33 +94,63 @@ public abstract class OrderBookBase implements IOrderBook {
      *
      * @param cmd - limit order to place
      */
-    abstract void placeNewLimitOrder(OrderCommand cmd);
+    abstract protected void placeNewLimitOrder(OrderCommand cmd);
 
     /**
      * Cancel order
-     *
+     * <p>
      * orderId - order Id
+     *
      * @return false if order was not found, otherwise always true
      */
-    abstract boolean cancelOrder(OrderCommand cmd);
+    abstract protected boolean cancelOrder(OrderCommand cmd);
 
     /**
      * Reduce volume or/and move an order
-     *
+     * <p>
      * orderId  - order Id
      * newPrice - new price (if 0 or same - order will not moved)
      * newSize  - new size (if higher than current size or 0 - order will not downsized)
+     *
      * @return false if order was not found, otherwise always true
      */
-    abstract boolean updateOrder(OrderCommand cmd);
-
+    abstract protected boolean updateOrder(OrderCommand cmd);
 
     /**
-     * Request to publish L2 market data into outgoing com.lmax.disruptor message
      *
-     * @param size
+     * @param size max size for each part (ask, bid)
+     * @return
      */
-    abstract void publishL2MarketDataSnapshot(int size);
+    @Override
+    public L2MarketData getL2MarketDataSnapshot(int size) {
+        int asksSize = getTotalAskBuckets();
+        int bidsSize = getTotalBidBuckets();
+        if (size >= 0) {
+            // limit size
+            asksSize = Math.min(asksSize, size);
+            bidsSize = Math.min(bidsSize, size);
+        }
+        L2MarketData data = new L2MarketData(asksSize, bidsSize);
+        fillAsks(asksSize, data);
+        fillBids(bidsSize, data);
+        return data;
+    }
+
+    @Override
+    public void publishL2MarketDataSnapshot(L2MarketData data) {
+        int size = L2MarketData.L2_SIZE;
+        fillAsks(size, data);
+        fillBids(size, data);
+    }
+
+    abstract protected void fillAsks(final int size, L2MarketData data);
+
+    abstract protected void fillBids(final int size, L2MarketData data);
+
+    abstract protected int getTotalAskBuckets();
+
+    abstract protected int getTotalBidBuckets();
+
 
     private void revokeMatcherEvents() {
         MatcherTradeEvent matcherEvent = currentCmd.matcherEvent;
@@ -137,7 +171,7 @@ public abstract class OrderBookBase implements IOrderBook {
     }
 
 
-    protected void sendTradeEvent(OrderCommand activeOrder, Order matchingOrder, boolean fm, boolean fma, int price, long v) {
+    protected void sendTradeEvent(OrderCommand activeOrder, Order matchingOrder, boolean fm, boolean fma, long price, long v) {
 
 //        log.debug("** sendTradeEvent: active id:{} matched id:{}", activeOrder.orderId, matchingOrder.orderId);
 //        log.debug("** sendTradeEvent: price:{} v:{}", price, v);

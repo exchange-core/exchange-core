@@ -5,12 +5,11 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.*;
 
 @NoArgsConstructor
 @Slf4j
@@ -19,7 +18,7 @@ public class OrdersBucketSlow implements IOrdersBucket {
 
     @Getter
     @Setter
-    private int price;
+    private long price;
 
     //    private Long2ObjectMap<Order> entries = new Long2ObjectLinkedOpenHashMap<>();
     private LinkedHashMap<Long, Order> entries = new LinkedHashMap<>();
@@ -129,7 +128,7 @@ public class OrdersBucketSlow implements IOrdersBucket {
             totalVolume -= reduceBy;
             callback.submit(order, reduceBy);
         }
-        
+
         return true;
     }
 
@@ -147,5 +146,29 @@ public class OrdersBucketSlow implements IOrdersBucket {
     @Override
     public Order findOrder(long orderId) {
         return entries.get(orderId);
+    }
+
+    @Override
+    public List<Order> getAllOrders() {
+        return new ArrayList<>(entries.values());
+    }
+
+    @Override
+    public int hashCode() {
+        return IOrdersBucket.hash(
+                price,
+                entries.values().toArray(new Order[entries.size()]));
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == this) return true;
+        if (o == null) return false;
+        if (!(o instanceof IOrdersBucket)) return false;
+        IOrdersBucket other = (IOrdersBucket) o;
+        return new EqualsBuilder()
+                .append(price, other.getPrice())
+                .append(getAllOrders(), other.getAllOrders())
+                .isEquals();
     }
 }

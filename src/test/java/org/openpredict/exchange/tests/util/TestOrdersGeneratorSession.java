@@ -1,5 +1,6 @@
 package org.openpredict.exchange.tests.util;
 
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.eclipse.collections.impl.map.mutable.primitive.IntIntHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
@@ -10,19 +11,38 @@ import java.util.BitSet;
 import java.util.List;
 import java.util.Random;
 
-@RequiredArgsConstructor
+@RequiredArgsConstructor()
 public class TestOrdersGeneratorSession {
-
-    public Random rand = new Random(1L);
 
     public final IOrderBook orderBook;
 
+    public final int targetOrderBookOrders;
+
+    public final long priceDeviation;
+
+    public final List<Long> uids;
+
+    public final int symbol;
+
+    public final Random rand = new Random(1L);
+
     //    public ConcurrentBitSet actualOrders;
-    public BitSet actualOrders = new BitSet();
+    public final BitSet actualOrders = new BitSet();
 
     //    public Map<Integer, Integer> orderPrices = new ConcurrentHashMap<>();
-    public IntIntHashMap orderPrices = new IntIntHashMap();
-    public IntLongHashMap orderUids = new IntLongHashMap();
+    public final IntIntHashMap orderPrices = new IntIntHashMap();
+    public final IntLongHashMap orderUids = new IntLongHashMap();
+
+    public final List<Integer> orderBookSizeAskStat = new ArrayList<>();
+    public final List<Integer> orderBookSizeBidStat = new ArrayList<>();
+    public final List<Integer> orderBookNumOrdersStat = new ArrayList<>();
+
+    @NonNull
+    public long lastTradePrice;
+
+    @NonNull
+    // set to 1 to make price move up and down
+    public int priceDirection;
 
     public long numCompleted = 0;
     public long numRejected = 0;
@@ -33,17 +53,8 @@ public class TestOrdersGeneratorSession {
     public long counterCancel = 0;
     public long counterMove = 0;
 
-    public List<Long> uid;
-
-
     public int seq = 1;
 
-    public final int targetOrderBookOrders;
-
     public int lastOrderBookOrdersSize = 0;
-
-    public List<Integer> orderBookSizeAskStat = new ArrayList<>();
-    public List<Integer> orderBookSizeBidStat = new ArrayList<>();
-    public List<Integer> orderBookNumOrdersStat = new ArrayList<>();
 
 }

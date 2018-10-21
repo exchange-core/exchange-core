@@ -3,7 +3,12 @@ package org.openpredict.exchange.core;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
-public interface IOrdersBucket {
+import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
+
+public interface IOrdersBucket extends Comparable<IOrdersBucket> {
 
     /**
      * Add order into bucket
@@ -32,10 +37,11 @@ public interface IOrdersBucket {
 
     /**
      * Try to reduce size of the order.
-     *
+     * <p>
      * orderId - order Id
      * newSize - new size
-     * @param lambda  - call if reduced
+     *
+     * @param lambda - call if reduced
      */
     boolean tryReduceSize(OrderCommand cmd, ReduceEventCallback lambda);
 
@@ -51,9 +57,9 @@ public interface IOrdersBucket {
      *
      * @return bucket price
      */
-    int getPrice();
+    long getPrice();
 
-    void setPrice(int price);
+    void setPrice(long price);
 
     /**
      * Total size of all orders
@@ -67,6 +73,8 @@ public interface IOrdersBucket {
 
     Order findOrder(long orderId);
 
+    List<Order> getAllOrders();
+
     /**
      * Factory method to create new instance of the IOrdersBucket
      *
@@ -76,4 +84,23 @@ public interface IOrdersBucket {
         return new OrdersBucketFast();
 //        return new OrdersBucketSlow();
     }
+
+    // TODO to default?
+    static int hash(long price, Order[] orders) {
+        return Objects.hash(price, Arrays.hashCode(orders));
+    }
+
+    default int compareTo(IOrdersBucket other) {
+        return Long.compare(this.getPrice(), other.getPrice());
+    }
+
+    default String dumpToSingleLine() {
+        String orders = getAllOrders().stream()
+                .map(o -> String.format("id%d_L%d_F%d", o.orderId, o.size, o.filled))
+                .collect(Collectors.joining(", "));
+
+        return String.format("%d : vol:%d num:%d : %s", getPrice(), getTotalVolume(), getNumOrders(), orders);
+    }
+
+    // TODO default equals
 }

@@ -1,12 +1,17 @@
 package org.openpredict.exchange.core;
 
-import com.lmax.disruptor.EventSink;
+import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
+import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
+
 public interface IOrderBook {
 
+    int DEFAULT_HOT_WIDTH = 32768;
 
     void processCommand(OrderCommand cmd);
 
@@ -22,21 +27,57 @@ public interface IOrderBook {
     /**
      * Obtain current L2 Market Data snapshot
      *
-     * @param size max size for each part (ask, bid)
+     * @param size max size for each part (ask, bid), if negative - all records returned
      * @return L2 Market Data snapshot
      */
-    // TODO for fixed size L2 - can use Disruptor for publishing - triggered by incoming command - don't reuse MatcherTradeEvent
     L2MarketData getL2MarketDataSnapshot(int size);
+
+    /**
+     * Request to publish L2 market data into outgoing disruptor message
+     *
+     * @param data - pre-allocated object from ring buffer
+     */
+    void publishL2MarketDataSnapshot(L2MarketData data);
+
+
+    List<IOrdersBucket> getAllAskBuckets();
+
+    List<IOrdersBucket> getAllBidBuckets();
 
     /**
      * Obtain new instance of order book
      *
-     * @param marketDataBuffer - reference to outgoing messages com.lmax.disruptor
-     * @return
+     * @return new instance
      */
-    static IOrderBook newInstance(EventSink<L2MarketData> marketDataBuffer) {
-        return new OrderBookFast(marketDataBuffer);
-//        return new OrderBookSlow(outBuffer, marketDataBuffer);
+    static IOrderBook newInstance() {
+        return new OrderBookFast(DEFAULT_HOT_WIDTH);
+        //return new OrderBookSlow();
+    }
+
+    // TODO to default?
+    static int hash(IOrdersBucket[] askBuckets, IOrdersBucket[] bidBuckets) {
+        int a = Arrays.hashCode(askBuckets);
+        int b = Arrays.hashCode(bidBuckets);
+        return Objects.hash(a, b);
+    }
+
+    // TODO to default?
+    static boolean equals(IOrderBook me, Object o) {
+        if (o == me) return true;
+        if (o == null) return false;
+        if (!(o instanceof IOrderBook)) return false;
+        IOrderBook other = (IOrderBook) o;
+        return new EqualsBuilder()
+                // TODO compare symbol?
+                .append(me.getAllAskBuckets(), other.getAllAskBuckets())
+                .append(me.getAllBidBuckets(), other.getAllBidBuckets())
+                .isEquals();
+
+    }
+
+    default void printFullOrderBook() {
+        getAllAskBuckets().forEach(a -> System.out.println(String.format("ASK %s", a.dumpToSingleLine())));
+        getAllBidBuckets().forEach(b -> System.out.println(String.format("BID %s", b.dumpToSingleLine())));
     }
 
 }

@@ -6,7 +6,6 @@ import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.springframework.stereotype.Service;
 
-import javax.annotation.PostConstruct;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
@@ -57,12 +56,13 @@ public class JournallingProcessor implements EventHandler<OrderCommand> {
 
         // 25 bytes
         buffer.putLong(cmd.timestamp); // 8 bytes
-        buffer.put(cmd.command.getCode()); // 1 byteuffer.putLong(cmd.orderId); // 8 b-/ytes - can be compressed as delta
+        buffer.put(cmd.command.getCode()); // 1 byte
+        buffer.putLong(cmd.orderId); // 8 bytes - can be compressed as delta
         buffer.putLong(cmd.uid); // 8 bytes can be compressed as dictionary
 
         // 12 bytes
         if (cmd.command == OrderCommandType.MOVE_ORDER || cmd.command == OrderCommandType.PLACE_ORDER) {
-            buffer.putInt(cmd.price); // 4 bytes - can be compressed as delta
+            buffer.putLong(cmd.price); // 8 bytes - can be compressed as delta
             buffer.putLong(cmd.size); // 8 bytes - can be compressed
         }
 

@@ -44,7 +44,7 @@ public class PortfolioService {
      * 2. Reduce opposite position accordingly (if exists)
      * 3. Increase forward position accordingly (if size left in the trading event)
      */
-    public void updatePortfolioForTrade(OrderAction action, long size, int price, SymbolPortfolio portfolio) {
+    public void updatePortfolioForTrade(OrderAction action, long size, long price, SymbolPortfolio portfolio) {
 
         // 1. un-hold pending size
         if (action == OrderAction.ASK) {

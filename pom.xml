@@ -28,9 +28,6 @@
         <guava.version>25.0-jre</guava.version>
         <commons-math3.version>3.6.1</commons-math3.version>
         <commons-lang3.version>3.7</commons-lang3.version>
-        <antlr.version>4.7.1</antlr.version>
-        <orika.version>1.5.2</orika.version>
-        <HikariCP.version>3.1.0</HikariCP.version>
 
         <lmax.com.lmax.disruptor.version>3.4.2</lmax.com.lmax.disruptor.version>
         <fixio.version>1.2</fixio.version>
@@ -74,21 +71,16 @@
                 <version>${openhft.smoothiemap.version}</version>
             </dependency>
 
+            <!-- JMH -->
             <dependency>
-                <groupId>org.flywaydb</groupId>
-                <artifactId>flyway-core</artifactId>
+                <groupId>org.openjdk.jmh</groupId>
+                <artifactId>jmh-core</artifactId>
+                <version>1.19</version>
             </dependency>
-
             <dependency>
-                <groupId>com.zaxxer</groupId>
-                <artifactId>HikariCP</artifactId>
-                <version>${HikariCP.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>ma.glasnost.orika</groupId>
-                <artifactId>orika-core</artifactId>
-                <version>${orika.version}</version>
+                <groupId>org.openjdk.jmh</groupId>
+                <artifactId>jmh-generator-annprocess</artifactId>
+                <version>1.19</version>
             </dependency>
 
         </dependencies>
@@ -132,14 +124,24 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
         </dependency>
-        <!-- Real Logic Agrona -->
-<!--
+
         <dependency>
-            <groupId>org.agrona</groupId>
-            <artifactId>agrona</artifactId>
-            <version>0.9.20</version>
+            <groupId>org.openjdk.jmh</groupId>
+            <artifactId>jmh-core</artifactId>
         </dependency>
--->
+        <dependency>
+            <groupId>org.openjdk.jmh</groupId>
+            <artifactId>jmh-generator-annprocess</artifactId>
+        </dependency>
+
+        <!-- Real Logic Agrona -->
+        <!--
+                <dependency>
+                    <groupId>org.agrona</groupId>
+                    <artifactId>agrona</artifactId>
+                    <version>0.9.20</version>
+                </dependency>
+        -->
 
         <!-- Smoothie Map -->
         <!--

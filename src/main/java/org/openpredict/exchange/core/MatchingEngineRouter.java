@@ -47,9 +47,11 @@ public class MatchingEngineRouter {
     }
 
     public void addOrderBook(int symbol) {
+        orderBook = IOrderBook.newInstance();
+    }
 
-        orderBook = IOrderBook.newInstance(marketDataDisruptor.getRingBuffer());
-
+    public IOrderBook getOrderBook(){
+        return orderBook;
     }
 
     public L2MarketData getMarketData(int symbol, int size) {
@@ -59,24 +61,24 @@ public class MatchingEngineRouter {
     @PostConstruct
     public void start() {
 
-        // init Disruptor
-        marketDataDisruptor = new Disruptor<>(
-                () -> new L2MarketData(L2_MARKET_DATA_SIZE),
-                32768,
-                Executors.defaultThreadFactory(),
-                ProducerType.MULTI, // multiple order books can write
-                CfgWaitStrategyType.YIELDING.create());
-
-        marketDataDisruptor.handleEventsWith((evt, seq, eob) -> {
-        });
-        marketDataDisruptor.setDefaultExceptionHandler(new DisruptorExceptionHandler<>("l2 market data"));
-        marketDataDisruptor.start();
+//        // init Disruptor
+//        marketDataDisruptor = new Disruptor<>(
+//                () -> new L2MarketData(L2_MARKET_DATA_SIZE),
+//                32768,
+//                Executors.defaultThreadFactory(),
+//                ProducerType.MULTI, // multiple order books can write
+//                CfgWaitStrategyType.YIELDING.create());
+//
+//        marketDataDisruptor.handleEventsWith((evt, seq, eob) -> {
+//        });
+//        marketDataDisruptor.setDefaultExceptionHandler(new DisruptorExceptionHandler<>("l2 market data"));
+//        marketDataDisruptor.start();
     }
 
     @PreDestroy
     public void stop() {
         log.info("Stopping Matching Engine disruptors...");
-        marketDataDisruptor.shutdown();
+        //marketDataDisruptor.shutdown();
         //matchingEngines.values().forEach(MatchingEngine::stop);
         log.info("Matching Engine disruptors stopped");
     }

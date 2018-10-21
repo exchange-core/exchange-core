@@ -1,5 +1,8 @@
 package org.openpredict.exchange.tests.util;
 
+import lombok.Builder;
+import lombok.Getter;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.api.ApiCancelOrder;
@@ -23,29 +26,40 @@ import static org.junit.Assert.assertThat;
 public class TestOrdersGenerator {
 
     public static final int CENTRAL_PRICE = 100_000;
-    public static final int PRICE_DEVIATION = 5_000;
+    public static final int MIN_PRICE = 50_000;
+    public static final int MAX_PRICE = 150_000;
+    public static final int PRICE_DEVIATION_DEFAULT = 5_000;
 
     public static final double CENTRAL_MOVE_ALPHA = 0.01;
 
+    public static final int CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND = 1024;
 
-    public List<OrderCommand> generateCommands(int transactionsNumber, int targetOrderBookOrders, List<Long> uid) {
+    public GenResult generateCommands(
+            int transactionsNumber,
+            int targetOrderBookOrders,
+            List<Long> uids,
+            int symbol,
+            boolean enableSlidingPrice) {
 
+        IOrderBook orderBook = IOrderBook.newInstance();
 
-        // use com.lmax.disruptor only for measuring performance, not for creating initial test (use BlockingQueue)
-        QueuedEventSink<L2MarketData> marketDataBuffer = new QueuedEventSink<>(() -> new L2MarketData(20), 128);
-
-        IOrderBook orderBook = IOrderBook.newInstance(marketDataBuffer);
-
-        TestOrdersGeneratorSession session = new TestOrdersGeneratorSession(orderBook, targetOrderBookOrders);
-        session.uid = uid;
+        TestOrdersGeneratorSession session = new TestOrdersGeneratorSession(
+                orderBook,
+                targetOrderBookOrders,
+                PRICE_DEVIATION_DEFAULT,
+                uids,
+                symbol,
+                CENTRAL_PRICE,
+                enableSlidingPrice ? 1 : 0);
 
         List<OrderCommand> commands = new ArrayList<>();
 
         int successfulCommands = 0;
 
-        int checkOrderBookStatEveryNthCommand = transactionsNumber / 1000;
-        checkOrderBookStatEveryNthCommand = 1 << (32 - Integer.numberOfLeadingZeros(checkOrderBookStatEveryNthCommand - 1));
-        int nextSizeCheck = checkOrderBookStatEveryNthCommand;
+        //int checkOrderBookStatEveryNthCommand = transactionsNumber / 1000;
+        //checkOrderBookStatEveryNthCommand = 1 << (32 - Integer.numberOfLeadingZeros(checkOrderBookStatEveryNthCommand - 1));
+
+        int nextSizeCheck = CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND;
 
         long nextUpdateTime = 0;
 
@@ -56,7 +70,7 @@ public class TestOrdersGenerator {
             }
 
             cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
-
+            cmd.symbol = session.symbol;
             //log.debug("{}. {}",i, cmd);
             orderBook.processCommand(cmd);
 
@@ -64,18 +78,22 @@ public class TestOrdersGenerator {
                 successfulCommands++;
             }
 
+            cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
             commands.add(cmd);
 
-            cmd.extractEvents().forEach(ev -> matcherTradeEventEventHandler(session, ev));
+            // process and cleanup matcher events
+            cmd.processMatherEvents(ev -> matcherTradeEventEventHandler(session, ev));
+            cmd.matcherEvent = null;
 
             if (i >= nextSizeCheck) {
-                nextSizeCheck += checkOrderBookStatEveryNthCommand;
+                nextSizeCheck += CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND;
 
-                int ordersNum = updateOrderBookSizeStat(session);
+                updateOrderBookSizeStat(session);
 
                 if (System.currentTimeMillis() > nextUpdateTime) {
-                    log.debug("{} Orders num: {} ({}% done)", commands.size(), ordersNum, (i * 100L / transactionsNumber));
-                    nextUpdateTime = System.currentTimeMillis() + 5000;
+                    log.debug("{} ({}% done), last limit orders num: {}",
+                            commands.size(), (i * 100L / transactionsNumber), session.lastOrderBookOrdersSize);
+                    nextUpdateTime = System.currentTimeMillis() + 3000;
                     //log.debug("{}", orderBook.getL2MarketDataSnapshot(1000));
                 }
 
@@ -97,30 +115,32 @@ public class TestOrdersGenerator {
         float avgOrderBookSizeAsk = (float) session.orderBookSizeAskStat.stream().mapToInt(x -> x).average().orElse(0);
         float avgOrderBookSizeBid = (float) session.orderBookSizeBidStat.stream().mapToInt(x -> x).average().orElse(0);
         float avgOrdersNumInOrderBook = (float) session.orderBookNumOrdersStat.stream().mapToInt(x -> x).average().orElse(0);
+
         assertThat(succPerc, greaterThan(85.0f));
-        assertThat(avgOrderBookSizeAsk, greaterThan(20.0f));
-        assertThat(avgOrderBookSizeBid, greaterThan(20.0f));
-        assertThat(avgOrdersNumInOrderBook, greaterThan(50.0f));
+        if (transactionsNumber > CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND) {
+            assertThat(avgOrderBookSizeAsk, greaterThan(20.0f));
+            assertThat(avgOrderBookSizeBid, greaterThan(20.0f));
+            assertThat(avgOrdersNumInOrderBook, greaterThan(50.0f));
+        }
 
         log.debug("Average order book size: ASK={} BID={} ({} samples)", avgOrderBookSizeAsk, avgOrderBookSizeBid, session.orderBookSizeBidStat.size());
         log.debug("Average limit orders number in the order book:{} (target:{})", avgOrdersNumInOrderBook, targetOrderBookOrders);
         log.debug("Commands success={}%", succPerc);
-        return commands;
+
+        return GenResult.builder().commands(commands).finalOrderbookHash(orderBook.hashCode()).build();
     }
 
-    private int updateOrderBookSizeStat(TestOrdersGeneratorSession session) {
-        L2MarketData l2MarketDataSnapshot = session.orderBook.getL2MarketDataSnapshot(2_000_000);
+    private void updateOrderBookSizeStat(TestOrdersGeneratorSession session) {
+        L2MarketData l2MarketDataSnapshot = session.orderBook.getL2MarketDataSnapshot(-1);
 //                log.debug("{}", dumpOrderBook(l2MarketDataSnapshot));
-        session.orderBookSizeAskStat.add(l2MarketDataSnapshot.askVolumes.length);
-        session.orderBookSizeBidStat.add(l2MarketDataSnapshot.bidVolumes.length);
+        session.orderBookSizeAskStat.add(l2MarketDataSnapshot.askSize);
+        session.orderBookSizeBidStat.add(l2MarketDataSnapshot.bidSize);
 
         int ordersNum = session.orderBook.getOrdersNum();
         // regulating OB size
         session.lastOrderBookOrdersSize = ordersNum;
 
         session.orderBookNumOrdersStat.add(ordersNum);
-
-        return ordersNum;
     }
 
     private void matcherTradeEventEventHandler(TestOrdersGeneratorSession session, MatcherTradeEvent ev) {
@@ -134,6 +154,17 @@ public class TestOrdersGenerator {
 //                log.debug("Complete matched: {}", ev.matchedOrderId);
                 session.actualOrders.clear((int) ev.matchedOrderId);
                 session.numCompleted++;
+            }
+
+            session.lastTradePrice = Math.min(MAX_PRICE, Math.max(MIN_PRICE, ev.price));
+
+//            log.debug("       {}", ev.price);
+            if (ev.price <= MIN_PRICE) {
+//                log.debug("P>>>: {}", ev.price);
+                session.priceDirection = 1;
+            } else if (ev.price >= MAX_PRICE) {
+//                log.debug("P<<<: {}", ev.price);
+                session.priceDirection = -1;
             }
 
         } else if (ev.eventType == MatcherEventType.REJECTION) {
@@ -158,18 +189,20 @@ public class TestOrdersGenerator {
 
         Random rand = session.rand;
 
-        boolean growOrders = session.lastOrderBookOrdersSize < session.targetOrderBookOrders;
-
-        int cmd = rand.nextInt(growOrders ? 10 : 40);
+        int lackOfOrders = session.targetOrderBookOrders - session.lastOrderBookOrdersSize;
+        boolean growOrders = lackOfOrders > 0;
+        int cmd = rand.nextInt(growOrders ? (lackOfOrders > 1000 ? 2 : 10) : 40);
 
         if (cmd < 2) {
 
-            OrderAction action = rand.nextBoolean() ? OrderAction.ASK : OrderAction.BID;
+            OrderAction action = (rand.nextInt(4) + session.priceDirection >= 2)
+                    ? OrderAction.BID
+                    : OrderAction.ASK;
 
             long size = 1 + rand.nextInt(6) * rand.nextInt(6) * rand.nextInt(6);
 
             OrderType orderType = growOrders ? OrderType.LIMIT : OrderType.MARKET;
-            long uid = session.uid.get(rand.nextInt(session.uid.size()));
+            long uid = session.uids.get(rand.nextInt(session.uids.size()));
 
             OrderCommand placeCmd = OrderCommand.builder().command(OrderCommandType.PLACE_ORDER).uid(uid).orderId(session.seq).size(size)
                     .action(action).orderType(orderType).build();
@@ -177,7 +210,7 @@ public class TestOrdersGenerator {
             if (orderType == OrderType.LIMIT) {
                 session.actualOrders.set(session.seq);
 
-                int dev = 1 + (int) (Math.pow(rand.nextDouble(), 2) * PRICE_DEVIATION);
+                int dev = 1 + (int) (Math.pow(rand.nextDouble(), 2) * session.priceDeviation);
 
                 long p = 0;
                 int x = 4;
@@ -190,7 +223,7 @@ public class TestOrdersGenerator {
                 }
 
                 //log.debug("p={} action={}", p, action);
-                int price = CENTRAL_PRICE + (int) p;
+                int price = (int) session.lastTradePrice + (int) p;
 
                 session.orderPrices.put(session.seq, price);
                 session.orderUids.put(session.seq, uid);
@@ -229,11 +262,11 @@ public class TestOrdersGenerator {
                 return null;
             }
 
-            double priceMove = (CENTRAL_PRICE - prevPrice) * CENTRAL_MOVE_ALPHA;
+            double priceMove = (session.lastTradePrice - prevPrice) * CENTRAL_MOVE_ALPHA;
             int priceMoveRounded;
-            if (prevPrice > CENTRAL_PRICE) {
+            if (prevPrice > session.lastTradePrice) {
                 priceMoveRounded = (int) Math.floor(priceMove);
-            } else if (prevPrice < CENTRAL_PRICE) {
+            } else if (prevPrice < session.lastTradePrice) {
                 priceMoveRounded = (int) Math.ceil(priceMove);
             } else {
                 priceMoveRounded = rand.nextInt(2) * 2 - 1;
@@ -247,21 +280,29 @@ public class TestOrdersGenerator {
     }
 
 
-    public List<ApiCommand> convertToApiCommand(List<OrderCommand> commands, int symbol) {
+    public List<ApiCommand> convertToApiCommand(List<OrderCommand> commands) {
         return commands.stream()
                 .map(cmd -> {
                     switch (cmd.command) {
                         case PLACE_ORDER:
-                            return ApiPlaceOrder.builder().symbol(symbol).uid(cmd.uid).id(cmd.orderId)
+                            return ApiPlaceOrder.builder().symbol(cmd.symbol).uid(cmd.uid).id(cmd.orderId)
                                     .price(cmd.price).size(cmd.size).action(cmd.action).orderType(cmd.orderType).build();
                         case MOVE_ORDER:
-                            return ApiMoveOrder.builder().symbol(symbol).uid(cmd.uid).id(cmd.orderId).newPrice(cmd.price).build();
+                            return ApiMoveOrder.builder().symbol(cmd.symbol).uid(cmd.uid).id(cmd.orderId).newPrice(cmd.price).build();
                         case CANCEL_ORDER:
-                            return ApiCancelOrder.builder().symbol(symbol).uid(cmd.uid).id(cmd.orderId).build();
+                            return ApiCancelOrder.builder().symbol(cmd.symbol).uid(cmd.uid).id(cmd.orderId).build();
                     }
                     throw new IllegalStateException("unsupported type: " + cmd.command);
                 })
                 .collect(Collectors.toList());
+    }
+
+    @Builder
+    @Getter
+    @Setter
+    public static class GenResult {
+        private int finalOrderbookHash;
+        private List<OrderCommand> commands;
     }
 
 }

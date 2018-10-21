@@ -6,18 +6,22 @@ import lombok.Setter;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.eclipse.collections.api.map.primitive.MutableLongIntMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongIntHashMap;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
+import java.util.Arrays;
+import java.util.List;
+
 /**
- * Fast version of Order Bucket.
- * Implementation is optimized for fastest place/remove operations O(1).
- * Matching operation can be slow however beacuse
+ * Fast version of Order Bucket.<br/>
+ * Implementation is optimized for fastest place/remove operations O(1).<br/>
+ * Matching operation can be slower though.<br/>
  * <p>
- * Orders are stored in resizable queue array.
- * Queue is indexed by hashmap for fast cancel/update operations.
+ * Orders are stored in resizable queue array.<br/>
+ * Queue is indexed by hashmap for fast cancel/update operations.<br/>
  */
 @NoArgsConstructor
 @Slf4j
@@ -26,7 +30,7 @@ public class OrdersBucketFast implements IOrdersBucket {
 
     @Getter
     @Setter
-    private int price;
+    private long price;
 
     private MutableLongIntMap positions = new LongIntHashMap();
 
@@ -115,6 +119,7 @@ public class OrdersBucketFast implements IOrdersBucket {
 
         Order order = queue[pos - 1];
         if (order.uid != uid) {
+            // can not remove other user's order
             return null;
         }
 
@@ -301,6 +306,11 @@ public class OrdersBucketFast implements IOrdersBucket {
         return queue[pos - 1];
     }
 
+    @Override
+    public List<Order> getAllOrders() {
+        return Arrays.asList(asOrdersArray());
+    }
+
     private void printSchema() {
         StringBuilder s = new StringBuilder();
         for (Order order : queue) {
@@ -316,4 +326,44 @@ public class OrdersBucketFast implements IOrdersBucket {
     public int getNumOrders() {
         return realSize;
     }
+
+    @Override
+    public int hashCode() {
+        return IOrdersBucket.hash(price, asOrdersArray());
+    }
+
+    private Order[] asOrdersArray() {
+        int ptr = head;
+        Order[] result = new Order[realSize];
+        for (int i = 0; i < realSize; i++) {
+            // fast-forward head pointer until non-empty element found
+            // (assume if realSize>0 then at least one order can be found)
+            while (queue[ptr] == null) {
+                ptr = inc(ptr);
+            }
+            result[i] = queue[ptr];
+            ptr = inc(ptr);
+        }
+        return result;
+    }
+
+    // TODO try in main algos
+    private int inc(int p) {
+        p++;
+        return (p == queue.length) ? 0 : p;
+    }
+
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == this) return true;
+        if (o == null) return false;
+        if (!(o instanceof IOrdersBucket)) return false;
+        IOrdersBucket other = (IOrdersBucket) o;
+        return new EqualsBuilder()
+                .append(price, other.getPrice())
+                .append(getAllOrders(), other.getAllOrders())
+                .isEquals();
+    }
+
 }

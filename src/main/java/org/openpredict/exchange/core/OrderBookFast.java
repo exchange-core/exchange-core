@@ -1,10 +1,8 @@
 package org.openpredict.exchange.core;
 
-import com.lmax.disruptor.EventSink;
-import lombok.RequiredArgsConstructor;
+import com.google.common.collect.ObjectArrays;
 import lombok.extern.slf4j.Slf4j;
-import org.eclipse.collections.api.map.primitive.MutableIntObjectMap;
-import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
+import org.apache.commons.lang3.ArrayUtils;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.Order;
@@ -12,35 +10,67 @@ import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.OrderType;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
-import java.util.ArrayDeque;
-import java.util.BitSet;
+import java.util.*;
+import java.util.stream.Collectors;
 
 import static org.openpredict.exchange.beans.OrderAction.ASK;
 import static org.openpredict.exchange.beans.OrderAction.BID;
 
 @Slf4j
-@RequiredArgsConstructor
 public class OrderBookFast extends OrderBookBase {
 
-    // TODO add far prices support
+    private final int hotPricesRange; // TODO must be aligned by 64 bit, can not be lower than 1024
 
-    private BitSet askBitSet = new BitSet();
-    private BitSet bidBitSet = new BitSet();
-    private MutableIntObjectMap<IOrdersBucket> askBuckets = new IntObjectHashMap<>();
-    private MutableIntObjectMap<IOrdersBucket> bidBuckets = new IntObjectHashMap<>();
-    private int minAskPrice = Integer.MAX_VALUE;
-    private int maxBidPrice = 0;
+    private BitSet hotAskBitSet;
+    private BitSet hotBidBitSet;
+    private LongObjectHashMap<IOrdersBucket> hotAskBuckets = new LongObjectHashMap<>();
+    private LongObjectHashMap<IOrdersBucket> hotBidBuckets = new LongObjectHashMap<>();
+    private long minAskPrice = Long.MAX_VALUE;
+    private long maxBidPrice = 0;
 
-    // private long baseCenterPrice = 1000;
+    /**
+     * Bucket within FAR section: (price < basePrice) OR (price >= basePrice + hotPricesRange)
+     * Bucket within HOT section: (price >= basePrice) AND (price < basePrice + hotPricesRange)
+     */
+    private long basePrice = -1;
+    private long rebalanceThresholdLow = -1;
+    private long rebalanceThresholdHigh = -1;
+
+    private NavigableMap<Long, IOrdersBucket> farAskBuckets = new TreeMap<>();
+    private NavigableMap<Long, IOrdersBucket> farBidBuckets = new TreeMap<>(Collections.reverseOrder());
+
 
     //    private LongObjectHashMap<Order> idMap = new LongObjectHashMap<>();
+    /**
+     * Hashtable for fast resolving OrderId -> Bucket
+     */
     private LongObjectHashMap<IOrdersBucket> idMapToBucket = new LongObjectHashMap<>();
 
-    private final EventSink<L2MarketData> marketDataBuffer;
-
+    /**
+     * Object pools
+     */
     private final ArrayDeque<Order> ordersPool = new ArrayDeque<>(65536);
     private final ArrayDeque<IOrdersBucket> bucketsPool = new ArrayDeque<>(65536);
 
+    public OrderBookFast(int hotPricesRange) {
+        this.hotPricesRange = hotPricesRange;
+        this.hotAskBitSet = new BitSet(hotPricesRange);
+        this.hotBidBitSet = new BitSet(hotPricesRange);
+    }
+
+    private int priceToIndex(long price) {
+        long idx = price - basePrice;
+        if (idx < Integer.MIN_VALUE) {
+            return Integer.MIN_VALUE;
+        } else if (idx > Integer.MAX_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+        return (int) idx;
+    }
+
+    private long indexToPrice(int idx) {
+        return idx + basePrice;
+    }
 
     /**
      * Process new MARKET order
@@ -65,11 +95,17 @@ public class OrderBookFast extends OrderBookBase {
      *
      * @param cmd - limit order to place
      */
+    @Override
     protected void placeNewLimitOrder(OrderCommand cmd) {
 
         long orderId = cmd.orderId;
         if (idMapToBucket.containsKey(orderId)) {
             throw new IllegalArgumentException("duplicate orderId: " + orderId);
+        }
+
+        if (basePrice == -1) {
+            // first limit order will define a base price (middle of the hotPricesRange range)
+            setBasePrice(calculateBasePrice(cmd.price));
         }
 
         // check if order is marketable there are matching orders
@@ -80,15 +116,13 @@ public class OrderBookFast extends OrderBookBase {
         }
 
         OrderAction action = cmd.action;
-        int price = cmd.price;
+        long price = cmd.price;
 
         // normally placing regular limit order
 
         Order orderRecord = ordersPool.pollLast();
         if (orderRecord == null) {
             orderRecord = new Order();
-        } else {
-            // log.debug(" <<< from pool pool ex:{}->{} {}", orderRecord.orderId, orderId, orderRecord);
         }
 
         orderRecord.command = cmd.command;
@@ -111,9 +145,45 @@ public class OrderBookFast extends OrderBookBase {
 
     }
 
-    private IOrdersBucket getOrCreateNewBucketAck(int price) {
-        IOrdersBucket ordersBucket = askBuckets.get(price);
+    /**
+     * Calculate base price so the given price would be in the center of the hotPricesRange range.<br/>
+     * Will also do the 'long' alignment for faster bitset shift operations.
+     *
+     * @param price - central price
+     * @return new base price
+     */
+    private long calculateBasePrice(long price) {
+        long newBasePrice = (price - (hotPricesRange / 2) + 31) & (~63L);
+        return Math.max(0, newBasePrice);
+    }
+
+    /**
+     * Set new base price and update re-balance thresholds (1/4 and 3/4 of the hotPricesRange range)
+     *
+     * @param newBasePrice - new base price
+     */
+    private void setBasePrice(long newBasePrice) {
+        basePrice = newBasePrice;
+        rebalanceThresholdLow = newBasePrice + hotPricesRange / 4;
+        rebalanceThresholdHigh = newBasePrice + hotPricesRange / 4 * 3;
+    }
+
+    private IOrdersBucket getOrCreateNewBucketAck(long price) {
+
+        // if price is too low - time to re-balance
+        if (price <= rebalanceThresholdLow) {
+            // decreasing base price
+            decreaseBasePrice(calculateBasePrice(price));
+        }
+
+        int idx = priceToIndex(price);
+        boolean far = (idx >= hotPricesRange);
+
+//        log.debug("{} idx={} FAR={}", price, idx, far);
+        IOrdersBucket ordersBucket = far ? farAskBuckets.get(price) : hotAskBuckets.get(price);
+
         if (ordersBucket != null) {
+            // bucket exists
             return ordersBucket;
         }
 
@@ -123,19 +193,32 @@ public class OrderBookFast extends OrderBookBase {
         }
 
         ordersBucket.setPrice(price);
+        minAskPrice = Math.min(minAskPrice, price);
 
-        askBuckets.put(price, ordersBucket);
-        if (minAskPrice > price) {
-            minAskPrice = price;
+        if (far) {
+            farAskBuckets.put(price, ordersBucket);
+        } else {
+            hotAskBuckets.put(price, ordersBucket);
+            hotAskBitSet.set(idx);
         }
-        askBitSet.set(price);
+
         return ordersBucket;
     }
 
+    private IOrdersBucket getOrCreateNewBucketBid(long price) {
+        //log.debug("getOrCreateNewBucketBid: p={} rebalanceThresholdHigh={}", price, rebalanceThresholdHigh);
+        if (price >= rebalanceThresholdHigh) {
+            // increasing base price
+            increaseBasePrice(calculateBasePrice(price));
+        }
 
-    private IOrdersBucket getOrCreateNewBucketBid(int price) {
-        IOrdersBucket ordersBucket = bidBuckets.get(price);
+        int idx = priceToIndex(price);
+        boolean far = idx < 0;
+
+//        log.debug("{} idx={} FAR={}", price, idx, far);
+        IOrdersBucket ordersBucket = far ? farBidBuckets.get(price) : hotBidBuckets.get(price);
         if (ordersBucket != null) {
+            // bucket exists
             return ordersBucket;
         }
 
@@ -145,12 +228,14 @@ public class OrderBookFast extends OrderBookBase {
         }
 
         ordersBucket.setPrice(price);
+        maxBidPrice = Math.max(maxBidPrice, price);
 
-        bidBuckets.put(price, ordersBucket);
-        if (maxBidPrice < price) {
-            maxBidPrice = price;
+        if (far) {
+            farBidBuckets.put(price, ordersBucket);
+        } else {
+            hotBidBuckets.put(price, ordersBucket);
+            hotBidBitSet.set(idx);
         }
-        bidBitSet.set(price);
         return ordersBucket;
     }
 
@@ -159,24 +244,28 @@ public class OrderBookFast extends OrderBookBase {
      * Fully matching orders are removed from orderId index
      * Should any trades occur - they sent to tradesConsumer
      *
-     * @param order - LIMIT or MARKET order to match
-     * @return matched size (0 if nothing is matching to the order)
+     * @param order  - LIMIT or MARKET order to match
+     * @param filled - current filled value of the order
+     * @return matched size (filled - if nothing is matching to the order)
      */
     private long tryMatchInstantly(OrderCommand order, long filled) {
         OrderAction action = order.action;
-//        log.info("-------- matchInstantly: {}", order);
-//        log.info("filled {} to match {}", filled, order.size);
 
-        int nextPrice;
-        int limitPrice;
+//      log.info("-------- matchInstantly: {}", order);
+//      log.info("filled {} to match {}", filled, order.size);
+
+        long nextPrice;
+        long limitPrice;
         if (action == BID) {
-            if (minAskPrice == Integer.MAX_VALUE) {
+            if (minAskPrice == Long.MAX_VALUE) {
+                // no orders to match
                 return filled;
             }
             nextPrice = minAskPrice;
-            limitPrice = (order.orderType == OrderType.LIMIT) ? order.price : Integer.MAX_VALUE;
+            limitPrice = (order.orderType == OrderType.LIMIT) ? order.price : Long.MAX_VALUE;
         } else {
             if (maxBidPrice == 0) {
+                // no orders to match
                 return filled;
             }
             nextPrice = maxBidPrice;
@@ -186,15 +275,16 @@ public class OrderBookFast extends OrderBookBase {
         long orderSize = order.size;
 
         while (filled < orderSize) {
-            IOrdersBucket bucket = nextBucket(action, nextPrice, limitPrice);
+
+            // search for next available bucket
+            IOrdersBucket bucket = (action == BID) ? nextAvailableBucketAsk(nextPrice, limitPrice) : nextAvailableBucketBid(nextPrice, limitPrice);
             if (bucket == null) {
                 break;
             }
 
-            final int tradePrice = bucket.getPrice();
-
-//            log.debug("Price: {}, matching bucket: {} ...", tradePrice, bucket);
-//            log.debug("... with order: {}", order);
+            final long tradePrice = bucket.getPrice();
+            // next iteration price
+            nextPrice = (action == BID) ? tradePrice + 1 : tradePrice - 1;
 
             TradeEventCallback tradeEventCallback = (mOrder, v, fm, fma) -> {
                 sendTradeEvent(order, mOrder, fm, fma, tradePrice, v);
@@ -203,46 +293,84 @@ public class OrderBookFast extends OrderBookBase {
                     idMapToBucket.remove(mOrder.orderId);
                     // saving free object back to pool
                     ordersPool.addLast(mOrder);
-//                            log.debug(" >>> back to pool {}", mOrder.orderId);
                 }
             };
 
-            filled += bucket.match(orderSize - filled, order.uid, tradeEventCallback);
+            // matching orders within bucket
+            long sizeLeft = orderSize - filled;
+            // log.debug("bucket {} match size: {}", bucket.getPrice(), sizeLeft);
+            filled += bucket.match(sizeLeft, order.uid, tradeEventCallback);
 
-            //log.debug("Matching orders: {}", matchingOrders);
-//            log.debug("order.filled: {}", filled);
-
-            // remove empty buckets
+            // remove bucket if its empty
             if (bucket.getTotalVolume() == 0) {
-                removeBucket(tradePrice, action.opposite());
+                removeBucket(action.opposite(), tradePrice);
             }
-
-            nextPrice = (action == BID) ? tradePrice + 1 : tradePrice - 1;
         }
-
         return filled;
     }
 
-    private IOrdersBucket nextBucket(OrderAction action, int currentPrice, int lastPrice) {
-        if (action == BID) {
-            int next = askBitSet.nextSetBit(currentPrice);
-//            log.debug("A next {} for currentPrice={} lastPrice={}", next, currentPrice, lastPrice);
-            return (next >= 0 && next <= lastPrice) ? askBuckets.get(next) : null;
-        } else {
-            int next = bidBitSet.previousSetBit(currentPrice);
-//            log.debug("B next {} for currentPrice={} lastPrice={}", next, currentPrice, lastPrice);
-            return (next >= 0 && next >= lastPrice) ? bidBuckets.get(next) : null;
+    /**
+     * Searches for next available bucket for matching starting from currentPrice inclusive and till lastPrice inclusive.
+     *
+     * @param currentPrice - price to start with
+     * @param lastPrice    - limit price, can also be 0 or LONG_MAX for market orders.
+     * @return bucket or null if not found
+     */
+    private IOrdersBucket nextAvailableBucketAsk(long currentPrice, long lastPrice) {
+        int idx = priceToIndex(currentPrice);
+        // normally searching within hot buckets
+        if (idx < hotPricesRange) {
+            int nextIdx = hotAskBitSet.nextSetBit(idx);
+            // log.debug("A next {} for currentPrice={} lastPrice={}", next, currentPrice, lastPrice);
+            if (nextIdx != -1) {
+                // found a bucket, but if limit is reached - no need to check far orders, just return null
+                long nextPrice = nextIdx + basePrice;
+                return nextPrice <= lastPrice ? hotAskBuckets.get(nextPrice) : null;
+            }
         }
+
+        // TODO independent searching can be slower comparing to processing a subtree (NLogN vs N) for superorders, though it's easier to remove buckets
+        // nothing yet found and limit also not reached yet, therefore trying to search far buckets
+        Map.Entry<Long, IOrdersBucket> entry = farAskBuckets.ceilingEntry(currentPrice);
+        return (entry != null && entry.getKey() <= lastPrice) ? entry.getValue() : null;
+    }
+
+    /**
+     * Searches for next available bucket for matching starting from currentPrice inclusive and till lastPrice inclusive.
+     *
+     * @param currentPrice - price to start with
+     * @param lastPrice    - limit price, can also be 0 or INT_MAX for market orders.
+     * @return bucket or null if not found
+     */
+    private IOrdersBucket nextAvailableBucketBid(long currentPrice, long lastPrice) {
+        int idx = priceToIndex(currentPrice);
+        // normally searching within hot buckets
+        if (idx >= 0) {
+            int nextIdx = hotBidBitSet.previousSetBit(idx);
+            // log.debug("B next {} for currentPrice={} lastPrice={}", next, currentPrice, lastPrice);
+            if (nextIdx >= 0) {
+                // found a bucket, but if limit is reached - no need to check far orders, just return null
+                long nextPrice = nextIdx + basePrice;
+                return (nextPrice >= lastPrice) ? hotBidBuckets.get(nextPrice) : null;
+            }
+        }
+
+        // TODO independent searching can be slower comparing to processing a subtree (NLogN vs N) for superorders
+        // nothing yet found and limit also not reached yet, therefore trying to search far buckets
+        // note: bid far buckets tree order is reversed, so searching ceiling key like for asks
+        Map.Entry<Long, IOrdersBucket> entry = farBidBuckets.ceilingEntry(currentPrice);
+        return (entry != null && entry.getKey() >= lastPrice) ? entry.getValue() : null;
     }
 
 
     /**
      * Cancel an order.
-     * <p>
+     * h* <p>
      * orderId - order to cancel
      *
      * @return true if order removed, false if not found (can be removed/matched earlier)
      */
+    @Override
     public boolean cancelOrder(OrderCommand cmd) {
 
         // can not remove because uid is not verified yet
@@ -262,8 +390,9 @@ public class OrderBookFast extends OrderBookBase {
         // remove from map
         idMapToBucket.remove(cmd.orderId);
 
+        // remove bucket if cancelled order was the last one in the bucket
         if (ordersBucket.getTotalVolume() == 0) {
-            removeBucket(ordersBucket.getPrice(), removedOrder.action);
+            removeBucket(removedOrder.action, ordersBucket.getPrice());
         }
 
         // send reduce event
@@ -300,7 +429,7 @@ public class OrderBookFast extends OrderBookBase {
 
         long orderId = cmd.orderId;
         long newSize = cmd.size;
-        int newPrice = cmd.price;
+        long newPrice = cmd.price;
 
         IOrdersBucket bucket = idMapToBucket.get(orderId);
         if (bucket == null) {
@@ -327,9 +456,9 @@ public class OrderBookFast extends OrderBookBase {
             return false;
         }
 
-        // remove bucket if its empty
+        // remove bucket if moved order was the last one in the bucket
         if (bucket.getTotalVolume() == 0) {
-            removeBucket(bucket.getPrice(), order.action);
+            removeBucket(order.action, bucket.getPrice());
         }
 
         order.price = newPrice;
@@ -346,49 +475,228 @@ public class OrderBookFast extends OrderBookBase {
         order.filled = filled;
 
         // if not filled completely - put it into corresponding bucket
-        bucket = (order.action == ASK)
-                ? getOrCreateNewBucketAck(newPrice)
-                : getOrCreateNewBucketBid(newPrice);
+        bucket = (order.action == ASK) ? getOrCreateNewBucketAck(newPrice) : getOrCreateNewBucketBid(newPrice);
         bucket.add(order);
         idMapToBucket.put(orderId, bucket);
-
         return true;
     }
 
 
-    private void removeBucket(int price, OrderAction action) {
-
+    /**
+     * Remove bucket for specific action and price
+     *
+     * @param action
+     * @param price
+     */
+    private void removeBucket(OrderAction action, long price) {
         if (action == ASK) {
-            askBitSet.clear(price);
-            bucketsPool.addLast(askBuckets.remove(price));
-            if (minAskPrice == price) {
-                minAskPrice = askBitSet.nextSetBit(minAskPrice);
-                if (minAskPrice == -1) {
-                    minAskPrice = Integer.MAX_VALUE;
-                }
-            }
+            removeAskBucket(price);
         } else {
-            bidBitSet.clear(price);
-            bucketsPool.addLast(bidBuckets.remove(price));
-            if (maxBidPrice == price) {
-                maxBidPrice = bidBitSet.previousSetBit(maxBidPrice);
-                if (maxBidPrice == -1) {
-                    maxBidPrice = 0;
-                }
-            }
+            removeBidBucket(price);
         }
     }
 
-    /**
-     * Get bucket by order action
-     *
-     * @param action - action
-     * @return bucket - navigable map
-     */
-    private MutableIntObjectMap<IOrdersBucket> getBucketsByAction(OrderAction action) {
-        return action == ASK ? askBuckets : bidBuckets;
+    private void removeAskBucket(long price) {
+        int idx = priceToIndex(price);
+
+        if (idx < hotPricesRange) {
+            // in hot area
+            hotAskBitSet.clear(idx);
+            bucketsPool.addLast(hotAskBuckets.remove(price));
+        } else {
+            // in far area
+            bucketsPool.addLast(farAskBuckets.remove(price));
+        }
+
+        if (minAskPrice != price) {
+            // no need to update minAskPrice
+            return;
+        }
+
+        if (idx >= hotPricesRange || updateMinAskPriceHot(idx)) {
+            updateMinAskPriceFar(price);
+        }
     }
 
+    private boolean updateMinAskPriceHot(int idx) {
+        int nextIdx = hotAskBitSet.nextSetBit(idx);
+        if (nextIdx == -1) {
+            // not found, have to also check far area
+            return true;
+        }
+
+        // found new minAskPrice in hot bitset
+        minAskPrice = nextIdx + basePrice;
+        return false;
+    }
+
+    private void updateMinAskPriceFar(long price) {
+        Long p = farAskBuckets.higherKey(price);
+        minAskPrice = (p != null) ? p : Long.MAX_VALUE;
+    }
+
+    private void removeBidBucket(long price) {
+        int idx = priceToIndex(price);
+
+        if (idx >= 0) {
+            // in hot area
+            hotBidBitSet.clear(idx);
+            bucketsPool.addLast(hotBidBuckets.remove(price));
+        } else {
+            // in far area
+            bucketsPool.addLast(farBidBuckets.remove(price));
+        }
+
+        if (maxBidPrice != price) {
+            // no need to update maxBidPrice
+            return;
+        }
+
+        // need to update maxBidPrice
+        // if makes sense - first check hot area
+        if (idx < 0 || updateMaxBidPriceHot(idx)) {
+            updateMaxBidPriceFar(price);
+        }
+
+    }
+
+    private boolean updateMaxBidPriceHot(int idx) {
+        int nextIdx = hotBidBitSet.previousSetBit(idx);
+        if (nextIdx == -1) {
+            // not found, have to also check far area
+            return true;
+        }
+
+        // found new maxBidPrice in hot bitset
+        maxBidPrice = nextIdx + basePrice;
+        return false;
+    }
+
+    private void updateMaxBidPriceFar(long price) {
+        Long p = farBidBuckets.higherKey(price); // higherKey() instead of lowerKey() - because of opposite sort order
+        maxBidPrice = (p != null) ? p : 0;
+    }
+
+    /**
+     * Re-balances HOT/FAR parts (bitsets and hashtables)
+     * Triggered when BBO price moved significantly from the center price
+     * <p>
+     * price going up: asks FAR -> HOT, bids HOT -> FAR
+     *
+     * @param newBasePrice new base price
+     */
+    private void decreaseBasePrice(long newBasePrice) {
+        int shift = (int) (basePrice - newBasePrice);
+        //log.debug("decrease base price {}->{}", basePrice, newBasePrice);
+        if (maxBidPrice != 0) {
+            // shift hot bids bitset (base price lower -> index is higher for the same price)
+            hotBidBitSet = shiftBitSetUp(hotBidBitSet, shift);
+
+            // BID buckets from the FAR section need to be moved to the HOT section where price >= newBasePrice
+            NavigableMap<Long, IOrdersBucket> toHotBuckets = farBidBuckets.headMap(newBasePrice, true);
+
+            //log.debug("toHotBuckets={}", toHotBuckets);
+            moveBucketsToHot(toHotBuckets, hotBidBuckets, hotBidBitSet, newBasePrice);
+        }
+
+        if (minAskPrice != Long.MAX_VALUE) {
+            // evicting ASK buckets from the HOT section into the FAR section where price >= newBasePrice + hotPricesRange
+            int next = hotPricesRange - shift;
+            //log.debug("next1={}", next);
+            while ((next = hotAskBitSet.nextSetBit(next)) != -1) {
+                //log.debug("next={}", next);
+                IOrdersBucket bucket = hotAskBuckets.remove(indexToPrice(next));
+                farAskBuckets.put(bucket.getPrice(), bucket);
+                next++;
+            }
+
+            // shift up and clear asks BitSet
+            hotAskBitSet = shiftBitSetUp(hotAskBitSet, shift);
+        }
+
+        setBasePrice(newBasePrice);
+    }
+
+    /**
+     * Re-balances HOT/FAR parts (bitsets and hashtables)
+     * Triggered when BBO price moved significantly from the center price
+     * <p>
+     * price going down: asks HOT -> FAR, bids FAR -> HOT
+     *
+     * @param newBasePrice new base price
+     */
+    private void increaseBasePrice(long newBasePrice) {
+        int shift = (int) (newBasePrice - basePrice);
+//        log.debug("increase base price {}->{}", basePrice, newBasePrice);
+        if (minAskPrice != Long.MAX_VALUE) {
+            // shift hot asks bitset
+            hotAskBitSet = shiftBitSetDown(hotAskBitSet, shift);
+
+            // moving ASK buckets from the FAR section to the HOT section where price < newBasePrice + hotPricesRange
+            NavigableMap<Long, IOrdersBucket> toHotBuckets = farAskBuckets.headMap(newBasePrice + hotPricesRange, false);
+            moveBucketsToHot(toHotBuckets, hotAskBuckets, hotAskBitSet, newBasePrice);
+        }
+
+        if (maxBidPrice != 0) {
+            // evicting BID buckets from the HOT section into the FAR section where price < newBasePrice
+            int next = priceToIndex(newBasePrice - 1); // newBasePrice is left in the hot (will have index 0), therefore -1
+            while ((next = hotBidBitSet.previousSetBit(next)) != -1) {
+                IOrdersBucket bucket = hotBidBuckets.remove(indexToPrice(next));
+//                log.debug("Evicting bucket to FAR: {}", bucket.getPrice());
+                farBidBuckets.put(bucket.getPrice(), bucket);
+                next--;
+            }
+
+            // shift down and clear bids BitSet
+            hotBidBitSet = shiftBitSetDown(hotBidBitSet, shift);
+        }
+
+        setBasePrice(newBasePrice);
+    }
+
+    // TODO slow - implement rolling bitset
+    private BitSet shiftBitSetDown(BitSet bitSet, int shift) {
+        int shiftLongs = shift >> 6;
+        long[] src = bitSet.toLongArray();
+        long[] dst = new long[hotPricesRange >> 6];
+        int lengthCopy = src.length - shiftLongs;
+        if (lengthCopy > 0) {
+            System.arraycopy(src, shiftLongs, dst, 0, lengthCopy);
+        }
+        return BitSet.valueOf(dst);
+    }
+
+    private BitSet shiftBitSetUp(BitSet bitSet, int shift) {
+        int shiftLongs = shift >> 6;
+        long[] src = bitSet.toLongArray();
+        long[] dst = new long[hotPricesRange >> 6];
+        int lengthCopy = Math.min(src.length, dst.length - shiftLongs);
+        if (lengthCopy > 0) {
+            System.arraycopy(src, 0, dst, shiftLongs, lengthCopy);
+        }
+        return BitSet.valueOf(dst);
+    }
+
+    /**
+     * Moves buckets from FAR subtree into HOT hashmap and update bitset according the new base price
+     *
+     * @param fromFar
+     * @param toHot
+     * @param newBitSet
+     * @param newBasePrice
+     */
+    private void moveBucketsToHot(SortedMap<Long, IOrdersBucket> fromFar, LongObjectHashMap<IOrdersBucket> toHot, BitSet newBitSet, long newBasePrice) {
+        Iterator<IOrdersBucket> iterator = fromFar.values().iterator();
+        while (iterator.hasNext()) {
+            IOrdersBucket next = iterator.next();
+            iterator.remove();
+            long price = next.getPrice();
+            toHot.put(price, next);
+            int idx = (int) (price - newBasePrice);
+            //log.debug("move to hot:{}  idx-set:{}", price, idx);
+            newBitSet.set(idx);
+        }
+    }
 
     /**
      * Get order from internal map
@@ -397,75 +705,243 @@ public class OrderBookFast extends OrderBookBase {
      * @param orderId -
      * @return - order
      */
+    @Override
     public Order getOrderById(long orderId) {
         IOrdersBucket bucket = idMapToBucket.get(orderId);
         return (bucket != null) ? bucket.findOrder(orderId) : null;
     }
 
-    public L2MarketData getL2MarketDataSnapshot(int size) {
-        int sizeAsk = Math.min(size, askBuckets.size());
-        int askPrices[] = new int[sizeAsk];
-        long askVolumes[] = new long[sizeAsk];
-        long totalVolumeAsk = 0;
-        if (sizeAsk > 0) {
-            int nextPrice = minAskPrice;
-            for (int i = 0; i < sizeAsk; i++) {
-                int next = askBitSet.nextSetBit(nextPrice);
-                if (next < 0) {
-                    break;
-                }
-                IOrdersBucket bucket = askBuckets.get(next);
-                nextPrice = bucket.getPrice() + 1;
-                askPrices[i] = bucket.getPrice();
-                askVolumes[i] = bucket.getTotalVolume();
-                totalVolumeAsk += bucket.getTotalVolume();
-            }
-        }
-
-        int sizeBid = Math.min(size, bidBuckets.size());
-        int bidPrices[] = new int[sizeBid];
-        long bidVolumes[] = new long[sizeBid];
-        long totalVolumeBid = 0;
-        if (sizeBid > 0) {
-            int nextPrice = maxBidPrice;
-            for (int i = 0; i < sizeBid; i++) {
-                int next = bidBitSet.previousSetBit(nextPrice);
-                if (next < 0) {
-                    break;
-                }
-                IOrdersBucket bucket = bidBuckets.get(next);
-                nextPrice = bucket.getPrice() - 1;
-                bidPrices[i] = bucket.getPrice();
-                bidVolumes[i] = bucket.getTotalVolume();
-                totalVolumeBid += bucket.getTotalVolume();
-            }
-        }
-        L2MarketData l2MarketData = new L2MarketData(askPrices, askVolumes, bidPrices, bidVolumes);
-        l2MarketData.totalVolumeAsk = totalVolumeAsk;
-        l2MarketData.totalVolumeBid = totalVolumeBid;
-        return l2MarketData;
+    @Override
+    public List<IOrdersBucket> getAllAskBuckets() {
+        return Arrays.asList(getAsksAsArray());
     }
 
     @Override
-    public void publishL2MarketDataSnapshot(int size) {
-        throw new IllegalStateException();
+    public List<IOrdersBucket> getAllBidBuckets() {
+        return Arrays.asList(getBidsAsArray());
+    }
+
+    @Override
+    protected void fillAsks(final int size, L2MarketData data) {
+        if (minAskPrice == Long.MAX_VALUE || size == 0) {
+            data.askSize = 0;
+            return;
+        }
+
+        int i = 0;
+        // scan hot section only if there are buckets in it
+        if (minAskPrice < basePrice + hotPricesRange) {
+            int next = priceToIndex(minAskPrice);
+            while ((next = hotAskBitSet.nextSetBit(next)) != -1) {
+                IOrdersBucket bucket = hotAskBuckets.get(indexToPrice(next));
+                data.askPrices[i] = bucket.getPrice();
+                data.askVolumes[i] = bucket.getTotalVolume();
+                if (++i == size) {
+                    data.askSize = size;
+                    return;
+                }
+                next++;
+            }
+        }
+
+        // extracting buckets from far trees
+        for (IOrdersBucket bucket : farAskBuckets.values()) {
+            data.askPrices[i] = bucket.getPrice();
+            data.askVolumes[i] = bucket.getTotalVolume();
+            if (++i == size) {
+                data.askSize = size;
+                return;
+            }
+        }
+
+        // not filled completely
+        data.askSize = i;
+    }
+
+    @Override
+    protected void fillBids(final int size, L2MarketData data) {
+
+        if (maxBidPrice == 0 || size == 0) {
+            data.bidSize = 0;
+            return;
+        }
+
+        int i = 0;
+
+        // scan hot section only if there are buckets in it
+        if (maxBidPrice >= basePrice) {
+            int next = priceToIndex(maxBidPrice);
+            while ((next = hotBidBitSet.previousSetBit(next)) != -1) {
+                IOrdersBucket bucket = hotBidBuckets.get(indexToPrice(next));
+                data.bidPrices[i] = bucket.getPrice();
+                data.bidVolumes[i] = bucket.getTotalVolume();
+                if (++i == size) {
+                    data.bidSize = size;
+                    return;
+                }
+                next--;
+            }
+        }
+
+        // extracting buckets from far trees
+        // note: farBidBuckets is in reversed order
+        for (IOrdersBucket bucket : farBidBuckets.values()) {
+            data.bidPrices[i] = bucket.getPrice();
+            data.bidVolumes[i] = bucket.getTotalVolume();
+            if (++i == size) {
+                data.bidSize = size;
+                return;
+            }
+        }
+
+        // not filled completely
+        data.bidSize = i;
+    }
+
+    @Override
+    protected int getTotalAskBuckets() {
+        return hotAskBuckets.size() + farAskBuckets.size();
+    }
+
+    @Override
+    protected int getTotalBidBuckets() {
+        return hotBidBuckets.size() + farBidBuckets.size();
     }
 
     @Override
     public void validateInternalState() {
+
+        // check price in the bucket is the same as map key
+        hotAskBuckets.forEachKeyValue(this::checkBucketPriceIsTheSame);
+        hotBidBuckets.forEachKeyValue(this::checkBucketPriceIsTheSame);
+        farAskBuckets.forEach(this::checkBucketPriceIsTheSame);
+        farBidBuckets.forEach(this::checkBucketPriceIsTheSame);
+
+        // check there are not same orders in the hot and far areas
+        Set<Long> ordersIdsBH = dumpAllOrdersIds(hotBidBuckets.values());
+        Set<Long> ordersIdsBF = dumpAllOrdersIds(farBidBuckets.values());
+        checkNoSameOrdersInHotAndFar(ordersIdsBH, ordersIdsBF);
+
+        Set<Long> ordersIdsAH = dumpAllOrdersIds(hotAskBuckets.values());
+        Set<Long> ordersIdsAF = dumpAllOrdersIds(farAskBuckets.values());
+        checkNoSameOrdersInHotAndFar(ordersIdsAH, ordersIdsAF);
+
+        // check that hot bit sets are matching to corresponding hot bucket keys
+        if (!Arrays.equals(hotAskBitSet.stream().mapToLong(x -> x + basePrice).toArray(), hotAskBuckets.keySet().toSortedArray())) {
+            throw new IllegalStateException("ASK HOT buckets bit set differs from map!");
+        }
+        if (!Arrays.equals(hotBidBitSet.stream().mapToLong(x -> x + basePrice).toArray(), hotBidBuckets.keySet().toSortedArray())) {
+            throw new IllegalStateException("BID HOT buckets bit set differs from map!");
+        }
+
+        // check buckets within ranges
+        if (!hotAskBuckets.isEmpty()) {
+            if (hotAskBuckets.keySet().max() >= basePrice + hotPricesRange) {
+                throw new IllegalStateException("Hot ask bucket price exceeds the hotPricesRange range!");
+            }
+            if (hotAskBuckets.keySet().min() != minAskPrice) {
+                throw new IllegalStateException("incorrect minAskPrice! (expected inside hot area)");
+            }
+        }
+
+        if (!hotBidBuckets.isEmpty()) {
+            if (hotBidBuckets.keySet().min() < basePrice) {
+                throw new IllegalStateException("Hot bid bucket price is below the basePrice range!");
+            }
+            if (hotBidBuckets.keySet().max() != maxBidPrice) {
+                throw new IllegalStateException("incorrect maxBidPrice! (expected inside hot area)");
+            }
+        }
+
+        if (!farAskBuckets.isEmpty()) {
+            if (farAskBuckets.firstKey() < basePrice + hotPricesRange) {
+                throw new IllegalStateException("Far ask bucket price is inside hot area!");
+            }
+            if (hotAskBuckets.isEmpty() && farAskBuckets.firstKey() != minAskPrice) {
+                throw new IllegalStateException("incorrect minAskPrice (expected inside far area)!");
+            }
+        }
+
+        if (!farBidBuckets.isEmpty()) {
+            if (farBidBuckets.firstKey() >= basePrice) {
+                throw new IllegalStateException("Far bid bucket price is inside hot area!");
+            }
+            if (hotBidBuckets.isEmpty() && farBidBuckets.firstKey() != maxBidPrice) {
+                throw new IllegalStateException("incorrect maxBidPrice (expected inside far area)!");
+            }
+        }
+
+        if (farAskBuckets.isEmpty() && hotAskBuckets.isEmpty() && minAskPrice != Long.MAX_VALUE) {
+            throw new IllegalStateException("incorrect minAskPrice! (no buckets)");
+        }
+        if (farBidBuckets.isEmpty() && hotBidBuckets.isEmpty() && maxBidPrice != 0) {
+            throw new IllegalStateException("incorrect maxBidPrice! (no buckets)");
+        }
+
+        // check known orders number is the same as total orders in all buckets TODO compare explicitly
+        int ah = hotAskBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
+        int bh = hotBidBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
+        int af = farAskBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
+        int bf = farBidBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
+        if (idMapToBucket.size() != af + ah + bf + bh) {
+//            log.debug("bh {}: {}", bh, dumpAllOrders(hotBidBuckets.values()));
+//            log.debug("bf {}: {}", bf, dumpAllOrders(farBidBuckets.values()));
+//            log.debug("ID {}: {}", idMapToBucket.size(), idMapToBucket.keySet());
+            throw new IllegalStateException(String.format("AH:%d + AF:%d + BH:%d + BF:%d != knownOrders %d ", ah, af, bh, bf, idMapToBucket.size()));
+        }
+
         // validateInternalState each bucket
-        askBuckets.stream().forEach(IOrdersBucket::validate);
-        bidBuckets.stream().forEach(IOrdersBucket::validate);
-        // TODO validateInternalState bitset, BBO, orderid maps
+        hotAskBuckets.stream().forEach(IOrdersBucket::validate);
+        hotBidBuckets.stream().forEach(IOrdersBucket::validate);
+
+        // TODO validateInternalState - orderid maps
     }
 
+    private void checkNoSameOrdersInHotAndFar(Set<Long> hot, Set<Long> far) {
+        Set<Long> intersection = new HashSet<>(hot);
+        intersection.retainAll(far);
+        if (!intersection.isEmpty()) {
+            //log.debug("intersection: {}", intersection);
+            throw new IllegalStateException("same order found in HOT and FAR sections!");
+        }
+    }
+
+    private void checkBucketPriceIsTheSame(long p, IOrdersBucket b) {
+        if (p != b.getPrice()) {
+            throw new IllegalStateException(String.format("Bucket price %d not the same as map key %d", b.getPrice(), p));
+        }
+    }
+
+    private String dumpAllOrders(Collection<IOrdersBucket> buckets) {
+        return buckets.stream().map(bucket -> {
+            String ordersInBucket = bucket.getAllOrders().stream().map(order -> String.valueOf(order.orderId)).collect(Collectors.joining());
+            return String.format("[BUCKET %d: %s]", bucket.getPrice(), ordersInBucket);
+        }).collect(Collectors.joining());
+    }
+
+    private Set<Long> dumpAllOrdersIds(Collection<IOrdersBucket> buckets) {
+        List<Long> asList = buckets.stream()
+                .flatMap(bucket -> bucket.getAllOrders().stream())
+                .map(ord -> ord.orderId)
+                .collect(Collectors.toList());
+        Set<Long> asSet = new HashSet<>(asList);
+        if (asSet.size() != asList.size()) {
+            throw new IllegalStateException("Duplicate orders found!");
+        }
+        return asSet;
+    }
+
+
     // for testing only
+    @Override
     public void clear() {
-        askBuckets.clear();
-        bidBuckets.clear();
-        askBitSet.clear();
-        bidBitSet.clear();
-        minAskPrice = Integer.MAX_VALUE;
+        hotAskBuckets.clear();
+        hotBidBuckets.clear();
+        hotAskBitSet.clear();
+        hotBidBitSet.clear();
+        farAskBuckets.clear();
+        farBidBuckets.clear();
+        minAskPrice = Long.MAX_VALUE;
         maxBidPrice = 0;
         idMapToBucket.clear();
 //        ordersPool.clear(); // ?
@@ -473,19 +949,53 @@ public class OrderBookFast extends OrderBookBase {
 
 
     // for testing only
+    @Override
     public int getOrdersNum() {
-
         //validateInternalState();
 
-        int askOrders = askBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
-        int bidOrders = bidBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
+        // TODO add trees
+        int ah = hotAskBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
+        int bh = hotBidBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
+        int af = farAskBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
+        int bf = farBidBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
 
 //        log.debug("idMap:{} askOrders:{} bidOrders:{}", idMap.size(), askOrders, bidOrders);
         int knownOrders = idMapToBucket.size();
 
-        assert knownOrders == askOrders + bidOrders : "inconsistent known orders";
+        assert knownOrders == ah + af + bh + bf : "inconsistent known orders";
 
         return idMapToBucket.size();
+    }
+
+    private IOrdersBucket[] getBidsAsArray() {
+        IOrdersBucket[] farBids = farBidBuckets.values().toArray(new IOrdersBucket[farBidBuckets.size()]);
+        IOrdersBucket[] hotBids = hotBidBuckets.toSortedMap(k -> k, v -> v).values().toArray(new IOrdersBucket[hotBidBuckets.size()]);
+        ArrayUtils.reverse(hotBids);
+        return ObjectArrays.concat(hotBids, farBids, IOrdersBucket.class);
+    }
+
+    private IOrdersBucket[] getAsksAsArray() {
+        IOrdersBucket[] farAsks = farAskBuckets.values().toArray(new IOrdersBucket[farAskBuckets.size()]);
+        IOrdersBucket[] hotAsks = hotAskBuckets.toSortedMap(k -> k, v -> v).values().toArray(new IOrdersBucket[hotAskBuckets.size()]);
+        return ObjectArrays.concat(hotAsks, farAsks, IOrdersBucket.class);
+    }
+
+    @Override
+    public int hashCode() {
+        IOrdersBucket[] a = getAsksAsArray();
+        IOrdersBucket[] b = getBidsAsArray();
+        //log.debug("FAST A:{} B:{}", a, b);
+        int hash = IOrderBook.hash(a, b);
+
+        //log.debug("{} {} {} {} {}", hash, hotAskBuckets.size(), farAskBuckets.size(), hotBidBuckets.size(), farBidBuckets.size());
+        return hash;
+
+    }
+
+
+    @Override
+    public boolean equals(Object o) {
+        return IOrderBook.equals(this, o);
     }
 
 }

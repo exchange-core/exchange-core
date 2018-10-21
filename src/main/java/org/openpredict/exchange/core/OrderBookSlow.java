@@ -1,6 +1,5 @@
 package org.openpredict.exchange.core;
 
-import com.lmax.disruptor.EventSink;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
@@ -15,8 +14,8 @@ import java.util.*;
 @RequiredArgsConstructor
 public class OrderBookSlow extends OrderBookBase {
 
-    private NavigableMap<Integer, IOrdersBucket> askBuckets = new TreeMap<>();
-    private NavigableMap<Integer, IOrdersBucket> bidBuckets = new TreeMap<>(Collections.reverseOrder());
+    private NavigableMap<Long, IOrdersBucket> askBuckets = new TreeMap<>();
+    private NavigableMap<Long, IOrdersBucket> bidBuckets = new TreeMap<>(Collections.reverseOrder());
 
 //    private Long2ObjectAVLTreeMap<IOrdersBucket> askBuckets = new Long2ObjectAVLTreeMap<>();
 //    private Long2ObjectAVLTreeMap<IOrdersBucket> bidBuckets = new Long2ObjectAVLTreeMap<>(Collections.reverseOrder());
@@ -24,27 +23,24 @@ public class OrderBookSlow extends OrderBookBase {
     private LongObjectHashMap<Order> idMap = new LongObjectHashMap<>();
 //    private MutableLongObjectMap<Order> idMap = new LongObjectHashMap<>();
 
-    private final EventSink<L2MarketData> marketDataBuffer;
-
-    private final MatcherEventsCallback eventsCallback;
-
 
     protected void matchMarketOrder(OrderCommand order) {
         long filledSize = tryMatchInstantly(order, order.action == OrderAction.ASK ? bidBuckets : askBuckets, 0);
 
         // rare case - partially filled due no liquidity - should report PARTIAL order execution
         if (filledSize < order.size) {
-            eventsCallback.sendRejectEvent(order, filledSize);
+            sendRejectEvent(order, filledSize);
         }
     }
 
+    @Override
     protected void placeNewLimitOrder(OrderCommand cmd) {
 
         if (idMap.containsKey(cmd.orderId)) {
             throw new IllegalArgumentException("duplicate orderId: " + cmd.orderId);
         }
 
-        // check if order is arketable there are matching orders
+        // check if order is marketable (if there are opposite matching orders)
         long filled = tryMatchInstantly(cmd, subtreeForMatching(cmd.action, cmd.price), 0);
         if (filled == cmd.size) {
             // fully matched as marketable before actually place - can just return
@@ -75,7 +71,7 @@ public class OrderBookSlow extends OrderBookBase {
         idMap.put(cmd.orderId, orderRecord);
     }
 
-    private SortedMap<Integer, IOrdersBucket> subtreeForMatching(OrderAction action, int price) {
+    private SortedMap<Long, IOrdersBucket> subtreeForMatching(OrderAction action, long price) {
         return (action == OrderAction.ASK ? bidBuckets : askBuckets)
                 .headMap(price, true);
     }
@@ -87,19 +83,20 @@ public class OrderBookSlow extends OrderBookBase {
      *
      * @param order           - LIMIT or MARKET order to match
      * @param matchingBuckets - sorted buckets map
-     * @return matched size (0 if nothing matched)
+     * @param filled          - current 'filled' value for the order
+     * @return new filled size
      */
-    private long tryMatchInstantly(OrderCommand order, SortedMap<Integer, IOrdersBucket> matchingBuckets, long filled) {
+    private long tryMatchInstantly(final OrderCommand order, final SortedMap<Long, IOrdersBucket> matchingBuckets, long filled) {
 
 //        log.info("matchInstantly: {} {}", order, matchingBuckets);
 
         if (matchingBuckets.size() == 0) {
-            return 0;
+            return filled;
         }
 
         long orderSize = order.size;
 
-        List<Integer> emptyBuckets = new ArrayList<>();
+        List<Long> emptyBuckets = new ArrayList<>();
         for (IOrdersBucket bucket : matchingBuckets.values()) {
 
 //            log.debug("Matching bucket: {} ...", bucket);
@@ -107,11 +104,11 @@ public class OrderBookSlow extends OrderBookBase {
 
             //OrderMatchingResult matchingOrders = bucket.match(order.size - filled, order.uid);
 
-            int tradePrice = bucket.getPrice();
+            long tradePrice = bucket.getPrice();
 
             filled += bucket.match(orderSize - filled, order.uid,
                     (mOrder, v, fm, fma) -> {
-                        eventsCallback.sendTradeEvent(order, mOrder, fm, fma, tradePrice, v);
+                        sendTradeEvent(order, mOrder, fm, fma, tradePrice, v);
                         if (fm) {
                             idMap.remove(mOrder.orderId);
                         }
@@ -120,7 +117,7 @@ public class OrderBookSlow extends OrderBookBase {
 //            log.debug("Matching orders: {}", matchingOrders);
 //            log.debug("order.filled: {}", order.filled);
 
-            int price = bucket.getPrice();
+            long price = bucket.getPrice();
 
             // remove empty buckets
             if (bucket.getTotalVolume() == 0) {
@@ -134,6 +131,7 @@ public class OrderBookSlow extends OrderBookBase {
         }
 
         // remove empty buckets (is it necessary?)
+        // TODO can remove through iterator ??
         emptyBuckets.forEach(matchingBuckets::remove);
 
 //        log.debug("emptyBuckets: {}", emptyBuckets);
@@ -162,8 +160,8 @@ public class OrderBookSlow extends OrderBookBase {
         // now can remove it
         idMap.remove(orderId);
 
-        NavigableMap<Integer, IOrdersBucket> buckets = getBucketsByAction(order.action);
-        int price = order.price;
+        NavigableMap<Long, IOrdersBucket> buckets = getBucketsByAction(order.action);
+        long price = order.price;
         IOrdersBucket ordersBucket = buckets.get(price);
         if (ordersBucket == null) {
             // not possible state
@@ -176,7 +174,7 @@ public class OrderBookSlow extends OrderBookBase {
             buckets.remove(price);
         }
 
-        eventsCallback.sendReduceEvent(order, order.size - order.filled);
+        sendReduceEvent(order, order.size - order.filled);
 
         return true;
     }
@@ -196,7 +194,7 @@ public class OrderBookSlow extends OrderBookBase {
 
         long orderId = cmd.orderId;
         long newSize = cmd.size;
-        int newPrice = cmd.price;
+        long newPrice = cmd.price;
 
         Order order = idMap.get(orderId);
         if (order == null) {
@@ -208,14 +206,14 @@ public class OrderBookSlow extends OrderBookBase {
             return false;
         }
 
-        int price = order.price;
-        NavigableMap<Integer, IOrdersBucket> buckets = getBucketsByAction(order.action);
+        long price = order.price;
+        NavigableMap<Long, IOrdersBucket> buckets = getBucketsByAction(order.action);
         IOrdersBucket ordersBucket = buckets.get(price);
 
         // if change volume operation - use bucket implementation
         // not very efficient if moving and reducing volume
         if (newSize > 0) {
-            if (!ordersBucket.tryReduceSize(cmd, eventsCallback::sendReduceEvent)) {
+            if (!ordersBucket.tryReduceSize(cmd, super::sendReduceEvent)) {
                 return false;
             }
         }
@@ -237,7 +235,7 @@ public class OrderBookSlow extends OrderBookBase {
         order.price = newPrice;
 
         // try match with new price
-        SortedMap<Integer, IOrdersBucket> matchingArea = subtreeForMatching(order.action, newPrice);
+        SortedMap<Long, IOrdersBucket> matchingArea = subtreeForMatching(order.action, newPrice);
         long filled = tryMatchInstantly(order, matchingArea, order.filled);
         if (filled == order.size) {
             // order was fully matched (100% marketable) - removing from order book
@@ -263,7 +261,7 @@ public class OrderBookSlow extends OrderBookBase {
      * @param action - action
      * @return bucket - navigable map
      */
-    private NavigableMap<Integer, IOrdersBucket> getBucketsByAction(OrderAction action) {
+    private NavigableMap<Long, IOrdersBucket> getBucketsByAction(OrderAction action) {
         return action == OrderAction.ASK ? askBuckets : bidBuckets;
     }
 
@@ -274,46 +272,58 @@ public class OrderBookSlow extends OrderBookBase {
      * @param orderId -
      * @return order
      */
+    @Override
     public Order getOrderById(long orderId) {
         return idMap.get(orderId);
     }
 
-    public L2MarketData getL2MarketDataSnapshot(int size) {
-        int askPrices[] = askBuckets.values().stream().limit(size).mapToInt(IOrdersBucket::getPrice).toArray();
-        long askVolumes[] = askBuckets.values().stream().limit(size).mapToLong(IOrdersBucket::getTotalVolume).toArray();
-        int bidPrices[] = bidBuckets.values().stream().limit(size).mapToInt(IOrdersBucket::getPrice).toArray();
-        long bidVolumes[] = bidBuckets.values().stream().limit(size).mapToLong(IOrdersBucket::getTotalVolume).toArray();
-        L2MarketData l2MarketData = new L2MarketData(askPrices, askVolumes, bidPrices, bidVolumes);
-        l2MarketData.totalVolumeAsk = Arrays.stream(askVolumes).sum();
-        l2MarketData.totalVolumeBid = Arrays.stream(bidVolumes).sum();
-
-        return l2MarketData;
+    @Override
+    protected void fillAsks(final int size, L2MarketData data) {
+        int i = 0;
+        for (IOrdersBucket bucket : askBuckets.values()) {
+            data.askPrices[i] = bucket.getPrice();
+            data.askVolumes[i] = bucket.getTotalVolume();
+            if (++i == size) {
+                break;
+            }
+        }
+        data.askSize = i;
     }
 
     @Override
-    public void publishL2MarketDataSnapshot(int size) {
-        marketDataBuffer.publishEvent((rec, seq) -> {
-            int i = 0;
-            for (IOrdersBucket bucket : askBuckets.values()) {
-                rec.askPrices[i] = bucket.getPrice();
-                rec.askVolumes[i] = bucket.getTotalVolume();
-                if (++i == size) {
-                    break;
-                }
+    protected void fillBids(final int size, L2MarketData data) {
+        int i = 0;
+        for (IOrdersBucket bucket : bidBuckets.values()) {
+            data.bidPrices[i] = bucket.getPrice();
+            data.bidVolumes[i] = bucket.getTotalVolume();
+            if (i++ == size) {
+                break;
             }
-            rec.askSize = i;
-
-            i = 0;
-            for (IOrdersBucket bucket : bidBuckets.values()) {
-                rec.bidPrices[i] = bucket.getPrice();
-                rec.bidVolumes[i] = bucket.getTotalVolume();
-                if (i++ == size) {
-                    break;
-                }
-            }
-            rec.bidSize = i;
-        });
+        }
+        data.bidSize = i;
     }
+
+    @Override
+    protected int getTotalAskBuckets() {
+        return askBuckets.size();
+    }
+
+    @Override
+    protected int getTotalBidBuckets() {
+        return bidBuckets.size();
+    }
+
+
+    @Override
+    public List<IOrdersBucket> getAllAskBuckets() {
+        return new ArrayList<>(askBuckets.values());
+    }
+
+    @Override
+    public List<IOrdersBucket> getAllBidBuckets() {
+        return new ArrayList<>(bidBuckets.values());
+    }
+
 
     @Override
     public void validateInternalState() {
@@ -322,6 +332,7 @@ public class OrderBookSlow extends OrderBookBase {
     }
 
     // for testing only
+    @Override
     public void clear() {
         askBuckets.clear();
         bidBuckets.clear();
@@ -329,6 +340,7 @@ public class OrderBookSlow extends OrderBookBase {
     }
 
     // for testing only
+    @Override
     public int getOrdersNum() {
 
         int askOrders = askBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
@@ -339,6 +351,21 @@ public class OrderBookSlow extends OrderBookBase {
         assert knownOrders == askOrders + bidOrders : "inconsistent known orders";
 
         return knownOrders;
+    }
+
+    @Override
+    public int hashCode() {
+        IOrdersBucket[] a = this.askBuckets.values().toArray(new IOrdersBucket[this.askBuckets.size()]);
+        IOrdersBucket[] b = this.bidBuckets.values().toArray(new IOrdersBucket[this.bidBuckets.size()]);
+
+        //log.debug("SLOW A:{} B:{}", a, b);
+
+        return IOrderBook.hash(a, b);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return IOrderBook.equals(this, o);
     }
 
 }

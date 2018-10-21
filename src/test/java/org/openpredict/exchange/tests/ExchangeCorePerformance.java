@@ -24,7 +24,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
+import static org.hamcrest.Matchers.is;
+import static org.junit.Assert.assertThat;
 import static org.openpredict.exchange.util.LatencyTools.LATENCY_RESOLUTION;
 import static org.openpredict.exchange.util.LatencyTools.createLatencyReportFast;
 
@@ -35,7 +39,7 @@ import static org.openpredict.exchange.util.LatencyTools.createLatencyReportFast
 })
 @TestPropertySource(locations = "classpath:it.properties")
 @Slf4j
-public class ExchangeCoreStress {
+public class ExchangeCorePerformance {
 
     @Autowired
     private ExchangeApi apiCore;
@@ -66,6 +70,8 @@ public class ExchangeCoreStress {
 
     private static final int SYMBOL = 5991;
 
+    private int latencyMessagesCounter = 0;
+
     @Before
     public void before() {
         SymbolSpecification spec = SymbolSpecification.builder().depositBuy(22000).depositSell(32100).symbolId(SYMBOL).symbolName("XBTC").build();
@@ -73,6 +79,7 @@ public class ExchangeCoreStress {
         matchingEngineRouter.addOrderBook(SYMBOL);
     }
 
+    // TODO shutdown disruptor if test fails
     @Test
     public void throughputTest() throws Exception {
 
@@ -80,15 +87,15 @@ public class ExchangeCoreStress {
         int targetOrderBookOrders = 1000;
 
         int numUsers = 1000;
-        ArrayList<Long> uid = new ArrayList<>();
-        for (long i = 1; i <= numUsers; i++) {
-            apiCore.submitCommand(ApiAddUser.builder().uid(i).build());
-            apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(i).amount(2_000_000_000L).build());
-            uid.add(i);
-        }
 
-        List<OrderCommand> orderCommands = generator.generateCommands(numOrders, targetOrderBookOrders, uid);
-        List<ApiCommand> apiCommands = generator.convertToApiCommand(orderCommands, SYMBOL);
+        List<Long> uids = Stream.iterate(1L, i -> i + 1).limit(numUsers).collect(Collectors.toList());
+        uids.forEach(uid -> {
+            apiCore.submitCommand(ApiAddUser.builder().uid(uid).build());
+            apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(2_000_000_000L).build());
+        });
+
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids, SYMBOL, false);
+        List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
 
         AtomicInteger counter = new AtomicInteger();
 
@@ -119,6 +126,13 @@ public class ExchangeCoreStress {
             float perfMt = (float) apiCommands.size() / (float) t / 1000.0f;
             log.info("{}. {} MT/s", j, perfMt);
             perfResults.add(perfMt);
+
+            //matchingEngineRouter.getOrderBook().printFullOrderBook();
+
+            // weak compare orderBook final state just to make sure all commands executed same way
+            // TODO compare events
+            assertThat(matchingEngineRouter.getOrderBook().hashCode(), is(genResult.getFinalOrderbookHash()));
+
         }
 
         double avg = (float) perfResults.stream().mapToDouble(x -> x).average().orElse(0);
@@ -130,24 +144,113 @@ public class ExchangeCoreStress {
     @Test
     public void latencyTest() throws Exception {
 
+        final int numOrders = 3_000_000;
+        final int targetOrderBookOrders = 1000;
+        final int numUsers = 1000;
+
+        final int ignoreLatencyForFirstNMessages = numOrders / 100;
+
+//        int targetTps = 1000000; // transactions per second
+        int targetTps = 500_000; // transactions per second
+        final int targetTpsEnd = 7_000_000;
+//        int targetTps = 4_000_000; // transactions per second
+
+        List<Long> uids = Stream.iterate(1L, i -> i + 1).limit(numUsers).collect(Collectors.toList());
+        uids.forEach(uid -> {
+            apiCore.submitCommand(ApiAddUser.builder().uid(uid).build());
+            apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(2_000_000_000L).build());
+        });
+
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(
+                numOrders,
+                targetOrderBookOrders,
+                uids,
+                SYMBOL,
+                false);
+        List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
+
+        IntLongHashMap latencies = new IntLongHashMap(20000);
+
+        exchangeCore.setResultsConsumer(cmd -> {
+            int key = (int) ((System.nanoTime() - cmd.timestamp) >> LATENCY_RESOLUTION);
+            latencies.updateValue(key, 0, x -> x + 1);
+            // reset latency map after first 1% messages
+            if (latencyMessagesCounter++ == ignoreLatencyForFirstNMessages) {
+                latencies.clear();
+            }
+        });
+
+        // TODO - first run should validate the output (orders are accepted and processed properly)
+
+        for (int j = 0; j < 10000; j++) {
+
+            int nanosPerCmd = 1_000_000_000 / targetTps;
+            targetTps += 50_000;
+
+            Thread.sleep(20);
+            userProfileService.reset();
+            matchingEngineRouter.reset();
+            System.gc();
+            Thread.sleep(200);
+
+            long t = System.currentTimeMillis();
+            long plannedTimestamp = System.nanoTime();
+
+            latencies.clear();
+            latencyMessagesCounter = 0;
+
+            for (ApiCommand cmd : apiCommands) {
+                while (System.nanoTime() < plannedTimestamp) {
+                    // spin while too early for sending next message
+                }
+                cmd.timestamp = plannedTimestamp;
+                apiCore.submitCommand(cmd);
+                plannedTimestamp += nanosPerCmd;
+            }
+
+            // wait until last response received
+            final long expectedSum = apiCommands.size() - ignoreLatencyForFirstNMessages - 1;
+            while (latencies.sum() != expectedSum) {
+                //log.debug("commands not processed yet: {}", expectedSum - sum);
+            }
+            t = System.currentTimeMillis() - t;
+
+            float perfMt = (float) apiCommands.size() / (float) t / 1000.0f;
+            Map<String, String> fmtPlace = createLatencyReportFast(latencies);
+            log.info("{}. {} MT/s {}", j, perfMt, fmtPlace);
+
+            // weak compare orderBook final state just to make sure all commands executed same way
+            // TODO compare events
+            assertThat(matchingEngineRouter.getOrderBook().hashCode(), is(genResult.getFinalOrderbookHash()));
+
+            if (targetTps > targetTpsEnd) {
+                break;
+            }
+        }
+    }
+
+
+    // TODO fix - fails with - int DEFAULT_HOT_WIDTH = 1024;
+    @Test
+    public void latencyTestFailing() throws Exception {
+
         int numOrders = 3_000_000;
         int targetOrderBookOrders = 1000;
         int numUsers = 1000;
 
 //        int targetTps = 1000000; // transactions per second
-        int targetTps = 75_000; // transactions per second
+        int targetTps = 500_000; // transactions per second
         int targetTpsEnd = 7_000_000;
 //        int targetTps = 4_000_000; // transactions per second
 
-        ArrayList<Long> uids = new ArrayList<>();
-        for (long i = 1; i <= numUsers; i++) {
-            apiCore.submitCommand(ApiAddUser.builder().uid(i).build());
-            apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(i).amount(2_000_000_000L).build());
-            uids.add(i);
-        }
+        List<Long> uids = Stream.iterate(1L, i -> i + 1).limit(numUsers).collect(Collectors.toList());
+        uids.forEach(uid -> {
+            apiCore.submitCommand(ApiAddUser.builder().uid(uid).build());
+            apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(2_000_000_000L).build());
+        });
 
-        List<OrderCommand> orderCommands = generator.generateCommands(numOrders, targetOrderBookOrders, uids);
-        List<ApiCommand> apiCommands = generator.convertToApiCommand(orderCommands, SYMBOL);
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids, SYMBOL, true);
+        List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
 
         IntLongHashMap latencies = new IntLongHashMap(20000);
 
@@ -161,7 +264,7 @@ public class ExchangeCoreStress {
         for (int j = 0; j < 10000; j++) {
 
             int nanosPerCmd = 1_000_000_000 / targetTps;
-            targetTps += 25_000;
+            targetTps += 50_000;
 
             Thread.sleep(20);
             userProfileService.reset();
@@ -193,6 +296,10 @@ public class ExchangeCoreStress {
             float perfMt = (float) apiCommands.size() / (float) t / 1000.0f;
             Map<String, String> fmtPlace = createLatencyReportFast(latencies);
             log.info("{}. {} MT/s {}", j, perfMt, fmtPlace);
+
+            // weak compare orderBook final state just to make sure all commands executed same way
+            // TODO compare events
+            assertThat(matchingEngineRouter.getOrderBook().hashCode(), is(genResult.getFinalOrderbookHash()));
 
 //            if (j == 5) {
 //                log.info("Warmup completed, RESET latency stat");

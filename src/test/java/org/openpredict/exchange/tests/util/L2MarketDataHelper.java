@@ -1,6 +1,5 @@
 package org.openpredict.exchange.tests.util;
 
-import com.google.common.base.Strings;
 import lombok.NoArgsConstructor;
 import org.apache.commons.lang3.ArrayUtils;
 import org.openpredict.exchange.beans.L2MarketData;
@@ -10,9 +9,9 @@ import java.util.Arrays;
 @NoArgsConstructor
 public class L2MarketDataHelper {
 
-    private int askPrices[];
+    private long askPrices[];
     private long askVolumes[];
-    private int bidPrices[];
+    private long bidPrices[];
     private long bidVolumes[];
 
     public L2MarketDataHelper(L2MarketData l2) {
@@ -30,8 +29,8 @@ public class L2MarketDataHelper {
                 bidVolumes
         );
 
-        l2MarketData.totalVolumeAsk = Arrays.stream(askVolumes).sum();
-        l2MarketData.totalVolumeBid = Arrays.stream(bidVolumes).sum();
+//        l2MarketData.totalVolumeAsk = Arrays.stream(askVolumes).sum();
+//        l2MarketData.totalVolumeBid = Arrays.stream(bidVolumes).sum();
 
         return l2MarketData;
     }
@@ -76,9 +75,21 @@ public class L2MarketDataHelper {
         return this;
     }
 
+    public L2MarketDataHelper removeAllAsks() {
+        askPrices = new long[0];
+        askVolumes = new long[0];
+        return this;
+    }
+
     public L2MarketDataHelper removeBid(int pos) {
         bidPrices = ArrayUtils.remove(bidPrices, pos);
         bidVolumes = ArrayUtils.remove(bidVolumes, pos);
+        return this;
+    }
+
+    public L2MarketDataHelper removeAllBids() {
+        bidPrices = new long[0];
+        bidVolumes = new long[0];
         return this;
     }
 
