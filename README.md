@@ -1,8 +1,9 @@
 # exchange-core
+[![Build Status](https://travis-ci.org/mzheravin/exchange-core.svg?branch=master)](https://travis-ci.org/mzheravin/exchange-core)
 
 **Ultra-fast market exchange core matching engine** based on LMAX Disruptor and Eclipse Collections (ex. Goldman Sachs GS Collections).
 
-Capable to process 5M commands per second on 7-years old hardware (Intel® Xeon® X5690) without significant latency degradation:
+Capable to process 5M order book operations per second on 7-years old hardware (Intel® Xeon® X5690) with moderate latency degradation:
 
 |rate|50.0%|90.0%|95.0%|99.0%|99.9%|99.99%|worst|
 |----|-----|-----|-----|-----|-----|------|-----|
@@ -16,25 +17,25 @@ Capable to process 5M commands per second on 7-years old hardware (Intel® Xeon�
 |  5M|2.8µs|20µs |30µs |70µs |300µs|350µs |380µs|
 |  6M|5.7µs|34µs |260µs|600µs|680µs|710µs |740µs|
 
-Peak performance: 6.7M commands per second with awful latency (5-100ms).
+Peak throughput: 6.7M commands per second with awful latency (5-100ms).
 
 Benchmark configuration:
 - Single order book.
 - 3,000,000 inbound messages are distributed as follows: 9% limit + 3% market new orders, 6% cancel operations, 82% move operations. About 6% commands are causing trades.
 - 1,000 active user accounts.
-- In average ~1,000 limit orders in the order book.
-- Latency results do not include network interface and IPC.
-- Test data is not bursty, constant interval between commands (very short though: 200ns-8µs).
+- In average ~1,000 limit orders in the order book, placed in ~750 different price slots.
+- Latency results are only for risk processing and matcing engine. Network interface latency, IPC, journslling are not included.
+- Test data is not bursty, meaning constant interval between commands (0.2~8µs depending on target throughput).
 - BBO prices are not changing significantly thoghout the test, no avalanche orders.
-- No coordinated omission effect - processing delay affects following measurements.
-- GC is triggered prior running every benchmark cycle or 3,000,000 messages.
+- No coordinated omission effect. Processing delay is always affecting latency measurements for following messages.
+- GC is triggered prior running every benchmark cycle (of 3,000,000 messages).
 
 ### Main features
-- HFT optimized. Priority is a limit-order-move operation mean latency (0.5µs). Cancel operation takes about 0.7µs, placing new order - 1.0µs;
+- HFT optimized. Priority is a limit-order-move operation mean latency (currently ~0.5µs). Cancel operation takes ~0.7µs, placing new order ~1.0µs;
 - In-memory working state.
 - Lock-free and contention-free orders matching and risk control algorithms.
 - Matching engine and risk control operations are atomic and deterministic.
-- Pipelined processing (based on LMAX Disruptor), each CPU core is responsible for different processing stage, user accounts shard, or symbol order books set.
+- Pipelined processing (based on LMAX Disruptor): each CPU core is responsible for different processing stage, user accounts shard, or symbol order books set.
 - Low GC pressure, objects pooling.
 - Supports crossing Ask-Bid orders for market makers.
 - Two implementations of matching engine: simple and optimized.
