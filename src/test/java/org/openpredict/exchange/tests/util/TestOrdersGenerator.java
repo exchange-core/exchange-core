@@ -118,8 +118,8 @@ public class TestOrdersGenerator {
 
         assertThat(succPerc, greaterThan(85.0f));
         if (transactionsNumber > CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND) {
-            assertThat(avgOrderBookSizeAsk, greaterThan(20.0f));
-            assertThat(avgOrderBookSizeBid, greaterThan(20.0f));
+            assertThat(avgOrderBookSizeAsk, greaterThan(10.0f));
+            assertThat(avgOrderBookSizeBid, greaterThan(10.0f));
             assertThat(avgOrdersNumInOrderBook, greaterThan(50.0f));
         }
 
