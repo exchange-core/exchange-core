@@ -18,6 +18,7 @@ package org.openpredict.exchange.biprocessor;
 import com.lmax.disruptor.*;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.affinity.AffinityLock;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
 import java.util.concurrent.atomic.AtomicInteger;
@@ -74,7 +75,9 @@ public final class MasterProcessor implements EventProcessor {
             //notifyStart();
             try {
                 if (running.get() == RUNNING) {
-                    processEvents();
+                    try (AffinityLock cpuLock = AffinityLock.acquireLock()) {
+                        processEvents();
+                    }
                 }
             } finally {
                 //notifyShutdown();
@@ -97,7 +100,7 @@ public final class MasterProcessor implements EventProcessor {
 
         long currentSequenceGroup = 0;
 
-        // wait until slave processor has instruced to run
+        // wait until slave processor has instructed to run
         while (!slaveProcessor.isRunning()) {
             Thread.yield();
         }
