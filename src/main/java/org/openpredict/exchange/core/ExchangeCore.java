@@ -72,7 +72,7 @@ public class ExchangeCore {
                 64 * 1024,
                 Executors.defaultThreadFactory(),
                 ProducerType.MULTI, // multiple gateway threads are writing
-                CfgWaitStrategyType.YIELDING.create());
+                CfgWaitStrategyType.BUSY_SPIN.create());
 
         disruptor.setDefaultExceptionHandler(new DisruptorExceptionHandler<>("main"));
 

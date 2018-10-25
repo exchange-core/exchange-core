@@ -33,11 +33,12 @@
         <fixio.version>1.2</fixio.version>
         <quickfix.version>1.6.4</quickfix.version>
         <openhft.smoothiemap.version>1.3</openhft.smoothiemap.version>
+        <openhft.affinity.version>3.1.10</openhft.affinity.version>
+        <eclipse.collections.version>9.2.0</eclipse.collections.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
-
 
             <dependency>
                 <groupId>com.google.guava</groupId>
@@ -58,17 +59,24 @@
             </dependency>
 
             <!--lmax-->
+<!--
             <dependency>
                 <groupId>com.lmax</groupId>
                 <artifactId>com.lmax.disruptor</artifactId>
                 <version>${lmax.com.lmax.disruptor.version}</version>
             </dependency>
+-->
 
             <!-- OpenHFT -->
             <dependency>
                 <groupId>net.openhft</groupId>
                 <artifactId>smoothie-map</artifactId>
                 <version>${openhft.smoothiemap.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>net.openhft</groupId>
+                <artifactId>affinity</artifactId>
+                <version>${openhft.affinity.version}</version>
             </dependency>
 
             <!-- JMH -->
@@ -81,6 +89,18 @@
                 <groupId>org.openjdk.jmh</groupId>
                 <artifactId>jmh-generator-annprocess</artifactId>
                 <version>1.19</version>
+            </dependency>
+
+            <!-- Eclipse (Goldman Sachs) collections -->
+            <dependency>
+                <groupId>org.eclipse.collections</groupId>
+                <artifactId>eclipse-collections-api</artifactId>
+                <version>9.2.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.collections</groupId>
+                <artifactId>eclipse-collections</artifactId>
+                <version>9.2.0</version>
             </dependency>
 
         </dependencies>
@@ -160,17 +180,20 @@
         </dependency>
         -->
 
+        <dependency>
+            <groupId>net.openhft</groupId>
+            <artifactId>affinity</artifactId>
+        </dependency>
+
         <!-- Eclipse (Goldman Sachs) collections -->
         <dependency>
             <groupId>org.eclipse.collections</groupId>
             <artifactId>eclipse-collections-api</artifactId>
-            <version>9.2.0</version>
         </dependency>
 
         <dependency>
             <groupId>org.eclipse.collections</groupId>
             <artifactId>eclipse-collections</artifactId>
-            <version>9.2.0</version>
         </dependency>
 
         <!-- FastUtil -->
