@@ -7,17 +7,17 @@ Capable to process 5M order book operations per second on 7-years old hardware (
 
 |rate|50.0%|90.0%|95.0%|99.0%|99.9%|99.99%|worst|
 |----|-----|-----|-----|-----|-----|------|-----|
-|125K|1.2µs|1.6µs|1.8µs|8µs  |95µs |300µs |1ms  |
-|250K|1.2µs|1.6µs|1.8µs|12µs |90µs |250µs |500µs|
-|500K|1.2µs|1.6µs|1.9µs|17µs |130µs|250µs |500µs|
-|  1M|1.0µs|1.4µs|2.5µs|20µs |145µs|300µs |400µs|
-|  2M|0.8µs|4.5µs|8.7µs|30µs |130µs|250µs |330µs|
-|  3M|0.7µs|4.0µs|7.0µs|28µs |140µs|500µs |400µs|
-|  4M|0.8µs|6.0µs|9.0µs|30µs |60µs |160µs |200µs|
-|  5M|2.8µs|20µs |30µs |70µs |300µs|350µs |380µs|
-|  6M|5.7µs|34µs |260µs|600µs|680µs|710µs |740µs|
+|125K|0.7µs|0.9µs|1.0µs|1.3µs|9µs  |500µs |1.3ms|
+|250K|0.7µs|0.9µs|1.0µs|1.3µs|10µs |60µs  |1.2ms|
+|500K|0.7µs|0.9µs|1.0µs|1.4µs|14µs |30µs  |1.2ms|
+|  1M|0.6µs|0.9µs|1.2µs|5µs  |22µs |900µs |1.2ms|
+|  2M|0.7µs|1.3µs|4.5µs|11µs |30µs |1.1ms |1.2ms|
+|  3M|0.8µs|4.3µs|7.0µs|16µs |35µs |45µs  | 70µs|
+|  4M|1.1µs|7.0µs|9.5µs|25µs |43µs |55µs  | 80µs|
+|  5M|1.7µs|9.6µs|14µs |35µs |50µs |65µs  | 90µs|
+|  6M|6.0µs|22µs |40µs |380µs|500µs|550µs |600µs|
 
-Peak throughput: 6.7M commands per second with awful latency (5-100ms).
+Peak throughput: 6.5M commands per second with awful latency (5-100ms).
 
 Benchmark configuration:
 - Single order book.
