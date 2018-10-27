@@ -1,5 +1,6 @@
 # exchange-core
 [![Build Status](https://travis-ci.org/mzheravin/exchange-core.svg?branch=master)](https://travis-ci.org/mzheravin/exchange-core)
+[![][license img]][license]
 
 **Ultra-fast market exchange core matching engine** based on LMAX Disruptor and Eclipse Collections (ex. Goldman Sachs GS Collections).
 
@@ -54,3 +55,6 @@ Benchmark configuration:
 - Latency test: mvn -Dtest=ExchangeCorePerformance#latencyTest test
 - Throughput test: mvn -Dtest=ExchangeCorePerformance#throughputTest test
 - Hiccups test: mvn -Dtest=ExchangeCorePerformance#hiccupsTest test
+
+[license]:LICENCE.txt
+[license img]:https://img.shields.io/badge/License-Apache%202-blue.svg
