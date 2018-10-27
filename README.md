@@ -7,17 +7,16 @@ Capable to process 5M order book operations per second on 7-years old hardware (
 
 |rate|50.0%|90.0%|95.0%|99.0%|99.9%|99.99%|worst|
 |----|-----|-----|-----|-----|-----|------|-----|
-|125K|0.7µs|0.9µs|1.0µs|1.3µs|9µs  |500µs |1.3ms|
-|250K|0.7µs|0.9µs|1.0µs|1.3µs|10µs |60µs  |1.2ms|
-|500K|0.7µs|0.9µs|1.0µs|1.4µs|14µs |30µs  |1.2ms|
-|  1M|0.6µs|0.9µs|1.2µs|5µs  |22µs |900µs |1.2ms|
-|  2M|0.7µs|1.3µs|4.5µs|11µs |30µs |1.1ms |1.2ms|
-|  3M|0.8µs|4.3µs|7.0µs|16µs |35µs |45µs  | 70µs|
-|  4M|1.1µs|7.0µs|9.5µs|25µs |43µs |55µs  | 80µs|
-|  5M|1.7µs|9.6µs|14µs |35µs |50µs |65µs  | 90µs|
-|  6M|6.0µs|22µs |40µs |380µs|500µs|550µs |600µs|
-
-Peak throughput: 6.5M commands per second with awful latency (5-100ms).
+|125K|0.6µs|0.9µs|1.0µs|1.4µs|4µs  |24µs  |41µs |
+|250K|0.6µs|0.9µs|1.0µs|1.4µs|9µs  |27µs  |41µs |
+|500K|0.6µs|0.9µs|1.0µs|1.6µs|14µs |29µs  |42µs |
+|  1M|0.5µs|0.9µs|1.2µs|4µs  |22µs |31µs  |45µs |
+|  2M|0.5µs|1.2µs|3.9µs|10µs |30µs |39µs  |60µs |
+|  3M|0.7µs|3.6µs|6.2µs|15µs |36µs |45µs  |60µs |
+|  4M|1.0µs|6.0µs|9µs  |25µs |45µs |55µs  |70µs |
+|  5M|1.5µs|9.5µs|16µs |42µs |150µs|170µs |190µs|
+|  6M|5µs  |30µs |45µs |300µs|500µs|520µs |540µs|
+|6.5M|10µs |70µs |170µs|700µs|760µs|800µs |850µs|
 
 Benchmark configuration:
 - Single order book.
@@ -29,6 +28,7 @@ Benchmark configuration:
 - BBO prices are not changing significantly thoghout the test, no avalanche orders.
 - No coordinated omission effect. Processing delay is always affecting latency measurements for following messages.
 - GC is triggered prior running every benchmark cycle (of 3,000,000 messages).
+- RHEL 7.5, network-latency tuned profile, dual X5690, one socket isolated and tickless, no spectre/meltdown protection.
 
 ### Main features
 - HFT optimized. Priority is a limit-order-move operation mean latency (currently ~0.5µs). Cancel operation takes ~0.7µs, placing new order ~1.0µs;
@@ -40,6 +40,7 @@ Benchmark configuration:
 - Supports crossing Ask-Bid orders for market makers.
 - Two implementations of matching engine: simple and optimized.
 - Testing - unit-tests, integration tests, stress tests, integrity tests.
+- Automatic threads affinity (requires JNA).
 
 ### TODOs
 - Journaling support, event-sourcing - snapshot and replay operations support.
@@ -47,10 +48,9 @@ Benchmark configuration:
 - Clearing and settlement.
 - FIX and REST API gateways.
 - More tests and benchmarks.
-- NUMA-aware and thread affinity support.
-
+- NUMA-aware.
 
 ### How to run tests
 - Latency test: mvn -Dtest=ExchangeCorePerformance#latencyTest test
 - Throughput test: mvn -Dtest=ExchangeCorePerformance#throughputTest test
-
+- Hiccups test: mvn -Dtest=ExchangeCorePerformance#hiccupsTest test
