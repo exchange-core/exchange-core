@@ -91,56 +91,58 @@ public class ExchangeCorePerformance {
 
         int numUsers = 1000;
 
-        List<Long> uids = Stream.iterate(1L, i -> i + 1).limit(numUsers).collect(Collectors.toList());
-        uids.forEach(uid -> {
-            apiCore.submitCommand(ApiAddUser.builder().uid(uid).build());
-            apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(2_000_000_000L).build());
-        });
+        try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
 
-        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids, SYMBOL, false);
-        List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
+            List<Long> uids = Stream.iterate(1L, i -> i + 1).limit(numUsers).collect(Collectors.toList());
+            uids.forEach(uid -> {
+                apiCore.submitCommand(ApiAddUser.builder().uid(uid).build());
+                apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(2_000_000_000L).build());
+            });
 
-        AtomicInteger counter = new AtomicInteger();
+            TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids, SYMBOL, false);
+            List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
 
-        exchangeCore.setResultsConsumer(resultEvent -> {
+            AtomicInteger counter = new AtomicInteger();
+
+            exchangeCore.setResultsConsumer(resultEvent -> {
 //            log.debug("RESULT {}", resultEvent);
-            counter.decrementAndGet();
-        });
+                counter.decrementAndGet();
+            });
 
-        List<Float> perfResults = new ArrayList<>();
-        for (int j = 0; j < 100; j++) {
-            Thread.sleep(20);
-            userProfileService.reset();
-            matchingEngineRouter.reset();
-            System.gc();
-            Thread.sleep(200);
-            counter.set(apiCommands.size());
+            List<Float> perfResults = new ArrayList<>();
+            for (int j = 0; j < 100; j++) {
+                Thread.sleep(20);
+                userProfileService.reset();
+                matchingEngineRouter.reset();
+                System.gc();
+                Thread.sleep(200);
+                counter.set(apiCommands.size());
 
-            long t = System.currentTimeMillis();
-            for (ApiCommand cmd : apiCommands) {
-                apiCore.submitCommand(cmd);
+                long t = System.currentTimeMillis();
+                for (ApiCommand cmd : apiCommands) {
+                    apiCore.submitCommand(cmd);
+                }
+
+                while (counter.get() > 0) {
+                    // spin until all commands have processed
+                }
+
+                t = System.currentTimeMillis() - t;
+                float perfMt = (float) apiCommands.size() / (float) t / 1000.0f;
+                log.info("{}. {} MT/s", j, perfMt);
+                perfResults.add(perfMt);
+
+                //matchingEngineRouter.getOrderBook().printFullOrderBook();
+
+                // weak compare orderBook final state just to make sure all commands executed same way
+                // TODO compare events
+                assertThat(matchingEngineRouter.getOrderBook().hashCode(), is(genResult.getFinalOrderbookHash()));
+
             }
 
-            while (counter.get() > 0) {
-                // spin until all commands have processed
-            }
-
-            t = System.currentTimeMillis() - t;
-            float perfMt = (float) apiCommands.size() / (float) t / 1000.0f;
-            log.info("{}. {} MT/s", j, perfMt);
-            perfResults.add(perfMt);
-
-            //matchingEngineRouter.getOrderBook().printFullOrderBook();
-
-            // weak compare orderBook final state just to make sure all commands executed same way
-            // TODO compare events
-            assertThat(matchingEngineRouter.getOrderBook().hashCode(), is(genResult.getFinalOrderbookHash()));
-
+            double avg = (float) perfResults.stream().mapToDouble(x -> x).average().orElse(0);
+            log.info("Average: {} MT/s", avg);
         }
-
-        double avg = (float) perfResults.stream().mapToDouble(x -> x).average().orElse(0);
-        log.info("Average: {} MT/s", avg);
-
     }
 
 
