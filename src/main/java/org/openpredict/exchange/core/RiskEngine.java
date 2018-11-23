@@ -41,15 +41,15 @@ public class RiskEngine {
 
         SymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(cmd.symbol);
 
-        long depositBuy = spec.depositBuy * currentRiskBuySize;
-        long depositSell = spec.depositSell * currentRiskSellSize;
+        long depositBuy = spec.getDepositBuy()* currentRiskBuySize;
+        long depositSell = spec.getDepositSell() * currentRiskSellSize;
         // depositBuy or depositSell can be negative, but not both
         long originalDeposit = Math.max(depositBuy, depositSell);
 
         if (cmd.action == OrderAction.BID) {
-            depositBuy += spec.depositBuy * cmd.size;
+            depositBuy += spec.getDepositBuy() * cmd.size;
         } else {
-            depositSell += spec.depositSell * cmd.size;
+            depositSell += spec.getDepositSell() * cmd.size;
         }
         // depositBuy or depositSell can be negative, but not both
         long newDeposit = Math.max(depositBuy, depositSell);

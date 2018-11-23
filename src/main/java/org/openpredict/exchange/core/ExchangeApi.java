@@ -94,7 +94,7 @@ public class ExchangeApi {
         cmd.orderId = -1;
         cmd.symbol = -1;
         cmd.uid = api.uid;
-        cmd.price = (int) api.amount;// TODO migrate back to long?
+        cmd.price = api.amount;
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
     };

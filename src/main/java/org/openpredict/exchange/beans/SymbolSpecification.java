@@ -3,24 +3,27 @@ package org.openpredict.exchange.beans;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class SymbolSpecification {
+@Getter
+public final class SymbolSpecification {
 
-    public int symbolId;
-    public String symbolName;
+    private int symbolId;
 
-    public long depositBuy;
-    public long depositSell;
+    private long depositBuy = Long.MAX_VALUE;
+    private long depositSell = Long.MAX_VALUE;
 
-    public long highLimit;
-    public long lowLimit;
+    private long highLimit = Long.MAX_VALUE;
+    private long lowLimit = 0;
 
-    public int priceStep;
-    public int priceScale;
-    public int lotSize;
+    private int priceStep = 1;
+    private int priceScale = 1;
+    private int lotSize = 1;
+
+    private SymbolStatus status = SymbolStatus.INACTIVE;
 
 }

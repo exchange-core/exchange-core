@@ -16,8 +16,11 @@ public enum CommandResultCode {
 
     // MATCHING_NO_LIQUIDITY(-3001), // ?? order can be applied partially
     MATCHING_INVALID_ORDER_ID(-3002),
+    MATCHING_UNKNOWN_SYMBOL_ID(-3010),
 
     USER_MGMT_USER_ALREADY_EXISTS(-4001),
+
+    SYMBOL_MGMT_SYMBOL_ALREADY_EXISTS(-5001),
 
     DROP(-9999);
 

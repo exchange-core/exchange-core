@@ -130,7 +130,11 @@ public final class GroupingProcessor implements EventProcessor {
                         msgsInGroup++;
 
                         // switch group after each 8000 messages
-                        if (msgsInGroup >= 192) {
+                        // lower values give better and stable worst latency
+                        // higher - better throughput
+
+                        // TODO test with bigger ringbuffer
+                        if (msgsInGroup >= 2048) {
                             groupCounter++;
                             msgsInGroup = 0;
                         }

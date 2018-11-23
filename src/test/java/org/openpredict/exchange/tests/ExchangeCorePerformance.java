@@ -8,6 +8,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.openpredict.exchange.beans.SymbolSpecification;
+import org.openpredict.exchange.beans.SymbolStatus;
 import org.openpredict.exchange.beans.api.ApiAddUser;
 import org.openpredict.exchange.beans.api.ApiAdjustUserBalance;
 import org.openpredict.exchange.beans.api.ApiCommand;
@@ -82,7 +83,7 @@ public class ExchangeCorePerformance {
 
     @Before
     public void before() {
-        SymbolSpecification spec = SymbolSpecification.builder().depositBuy(22000).depositSell(32100).symbolId(SYMBOL).symbolName("XBTC").build();
+        SymbolSpecification spec = SymbolSpecification.builder().depositBuy(22000).depositSell(32100).symbolId(SYMBOL).status(SymbolStatus.ACTIVE).build();
         symbolSpecificationProvider.registerSymbol(SYMBOL, spec);
         matchingEngineRouter.addOrderBook(SYMBOL);
     }
@@ -141,7 +142,7 @@ public class ExchangeCorePerformance {
 
                 // weak compare orderBook final state just to make sure all commands executed same way
                 // TODO compare events
-                assertThat(matchingEngineRouter.getOrderBook().hashCode(), is(genResult.getFinalOrderbookHash()));
+                assertThat(matchingEngineRouter.getOrderBook(SYMBOL).hashCode(), is(genResult.getFinalOrderbookHash()));
 
             }
 
@@ -225,7 +226,7 @@ public class ExchangeCorePerformance {
 
                     // weak compare orderBook final state just to make sure all commands executed same way
                     // TODO compare events
-                    assertThat(matchingEngineRouter.getOrderBook().hashCode(), is(genResult.getFinalOrderbookHash()));
+                    assertThat(matchingEngineRouter.getOrderBook(SYMBOL).hashCode(), is(genResult.getFinalOrderbookHash()));
 
                 } catch (InterruptedException e) {
                     //
@@ -423,7 +424,7 @@ public class ExchangeCorePerformance {
 
             // weak compare orderBook final state just to make sure all commands executed same way
             // TODO compare events
-            assertThat(matchingEngineRouter.getOrderBook().hashCode(), is(genResult.getFinalOrderbookHash()));
+            assertThat(matchingEngineRouter.getOrderBook(SYMBOL).hashCode(), is(genResult.getFinalOrderbookHash()));
 
 //            if (j == 5) {
 //                log.info("Warmup completed, RESET latency stat");

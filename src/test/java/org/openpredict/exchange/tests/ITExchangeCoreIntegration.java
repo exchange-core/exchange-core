@@ -71,7 +71,7 @@ public class ITExchangeCoreIntegration {
 
     @Before
     public void before() {
-        SymbolSpecification spec = SymbolSpecification.builder().depositBuy(22000).depositSell(32100).symbolId(SYMBOL).symbolName("XBTC").build();
+        SymbolSpecification spec = SymbolSpecification.builder().depositBuy(22000).depositSell(32100).symbolId(SYMBOL).status(SymbolStatus.ACTIVE).build();
         symbolSpecificationProvider.registerSymbol(SYMBOL, spec);
         matchingEngineRouter.addOrderBook(SYMBOL);
 
@@ -274,7 +274,7 @@ public class ITExchangeCoreIntegration {
 
         // weak compare orderBook final state just to make sure all commands executed same way
         // TODO compare events, wait until finish
-        assertThat(matchingEngineRouter.getOrderBook().hashCode(), Matchers.is(genResult.getFinalOrderbookHash()));
+        assertThat(matchingEngineRouter.getOrderBook(SYMBOL).hashCode(), Matchers.is(genResult.getFinalOrderbookHash()));
 
     }
 
