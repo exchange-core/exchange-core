@@ -50,6 +50,7 @@ public class OrderBookSlow extends OrderBookBase {
         // normally placing regular limit order
         Order orderRecord = new Order(
                 cmd.command,
+                (byte) 0,
                 cmd.orderId,
                 cmd.symbol,
                 cmd.price,

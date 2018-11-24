@@ -22,6 +22,7 @@ import static org.openpredict.exchange.beans.cmd.OrderCommandType.*;
 public class OrderCommand {
 
     public OrderCommandType command;
+    public byte subCommandCode;
 
     public long orderId;
     public int symbol;

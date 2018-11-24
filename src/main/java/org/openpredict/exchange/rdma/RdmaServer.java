@@ -144,12 +144,14 @@ public class RdmaServer implements RdmaEndpointFactory<Endpoint> {
 
         } else if (commandType == OrderCommandType.SYMBOL_COMMANDS) {
 
-            SymbolCommandSubType subType = SymbolCommandSubType.valueOf((byte) ((headerWord >> 8) & 0x7f));
-            if (subType == SymbolCommandSubType.ADD_SYMBOL) {
+            byte subCommandCode = (byte) ((headerWord >> 8) & 0x7f);
+            cmd.subCommandCode = subCommandCode;
+            SymbolCommandSubType subCommand = SymbolCommandSubType.valueOf(subCommandCode);
+            if (subCommand == SymbolCommandSubType.ADD_SYMBOL) {
                 cmd.price = longRcvBuffer.get(CMD_PRICE);
             } else {
                 // TODO Implement
-                throw new UnsupportedOperationException("Not supported sub-command: " + subType);
+                throw new UnsupportedOperationException("Not supported sub-command: " + subCommand);
             }
             cmd.resultCode = CommandResultCode.NEW;
 

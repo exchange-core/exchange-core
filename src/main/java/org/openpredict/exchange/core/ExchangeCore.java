@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.beans.cmd.SymbolCommandSubType;
 import org.openpredict.exchange.biprocessor.GroupingProcessor;
 import org.openpredict.exchange.biprocessor.MasterProcessor;
 import org.openpredict.exchange.biprocessor.SimpleEventHandler;
@@ -205,8 +206,8 @@ public class ExchangeCore {
                 balanceAdjustment(cmd);
                 break;
 
-            case ADD_SYMBOL:
-                addSymbol(cmd);
+            case SYMBOL_COMMANDS:
+                symbolCommands(cmd);
                 break;
 
             case NOP:
@@ -263,23 +264,30 @@ public class ExchangeCore {
         cmd.resultCode = CommandResultCode.SUCCESS;
     }
 
-    private void addSymbol(OrderCommand cmd) {
+    private void symbolCommands(OrderCommand cmd) {
 
-        if (symbolSpecificationProvider.getSymbolSpecification(cmd.symbol) != null) {
-            cmd.resultCode = CommandResultCode.SYMBOL_MGMT_SYMBOL_ALREADY_EXISTS;
-            return;
+        SymbolCommandSubType subType = SymbolCommandSubType.valueOf(cmd.subCommandCode);
+        if (subType == SymbolCommandSubType.ADD_SYMBOL) {
+
+            if (symbolSpecificationProvider.getSymbolSpecification(cmd.symbol) != null) {
+                cmd.resultCode = CommandResultCode.SYMBOL_MGMT_SYMBOL_ALREADY_EXISTS;
+                return;
+            }
+
+            // TODO complete operation
+            SymbolSpecification spec = SymbolSpecification.builder()
+                    .symbolId(cmd.symbol)
+                    .depositBuy(cmd.price)
+                    .depositSell(cmd.price)
+                    .status(SymbolStatus.ACTIVE)
+                    .build();
+            symbolSpecificationProvider.registerSymbol(cmd.symbol, spec);
+
+            cmd.resultCode = CommandResultCode.SUCCESS;
+
+        } else {
+            cmd.resultCode = CommandResultCode.SYMBOL_MGMT_SYMBOL_UNVALID_SUBCOMMAND;
         }
-
-        // TODO complete operation
-        SymbolSpecification spec = SymbolSpecification.builder()
-                .symbolId(cmd.symbol)
-                .depositBuy(cmd.price)
-                .depositSell(cmd.price)
-                .status(SymbolStatus.ACTIVE)
-                .build();
-        symbolSpecificationProvider.registerSymbol(cmd.symbol, spec);
-
-        cmd.resultCode = CommandResultCode.SUCCESS;
     }
 
 
