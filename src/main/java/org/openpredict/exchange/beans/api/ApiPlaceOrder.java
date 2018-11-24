@@ -8,14 +8,14 @@ import org.openpredict.exchange.beans.OrderType;
 @Builder
 public class ApiPlaceOrder extends ApiCommand {
 
-    public long price;
-    public long size;
-    public long id;
-    public OrderAction action;
-    public OrderType orderType;
+    public final long price;
+    public final long size;
+    public final long id;
+    public final OrderAction action;
+    public final OrderType orderType;
 
-    public long uid;
-    public int symbol;
+    public final long uid;
+    public final int symbol;
 
     // options
 

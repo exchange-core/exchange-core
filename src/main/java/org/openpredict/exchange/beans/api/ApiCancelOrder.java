@@ -6,10 +6,10 @@ import lombok.Builder;
 @Builder
 public class ApiCancelOrder extends ApiCommand {
 
-    public long id;
+    public final long id;
 
-    public long uid;
-    public int symbol;
+    public final long uid;
+    public final int symbol;
 
     @Override
     public String toString() {

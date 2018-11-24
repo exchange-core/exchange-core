@@ -15,7 +15,7 @@ public enum ExchangeErrorCode {
     CANCEL_FAILED_UNKNOWN_ORDER(5030);
 
     @Getter
-    private int code;
+    private final int code;
 
 
 }

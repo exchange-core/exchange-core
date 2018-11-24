@@ -8,7 +8,7 @@ public enum SymbolStatus {
     ACTIVE(1),
     EVICTING(2);
 
-    private byte code;
+    private final byte code;
 
     SymbolStatus(int code) {
         this.code = (byte) code;

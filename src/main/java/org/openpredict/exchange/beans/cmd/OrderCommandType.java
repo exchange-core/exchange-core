@@ -17,11 +17,11 @@ public enum OrderCommandType {
 
     CLEARING_OPERATION(30),
 
-    ADD_SYMBOL(50),
+    SYMBOL_COMMANDS(50),
 
     NOP(127);
 
-    private byte code;
+    private final byte code;
 
     OrderCommandType(int code) {
         this.code = (byte) code;
@@ -38,7 +38,7 @@ public enum OrderCommandType {
             return Arrays.stream(values())
                     .filter(c -> c.code == code)
                     .findFirst()
-                    .orElseThrow(() -> new IllegalArgumentException("No such command" + code));
+                    .orElseThrow(() -> new IllegalArgumentException("No such command: " + code));
         }
     }
 }

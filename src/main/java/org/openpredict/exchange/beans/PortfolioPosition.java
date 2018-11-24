@@ -10,7 +10,7 @@ public enum PortfolioPosition {
     SHORT(-1);
 
     @Getter
-    private int multiplier;
+    private final int multiplier;
 
     public static PortfolioPosition of(OrderAction action) {
         return action == OrderAction.BID ? LONG : SHORT;

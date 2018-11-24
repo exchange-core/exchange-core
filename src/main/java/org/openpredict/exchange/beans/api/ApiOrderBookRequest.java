@@ -6,9 +6,9 @@ import lombok.Builder;
 @Builder
 public class ApiOrderBookRequest extends ApiCommand {
 
-    public int symbol;
+    public final int symbol;
 
-    public int size;
+    public final int size;
 
     @Override
     public String toString() {

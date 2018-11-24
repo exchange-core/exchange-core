@@ -6,7 +6,7 @@ import lombok.Builder;
 @Builder
 public class ApiAddUser extends ApiCommand {
 
-    public long uid;
+    public final long uid;
 
     @Override
     public String toString() {

@@ -25,7 +25,7 @@ public enum CommandResultCode {
     DROP(-9999);
 
 
-    private int code;
+    private final int code;
 
     CommandResultCode(int code) {
         this.code = code;

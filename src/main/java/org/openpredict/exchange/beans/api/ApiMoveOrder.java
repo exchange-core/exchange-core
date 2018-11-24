@@ -6,13 +6,13 @@ import lombok.Builder;
 @Builder
 public class ApiMoveOrder extends ApiCommand {
 
-    public long id;
+    public final long id;
 
-    public long newPrice;
-    public long newSize;
+    public final long newPrice;
+    public final long newSize;
 
-    public long uid;
-    public int symbol;
+    public final long uid;
+    public final int symbol;
 
     @Override
     public String toString() {
