@@ -15,7 +15,7 @@ import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.tests.util.L2MarketDataHelper;
-import org.openpredict.exchange.tests.util.TestOrdersGenerator;
+import org.openpredict.benchmarking.TestOrdersGenerator;
 
 import java.util.Arrays;
 import java.util.HashMap;

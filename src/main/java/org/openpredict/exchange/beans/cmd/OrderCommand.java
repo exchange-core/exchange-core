@@ -9,11 +9,13 @@ import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.OrderType;
 
+import java.nio.LongBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
 import static org.openpredict.exchange.beans.cmd.OrderCommandType.*;
+import static org.openpredict.exchange.rdma.RdmaApiConstants.*;
 
 @Builder
 @NoArgsConstructor
@@ -36,6 +38,8 @@ public class OrderCommand {
     public long uid;
 
     public long timestamp;
+
+    public int userCookie;
 
     // ---- false sharing section ------
 
@@ -157,19 +161,86 @@ public class OrderCommand {
 
         List<MatcherTradeEvent> events = extractEvents();
 
-        System.out.println(">>> events: " + events);
         for (MatcherTradeEvent event : events) {
             MatcherTradeEvent copy = event.copy();
             copy.nextEvent = newCmd.matcherEvent;
             newCmd.matcherEvent = copy;
-
-
-            System.out.println(">>> newCmd.matcherEvent: " + newCmd.matcherEvent);
         }
 
-
-        System.out.println(">>> newCmd: " + newCmd);
         return newCmd;
     }
+
+    /**
+     * @return binary representation (64 bytes array) of the command
+     */
+    public long[] toBinary() {
+
+        long[] buffer = new long[8];
+        buffer[CMD_HEADER] = command.getCode() + (subCommandCode << 8) + ((long) symbol << 32);
+        buffer[CMD_TIMESTAMP] = timestamp;
+        buffer[CMD_UID] = uid;
+        buffer[CMD_ORDER_ID] = orderId;
+        buffer[CMD_PRICE] = price;
+        buffer[CMD_SIZE] = size;
+        if (command == PLACE_ORDER) {
+            buffer[CMD_PLACEORDER_FLAGS] = action.getCode() + (orderType.getCode() << 8) + ((long) userCookie << 32);
+        }
+
+        return buffer;
+    }
+
+    public void readFromLongBuffer(LongBuffer longRcvBuffer){
+        final long headerWord = longRcvBuffer.get(CMD_HEADER);
+        final OrderCommandType commandType = OrderCommandType.valueOf((byte) (headerWord & 0x7f));
+
+        this.symbol = (int) ((headerWord >> 32) & 0x7fff);
+        this.command = commandType;
+        this.resultCode = CommandResultCode.NEW;
+        this.timestamp = longRcvBuffer.get(CMD_TIMESTAMP);
+        this.uid = longRcvBuffer.get(CMD_UID);
+
+        if (commandType == OrderCommandType.PLACE_ORDER) {
+            this.orderId = longRcvBuffer.get(CMD_ORDER_ID);
+            this.price = longRcvBuffer.get(CMD_PRICE);
+            this.size = longRcvBuffer.get(CMD_SIZE);
+            long placeOrderFlags = longRcvBuffer.get(CMD_PLACEORDER_FLAGS);
+            this.action = OrderAction.valueOf((byte) ((placeOrderFlags >> 8) & 0x7f));
+            this.orderType = OrderType.valueOf((byte) ((placeOrderFlags) & 0x7f));
+            this.userCookie = (int) ((placeOrderFlags >> 32));
+
+        } else if (commandType == OrderCommandType.MOVE_ORDER) {
+            this.orderId = longRcvBuffer.get(CMD_ORDER_ID);
+            this.price = longRcvBuffer.get(CMD_PRICE);
+            this.size = longRcvBuffer.get(CMD_SIZE);
+
+        } else if (commandType == OrderCommandType.CANCEL_ORDER) {
+            this.orderId = longRcvBuffer.get(CMD_ORDER_ID);
+
+        } else if (commandType == OrderCommandType.ADD_USER) {
+            //
+
+        } else if (commandType == OrderCommandType.BALANCE_ADJUSTMENT) {
+            this.price = longRcvBuffer.get(CMD_PRICE);
+            this.resultCode = CommandResultCode.NEW;
+
+        } else if (commandType == OrderCommandType.SYMBOL_COMMANDS) {
+
+            byte subCommandCode = (byte) ((headerWord >> 8) & 0x7f);
+            this.subCommandCode = subCommandCode;
+            SymbolCommandSubType subCommand = SymbolCommandSubType.valueOf(subCommandCode);
+            if (subCommand == SymbolCommandSubType.ADD_SYMBOL) {
+                this.price = longRcvBuffer.get(CMD_PRICE);
+            } else {
+                // TODO Implement
+                throw new UnsupportedOperationException("Not supported sub-command: " + subCommand);
+            }
+            this.resultCode = CommandResultCode.NEW;
+
+        } else {
+            throw new UnsupportedOperationException("Not supported command: " + commandType);
+        }
+
+    }
+
 
 }

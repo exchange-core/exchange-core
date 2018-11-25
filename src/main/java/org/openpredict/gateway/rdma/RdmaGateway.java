@@ -6,6 +6,8 @@ import com.ibm.disni.verbs.RdmaCmId;
 import com.ibm.disni.verbs.SVCPostRecv;
 import com.ibm.disni.verbs.SVCPostSend;
 import lombok.extern.slf4j.Slf4j;
+import org.openpredict.exchange.beans.OrderAction;
+import org.openpredict.exchange.beans.OrderType;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -56,9 +58,9 @@ public class RdmaGateway implements RdmaEndpointFactory<ExchangeRdmaClientEndpoi
         int orderId = 8162;
         int price = 40000;
         int size = 5;
-        int askBid = 0;
-        int limitMarket = 0;
-        apiClient.sendData(new long[]{((long) symbol << 32) + 1, System.nanoTime(), uid, orderId, price, size, limitMarket * 2 + askBid});
+        byte askBid = OrderAction.ASK.getCode();
+        byte limitMarket = OrderType.MARKET.getCode();
+        apiClient.sendData(new long[]{((long) symbol << 32) + 1, System.nanoTime(), uid, orderId, price, size, (limitMarket << 8) + askBid});
 
         endpoint.close();
         endpointGroup.close();

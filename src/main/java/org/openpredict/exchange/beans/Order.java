@@ -22,9 +22,9 @@ public class Order extends OrderCommand {
 
     @Builder(builderMethodName = "orderBuilder", builderClassName = "OrderBuilder")
     public Order(OrderCommandType command, byte subCommandCode, long orderId, int symbol, long price, long size, OrderAction action, OrderType orderType,
-                 long uid, long timestamp, long filled) {
+                 long uid, long timestamp, int userCookie, long filled) {
         //super(command, orderId, symbol, price, size, action, orderType, uid, timestamp, 0, null, null);
-        super(command, subCommandCode, orderId, symbol, price, size, action, orderType, uid, timestamp, 0, null, null);
+        super(command, subCommandCode, orderId, symbol, price, size, action, orderType, uid, timestamp, userCookie, 0, null, null);
         this.filled = filled;
     }
 

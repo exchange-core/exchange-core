@@ -1,4 +1,4 @@
-package org.openpredict.exchange.tests.util;
+package org.openpredict.benchmarking;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;

@@ -9,12 +9,7 @@ import com.ibm.disni.verbs.SVCPostRecv;
 import com.ibm.disni.verbs.SVCPostSend;
 import com.lmax.disruptor.RingBuffer;
 import lombok.extern.slf4j.Slf4j;
-import org.openpredict.exchange.beans.OrderAction;
-import org.openpredict.exchange.beans.OrderType;
-import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
-import org.openpredict.exchange.beans.cmd.OrderCommandType;
-import org.openpredict.exchange.beans.cmd.SymbolCommandSubType;
 import org.openpredict.exchange.core.ExchangeCore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -26,8 +21,6 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.LongBuffer;
 import java.util.concurrent.CompletableFuture;
-
-import static org.openpredict.exchange.rdma.RdmaApiConstants.*;
 
 @Service
 @Slf4j
@@ -108,55 +101,8 @@ public class RdmaServer implements RdmaEndpointFactory<Endpoint> {
     }
 
     private void putCommandIntoRingBuffer(LongBuffer longRcvBuffer, OrderCommand cmd) {
-        final long headerWord = longRcvBuffer.get(CMD_HEADER);
-        final OrderCommandType commandType = OrderCommandType.valueOf((byte) (headerWord & 0x7f));
-
-        cmd.symbol = (int) ((headerWord >> 32) & 0x7fff);
-        cmd.command = commandType;
-        cmd.resultCode = CommandResultCode.NEW;
-        cmd.timestamp = longRcvBuffer.get(CMD_TIMESTAMP);
-        cmd.uid = longRcvBuffer.get(CMD_UID);
-
-        log.debug("Received command: {}", commandType);
-
-        if (commandType == OrderCommandType.PLACE_ORDER) {
-            cmd.orderId = longRcvBuffer.get(CMD_ORDER_ID);
-            cmd.price = longRcvBuffer.get(CMD_PRICE);
-            cmd.size = longRcvBuffer.get(CMD_SIZE);
-            long placeOrderFlags = longRcvBuffer.get(CMD_PLACEORDER_FLAGS);
-            cmd.action = OrderAction.valueOf(placeOrderFlags & CMD_PLACEORDER_FLAGS_ACTION_MASK);
-            cmd.orderType = OrderType.valueOf(placeOrderFlags & CMD_PLACEORDER_FLAGS_TYPE_MASK);
-
-        } else if (commandType == OrderCommandType.MOVE_ORDER) {
-            cmd.orderId = longRcvBuffer.get(CMD_ORDER_ID);
-            cmd.price = longRcvBuffer.get(CMD_PRICE);
-            cmd.size = longRcvBuffer.get(CMD_SIZE);
-
-        } else if (commandType == OrderCommandType.CANCEL_ORDER) {
-            cmd.orderId = longRcvBuffer.get(CMD_ORDER_ID);
-
-        } else if (commandType == OrderCommandType.ADD_USER) {
-            //
-
-        } else if (commandType == OrderCommandType.BALANCE_ADJUSTMENT) {
-            cmd.price = longRcvBuffer.get(CMD_PRICE);
-            cmd.resultCode = CommandResultCode.NEW;
-
-        } else if (commandType == OrderCommandType.SYMBOL_COMMANDS) {
-
-            byte subCommandCode = (byte) ((headerWord >> 8) & 0x7f);
-            cmd.subCommandCode = subCommandCode;
-            SymbolCommandSubType subCommand = SymbolCommandSubType.valueOf(subCommandCode);
-            if (subCommand == SymbolCommandSubType.ADD_SYMBOL) {
-                cmd.price = longRcvBuffer.get(CMD_PRICE);
-            } else {
-                // TODO Implement
-                throw new UnsupportedOperationException("Not supported sub-command: " + subCommand);
-            }
-            cmd.resultCode = CommandResultCode.NEW;
-
-        } else {
-            throw new UnsupportedOperationException("Not supported command: " + commandType);
-        }
+        cmd.readFromLongBuffer(longRcvBuffer);
+        log.debug("Received command: {}", cmd.orderType);
     }
 }
+

@@ -14,7 +14,7 @@ import org.openpredict.exchange.beans.api.ApiAdjustUserBalance;
 import org.openpredict.exchange.beans.api.ApiCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.core.*;
-import org.openpredict.exchange.tests.util.TestOrdersGenerator;
+import org.openpredict.benchmarking.TestOrdersGenerator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;

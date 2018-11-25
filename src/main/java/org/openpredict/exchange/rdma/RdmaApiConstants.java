@@ -10,9 +10,6 @@ public class RdmaApiConstants {
     public static final int CMD_PRICE = 4;
     public static final int CMD_SIZE = 5;
     public static final int CMD_PLACEORDER_FLAGS = 6;
-
-    public static final int CMD_PLACEORDER_FLAGS_ACTION_MASK = 1;
-    public static final int CMD_PLACEORDER_FLAGS_TYPE_MASK = 2;
-
+    // word 6: for Place Order : [4 bytes cookie] [][][type byte][action byte]
 
 }

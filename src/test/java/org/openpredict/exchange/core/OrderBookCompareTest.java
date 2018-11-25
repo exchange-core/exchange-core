@@ -6,7 +6,7 @@ import org.junit.runner.RunWith;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
-import org.openpredict.exchange.tests.util.TestOrdersGenerator;
+import org.openpredict.benchmarking.TestOrdersGenerator;
 
 import java.util.ArrayList;
 

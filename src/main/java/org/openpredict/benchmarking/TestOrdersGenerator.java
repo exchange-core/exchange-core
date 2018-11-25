@@ -1,4 +1,4 @@
-package org.openpredict.exchange.tests.util;
+package org.openpredict.benchmarking;
 
 import lombok.Builder;
 import lombok.Getter;
@@ -18,9 +18,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import java.util.stream.Collectors;
-
-import static org.hamcrest.Matchers.greaterThan;
-import static org.junit.Assert.assertThat;
 
 @Slf4j
 public class TestOrdersGenerator {
@@ -116,16 +113,21 @@ public class TestOrdersGenerator {
         float avgOrderBookSizeBid = (float) session.orderBookSizeBidStat.stream().mapToInt(x -> x).average().orElse(0);
         float avgOrdersNumInOrderBook = (float) session.orderBookNumOrdersStat.stream().mapToInt(x -> x).average().orElse(0);
 
-        assertThat(succPerc, greaterThan(85.0f));
-        if (transactionsNumber > CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND) {
-            assertThat(avgOrderBookSizeAsk, greaterThan(10.0f));
-            assertThat(avgOrderBookSizeBid, greaterThan(10.0f));
-            assertThat(avgOrdersNumInOrderBook, greaterThan(50.0f));
-        }
-
         log.debug("Average order book size: ASK={} BID={} ({} samples)", avgOrderBookSizeAsk, avgOrderBookSizeBid, session.orderBookSizeBidStat.size());
         log.debug("Average limit orders number in the order book:{} (target:{})", avgOrdersNumInOrderBook, targetOrderBookOrders);
         log.debug("Commands success={}%", succPerc);
+
+        if (succPerc < 85.0f) {
+            throw new IllegalStateException("Success commands threshold check failed");
+        }
+        if (transactionsNumber > CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND) {
+            if (avgOrderBookSizeAsk < 10.0f || avgOrderBookSizeBid < 10.0f) {
+                throw new IllegalStateException("Average order book slots size threshold check failed");
+            }
+            if (avgOrdersNumInOrderBook < 50.0f) {
+                throw new IllegalStateException("Average order book residing orders threshold check failed");
+            }
+        }
 
         return GenResult.builder().commands(commands).finalOrderbookHash(orderBook.hashCode()).build();
     }
@@ -278,7 +280,6 @@ public class TestOrdersGenerator {
             return OrderCommand.update(orderId, (int) (long) uid, newPrice, 0);
         }
     }
-
 
     public List<ApiCommand> convertToApiCommand(List<OrderCommand> commands) {
         return commands.stream()

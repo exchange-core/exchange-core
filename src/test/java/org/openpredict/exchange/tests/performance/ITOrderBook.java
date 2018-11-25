@@ -13,7 +13,7 @@ import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.core.IOrderBook;
-import org.openpredict.exchange.tests.util.TestOrdersGenerator;
+import org.openpredict.benchmarking.TestOrdersGenerator;
 
 import java.time.Instant;
 import java.util.ArrayList;
