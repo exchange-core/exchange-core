@@ -41,16 +41,24 @@ public class RdmaGateway implements RdmaEndpointFactory<ExchangeRdmaClientEndpoi
         ExchangeApiClient apiClient = new ExchangeApiClient(endpoint);
 
         log.info("creating symbol...");
-        apiClient.sendData(new long[]{50, System.nanoTime(), -1, -1, 1500, -1, 5512});
+        final int symbol = 5512;
+        apiClient.sendData(new long[]{((long) symbol << 32) + ((long) 1 << 8) + 50, System.nanoTime(), -1, -1, 1500});
+
+        final int uid = 10001;
 
         log.info("creating user...");
-        apiClient.sendData(new long[]{10, System.nanoTime(), 10001});
+        apiClient.sendData(new long[]{10, System.nanoTime(), uid});
 
         log.info("set balance...");
-        apiClient.sendData(new long[]{11, System.nanoTime(), 10001, -1, 200000});
+        apiClient.sendData(new long[]{11, System.nanoTime(), uid, -1, 2_000_000});
 
         log.info("send order...");
-        apiClient.sendData(new long[]{1, System.nanoTime(), 10001, 5512, 3000, 10});
+        int orderId = 8162;
+        int price = 40000;
+        int size = 5;
+        int askBid = 0;
+        int limitMarket = 0;
+        apiClient.sendData(new long[]{((long) symbol << 32) + 1, System.nanoTime(), uid, orderId, price, size, limitMarket * 2 + askBid});
 
         endpoint.close();
         endpointGroup.close();
