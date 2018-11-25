@@ -98,7 +98,7 @@ public class OrderBookFast extends OrderBookBase {
     @Override
     protected void placeNewLimitOrder(OrderCommand cmd) {
 
-        log.debug("Placing oder id {}", cmd.orderId);
+        //log.debug("Placing order id {}", cmd.orderId);
 
         long orderId = cmd.orderId;
         if (idMapToBucket.containsKey(orderId)) {
