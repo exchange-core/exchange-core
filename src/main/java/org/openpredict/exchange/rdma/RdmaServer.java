@@ -111,7 +111,7 @@ public class RdmaServer implements RdmaEndpointFactory<Endpoint> {
         final long headerWord = longRcvBuffer.get(CMD_HEADER);
         final OrderCommandType commandType = OrderCommandType.valueOf((byte) (headerWord & 0x7f));
 
-        cmd.symbol = (int) ((headerWord >> 16) & 0x7fff);
+        cmd.symbol = (int) ((headerWord >> 32) & 0x7fff);
         cmd.command = commandType;
         cmd.resultCode = CommandResultCode.NEW;
         cmd.timestamp = longRcvBuffer.get(CMD_TIMESTAMP);
