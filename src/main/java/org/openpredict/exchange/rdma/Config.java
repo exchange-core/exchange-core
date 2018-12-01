@@ -15,7 +15,9 @@ public class Config {
 
     @Bean
     public Consumer<OrderCommand> resultsConsumer() {
-        return c -> log.debug("result: {}", c);
+        return c -> {
+            //  log.debug("result: {}", c);
+        };
     }
 
     @Bean

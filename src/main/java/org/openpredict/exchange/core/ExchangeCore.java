@@ -171,6 +171,11 @@ public class ExchangeCore {
         return cmdRingBuffer;
     }
 
+    public IOrderBook getOrderBook(int symbol){
+        return matchingEngineRouter.getOrderBook(symbol);
+    }
+
+
     @PreDestroy
     public void stop() {
         disruptor.shutdown();

@@ -8,6 +8,7 @@ import com.lmax.disruptor.RingBuffer;
 import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.core.ExchangeCore;
+import org.openpredict.exchange.core.IOrderBook;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -69,15 +70,14 @@ public class RdmaServer implements RdmaEndpointFactory<Endpoint> {
 
     private void workCompetion(IbvWC wc) {
         try {
-            log.debug("WorkCompletion: id:{} bytes:{} wq-idx:{} status:{} opcode:{}",
-                    wc.getWr_id(), wc.getByte_len(), wc.getWqIndex(), wc.getStatus(), wc.getOpcode());
+            // log.debug("WorkCompletion: id:{} bytes:{} wq-idx:{} status:{} opcode:{}", wc.getWr_id(), wc.getByte_len(), wc.getWqIndex(), wc.getStatus(), wc.getOpcode());
 
             if (waitReceive) {
 
                 recvBuf.clear();
 
                 LongBuffer longRcvBuffer = recvBuf.asLongBuffer();
-                log.debug("longRcvBuffer:::: {}", longRcvBuffer);
+                //log.debug("longRcvBuffer:::: {}", longRcvBuffer);
 
                 ringBuffer.publishEvent((OrderCommand cmd, long seq) -> putCommandIntoRingBuffer(longRcvBuffer, cmd));
 
@@ -125,53 +125,30 @@ public class RdmaServer implements RdmaEndpointFactory<Endpoint> {
 
             postRecv.execute();
 
-//            do {
-//                log.debug("-------- {} --------------", c);
-//
-//                postRecv.execute();
-//
-//                log.debug("After postRecv.execute()");
-//                IbvWC wc = clientEndpoint.getWcEvents().take();
-//                log.debug("WorkCompletion: id:{} bytes:{} wq-idx:{} status:{} opcode:{}",
-//                        wc.getWr_id(), wc.getByte_len(), wc.getWqIndex(), wc.getStatus(), wc.getOpcode());
-//
-//                recvBuf.clear();
-//
-//                log.debug("longRcvBuffer:::: {}", longRcvBuffer);
-//
-//                ringBuffer.publishEvent((OrderCommand cmd, long seq) -> putCommandIntoRingBuffer(longRcvBuffer, cmd));
-//
-//                LongBuffer longSendBuffer = sendBuf.asLongBuffer();
-//                longSendBuffer.put(longRcvBuffer.get(0));
-//                longSendBuffer.put(longRcvBuffer.get(1));
-//
-//                postSend.execute();
-//                clientEndpoint.getWcEvents().take();
-//                sendBuf.clear();
-//
-//                //Thread.sleep(1000);
-//
-//            } while (c++ < 3_000_000);
-
-
             while (active) {
                 Thread.sleep(1000);
             }
 
-            log.info("Close");
+            IOrderBook orderBook = exchangeCore.getOrderBook(5512);
+            log.info("HASH: {}", orderBook.hashCode());
 
+            log.info("closing clientEndpoint");
             clientEndpoint.close();
+            log.info("closing ep");
             ep.close();
+            log.info("closing eg");
             epg.close();
+            log.info("closed");
+
         } catch (Exception e) {
             log.error("Cannot start RDMA server", e);
         }
     }
 
     private void putCommandIntoRingBuffer(LongBuffer longRcvBuffer, OrderCommand cmd) {
-        log.debug("Write data: {}", longRcvBuffer);
+//        log.debug("Write data: {}", longRcvBuffer);
         cmd.readFromLongBuffer(longRcvBuffer);
-        log.debug("Received command: {}", cmd.command);
+//        log.debug("Received command: {}", cmd.command);
     }
 }
 

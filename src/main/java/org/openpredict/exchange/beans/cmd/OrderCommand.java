@@ -193,13 +193,13 @@ public class OrderCommand {
 
     public void readFromLongBuffer(LongBuffer longRcvBuffer) {
 
-        log.debug(">>> {}", longRcvBuffer);
+//        log.debug(">>> {}", longRcvBuffer);
 
         final long headerWord = longRcvBuffer.get(CMD_HEADER);
         byte cmdCode = (byte) (headerWord & 0x7f);
-        log.debug("cmdCode={}", cmdCode);
+//        log.debug("cmdCode={}", cmdCode);
         final OrderCommandType commandType = OrderCommandType.valueOf(cmdCode);
-        log.debug("commandType={}", commandType);
+//        log.debug("commandType={}", commandType);
 
         this.command = commandType;
         this.symbol = (int) ((headerWord >> 32) & 0x7fff);
@@ -207,7 +207,7 @@ public class OrderCommand {
         this.timestamp = longRcvBuffer.get(CMD_TIMESTAMP);
         this.uid = longRcvBuffer.get(CMD_UID);
 
-        log.debug("symbol={} timestamp={} uid={}", symbol, timestamp, uid);
+//        log.debug("symbol={} timestamp={} uid={}", symbol, timestamp, uid);
 
 
         if (commandType == OrderCommandType.PLACE_ORDER) {
@@ -238,7 +238,7 @@ public class OrderCommand {
             byte subCommandCode = (byte) ((headerWord >> 8) & 0x7f);
             this.subCommandCode = subCommandCode;
 
-            log.debug("subCommandCode={}", subCommandCode);
+//            log.debug("subCommandCode={}", subCommandCode);
 
             SymbolCommandSubType subCommand = SymbolCommandSubType.valueOf(subCommandCode);
             if (subCommand == SymbolCommandSubType.ADD_SYMBOL) {
@@ -252,7 +252,7 @@ public class OrderCommand {
             throw new UnsupportedOperationException("Not supported command: " + commandType);
         }
 
-        log.debug("this.command={}", this.command);
+        //log.debug("this.command={}", this.command);
 
     }
 
