@@ -3,12 +3,14 @@ package org.openpredict.exchange.rdma;
 import com.ibm.disni.RdmaActiveEndpoint;
 import com.ibm.disni.RdmaActiveEndpointGroup;
 import com.ibm.disni.verbs.*;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.LinkedList;
-import java.util.concurrent.ArrayBlockingQueue;
+import java.util.function.Consumer;
 
+@Slf4j
 public class Endpoint extends RdmaActiveEndpoint {
 
     private ByteBuffer dataBuffer;
@@ -25,10 +27,13 @@ public class Endpoint extends RdmaActiveEndpoint {
     private LinkedList<IbvSge> sgeListRecv;
     private IbvRecvWR recvWR;
 
-    private ArrayBlockingQueue<IbvWC> wcEvents;
+    private final Consumer<IbvWC> workCompletionConsumer;
+    private final Consumer<RdmaCmEvent> connectionEventsConsumer;
+
+    //private ArrayBlockingQueue<IbvWC> wcEvents;
 
     public Endpoint(RdmaActiveEndpointGroup<Endpoint> endpointGroup,
-                    RdmaCmId idPriv, boolean serverSide, int buffersize) throws IOException {
+                    RdmaCmId idPriv, boolean serverSide, int buffersize, Consumer<IbvWC> workCompletionConsumer, Consumer<RdmaCmEvent> connectionEventsConsumer) throws IOException {
 
         super(endpointGroup, idPriv, serverSide);
 
@@ -48,10 +53,12 @@ public class Endpoint extends RdmaActiveEndpoint {
         this.sgeListRecv = new LinkedList<>();
         this.recvWR = new IbvRecvWR();
 
-        this.wcEvents = new ArrayBlockingQueue<>(10);
+        this.workCompletionConsumer = workCompletionConsumer;
+        this.connectionEventsConsumer = connectionEventsConsumer;
+        //this.wcEvents = new ArrayBlockingQueue<>(10);
     }
 
-    public void init() throws IOException{
+    public void init() throws IOException {
         super.init();
 
         //IbvMr dataMr = registerMemory(dataBuffer).execute().free().getMr();
@@ -80,13 +87,20 @@ public class Endpoint extends RdmaActiveEndpoint {
         this.postRecv(wrListRecv).execute().free();
     }
 
-    public void dispatchCqEvent(IbvWC wc) {
-        wcEvents.add(wc);
+    public void dispatchCmEvent(RdmaCmEvent cmEvent) throws IOException {
+        connectionEventsConsumer.accept(cmEvent);
+        super.dispatchCmEvent(cmEvent);
     }
 
-    public ArrayBlockingQueue<IbvWC> getWcEvents() {
-        return wcEvents;
+
+    public void dispatchCqEvent(IbvWC wc) {
+//        wcEvents.add(wc);
+        workCompletionConsumer.accept(wc);
     }
+
+//    public ArrayBlockingQueue<IbvWC> getWcEvents() {
+//        return wcEvents;
+//    }
 
     public LinkedList<IbvSendWR> getWrListSend() {
         return wrListSend;

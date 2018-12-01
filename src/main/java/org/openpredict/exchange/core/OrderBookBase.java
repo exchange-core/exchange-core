@@ -24,11 +24,6 @@ public abstract class OrderBookBase implements IOrderBook {
     public void processCommand(OrderCommand cmd) {
         currentCmd = cmd;
         revokeMatcherEvents();
-
-        if (cmd.resultCode != CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
-            return;
-        }
-
         // TODO check symbol
 
         switch (cmd.command) {
@@ -117,7 +112,6 @@ public abstract class OrderBookBase implements IOrderBook {
     abstract protected boolean updateOrder(OrderCommand cmd);
 
     /**
-     *
      * @param size max size for each part (ask, bid)
      * @return
      */

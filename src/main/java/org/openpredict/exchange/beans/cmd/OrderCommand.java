@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
+import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.OrderType;
@@ -21,6 +22,7 @@ import static org.openpredict.exchange.rdma.RdmaApiConstants.*;
 @NoArgsConstructor
 @AllArgsConstructor
 @ToString
+@Slf4j
 public class OrderCommand {
 
     public OrderCommandType command;
@@ -189,15 +191,24 @@ public class OrderCommand {
         return buffer;
     }
 
-    public void readFromLongBuffer(LongBuffer longRcvBuffer){
-        final long headerWord = longRcvBuffer.get(CMD_HEADER);
-        final OrderCommandType commandType = OrderCommandType.valueOf((byte) (headerWord & 0x7f));
+    public void readFromLongBuffer(LongBuffer longRcvBuffer) {
 
-        this.symbol = (int) ((headerWord >> 32) & 0x7fff);
+        log.debug(">>> {}", longRcvBuffer);
+
+        final long headerWord = longRcvBuffer.get(CMD_HEADER);
+        byte cmdCode = (byte) (headerWord & 0x7f);
+        log.debug("cmdCode={}", cmdCode);
+        final OrderCommandType commandType = OrderCommandType.valueOf(cmdCode);
+        log.debug("commandType={}", commandType);
+
         this.command = commandType;
+        this.symbol = (int) ((headerWord >> 32) & 0x7fff);
         this.resultCode = CommandResultCode.NEW;
         this.timestamp = longRcvBuffer.get(CMD_TIMESTAMP);
         this.uid = longRcvBuffer.get(CMD_UID);
+
+        log.debug("symbol={} timestamp={} uid={}", symbol, timestamp, uid);
+
 
         if (commandType == OrderCommandType.PLACE_ORDER) {
             this.orderId = longRcvBuffer.get(CMD_ORDER_ID);
@@ -221,12 +232,14 @@ public class OrderCommand {
 
         } else if (commandType == OrderCommandType.BALANCE_ADJUSTMENT) {
             this.price = longRcvBuffer.get(CMD_PRICE);
-            this.resultCode = CommandResultCode.NEW;
 
         } else if (commandType == OrderCommandType.SYMBOL_COMMANDS) {
 
             byte subCommandCode = (byte) ((headerWord >> 8) & 0x7f);
             this.subCommandCode = subCommandCode;
+
+            log.debug("subCommandCode={}", subCommandCode);
+
             SymbolCommandSubType subCommand = SymbolCommandSubType.valueOf(subCommandCode);
             if (subCommand == SymbolCommandSubType.ADD_SYMBOL) {
                 this.price = longRcvBuffer.get(CMD_PRICE);
@@ -234,11 +247,12 @@ public class OrderCommand {
                 // TODO Implement
                 throw new UnsupportedOperationException("Not supported sub-command: " + subCommand);
             }
-            this.resultCode = CommandResultCode.NEW;
 
         } else {
             throw new UnsupportedOperationException("Not supported command: " + commandType);
         }
+
+        log.debug("this.command={}", this.command);
 
     }
 
