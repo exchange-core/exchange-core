@@ -1,14 +1,11 @@
 package org.openpredict.exchange.util;
 
-import org.eclipse.collections.impl.list.mutable.primitive.IntArrayList;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.TreeMap;
-
-import static com.google.common.math.Quantiles.scale;
 
 public class LatencyTools {
 

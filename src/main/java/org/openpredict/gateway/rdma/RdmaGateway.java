@@ -21,8 +21,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static org.openpredict.exchange.util.LatencyTools.LATENCY_RESOLUTION;
-
 @Slf4j
 public class RdmaGateway implements RdmaEndpointFactory<ExchangeRdmaClientEndpoint> {
     private RdmaActiveEndpointGroup<ExchangeRdmaClientEndpoint> endpointGroup;
@@ -34,6 +32,7 @@ public class RdmaGateway implements RdmaEndpointFactory<ExchangeRdmaClientEndpoi
 
     public static final int SYMBOL = 5512;
 
+    public static final int LATENCY_PRECISION_BITS = 8; // Latency precision ~0.4%
 
     public ExchangeRdmaClientEndpoint createEndpoint(RdmaCmId idPriv, boolean serverSide) throws IOException {
         return new ExchangeRdmaClientEndpoint(endpointGroup, idPriv, serverSide, bufferSize);
@@ -88,7 +87,8 @@ public class RdmaGateway implements RdmaEndpointFactory<ExchangeRdmaClientEndpoi
                 apiClient.sendData(new long[]{((long) SYMBOL << 32) + 2, t, cmd.uid, cmd.orderId});
             }
 
-            int key = (int) ((System.nanoTime() - t) >> LATENCY_RESOLUTION);
+            int key = (int) (System.nanoTime() - t);
+            key |= ((Integer.highestOneBit(key) - 1) >> LATENCY_PRECISION_BITS);
             latencies.updateValue(key, 0, x -> x + 1);
             //log.debug("{}", key);
 
