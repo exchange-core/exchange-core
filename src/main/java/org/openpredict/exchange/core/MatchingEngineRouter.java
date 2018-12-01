@@ -37,6 +37,10 @@ public class MatchingEngineRouter {
     private IntObjectHashMap<IOrderBook> orderBooks = new IntObjectHashMap<>();
 
     public void processOrder(OrderCommand cmd) {
+        if (cmd.resultCode != CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
+            return;
+        }
+
         IOrderBook orderBook = orderBooks.get(cmd.symbol);
         if (orderBook != null) {
             orderBook.processCommand(cmd);
@@ -51,7 +55,7 @@ public class MatchingEngineRouter {
         orderBooks.put(symbol, orderBook);
     }
 
-    public IOrderBook getOrderBook(int symbol){
+    public IOrderBook getOrderBook(int symbol) {
         return orderBooks.get(symbol);
     }
 
