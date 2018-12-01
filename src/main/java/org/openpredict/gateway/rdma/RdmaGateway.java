@@ -6,17 +6,22 @@ import com.ibm.disni.verbs.RdmaCmId;
 import com.ibm.disni.verbs.SVCPostRecv;
 import com.ibm.disni.verbs.SVCPostSend;
 import lombok.extern.slf4j.Slf4j;
+import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.openpredict.benchmarking.TestOrdersGenerator;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
+import org.openpredict.exchange.util.LatencyTools;
 
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+import static org.openpredict.exchange.util.LatencyTools.LATENCY_RESOLUTION;
 
 @Slf4j
 public class RdmaGateway implements RdmaEndpointFactory<ExchangeRdmaClientEndpoint> {
@@ -38,11 +43,11 @@ public class RdmaGateway implements RdmaEndpointFactory<ExchangeRdmaClientEndpoi
 
         log.info("starting...");
 
-        List<Long> uids = Stream.iterate(1L, i -> i + 1).limit(10).collect(Collectors.toList());
+        List<Long> uids = Stream.iterate(1L, i -> i + 1).limit(1000).collect(Collectors.toList());
 
         CompletableFuture<TestOrdersGenerator.GenResult> genFuture = CompletableFuture.supplyAsync(() -> {
             TestOrdersGenerator testOrdersGenerator = new TestOrdersGenerator();
-            return testOrdersGenerator.generateCommands(10000, 1000, uids, SYMBOL, false);
+            return testOrdersGenerator.generateCommands(300_000, 1000, uids, SYMBOL, false);
         });
 
         endpointGroup = new RdmaActiveEndpointGroup<>(1000, false, 128, 4, 128);
@@ -60,16 +65,18 @@ public class RdmaGateway implements RdmaEndpointFactory<ExchangeRdmaClientEndpoi
 
 
         uids.forEach(uid -> {
-            log.info("creating user {}", uid);
+//            log.info("creating user {}", uid);
             apiClient.sendData(new long[]{10, System.nanoTime(), uid});
 
-            log.info("set balance...");
+//            log.info("set balance...");
             apiClient.sendData(new long[]{11, System.nanoTime(), uid, -1, 2_000_000});
         });
 
+        IntLongHashMap latencies = new IntLongHashMap(20000);
 
-        genFuture.get().getCommands().forEach(cmd -> {
-            log.info("send order: {}", cmd);
+        TestOrdersGenerator.GenResult genResult = genFuture.get();
+        genResult.getCommands().forEach(cmd -> {
+            //log.info("send order: {}", cmd);
             final long t = System.nanoTime();
             if (cmd.command == OrderCommandType.PLACE_ORDER) {
                 byte askBid = cmd.action.getCode();
@@ -80,7 +87,17 @@ public class RdmaGateway implements RdmaEndpointFactory<ExchangeRdmaClientEndpoi
             } else if (cmd.command == OrderCommandType.CANCEL_ORDER) {
                 apiClient.sendData(new long[]{((long) SYMBOL << 32) + 2, t, cmd.uid, cmd.orderId});
             }
+
+            int key = (int) ((System.nanoTime() - t) >> LATENCY_RESOLUTION);
+            latencies.updateValue(key, 0, x -> x + 1);
+            //log.debug("{}", key);
+
         });
+
+        Map<String, String> latencyReport = LatencyTools.createLatencyReportFast(latencies);
+        log.info("{}", latencyReport);
+
+        log.debug("HASH: {}", genResult.getFinalOrderbookHash());
 
 //        log.info("send order...");
 //        int orderId = 8162;
