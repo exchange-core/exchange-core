@@ -6,23 +6,33 @@ import com.ibm.disni.verbs.RdmaCmId;
 import com.ibm.disni.verbs.SVCPostRecv;
 import com.ibm.disni.verbs.SVCPostSend;
 import lombok.extern.slf4j.Slf4j;
-import org.openpredict.exchange.beans.OrderAction;
-import org.openpredict.exchange.beans.OrderType;
+import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
+import org.openpredict.benchmarking.TestOrdersGenerator;
+import org.openpredict.exchange.beans.cmd.OrderCommandType;
+import org.openpredict.exchange.util.LatencyTools;
 
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Slf4j
 public class RdmaGateway implements RdmaEndpointFactory<ExchangeRdmaClientEndpoint> {
     private RdmaActiveEndpointGroup<ExchangeRdmaClientEndpoint> endpointGroup;
 
-    private int bufferSize = 64;
+    private final int bufferSize = 64;
 
     private String host = "192.168.7.2";
     private Integer port = 1919;
 
+    public static final int SYMBOL = 5512;
+
+    public static final int LATENCY_PRECISION_BITS = 8; // Latency precision ~0.4%
 
     public ExchangeRdmaClientEndpoint createEndpoint(RdmaCmId idPriv, boolean serverSide) throws IOException {
         return new ExchangeRdmaClientEndpoint(endpointGroup, idPriv, serverSide, bufferSize);
@@ -31,6 +41,13 @@ public class RdmaGateway implements RdmaEndpointFactory<ExchangeRdmaClientEndpoi
     public void runTest() throws Exception {
 
         log.info("starting...");
+
+        List<Long> uids = Stream.iterate(1L, i -> i + 1).limit(1000).collect(Collectors.toList());
+
+        CompletableFuture<TestOrdersGenerator.GenResult> genFuture = CompletableFuture.supplyAsync(() -> {
+            TestOrdersGenerator testOrdersGenerator = new TestOrdersGenerator();
+            return testOrdersGenerator.generateCommands(300_000, 1000, uids, SYMBOL, false);
+        });
 
         endpointGroup = new RdmaActiveEndpointGroup<>(1000, false, 128, 4, 128);
         endpointGroup.init(this);
@@ -43,24 +60,52 @@ public class RdmaGateway implements RdmaEndpointFactory<ExchangeRdmaClientEndpoi
         ExchangeApiClient apiClient = new ExchangeApiClient(endpoint);
 
         log.info("creating symbol...");
-        final int symbol = 5512;
-        apiClient.sendData(new long[]{((long) symbol << 32) + ((long) 1 << 8) + 50, System.nanoTime(), -1, -1, 1500});
+        apiClient.sendData(new long[]{((long) SYMBOL << 32) + ((long) 1 << 8) + 50, System.nanoTime(), -1, -1, 1500});
 
-        final int uid = 10001;
 
-        log.info("creating user...");
-        apiClient.sendData(new long[]{10, System.nanoTime(), uid});
+        uids.forEach(uid -> {
+//            log.info("creating user {}", uid);
+            apiClient.sendData(new long[]{10, System.nanoTime(), uid});
 
-        log.info("set balance...");
-        apiClient.sendData(new long[]{11, System.nanoTime(), uid, -1, 2_000_000});
+//            log.info("set balance...");
+            apiClient.sendData(new long[]{11, System.nanoTime(), uid, -1, 2_000_000});
+        });
 
-        log.info("send order...");
-        int orderId = 8162;
-        int price = 40000;
-        int size = 5;
-        byte askBid = OrderAction.ASK.getCode();
-        byte limitMarket = OrderType.MARKET.getCode();
-        apiClient.sendData(new long[]{((long) symbol << 32) + 1, System.nanoTime(), uid, orderId, price, size, (limitMarket << 8) + askBid});
+        IntLongHashMap latencies = new IntLongHashMap(20000);
+
+        TestOrdersGenerator.GenResult genResult = genFuture.get();
+        genResult.getCommands().forEach(cmd -> {
+            //log.info("send order: {}", cmd);
+            final long t = System.nanoTime();
+            if (cmd.command == OrderCommandType.PLACE_ORDER) {
+                byte askBid = cmd.action.getCode();
+                byte limitMarket = cmd.orderType.getCode();
+                apiClient.sendData(new long[]{((long) SYMBOL << 32) + 1, t, cmd.uid, cmd.orderId, cmd.price, cmd.size, (limitMarket << 8) + askBid});
+            } else if (cmd.command == OrderCommandType.MOVE_ORDER) {
+                apiClient.sendData(new long[]{((long) SYMBOL << 32) + 3, t, cmd.uid, cmd.orderId, cmd.price, cmd.size});
+            } else if (cmd.command == OrderCommandType.CANCEL_ORDER) {
+                apiClient.sendData(new long[]{((long) SYMBOL << 32) + 2, t, cmd.uid, cmd.orderId});
+            }
+
+            int key = (int) (System.nanoTime() - t);
+            key |= ((Integer.highestOneBit(key) - 1) >> LATENCY_PRECISION_BITS);
+            latencies.updateValue(key, 0, x -> x + 1);
+            //log.debug("{}", key);
+
+        });
+
+        Map<String, String> latencyReport = LatencyTools.createLatencyReportFast(latencies);
+        log.info("{}", latencyReport);
+
+        log.debug("HASH: {}", genResult.getFinalOrderbookHash());
+
+//        log.info("send order...");
+//        int orderId = 8162;
+//        int price = 40000;
+//        int size = 5;
+//        byte askBid = OrderAction.ASK.getCode();
+//        byte limitMarket = OrderType.MARKET.getCode();
+//        apiClient.sendData(new long[]{((long) SYMBOL << 32) + 1, System.nanoTime(), uid, orderId, price, size, (limitMarket << 8) + askBid});
 
         endpoint.close();
         endpointGroup.close();
@@ -85,18 +130,27 @@ public class RdmaGateway implements RdmaEndpointFactory<ExchangeRdmaClientEndpoi
         }
 
 
-        private void sendData(long[] data) throws IOException, InterruptedException {
-            // send...
-            sendBuffer.asLongBuffer().put(data);
+        private void sendData(long[] data) {
+            try {
+                // send...
+                sendBuffer.asLongBuffer().put(data);
 
-            sendBuffer.clear();
-            postSendStatefulVerbCall.execute();
-            endpoint.getWorkCompletionEvents().take();
+                sendBuffer.clear();
 
-            // receive...
-            postReceiveStatefulVerbCall.execute();
-            endpoint.getWorkCompletionEvents().take();
-            receiveBuffer.clear();
+                postSendStatefulVerbCall.execute();
+
+
+                endpoint.getWorkCompletionEvents().take();
+
+                // receive...
+                postReceiveStatefulVerbCall.execute();
+                endpoint.getWorkCompletionEvents().take();
+                receiveBuffer.clear();
+
+            } catch (IOException | InterruptedException ex) {
+                throw new IllegalStateException(ex);
+            }
+
         }
 
     }

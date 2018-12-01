@@ -37,7 +37,6 @@ import java.util.stream.Stream;
 
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
-import static org.openpredict.exchange.util.LatencyTools.LATENCY_RESOLUTION;
 import static org.openpredict.exchange.util.LatencyTools.createLatencyReportFast;
 
 @RunWith(SpringRunner.class)
@@ -77,6 +76,8 @@ public class ExchangeCorePerformance {
     private TestOrdersGenerator generator = new TestOrdersGenerator();
 
     private static final int SYMBOL = 5991;
+
+    public static final int LATENCY_PRECISION_BITS = 8; // Latency precision ~0.4%
 
     private long startTimeNs = 0;
     private long nextHiccupAcceptTimestampNs = 0;
@@ -180,10 +181,11 @@ public class ExchangeCorePerformance {
                     false);
             List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
 
-            IntLongHashMap latencies = new IntLongHashMap(20000);
+            IntLongHashMap latencies = new IntLongHashMap(8192);
 
             exchangeCore.setResultsConsumer(cmd -> {
-                int key = (int) ((System.nanoTime() - cmd.timestamp) >> LATENCY_RESOLUTION);
+                int key = (int) (System.nanoTime() - cmd.timestamp);
+                key |= ((Integer.highestOneBit(key) - 1) >> LATENCY_PRECISION_BITS);
                 latencies.updateValue(key, 0, x -> x + 1);
             });
 
@@ -380,7 +382,8 @@ public class ExchangeCorePerformance {
         IntLongHashMap latencies = new IntLongHashMap(20000);
 
         exchangeCore.setResultsConsumer(cmd -> {
-            int key = (int) ((System.nanoTime() - cmd.timestamp) >> LATENCY_RESOLUTION);
+            int key = (int) (System.nanoTime() - cmd.timestamp);
+            key |= ((Integer.highestOneBit(key) - 1) >> LATENCY_PRECISION_BITS);
             latencies.updateValue(key, 0, x -> x + 1);
         });
 
