@@ -12,9 +12,6 @@ import static com.google.common.math.Quantiles.scale;
 
 public class LatencyTools {
 
-    public static final int LATENCY_RESOLUTION = 5; // Latency resolution: 32ns
-    public static final float LATENCY_RESOLUTION_MULTIPLIER_US = (float) Math.pow(2, LATENCY_RESOLUTION) / 1000f;
-
     public static final double[] PERCENTILES = new double[]{50, 90, 95, 99, 99.9, 99.99};
 
     public static Map<String, String> createLatencyReportFast(IntLongHashMap latencies) {
@@ -45,7 +42,7 @@ public class LatencyTools {
     }
 
     private static String formatLatencyValueAsTime(int v) {
-        float value = v * LATENCY_RESOLUTION_MULTIPLIER_US;
+        float value = v / 1000f;
         String timeUnit = "µs";
         if (value > 1000) {
             value /= 1000;
@@ -53,30 +50,11 @@ public class LatencyTools {
         }
 
         if (value < 3) {
-            value = Math.round(value * 100) / 100f;
+            return Math.round(value * 100) / 100f + timeUnit;
         } else if (value < 30) {
-            value = Math.round(value * 10) / 10f;
+            return Math.round(value * 10) / 10f + timeUnit;
         } else {
-            value = Math.round(value);
+            return Math.round(value) + timeUnit;
         }
-
-        return value + timeUnit;
     }
-
-
-    private Map<String, Float> createLatencyReportGuava(IntArrayList latency, double warmupPercent) {
-        final int warmupOrders = (int) (latency.size() * warmupPercent / 100.0);
-        int[] dataset = latency.toArray();
-        int newsize = latency.size() - warmupOrders;
-        int[] dataset2 = new int[newsize];
-        System.arraycopy(dataset, warmupOrders, dataset2, 0, newsize);
-        Map<Integer, Double> latencyPercentiles = scale(10000).indexes(50_00, 90_00, 99_90, 99_99).compute(dataset2);
-        Map<String, Float> fmt = new LinkedHashMap<>();
-        latencyPercentiles.keySet().stream()
-                .sorted()
-                .forEach(k -> fmt.put(((float) k / 100) + "%", (float) (latencyPercentiles.get(k) / 2.0)));
-        return fmt;
-    }
-
-
 }
