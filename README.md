@@ -17,7 +17,9 @@ Capable to process 5M order book operations per second on 7-years old hardware (
 |  4M|1.0µs|6.0µs|9µs  |25µs |45µs |55µs  |70µs |
 |  5M|1.5µs|9.5µs|16µs |42µs |150µs|170µs |190µs|
 |  6M|5µs  |30µs |45µs |300µs|500µs|520µs |540µs|
-|6.5M|10µs |70µs |170µs|700µs|760µs|800µs |850µs|
+|  7M|60µs |1.3ms|1.5ms|1.8ms|1.9ms|1.9ms |1.9ms|
+
+![Latencies HDR Histogram](hdr-histogram.png)
 
 Benchmark configuration:
 - Single order book.
@@ -56,5 +58,5 @@ Benchmark configuration:
 - Throughput test: mvn -Dtest=ExchangeCorePerformance#throughputTest test
 - Hiccups test: mvn -Dtest=ExchangeCorePerformance#hiccupsTest test
 
-[license]:LICENCE.txt
+[license]:LICENSE.txt
 [license img]:https://img.shields.io/badge/License-Apache%202-blue.svg
