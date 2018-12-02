@@ -2,6 +2,8 @@ package org.openpredict.exchange.tests;
 
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
+import org.HdrHistogram.Histogram;
+import org.HdrHistogram.SingleWriterRecorder;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongLongHashMap;
 import org.junit.Before;
@@ -21,12 +23,16 @@ import org.springframework.context.annotation.ComponentScan;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.junit4.SpringRunner;
 
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.PrintStream;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.IntConsumer;
 import java.util.function.IntFunction;
@@ -77,6 +83,8 @@ public class ExchangeCorePerformance {
     private static final int SYMBOL = 5991;
 
     public static final int LATENCY_PRECISION_BITS = 8; // Latency precision ~0.4%
+
+    public static final boolean WRITE_HDR_HISTOGRAMS = false;
 
     private long startTimeNs = 0;
     private long nextHiccupAcceptTimestampNs = 0;
@@ -153,7 +161,7 @@ public class ExchangeCorePerformance {
 
 
     @Test
-    public void latencyTest() {
+    public void latencyTest() throws FileNotFoundException {
 
         final int numOrders = 3_000_000;
         final int targetOrderBookOrders = 1000;
@@ -180,12 +188,12 @@ public class ExchangeCorePerformance {
                     false);
             List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
 
-            IntLongHashMap latencies = new IntLongHashMap(8192);
+            AtomicLong receiveCounter = new AtomicLong();
+            SingleWriterRecorder hdrRecorder = new SingleWriterRecorder(1_000_000_000, 3);
 
             exchangeCore.setResultsConsumer(cmd -> {
-                int key = (int) (System.nanoTime() - cmd.timestamp);
-                key |= ((Integer.highestOneBit(key) - 1) >> LATENCY_PRECISION_BITS);
-                latencies.updateValue(key, 0, x -> x + 1);
+                hdrRecorder.recordValue((System.nanoTime() - cmd.timestamp));
+                receiveCounter.lazySet(cmd.timestamp);
             });
 
             // TODO - first run should validate the output (orders are accepted and processed properly)
@@ -199,7 +207,7 @@ public class ExchangeCorePerformance {
                     System.gc();
                     Thread.sleep(200);
 
-                    latencies.clear();
+                    hdrRecorder.reset();
 
                     final int nanosPerCmd = (1_000_000_000 / tps);
                     final long startTimeMs = System.currentTimeMillis();
@@ -216,30 +224,39 @@ public class ExchangeCorePerformance {
                     }
 
                     // wait until last response received
-                    final long expectedSum = apiCommands.size();
-                    while (latencies.sum() != expectedSum) {
-                        //log.debug("commands not processed yet: {}", expectedSum - sum);
+                    long lastTimestamp = apiCommands.get(apiCommands.size() - 1).timestamp;
+
+                    while (receiveCounter.get() != lastTimestamp) {
+//                        log.debug("commands are getting late by {}ns", lastTimestamp - receiveCounter.get());
                     }
                     final long processingTimeMs = System.currentTimeMillis() - startTimeMs;
 
                     float perfMt = (float) apiCommands.size() / (float) processingTimeMs / 1000.0f;
-                    log.info("{} MT/s {}", perfMt, createLatencyReportFast(latencies));
+                    String tag = String.format("%03f MT/s", perfMt);
+                    Histogram histogram = hdrRecorder.getIntervalHistogram();
+                    log.info("{} {}", tag, createLatencyReportFast(histogram));
 
                     // weak compare orderBook final state just to make sure all commands executed same way
                     // TODO compare events
                     assertThat(matchingEngineRouter.getOrderBook().hashCode(), is(genResult.getFinalOrderbookHash()));
 
-                } catch (InterruptedException e) {
+                    if (WRITE_HDR_HISTOGRAMS) {
+                        PrintStream printStream = new PrintStream(new File(System.currentTimeMillis() + "-" + perfMt + ".perc"));
+                        //log.info("HDR 50%:{}", hdr.getValueAtPercentile(50));
+                        histogram.outputPercentileDistribution(printStream, 1000.0);
+                    }
+
+                } catch (InterruptedException | FileNotFoundException e) {
                     //
                 }
 
             };
 
 
-            log.debug("warming up...");
+            log.debug("Warming up 20 cycles...");
             IntStream.range(0, 20)
                     .forEach(i -> testIteration.accept(1_000_000));
-            log.debug("warmup done");
+            log.debug("Warmup done, starting tests");
 
             IntStream.range(0, 10000)
                     .map(i -> targetTps + 25000 * i)

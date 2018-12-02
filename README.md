@@ -56,5 +56,5 @@ Benchmark configuration:
 - Throughput test: mvn -Dtest=ExchangeCorePerformance#throughputTest test
 - Hiccups test: mvn -Dtest=ExchangeCorePerformance#hiccupsTest test
 
-[license]:LICENCE.txt
+[license]:LICENSE.txt
 [license img]:https://img.shields.io/badge/License-Apache%202-blue.svg
