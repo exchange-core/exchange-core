@@ -19,6 +19,8 @@ Capable to process 5M order book operations per second on 7-years old hardware (
 |  6M|5µs  |30µs |45µs |300µs|500µs|520µs |540µs|
 |6.5M|10µs |70µs |170µs|700µs|760µs|800µs |850µs|
 
+![Latencies HDR Histogram](hdr-histogram.png)
+
 Benchmark configuration:
 - Single order book.
 - 3,000,000 inbound messages are distributed as follows: 9% limit + 3% market new orders, 6% cancel operations, 82% move operations. About 6% commands are causing trades.
