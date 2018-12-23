@@ -10,11 +10,8 @@ import org.openpredict.exchange.beans.OrderType;
 @Getter
 public class RestApiPlaceOrder {
 
-    // TODO map from BigDecimal
-    private final long price;
-
-    // TODO map from BigDecimal
-    private final long size;
+    private final String price;
+    private final String size;
 
     private final long cookieId;
     private final OrderAction action;
@@ -27,8 +24,8 @@ public class RestApiPlaceOrder {
 
     @JsonCreator
     public RestApiPlaceOrder(
-            @JsonProperty("price") long price,
-            @JsonProperty("size") long size,
+            @JsonProperty("price") String price,
+            @JsonProperty("size") String size,
             @JsonProperty("cookieId") long cookieId,
             @JsonProperty("action") OrderAction action,
             @JsonProperty("orderType") OrderType orderType,

@@ -3,7 +3,7 @@ package org.openpredict.exchange.core;
 import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.SymbolPortfolio;
-import org.openpredict.exchange.beans.SymbolSpecification;
+import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.UserProfile;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,7 +39,7 @@ public class RiskEngine {
             currentRiskSellSize = portfolio.pendingSellSize - signedPosition;
         }
 
-        SymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(cmd.symbol);
+        CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(cmd.symbol);
 
         long depositBuy = spec.depositBuy * currentRiskBuySize;
         long depositSell = spec.depositSell * currentRiskSellSize;

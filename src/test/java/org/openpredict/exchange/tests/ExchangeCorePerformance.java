@@ -9,7 +9,7 @@ import org.eclipse.collections.impl.map.mutable.primitive.LongLongHashMap;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.openpredict.exchange.beans.SymbolSpecification;
+import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.api.ApiAddUser;
 import org.openpredict.exchange.beans.api.ApiAdjustUserBalance;
 import org.openpredict.exchange.beans.api.ApiCommand;
@@ -91,7 +91,7 @@ public class ExchangeCorePerformance {
 
     @Before
     public void before() {
-        SymbolSpecification spec = SymbolSpecification.builder().depositBuy(22000).depositSell(32100).symbolId(SYMBOL).symbolName("XBTC").build();
+        CoreSymbolSpecification spec = CoreSymbolSpecification.builder().depositBuy(22000).depositSell(32100).symbolId(SYMBOL).build();
         symbolSpecificationProvider.registerSymbol(SYMBOL, spec);
         matchingEngineRouter.addOrderBook(SYMBOL);
     }

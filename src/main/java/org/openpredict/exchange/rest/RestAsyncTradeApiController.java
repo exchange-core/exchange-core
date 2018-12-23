@@ -2,7 +2,7 @@ package org.openpredict.exchange.rest;
 
 import com.lmax.disruptor.RingBuffer;
 import lombok.extern.slf4j.Slf4j;
-import org.eclipse.collections.impl.map.mutable.primitive.ObjectIntHashMap;
+import org.openpredict.exchange.beans.GatewaySymbolSpecification;
 import org.openpredict.exchange.beans.api.rest.RestApiPlaceOrder;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
@@ -14,6 +14,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
+import java.math.BigDecimal;
+import java.util.Optional;
 
 @Service
 @Slf4j
@@ -22,11 +24,11 @@ public class RestAsyncTradeApiController {
     @Autowired
     private ExchangeCore exchangeCore;
 
+    @Autowired
+    private GatewayState gatewayState;
+
     // TODO per user
     //private ConcurrentHashMap<Long, Long> userCookies = new ConcurrentHashMap<>();
-
-    private ObjectIntHashMap<String> symbolIds = new ObjectIntHashMap<>();
-
 
     @PostConstruct
     public void initRestApi() {
@@ -36,28 +38,36 @@ public class RestAsyncTradeApiController {
             log.info(">>> ", placeOrder);
             //exchangeApi.submitCommand(placeOrder);
 
-            RingBuffer<OrderCommand> ringBuffer = exchangeCore.getRingBuffer();
+            final RingBuffer<OrderCommand> ringBuffer = exchangeCore.getRingBuffer();
 
-            int symbol = symbolIds.get(placeOrder.getSymbol());
+            final Optional<GatewaySymbolSpecification> specOpt = gatewayState.getSymbolId(placeOrder.getSymbol());
 
-            if (symbol == 0) {
+            if (!specOpt.isPresent()) {
                 return U.map("status", "failed", "description", "unknown symbol");
             }
 
-            // TODO chose proper exchange core instance based on symbol
+            final GatewaySymbolSpecification specification = specOpt.get();
 
+            final BigDecimal price = new BigDecimal(placeOrder.getPrice());
+            final long longPrice = price.longValue();
+
+            final BigDecimal size = new BigDecimal(placeOrder.getSize());
+            final long longSize = size.longValue();
+
+
+            // TODO chose proper exchange core instance based on symbol
             ringBuffer.publishEvent((cmd, seq) -> {
 
                 cmd.command = OrderCommandType.PLACE_ORDER;
                 cmd.resultCode = CommandResultCode.NEW;
 
-                cmd.price = placeOrder.getPrice();
-                cmd.size = placeOrder.getSize();
+                cmd.price = longPrice;
+                cmd.size = longSize;
                 cmd.orderId = seq;
                 cmd.timestamp = System.currentTimeMillis();
                 cmd.action = placeOrder.getAction();
                 cmd.orderType = placeOrder.getOrderType();
-                cmd.symbol = symbol;
+                cmd.symbol = specification.symbolId;
                 cmd.uid = placeOrder.getUid();
 
                 // TODO fix

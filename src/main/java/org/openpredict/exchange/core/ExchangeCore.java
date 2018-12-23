@@ -7,10 +7,7 @@ import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.openpredict.exchange.beans.CfgWaitStrategyType;
-import org.openpredict.exchange.beans.MatcherTradeEvent;
-import org.openpredict.exchange.beans.SymbolPortfolio;
-import org.openpredict.exchange.beans.UserProfile;
+import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.biprocessor.GroupingProcessor;
@@ -41,6 +38,9 @@ public class ExchangeCore {
 
     @Autowired
     private RiskEngine riskEngine;
+
+    @Autowired
+    private SymbolSpecificationProvider symbolSpecificationProvider;
 
     @Autowired
     private JournallingProcessor journallingHandler;
@@ -205,6 +205,10 @@ public class ExchangeCore {
                 balanceAdjustment(cmd);
                 break;
 
+            case ADD_SYMBOL:
+                addSymbol(cmd);
+                break;
+
             case NOP:
                 cmd.resultCode = CommandResultCode.SUCCESS;
                 break;
@@ -258,6 +262,26 @@ public class ExchangeCore {
         }
         cmd.resultCode = CommandResultCode.SUCCESS;
     }
+
+    private void addSymbol(OrderCommand cmd) {
+
+        if (symbolSpecificationProvider.getSymbolSpecification(cmd.symbol) != null) {
+            cmd.resultCode = CommandResultCode.SYMBOL_MGMT_SYMBOL_ALREADY_EXISTS;
+            return;
+        }
+
+        // use order-specific fields for symbol spec
+        CoreSymbolSpecification spec = CoreSymbolSpecification.builder().symbolId(cmd.symbol)
+                .depositBuy(cmd.price)
+                .depositSell(cmd.uid)
+                .lowLimit(cmd.orderId)
+                .highLimit(cmd.size)
+                .build();
+
+        symbolSpecificationProvider.registerSymbol(cmd.symbol, spec);
+        cmd.resultCode = CommandResultCode.SUCCESS;
+    }
+
 
     private void handlerRiskRelease(OrderCommand cmd) {
 

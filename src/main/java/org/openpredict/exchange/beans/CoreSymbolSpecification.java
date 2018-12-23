@@ -8,19 +8,16 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class SymbolSpecification {
+public class CoreSymbolSpecification {
 
     public int symbolId;
-    public String symbolName;
 
+    // deposit settings
     public long depositBuy;
     public long depositSell;
 
+    // order book limits
     public long highLimit;
     public long lowLimit;
-
-    public int priceStep;
-    public int priceScale;
-    public int lotSize;
 
 }

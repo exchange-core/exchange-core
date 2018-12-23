@@ -2,20 +2,20 @@ package org.openpredict.exchange.core;
 
 
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
-import org.openpredict.exchange.beans.SymbolSpecification;
+import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.springframework.stereotype.Service;
 
 @Service
 public class SymbolSpecificationProvider {
 
     // symbol->specs
-    private IntObjectHashMap<SymbolSpecification> symbolSpecs = new IntObjectHashMap<>();
+    private IntObjectHashMap<CoreSymbolSpecification> symbolSpecs = new IntObjectHashMap<>();
 
-    public SymbolSpecification getSymbolSpecification(int symbol) {
+    public CoreSymbolSpecification getSymbolSpecification(int symbol) {
         return symbolSpecs.get(symbol);
     }
 
-    public void registerSymbol(int symbol, SymbolSpecification spec) {
+    public void registerSymbol(int symbol, CoreSymbolSpecification spec) {
         symbolSpecs.put(symbol, spec);
     }
 

@@ -19,6 +19,8 @@ public enum CommandResultCode {
 
     USER_MGMT_USER_ALREADY_EXISTS(-4001),
 
+    SYMBOL_MGMT_SYMBOL_ALREADY_EXISTS(-5001),
+
     DROP(-9999);
 
 

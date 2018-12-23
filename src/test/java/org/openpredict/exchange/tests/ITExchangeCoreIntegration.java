@@ -71,7 +71,7 @@ public class ITExchangeCoreIntegration {
 
     @Before
     public void before() {
-        SymbolSpecification spec = SymbolSpecification.builder().depositBuy(22000).depositSell(32100).symbolId(SYMBOL).symbolName("XBTC").build();
+        CoreSymbolSpecification spec = CoreSymbolSpecification.builder().depositBuy(22000).depositSell(32100).symbolId(SYMBOL).build();
         symbolSpecificationProvider.registerSymbol(SYMBOL, spec);
         matchingEngineRouter.addOrderBook(SYMBOL);
 
