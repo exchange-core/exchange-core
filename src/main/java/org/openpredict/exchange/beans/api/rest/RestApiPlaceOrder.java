@@ -8,7 +8,7 @@ import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.OrderType;
 
 @Getter
-public class RestApiPlaceOrder {
+public final class RestApiPlaceOrder {
 
     private final String price;
     private final String size;

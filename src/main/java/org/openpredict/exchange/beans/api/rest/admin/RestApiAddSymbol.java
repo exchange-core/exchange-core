@@ -6,7 +6,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 
 @Getter
-public class RestApiAddSymbol {
+public final class RestApiAddSymbol {
 
     // unmodifiable properties
     private final int symbolId;

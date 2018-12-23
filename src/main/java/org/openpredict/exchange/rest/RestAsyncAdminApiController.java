@@ -2,6 +2,7 @@ package org.openpredict.exchange.rest;
 
 import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.GatewaySymbolSpecification;
+import org.openpredict.exchange.beans.api.rest.admin.RestApiAccountBalanceAdjustment;
 import org.openpredict.exchange.beans.api.rest.admin.RestApiAddSymbol;
 import org.openpredict.exchange.beans.api.rest.admin.RestApiAddUser;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
@@ -14,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
+import java.math.BigDecimal;
 
 @Service
 @Slf4j
@@ -50,6 +52,28 @@ public class RestAsyncAdminApiController {
 
             return U.map("msg", "ok");
 
+        });
+
+
+        On.post("/asyncAdminApi/v1/users/balance").json((RestApiAccountBalanceAdjustment adjustment) -> {
+            log.info(">>> ", adjustment);
+
+            // TODO fix conversion
+            final BigDecimal amount = new BigDecimal(adjustment.getAmount());
+            final long longAmount = amount.longValue();
+
+            exchangeCore.getRingBuffer().publishEvent(((cmd, seq) -> {
+                cmd.command = OrderCommandType.BALANCE_ADJUSTMENT;
+                cmd.orderId = -1;
+                cmd.symbol = -1;
+                cmd.uid = adjustment.getUid();
+                cmd.price = longAmount;
+                cmd.size = 0;
+                cmd.timestamp = System.currentTimeMillis();
+                cmd.resultCode = CommandResultCode.NEW;
+            }));
+
+            return U.map("msg", "ok");
         });
 
 

@@ -6,18 +6,22 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 
 @Getter
-public final class RestApiAddUser {
+public final class RestApiAccountBalanceAdjustment {
 
     private final long uid;
+    private final String amount;
 
     @JsonCreator
-    public RestApiAddUser(@JsonProperty("uid") long uid) {
+    public RestApiAccountBalanceAdjustment(
+            @JsonProperty("uid") long uid,
+            @JsonProperty("amount") String amount) {
 
         this.uid = uid;
+        this.amount = amount;
     }
 
     @Override
     public String toString() {
-        return "[ADDUSER " + uid + "]";
+        return "[BALANCE_ADJ " + uid + " for " + amount + "]";
     }
 }
