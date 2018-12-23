@@ -36,6 +36,8 @@
         <openhft.affinity.version>3.1.10</openhft.affinity.version>
         <eclipse.collections.version>9.2.0</eclipse.collections.version>
         <hdr.histogram.version>2.1.10</hdr.histogram.version>
+        <rapidoid.rest.version>5.0.12</rapidoid.rest.version>
+        <rapidoid.http.server.version>5.5.5</rapidoid.http.server.version>
     </properties>
 
     <dependencyManagement>
@@ -78,6 +80,20 @@
                 <groupId>net.openhft</groupId>
                 <artifactId>affinity</artifactId>
                 <version>${openhft.affinity.version}</version>
+            </dependency>
+
+            <!-- Rapidoid -->
+
+            <dependency>
+                <groupId>org.rapidoid</groupId>
+                <artifactId>rapidoid-http-server</artifactId>
+                <version>${rapidoid.http.server.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.rapidoid</groupId>
+                <artifactId>rapidoid-rest</artifactId>
+                <version>${rapidoid.rest.version}</version>
             </dependency>
 
             <!-- JMH -->
@@ -224,6 +240,19 @@
             <artifactId>mockito-core</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- Rapidoid -->
+        <dependency>
+            <groupId>org.rapidoid</groupId>
+            <artifactId>rapidoid-http-server</artifactId>
+        </dependency>
+
+<!--
+        <dependency>
+            <groupId>org.rapidoid</groupId>
+            <artifactId>rapidoid-rest</artifactId>
+        </dependency>
+-->
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
