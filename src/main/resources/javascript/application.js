@@ -54,10 +54,15 @@ $(function () {
             input.removeAttr('disabled').focus();
         } else {
             input.removeAttr('disabled');
+            if(json.msgType == 'chat'){
 
-            var me = json.author == author;
-            var date = typeof(json.time) == 'string' ? parseInt(json.time) : json.time;
-            addMessage(json.author, json.message, me ? 'blue' : 'black', new Date(date));
+                var me = json.author == author;
+                var date = typeof(json.time) == 'string' ? parseInt(json.time) : json.time;
+                addMessage(json.author, json.message, me ? 'blue' : 'black', new Date(date));
+
+            }else if(json.msgType == 'orderbook'){
+                updateOrderBook(json.askPrices, json.askVolumes);
+            }
         }
     };
 
@@ -95,4 +100,17 @@ $(function () {
             + (datetime.getMinutes() < 10 ? '0' + datetime.getMinutes() : datetime.getMinutes())
             + ': ' + message + '</p>');
     }
+
+    function updateOrderBook(askPrices, askVolumes) {
+        var table = "<table>";
+        var size = askPrices.length;
+        console.log('size='+size);
+        var i;
+        for(i = 0; i < size; i++){
+            table += ("<tr><td>"+askPrices[i]+"</td><td>"+askVolumes[i]+"</td></tr>");
+        }
+        table += "</table>"
+        orderbook.innerHTML = table; //"<table><tr><td>"+price+"</td><td>"+volume+"</td></tr></table>"
+    }
+
 });

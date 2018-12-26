@@ -1,6 +1,9 @@
 package org.openpredict.exchange.rest;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.Setter;
 import lombok.ToString;
 import org.atmosphere.config.service.Get;
 import org.atmosphere.config.service.ManagedService;
@@ -8,11 +11,13 @@ import org.atmosphere.config.service.Message;
 import org.atmosphere.cpr.AtmosphereResource;
 import org.atmosphere.cpr.AtmosphereResourceEvent;
 import org.atmosphere.cpr.AtmosphereResourceEventListenerAdapter;
+import org.atmosphere.cpr.Broadcaster;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Date;
+import java.util.List;
 
 
 @ManagedService(path = "/chat")
@@ -29,6 +34,10 @@ public class Chat {
             @Override
             public void onSuspend(final AtmosphereResourceEvent event) {
                 logger.info("User {} connected.", atmoRes.uuid());
+
+                List<Broadcaster> broadcasters = event.getResource().broadcasters();
+                logger.info("broadcasters: {}", broadcasters);
+
             }
 
             @Override
@@ -52,6 +61,9 @@ public class Chat {
 
     @ToString
     public final static class Data {
+
+        @Getter
+        private final String msgType = "chat";
 
         private String message;
         private String author;
@@ -92,5 +104,19 @@ public class Chat {
         }
 
     }
+
+    @Getter
+    @Setter
+    @AllArgsConstructor
+    public final static class OrderBook {
+        private final String msgType = "orderbook";
+        private String symbol;
+        private long timestamp;
+        private long[] askPrices;
+        private long[] askVolumes;
+        private long[] bidPrices;
+        private long[] bidVolumes;
+    }
+
 }
 
