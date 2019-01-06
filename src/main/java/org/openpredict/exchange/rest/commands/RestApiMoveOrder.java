@@ -1,4 +1,4 @@
-package org.openpredict.exchange.beans.api.rest;
+package org.openpredict.exchange.rest.commands;
 
 
 import com.fasterxml.jackson.annotation.JsonCreator;

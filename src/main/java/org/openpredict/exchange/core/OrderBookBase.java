@@ -23,7 +23,8 @@ public abstract class OrderBookBase implements IOrderBook {
     @Override
     public void processCommand(OrderCommand cmd) {
         currentCmd = cmd;
-        revokeMatcherEvents();
+
+        revokeEvents();
 
         if (cmd.resultCode != CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
             return;
@@ -54,7 +55,8 @@ public abstract class OrderBookBase implements IOrderBook {
                 break;
 
             case ORDER_BOOK_REQUEST:
-                getL2MarketDataSnapshot((int) cmd.size);
+                cmd.marketData = getL2MarketDataSnapshot((int) cmd.size);
+                cmd.resultCode = CommandResultCode.SUCCESS;
                 break;
         }
 
@@ -117,7 +119,6 @@ public abstract class OrderBookBase implements IOrderBook {
     abstract protected boolean updateOrder(OrderCommand cmd);
 
     /**
-     *
      * @param size max size for each part (ask, bid)
      * @return
      */
@@ -152,7 +153,10 @@ public abstract class OrderBookBase implements IOrderBook {
     abstract protected int getTotalBidBuckets();
 
 
-    private void revokeMatcherEvents() {
+    private void revokeEvents() {
+
+        currentCmd.marketData = null;
+
         MatcherTradeEvent matcherEvent = currentCmd.matcherEvent;
         currentCmd.matcherEvent = null;
         //log.debug("  {}", cmd);

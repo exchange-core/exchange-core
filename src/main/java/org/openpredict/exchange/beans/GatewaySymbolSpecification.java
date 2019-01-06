@@ -17,5 +17,6 @@ public class GatewaySymbolSpecification {
     public final int lotSize;
 
     // TODO lifecycle - new, active, ceased
+    public final boolean active;
 
 }

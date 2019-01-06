@@ -274,7 +274,7 @@ public class ITExchangeCoreIntegration {
 
         // weak compare orderBook final state just to make sure all commands executed same way
         // TODO compare events, wait until finish
-        assertThat(matchingEngineRouter.getOrderBook().hashCode(), Matchers.is(genResult.getFinalOrderbookHash()));
+        assertThat(matchingEngineRouter.getOrderBook(SYMBOL).hashCode(), Matchers.is(genResult.getFinalOrderbookHash()));
 
     }
 

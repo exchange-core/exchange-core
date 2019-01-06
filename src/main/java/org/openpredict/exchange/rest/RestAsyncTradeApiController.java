@@ -2,9 +2,9 @@ package org.openpredict.exchange.rest;
 
 import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.GatewaySymbolSpecification;
-import org.openpredict.exchange.beans.api.rest.RestApiCancelOrder;
-import org.openpredict.exchange.beans.api.rest.RestApiMoveOrder;
-import org.openpredict.exchange.beans.api.rest.RestApiPlaceOrder;
+import org.openpredict.exchange.rest.commands.RestApiCancelOrder;
+import org.openpredict.exchange.rest.commands.RestApiMoveOrder;
+import org.openpredict.exchange.rest.commands.RestApiPlaceOrder;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.ExchangeCore;
@@ -39,7 +39,7 @@ public class RestAsyncTradeApiController {
             //exchangeApi.submitCommand(placeOrder);
 
 
-            final Optional<GatewaySymbolSpecification> specOpt = gatewayState.getSymbolId(placeOrder.getSymbol());
+            final Optional<GatewaySymbolSpecification> specOpt = gatewayState.getSymbolSpec(placeOrder.getSymbol());
             if (!specOpt.isPresent()) {
                 return U.map("status", "failed", "description", "unknown symbol");
             }
@@ -76,7 +76,7 @@ public class RestAsyncTradeApiController {
         On.put("/asyncTradeApi/v1/orders").json((RestApiMoveOrder moveOrder) -> {
             log.info(">>> ", moveOrder);
 
-            final Optional<GatewaySymbolSpecification> specOpt = gatewayState.getSymbolId(moveOrder.getSymbol());
+            final Optional<GatewaySymbolSpecification> specOpt = gatewayState.getSymbolSpec(moveOrder.getSymbol());
             if (!specOpt.isPresent()) {
                 return U.map("status", "failed", "description", "unknown symbol");
             }
@@ -109,7 +109,7 @@ public class RestAsyncTradeApiController {
         On.delete("/asyncTradeApi/v1/orders").json((RestApiCancelOrder cancelOrder) -> {
             log.info(">>> ", cancelOrder);
 
-            final Optional<GatewaySymbolSpecification> specOpt = gatewayState.getSymbolId(cancelOrder.getSymbol());
+            final Optional<GatewaySymbolSpecification> specOpt = gatewayState.getSymbolSpec(cancelOrder.getSymbol());
             if (!specOpt.isPresent()) {
                 return U.map("status", "failed", "description", "unknown symbol");
             }

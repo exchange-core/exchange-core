@@ -1,6 +1,7 @@
 package org.openpredict.exchange.rest;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.Setter;
@@ -53,10 +54,15 @@ public class Chat {
 
     @Message
     public String onMessage(String message) throws IOException {
-        Data data = mapper.readValue(message, Data.class);
-        logger.debug("Data: {}", data);
-
-        return mapper.writeValueAsString(data);
+        ObjectNode jsonNode = mapper.readValue(message, ObjectNode.class);
+        switch (jsonNode.get("msgType").toString()) {
+            case "chat":
+                Data data = mapper.readValue(message, Data.class);
+                logger.debug("Data: {}", data);
+                return mapper.writeValueAsString(data);
+            default:
+                return null;
+        }
     }
 
     @ToString
@@ -105,18 +111,6 @@ public class Chat {
 
     }
 
-    @Getter
-    @Setter
-    @AllArgsConstructor
-    public final static class OrderBook {
-        private final String msgType = "orderbook";
-        private String symbol;
-        private long timestamp;
-        private long[] askPrices;
-        private long[] askVolumes;
-        private long[] bidPrices;
-        private long[] bidVolumes;
-    }
 
 }
 

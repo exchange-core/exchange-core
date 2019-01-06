@@ -250,8 +250,23 @@ public class ExchangeCore {
             cmd.resultCode = CommandResultCode.AUTH_INVALID_USER;
             return;
         }
-        //log.warn("Adjust balance: {}", cmd);
-        userProfile.fastBalance += cmd.price;
+
+        final long amount = cmd.price;
+        if (amount == 0) {
+            cmd.resultCode = CommandResultCode.USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_ZERO;
+            return;
+        }
+
+        if (userProfile.externalTransactions.containsKey(cmd.orderId)) {
+            cmd.resultCode = CommandResultCode.USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_ALREADY_APPLIED;
+            return;
+        }
+
+        //log.info("Adjust balance: {}", cmd);
+
+        userProfile.externalTransactions.put(cmd.orderId, amount);
+        userProfile.fastBalance += amount;
+        cmd.size = userProfile.fastBalance;
         cmd.resultCode = CommandResultCode.SUCCESS;
     }
 

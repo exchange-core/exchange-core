@@ -47,6 +47,22 @@ public class L2MarketData {
         this.bidVolumes = new long[bidSize];
     }
 
+    public long[] getAskPricesCopy() {
+        return Arrays.copyOf(askPrices, askSize);
+    }
+
+    public long[] getAskVolumesCopy() {
+        return Arrays.copyOf(askVolumes, askSize);
+    }
+
+    public long[] getBidPricesCopy() {
+        return Arrays.copyOf(bidPrices, bidSize);
+    }
+
+    public long[] getBidVolumesCopy() {
+        return Arrays.copyOf(bidVolumes, bidSize);
+    }
+
     public String dumpOrderBook() {
         int priceWith = maxWidth(2, Arrays.copyOf(askPrices, askSize), Arrays.copyOf(bidPrices, bidSize));
         int volWith = maxWidth(2, Arrays.copyOf(askVolumes, askSize), Arrays.copyOf(bidVolumes, bidSize));

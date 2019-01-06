@@ -150,7 +150,7 @@ public class ExchangeCorePerformance {
 
                 // weak compare orderBook final state just to make sure all commands executed same way
                 // TODO compare events
-                assertThat(matchingEngineRouter.getOrderBook().hashCode(), is(genResult.getFinalOrderbookHash()));
+                assertThat(matchingEngineRouter.getOrderBook(SYMBOL).hashCode(), is(genResult.getFinalOrderbookHash()));
 
             }
 
@@ -238,7 +238,7 @@ public class ExchangeCorePerformance {
 
                     // weak compare orderBook final state just to make sure all commands executed same way
                     // TODO compare events
-                    assertThat(matchingEngineRouter.getOrderBook().hashCode(), is(genResult.getFinalOrderbookHash()));
+                    assertThat(matchingEngineRouter.getOrderBook(SYMBOL).hashCode(), is(genResult.getFinalOrderbookHash()));
 
                     if (WRITE_HDR_HISTOGRAMS) {
                         PrintStream printStream = new PrintStream(new File(System.currentTimeMillis() + "-" + perfMt + ".perc"));
@@ -443,7 +443,7 @@ public class ExchangeCorePerformance {
 
             // weak compare orderBook final state just to make sure all commands executed same way
             // TODO compare events
-            assertThat(matchingEngineRouter.getOrderBook().hashCode(), is(genResult.getFinalOrderbookHash()));
+            assertThat(matchingEngineRouter.getOrderBook(SYMBOL).hashCode(), is(genResult.getFinalOrderbookHash()));
 
 //            if (j == 5) {
 //                log.info("Warmup completed, RESET latency stat");

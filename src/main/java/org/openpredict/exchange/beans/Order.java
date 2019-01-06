@@ -24,7 +24,7 @@ public class Order extends OrderCommand {
     public Order(OrderCommandType command, long orderId, int symbol, long price, long size, OrderAction action, OrderType orderType,
                  long uid, long timestamp, long filled) {
         //super(command, orderId, symbol, price, size, action, orderType, uid, timestamp, 0, null, null);
-        super(command, orderId, symbol, price, size, action, orderType, uid, timestamp, 0, null, null);
+        super(command, orderId, symbol, price, size, action, orderType, uid, timestamp, 0, null, null, null);
         this.filled = filled;
     }
 

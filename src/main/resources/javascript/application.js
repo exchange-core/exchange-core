@@ -61,7 +61,7 @@ $(function () {
                 addMessage(json.author, json.message, me ? 'blue' : 'black', new Date(date));
 
             }else if(json.msgType == 'orderbook'){
-                updateOrderBook(json.askPrices, json.askVolumes);
+                updateOrderBook(json.askPrices, json.askVolumes, json.bidPrices, json.bidVolumes);
             }
         }
     };
@@ -85,7 +85,7 @@ $(function () {
                 author = msg;
             }
 
-            subSocket.push(atmosphere.util.stringifyJSON({ author: author, message: msg }));
+            subSocket.push(atmosphere.util.stringifyJSON({ msgType: 'chat', author: author, message: msg }));
             $(this).val('');
 
             input.attr('disabled', 'disabled');
@@ -101,15 +101,19 @@ $(function () {
             + ': ' + message + '</p>');
     }
 
-    function updateOrderBook(askPrices, askVolumes) {
-        var table = "<table>";
+    function updateOrderBook(askPrices, askVolumes, bidPrices, bidVolumes) {
+        var table = "<div class='divTableBody'>";
         var size = askPrices.length;
         console.log('size='+size);
         var i;
-        for(i = 0; i < size; i++){
-            table += ("<tr><td>"+askPrices[i]+"</td><td>"+askVolumes[i]+"</td></tr>");
+        for(i = size - 1; i >= 0; i--){
+            table += ("<div class='divTableRow obCellAsk'><div class='divTableCell'>"+askPrices[i]+"</div><div class='divTableCell'>"+askVolumes[i]+"</div></div>");
         }
-        table += "</table>"
+        size = bidPrices.length;
+        for(i = 0; i < size; i++){
+            table += ("<div class='divTableRow obCellBid'><div class='divTableCell'>"+bidPrices[i]+"</div><div class='divTableCell'>"+bidVolumes[i]+"</div></div>");
+        }
+        table += "</div>"
         orderbook.innerHTML = table; //"<table><tr><td>"+price+"</td><td>"+volume+"</td></tr></table>"
     }
 

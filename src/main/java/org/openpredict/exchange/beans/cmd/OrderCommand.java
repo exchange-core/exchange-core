@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
+import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.OrderType;
@@ -43,7 +44,11 @@ public class OrderCommand {
     // result code of command execution - can also be used for saving intermediate state
     public CommandResultCode resultCode;
 
+    // trade events chain
     public MatcherTradeEvent matcherEvent;
+
+    // optional market data
+    public L2MarketData marketData;
 
     // sequence of last available for this command
     //public long matcherEventSequence;
@@ -96,7 +101,11 @@ public class OrderCommand {
         return cmd;
     }
 
-
+    /**
+     * Handles full MatcherTradeEvent chain, without removing/revoking them
+     *
+     * @param handler - MatcherTradeEvent handler
+     */
     public void processMatherEvents(Consumer<MatcherTradeEvent> handler) {
         MatcherTradeEvent mte = this.matcherEvent;
         while (mte != null) {
@@ -156,18 +165,15 @@ public class OrderCommand {
 
         List<MatcherTradeEvent> events = extractEvents();
 
-        System.out.println(">>> events: " + events);
+//        System.out.println(">>> events: " + events);
         for (MatcherTradeEvent event : events) {
             MatcherTradeEvent copy = event.copy();
             copy.nextEvent = newCmd.matcherEvent;
             newCmd.matcherEvent = copy;
-
-
-            System.out.println(">>> newCmd.matcherEvent: " + newCmd.matcherEvent);
+//            System.out.println(">>> newCmd.matcherEvent: " + newCmd.matcherEvent);
         }
 
-
-        System.out.println(">>> newCmd: " + newCmd);
+//        System.out.println(">>> newCmd: " + newCmd);
         return newCmd;
     }
 

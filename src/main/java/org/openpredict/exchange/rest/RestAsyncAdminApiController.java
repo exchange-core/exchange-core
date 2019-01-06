@@ -2,9 +2,9 @@ package org.openpredict.exchange.rest;
 
 import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.GatewaySymbolSpecification;
-import org.openpredict.exchange.beans.api.rest.admin.RestApiAccountBalanceAdjustment;
-import org.openpredict.exchange.beans.api.rest.admin.RestApiAddSymbol;
-import org.openpredict.exchange.beans.api.rest.admin.RestApiAddUser;
+import org.openpredict.exchange.rest.commands.admin.RestApiAccountBalanceAdjustment;
+import org.openpredict.exchange.rest.commands.admin.RestApiAddSymbol;
+import org.openpredict.exchange.rest.commands.admin.RestApiAddUser;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.ExchangeCore;
@@ -39,7 +39,7 @@ public class RestAsyncAdminApiController {
         // TODO change to users + accounts
 
         On.post("/asyncAdminApi/v1/users").json((RestApiAddUser addUser) -> {
-            log.info(">>> ", addUser);
+            log.info(">>> {}", addUser);
 
             exchangeCore.getRingBuffer().publishEvent(((cmd, seq) -> {
                 cmd.command = OrderCommandType.ADD_USER;
@@ -56,7 +56,7 @@ public class RestAsyncAdminApiController {
 
 
         On.post("/asyncAdminApi/v1/users/balance").json((RestApiAccountBalanceAdjustment adjustment) -> {
-            log.info(">>> ", adjustment);
+            log.info(">>> {}", adjustment);
 
             // TODO fix conversion
             final BigDecimal amount = new BigDecimal(adjustment.getAmount());
@@ -64,7 +64,7 @@ public class RestAsyncAdminApiController {
 
             exchangeCore.getRingBuffer().publishEvent(((cmd, seq) -> {
                 cmd.command = OrderCommandType.BALANCE_ADJUSTMENT;
-                cmd.orderId = -1;
+                cmd.orderId = adjustment.getTransactionId();
                 cmd.symbol = -1;
                 cmd.uid = adjustment.getUid();
                 cmd.price = longAmount;
@@ -80,7 +80,7 @@ public class RestAsyncAdminApiController {
         // TODO merge symbols api
 
         On.post("/asyncAdminApi/v1/symbols").json((RestApiAddSymbol addSymbol) -> {
-            log.info(">>> ", addSymbol);
+            log.info(">>> {}", addSymbol);
 
             // TODO Publish through bus
 
@@ -90,9 +90,10 @@ public class RestAsyncAdminApiController {
                     .lotSize(addSymbol.getLotSize())
                     .priceScale(addSymbol.getPriceScale())
                     .priceStep(addSymbol.getPriceStep())
+                    .active(false)
                     .build();
 
-            gatewayState.registerSymbolId(spec);
+            gatewayState.registerSymbolIfNotActive(spec);
 
             exchangeCore.getRingBuffer().publishEvent(((cmd, seq) -> {
                 cmd.command = OrderCommandType.ADD_SYMBOL;

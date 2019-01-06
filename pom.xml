@@ -36,7 +36,6 @@
         <openhft.affinity.version>3.1.10</openhft.affinity.version>
         <eclipse.collections.version>9.2.0</eclipse.collections.version>
         <hdr.histogram.version>2.1.10</hdr.histogram.version>
-        <rapidoid.rest.version>5.0.12</rapidoid.rest.version>
         <rapidoid.http.server.version>5.5.5</rapidoid.http.server.version>
         <nettosphere.version>3.0.11</nettosphere.version>
     </properties>
@@ -88,11 +87,6 @@
                 <groupId>org.rapidoid</groupId>
                 <artifactId>rapidoid-http-server</artifactId>
                 <version>${rapidoid.http.server.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.rapidoid</groupId>
-                <artifactId>rapidoid-rest</artifactId>
-                <version>${rapidoid.rest.version}</version>
             </dependency>
 
             <!-- Nettosphere -->
@@ -252,13 +246,6 @@
             <groupId>org.rapidoid</groupId>
             <artifactId>rapidoid-http-server</artifactId>
         </dependency>
-
-<!--
-        <dependency>
-            <groupId>org.rapidoid</groupId>
-            <artifactId>rapidoid-rest</artifactId>
-        </dependency>
--->
 
         <!-- Nettosphere -->
         <dependency>

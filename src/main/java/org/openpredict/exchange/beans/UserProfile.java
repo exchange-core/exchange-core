@@ -2,6 +2,7 @@ package org.openpredict.exchange.beans;
 
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
+import org.eclipse.collections.impl.map.mutable.primitive.LongLongHashMap;
 
 @Slf4j
 public class UserProfile {
@@ -10,6 +11,9 @@ public class UserProfile {
 
     // symbol -> portfolio records
     public IntObjectHashMap<SymbolPortfolio> portfolio = new IntObjectHashMap<>();
+
+    // transactionId -> amount
+    public LongLongHashMap externalTransactions = new LongLongHashMap();
 
     // collected from accounts
     public long fastBalance = 0L;
