@@ -18,7 +18,6 @@ package org.openpredict.exchange.biprocessor;
 import com.lmax.disruptor.*;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
-import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
 
@@ -66,8 +65,6 @@ public final class GroupingProcessor implements EventProcessor {
     public void run() {
         if (running.compareAndSet(IDLE, RUNNING)) {
             sequenceBarrier.clearAlert();
-
-            //notifyStart();
             try {
                 if (running.get() == RUNNING) {
                     try (AffinityLock cpuLock = AffinityLock.acquireLock()) {
@@ -75,7 +72,6 @@ public final class GroupingProcessor implements EventProcessor {
                     }
                 }
             } finally {
-                //notifyShutdown();
                 running.set(IDLE);
             }
         } else {
@@ -84,8 +80,6 @@ public final class GroupingProcessor implements EventProcessor {
             // to get it exactly correct.
             if (running.get() == RUNNING) {
                 throw new IllegalStateException("Thread is already running");
-            } else {
-                //earlyExit();
             }
         }
     }
@@ -98,24 +92,15 @@ public final class GroupingProcessor implements EventProcessor {
 
         long groupLastNs = 0;
 
-        long ec = 0;
-
-        //T event;
         while (true) {
             try {
 
                 // should spin and also check another barrier
-                //log.debug("tryWait");
+                sequenceBarrier.checkAlert();
                 long availableSequence = sequenceBarrier.tryWaitFor(nextSequence, 1000);
-                //long availableSequence = sequenceBarrier.waitFor(nextSequence);
-                //log.debug("availableSequence={}", availableSequence);
 
                 if (nextSequence <= availableSequence) {
                     while (nextSequence <= availableSequence) {
-
-//                        if ((nextSequence & (1024 * 128L - 1)) == 0) {
-//                            log.debug(">> nextSequence={} ec={}", nextSequence, ec);
-//                        }
 
                         OrderCommand cmd = ringBuffer.get(nextSequence);
                         nextSequence++;
@@ -129,7 +114,7 @@ public final class GroupingProcessor implements EventProcessor {
 
                         msgsInGroup++;
 
-                        // switch group after each 8000 messages
+                        // switch group after each N messages
                         if (msgsInGroup >= 192) {
                             groupCounter++;
                             msgsInGroup = 0;
@@ -140,15 +125,9 @@ public final class GroupingProcessor implements EventProcessor {
                     groupLastNs = System.nanoTime() + 1000;
 
                 } else if (msgsInGroup > 0 && System.nanoTime() > groupLastNs) {
-                    // switch group after each 2us since first message in the group
-
+                    // switch group after T microseconds elapsed, if group is non empty
                     msgsInGroup = 0;
                     groupCounter++;
-
-                    ec++;
-
-//                    // generate new NOP message to trigger R2 processing
-//                    sendNextGroupCmd();
                 }
 
 
@@ -159,24 +138,9 @@ public final class GroupingProcessor implements EventProcessor {
                     break;
                 }
             } catch (final Throwable ex) {
-                //exceptionHandler.handleEventException(ex, nextSequence, event);
                 sequence.set(nextSequence);
                 nextSequence++;
             }
         }
     }
-
-    private void sendNextGroupCmd() {
-
-        // TODO tryPublishEvent - slow as creates an exception object ??
-        ringBuffer.tryPublishEvent((event, seq) -> {
-            event.timestamp = -1;
-            //event.orderId = 0;
-            event.resultCode = CommandResultCode.NEW;
-            event.uid = -1;
-            event.command = OrderCommandType.NOP;
-        });
-    }
-
-
 }

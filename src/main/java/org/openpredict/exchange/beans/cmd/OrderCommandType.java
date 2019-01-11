@@ -15,7 +15,8 @@ public enum OrderCommandType {
 
     CLEARING_OPERATION(30),
 
-    NOP(127);
+    NOP(120),
+    SHUTDOWN_SIGNAL(127);
 
     private byte code;
 

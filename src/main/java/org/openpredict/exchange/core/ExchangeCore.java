@@ -1,8 +1,6 @@
 package org.openpredict.exchange.core;
 
-import com.lmax.disruptor.BatchEventProcessor;
-import com.lmax.disruptor.EventHandler;
-import com.lmax.disruptor.RingBuffer;
+import com.lmax.disruptor.*;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
 import lombok.Setter;
@@ -13,6 +11,7 @@ import org.openpredict.exchange.beans.SymbolPortfolio;
 import org.openpredict.exchange.beans.UserProfile;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.biprocessor.GroupingProcessor;
 import org.openpredict.exchange.biprocessor.MasterProcessor;
 import org.openpredict.exchange.biprocessor.SimpleEventHandler;
@@ -170,9 +169,20 @@ public class ExchangeCore {
         return cmdRingBuffer;
     }
 
+    private static final EventTranslator<OrderCommand> SHUTDOWN_SIGNAL_TRANSLATOR = (cmd, seq) -> {
+        cmd.command = OrderCommandType.SHUTDOWN_SIGNAL;
+        cmd.resultCode = CommandResultCode.NEW;
+    };
+
     @PreDestroy
     public void stop() {
+
+        // TODO stop accepting new events first
+        cmdRingBuffer.publishEvent(SHUTDOWN_SIGNAL_TRANSLATOR);
+
+        log.info("Shutdown disruptor...");
         disruptor.shutdown();
+        log.info("Disruptor stopped");
     }
 
     private void handleRiskHold(OrderCommand cmd) {
