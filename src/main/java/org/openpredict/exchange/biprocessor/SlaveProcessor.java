@@ -72,24 +72,19 @@ public final class SlaveProcessor<T> implements EventProcessor {
         nextSequence = sequence.get() + 1L;
     }
 
-    public void handlingCycle(long processUpTo) {
-//        log.debug(" SLAVE processUpTo: {}", processUpTo);
+    public void handlingCycle(long processUpToSequence) {
         while (true) {
             try {
-//                log.debug(" SLAVE tryWaitFor: {}", nextSequence);
                 long availableSequence = sequenceBarrier.tryWaitFor(nextSequence, 0);
-//                log.debug(" SLAVE availableSequence: {}", availableSequence);
-
-//                Thread.sleep(100);
 
                 // process batch
-                while (nextSequence <= availableSequence && nextSequence < processUpTo) {
+                while (nextSequence <= availableSequence && nextSequence < processUpToSequence) {
                     eventHandler.onEvent(dataProvider.get(nextSequence));
                     nextSequence++;
                 }
 
                 // exit if processed all group
-                if (nextSequence == processUpTo) {
+                if (nextSequence == processUpToSequence) {
                     sequence.set(nextSequence - 1);
                     return;
                 }
@@ -99,7 +94,6 @@ public final class SlaveProcessor<T> implements EventProcessor {
             } catch (final TimeoutException e) {
                 //
             } catch (final Throwable ex) {
-                //exceptionHandler.handleEventException(ex, nextSequence, event);
                 sequence.set(nextSequence);
                 nextSequence++;
             }

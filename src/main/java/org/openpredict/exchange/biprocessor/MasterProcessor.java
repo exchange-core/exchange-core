@@ -20,6 +20,7 @@ import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.beans.cmd.OrderCommandType;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -72,7 +73,6 @@ public final class MasterProcessor implements EventProcessor {
         if (running.compareAndSet(IDLE, RUNNING)) {
             sequenceBarrier.clearAlert();
 
-            //notifyStart();
             try {
                 if (running.get() == RUNNING) {
                     try (AffinityLock cpuLock = AffinityLock.acquireLock()) {
@@ -80,7 +80,6 @@ public final class MasterProcessor implements EventProcessor {
                     }
                 }
             } finally {
-                //notifyShutdown();
                 running.set(IDLE);
             }
         } else {
@@ -89,8 +88,6 @@ public final class MasterProcessor implements EventProcessor {
             // to get it exactly correct.
             if (running.get() == RUNNING) {
                 throw new IllegalStateException("Thread is already running");
-            } else {
-                //earlyExit();
             }
         }
     }
@@ -105,29 +102,35 @@ public final class MasterProcessor implements EventProcessor {
             Thread.yield();
         }
 
-        //T event;
         while (true) {
             try {
 
                 // should spin and also check another barrier
-                long availableSequence = sequenceBarrier.tryWaitFor(nextSequence, 5000);
+                final long availableSequence = sequenceBarrier.tryWaitFor(nextSequence, 5000);
 
                 if (availableSequence >= nextSequence) {
                     while (nextSequence <= availableSequence) {
-                        OrderCommand cmd = dataProvider.get(nextSequence);
+                        final OrderCommand cmd = dataProvider.get(nextSequence);
 
-//                        log.debug("process {}", nextSequence);
                         // switch to next group - process
                         if (cmd.eventsGroup > currentSequenceGroup) {
-//                            log.debug(" NEW GROUP: {} -> {} ns={}", currentSequenceGroup, cmd.eventsGroup, nextSequence);
                             sequence.set(nextSequence - 1);
                             slaveProcessor.handlingCycle(nextSequence);
-//                            log.debug("slave done");
                             currentSequenceGroup = cmd.eventsGroup;
                         }
 
                         eventHandler.onEvent(cmd);
                         nextSequence++;
+
+                        if (cmd.command == OrderCommandType.SHUTDOWN_SIGNAL) {
+                            // having all sequences aligned with the ringbuffer cursor is a requirement for proper shutdown
+
+                            // let following processors to catch up
+                            sequence.set(availableSequence);
+
+                            // trigger slave processor
+                            slaveProcessor.handlingCycle(nextSequence);
+                        }
                     }
                     sequence.set(availableSequence);
                 }
@@ -138,7 +141,6 @@ public final class MasterProcessor implements EventProcessor {
                     break;
                 }
             } catch (final Throwable ex) {
-                //exceptionHandler.handleEventException(ex, nextSequence, event);
                 sequence.set(nextSequence);
                 nextSequence++;
             }
