@@ -1,16 +1,26 @@
 package org.openpredict.exchange.rest;
 
+import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.ConcurrentHashMap;
 import org.openpredict.exchange.beans.GatewaySymbolSpecification;
+import org.rapidoid.http.Req;
+import org.rapidoid.http.Resp;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.IntConsumer;
 
 
 // TODO separate interfaces for admin and user
 @Service
+@Slf4j
 public class GatewayState {
+
+
+    public final AtomicInteger syncRequestsSequence = new AtomicInteger(0);
+    public final Map<Integer, Resp> syncRequests = new ConcurrentHashMap<>();
 
     private final Map<String, GatewaySymbolSpecification> specsByNameIndex = new ConcurrentHashMap<>();
     private final Map<Integer, String> nameByCodeIndex = new ConcurrentHashMap<>();
@@ -26,7 +36,7 @@ public class GatewayState {
     public boolean registerSymbolIfNotActive(GatewaySymbolSpecification spec) {
         String s = nameByCodeIndex.putIfAbsent(spec.symbolId, spec.symbolName);
         if (s == null || s.equals(spec.symbolName)) {
-            specsByNameIndex.compute(spec.symbolName, (k, v) -> (v.active) ? v : spec);
+            specsByNameIndex.compute(spec.symbolName, (k, v) -> (v != null && v.active) ? v : spec);
             return true;
         } else {
             // code associated with different symbol
@@ -58,4 +68,12 @@ public class GatewayState {
         return activeSpec;
     }
 
+
+    public Resp doAsyncCall(Req req, IntConsumer asyncMethod) {
+        final int ticket = syncRequestsSequence.incrementAndGet();
+        Resp resp = req.async().response();
+        asyncMethod.accept(ticket);
+        syncRequests.put(ticket, resp);
+        return resp;
+    }
 }

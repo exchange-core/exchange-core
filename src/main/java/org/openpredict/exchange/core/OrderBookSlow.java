@@ -58,6 +58,7 @@ public class OrderBookSlow extends OrderBookBase {
                 cmd.orderType,
                 cmd.uid,
                 cmd.timestamp,
+                cmd.userCookie,
                 filled);
 
         IOrdersBucket bucket = getBucketsByAction(cmd.action)

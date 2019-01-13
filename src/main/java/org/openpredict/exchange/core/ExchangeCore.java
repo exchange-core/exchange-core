@@ -294,6 +294,8 @@ public class ExchangeCore {
                 .build();
 
         symbolSpecificationProvider.registerSymbol(cmd.symbol, spec);
+        matchingEngineRouter.addOrderBook(cmd.symbol);
+
         cmd.resultCode = CommandResultCode.SUCCESS;
     }
 

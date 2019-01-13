@@ -11,7 +11,7 @@ import lombok.Setter;
 @Builder
 @AllArgsConstructor
 public final class UserBalanceAdjustmentAdminEvent {
-    private final String msgType = "adm_user_created";
+    private final String msgType = "user_balance_updated";
 
     private final long uid;
     private final long transactionId;

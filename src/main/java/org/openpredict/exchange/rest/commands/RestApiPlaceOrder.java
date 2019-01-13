@@ -13,7 +13,7 @@ public final class RestApiPlaceOrder {
     private final String price;
     private final String size;
 
-    private final long cookieId;
+    //private final long cookieId;
     private final OrderAction action;
     private final OrderType orderType;
 
@@ -26,7 +26,7 @@ public final class RestApiPlaceOrder {
     public RestApiPlaceOrder(
             @JsonProperty("price") String price,
             @JsonProperty("size") String size,
-            @JsonProperty("cookieId") long cookieId,
+            //@JsonProperty("cookieId") long cookieId,
             @JsonProperty("action") OrderAction action,
             @JsonProperty("orderType") OrderType orderType,
             @JsonProperty("uid") long uid,
@@ -34,7 +34,7 @@ public final class RestApiPlaceOrder {
 
         this.price = price;
         this.size = size;
-        this.cookieId = cookieId;
+//        this.cookieId = cookieId;
         this.action = action;
         this.orderType = orderType;
         this.uid = uid;
@@ -43,7 +43,7 @@ public final class RestApiPlaceOrder {
 
     @Override
     public String toString() {
-        return "[ADD " + cookieId + " " + (action == OrderAction.ASK ? 'A' : 'B') + (orderType == OrderType.MARKET ? 'M' : 'L')
+        return "[ADD " + (action == OrderAction.ASK ? 'A' : 'B') + (orderType == OrderType.MARKET ? 'M' : 'L')
                 + price + ":" + size + "]";
     }
 }

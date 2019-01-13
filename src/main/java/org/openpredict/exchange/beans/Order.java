@@ -22,9 +22,9 @@ public class Order extends OrderCommand {
 
     @Builder(builderMethodName = "orderBuilder", builderClassName = "OrderBuilder")
     public Order(OrderCommandType command, long orderId, int symbol, long price, long size, OrderAction action, OrderType orderType,
-                 long uid, long timestamp, long filled) {
+                 long uid, long timestamp, int userCookie, long filled) {
         //super(command, orderId, symbol, price, size, action, orderType, uid, timestamp, 0, null, null);
-        super(command, orderId, symbol, price, size, action, orderType, uid, timestamp, 0, null, null, null);
+        super(command, orderId, symbol, price, size, action, orderType, uid, timestamp, userCookie, 0, null, null, null);
         this.filled = filled;
     }
 
@@ -36,7 +36,7 @@ public class Order extends OrderCommand {
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(orderId, action, orderType, price, size, filled, symbol, uid);
+        return Objects.hashCode(orderId, action, orderType, price, size, filled, symbol, userCookie, uid);
     }
 
 
@@ -58,6 +58,7 @@ public class Order extends OrderCommand {
                 .append(size, other.size)
                 .append(filled, other.filled)
                 .append(symbol, other.symbol)
+                .append(userCookie, other.userCookie)
                 .append(uid, other.uid)
                 //.append(timestamp, other.timestamp)
                 .isEquals();

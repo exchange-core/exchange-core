@@ -37,6 +37,8 @@ public class OrderCommand {
 
     public long timestamp;
 
+    public int userCookie;
+
     // ---- false sharing section ------
 
     public long eventsGroup;

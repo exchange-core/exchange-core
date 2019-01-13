@@ -55,6 +55,7 @@ public abstract class OrderBookBase implements IOrderBook {
                 break;
 
             case ORDER_BOOK_REQUEST:
+                //log.debug("ORDER_BOOK_REQUEST {}", cmd.size);
                 cmd.marketData = getL2MarketDataSnapshot((int) cmd.size);
                 cmd.resultCode = CommandResultCode.SUCCESS;
                 break;
