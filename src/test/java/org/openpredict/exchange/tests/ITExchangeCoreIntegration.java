@@ -2,6 +2,7 @@ package org.openpredict.exchange.tests;
 
 import lombok.extern.slf4j.Slf4j;
 import org.hamcrest.Matchers;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -19,13 +20,13 @@ import org.springframework.context.annotation.ComponentScan;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.junit4.SpringRunner;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.*;
@@ -71,16 +72,32 @@ public class ITExchangeCoreIntegration {
 
     @Before
     public void before() {
+        detatchConsumer();
+
         CoreSymbolSpecification spec = CoreSymbolSpecification.builder().depositBuy(22000).depositSell(32100).symbolId(SYMBOL).build();
         symbolSpecificationProvider.registerSymbol(SYMBOL, spec);
         matchingEngineRouter.addOrderBook(SYMBOL);
+
+        BlockingQueue<OrderCommand> results = attachBufferedConsumer();
 
         apiCore.submitCommand(ApiAddUser.builder().uid(UID_1).build());
         apiCore.submitCommand(ApiAddUser.builder().uid(UID_2).build());
 
         apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(UID_1).amount(1_000_000L).build());
         apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(UID_2).amount(2_000_000L).build());
+
+        waitForOrderCommands(results, 4).forEach(cmd -> assertEquals(CommandResultCode.SUCCESS, cmd.resultCode));
     }
+
+    @After
+    public void after() {
+        BlockingQueue<OrderCommand> results = attachBufferedConsumer();
+        apiCore.submitCommand(ApiReset.builder().build());
+        List<OrderCommand> commands = waitForOrderCommands(results, 1);
+        assertThat(commands.get(0).resultCode, is(CommandResultCode.SUCCESS));
+        detatchConsumer();
+    }
+
 
     @Test
     public void contextStarts() {
@@ -90,10 +107,7 @@ public class ITExchangeCoreIntegration {
     @Test
     public void basicFullCycleTest() throws Exception {
 
-
-        BlockingQueue<OrderCommand> results = new LinkedBlockingQueue<>();
-
-        exchangeCore.setResultsConsumer(cmd -> results.add(cmd.copy()));
+        BlockingQueue<OrderCommand> results = attachBufferedConsumer();
 
         // ### 1. first trader places limit orders
         ApiPlaceOrder order101 = ApiPlaceOrder.builder().uid(UID_1).id(101).price(1600).size(7).action(OrderAction.ASK).orderType(OrderType.LIMIT).symbol(SYMBOL).build();
@@ -111,7 +125,7 @@ public class ITExchangeCoreIntegration {
         OrderCommand cmd = orderCommands.get(0);
         assertThat(cmd.orderId, is(101L));
         assertThat(cmd.uid, is((long) UID_1));
-        assertThat(cmd.price, is(1600));
+        assertThat(cmd.price, is(1600L));
         assertThat(cmd.size, is(7L));
         assertThat(cmd.action, is(OrderAction.ASK));
         assertThat(cmd.orderType, is(OrderType.LIMIT));
@@ -161,7 +175,7 @@ public class ITExchangeCoreIntegration {
         assertThat(evt.matchedOrderCompleted, is(false));
         assertThat(evt.eventType, is(MatcherEventType.TRADE));
         assertThat(evt.size, is(2L));
-        assertThat(evt.price, is(1600));
+        assertThat(evt.price, is(1600L));
 
         // volume decreased to 5
         expectedState = l2helper.setAskVolume(0, 5).build();
@@ -212,7 +226,7 @@ public class ITExchangeCoreIntegration {
         assertThat(evt.matchedOrderCompleted, is(true));
         assertThat(evt.eventType, is(MatcherEventType.TRADE));
         assertThat(evt.size, is(4L));
-        assertThat(evt.price, is(1583));
+        assertThat(evt.price, is(1583L));
 
         expectedState = l2helper.setAskPriceVolume(0, 1580, 1).removeBid(0).build();
         Thread.sleep(100);
@@ -220,22 +234,25 @@ public class ITExchangeCoreIntegration {
 
     }
 
-    private List<OrderCommand> waitForOrderCommands(BlockingQueue<OrderCommand> results, int c) throws InterruptedException, java.util.concurrent.ExecutionException, java.util.concurrent.TimeoutException {
-        CompletableFuture<List<OrderCommand>> future = CompletableFuture.supplyAsync(() -> {
-            ArrayList<OrderCommand> orderCommands = new ArrayList<>();
-            try {
-                for (int i = 0; i < c; i++) {
-                    orderCommands.add(results.take());
-                }
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-            return orderCommands;
-        });
+    private BlockingQueue<OrderCommand> attachBufferedConsumer() {
+        BlockingQueue<OrderCommand> results = new LinkedBlockingQueue<>();
 
-        return future.get(1, TimeUnit.SECONDS);
+        exchangeCore.setResultsConsumer(cmd -> {
+            //log.debug(">>>>: {}", cmd);
+            results.add(cmd.copy());
+        });
+        return results;
     }
 
+    private List<OrderCommand> waitForOrderCommands(BlockingQueue<OrderCommand> results, int c) {
+        return Stream.generate(() -> {
+            try {
+                return results.poll(100, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException ex) {
+                throw new IllegalStateException();
+            }
+        }).limit(c).collect(Collectors.toList());
+    }
 
     @Test
     public void manyOperations() throws Exception {
@@ -244,24 +261,21 @@ public class ITExchangeCoreIntegration {
         int targetOrderBookOrders = 1000;
         int numUsers = 1000;
 
-        ArrayList<Long> uids = new ArrayList<>();
-        for (long i = 1; i <= numUsers; i++) {
-            apiCore.submitCommand(ApiAddUser.builder().uid(i).build());
-            apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(i).amount(2_000_000_000L).build());
-            uids.add(i);
-        }
-
+        List<Long> uids = Stream.iterate(1L, i -> i + 1).limit(numUsers).collect(Collectors.toList());
         TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids, SYMBOL, false);
         List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
 
-        exchangeCore.setResultsConsumer(cmd -> {
-            //log.debug("Result: {}", cmd);
-        });
-
+        detatchConsumer();
 
         Thread.sleep(20);
         userProfileService.reset();
         matchingEngineRouter.reset();
+        Thread.sleep(20);
+        uids.forEach(uid -> {
+            apiCore.submitCommand(ApiAddUser.builder().uid(uid).build());
+            apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(2_000_000_000L).build());
+        });
+
         System.gc();
         Thread.sleep(200);
 
@@ -271,6 +285,7 @@ public class ITExchangeCoreIntegration {
             apiCore.submitCommand(cmd);
         }
         log.info("Done");
+        Thread.sleep(200);
 
         // weak compare orderBook final state just to make sure all commands executed same way
         // TODO compare events, wait until finish
@@ -278,5 +293,10 @@ public class ITExchangeCoreIntegration {
 
     }
 
+    private void detatchConsumer() {
+        exchangeCore.setResultsConsumer(cmd -> {
+            //log.debug("Result: {}", cmd);
+        });
+    }
 
 }

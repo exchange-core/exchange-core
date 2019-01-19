@@ -19,6 +19,7 @@ public enum OrderCommandType {
     UPDATE_SYMBOL(51),
 
     NOP(120),
+    RESET(124),
     SHUTDOWN_SIGNAL(127);
 
     private byte code;

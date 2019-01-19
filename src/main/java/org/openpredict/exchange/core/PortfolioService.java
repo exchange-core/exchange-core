@@ -9,6 +9,9 @@ import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+/**
+ * Stateless portfolio service
+ */
 @Service
 @Slf4j
 public class PortfolioService {
@@ -16,8 +19,12 @@ public class PortfolioService {
     @Autowired
     private UserProfileService userProfileService;
 
+    /**
+     * Hold deposit
+     * @param order
+     * @param userProfile
+     */
     public void holdDepositForNewOrder(OrderCommand order, UserProfile userProfile) {
-        //SymbolPortfolio portfolio = userProfile.portfolio.computeIfAbsent(order.symbol, SymbolPortfolio::new);
         SymbolPortfolio portfolio = userProfile.portfolio.get(order.symbol);
         if (portfolio == null) {
             portfolio = new SymbolPortfolio(order.symbol, userProfile.uid);
@@ -29,11 +36,6 @@ public class PortfolioService {
         } else {
             portfolio.pendingBuySize += order.size;
         }
-
-//        if(userProfile.uid == 555){
-//            log.debug("HOLD  {}", order);
-//            log.debug("pendingSellSize={} pendingBuySize={}", portfolio.pendingSellSize, portfolio.pendingBuySize);
-//        }
 
     }
 
@@ -52,12 +54,6 @@ public class PortfolioService {
         } else {
             portfolio.pendingBuySize -= size;
         }
-
-//        if(cmd.uid == 555){
-//            log.debug("TRADE  {}", cmd);
-//            log.debug("pendingSellSize={} pendingBuySize={}", portfolio.pendingSellSize, portfolio.pendingBuySize);
-//        }
-
 
         // TODO investigate why can be negative
 //        if (portfolio.pendingSellSize < 0 || portfolio.pendingBuySize < 0) {
@@ -105,8 +101,7 @@ public class PortfolioService {
 
         if (portfolio.portfolioHasElement() && portfolio.tailPrice() == price) {
             // just an optimization
-            // if trading big amount with same price from different parties
-            // small peaces glued together
+            // if trading big amount for the same price - smaller parts can be glued together into a bigger one
             portfolio.incTailVolume(size);
         } else {
             portfolio.portfolioAdd(price, size);

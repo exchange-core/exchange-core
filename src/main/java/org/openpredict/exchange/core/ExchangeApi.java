@@ -34,6 +34,8 @@ public class ExchangeApi {
             ringBuffer.publishEvent(ADD_USER_TRANSLATOR, (ApiAddUser) cmd);
         } else if (cmd instanceof ApiAdjustUserBalance) {
             ringBuffer.publishEvent(ADJUST_USER_BALANCE_TRANSLATOR, (ApiAdjustUserBalance) cmd);
+        } else if (cmd instanceof ApiReset) {
+            ringBuffer.publishEvent(RESET_TRANSLATOR, (ApiReset) cmd);
         } else {
             throw new IllegalArgumentException("Unsupported command type: " + cmd.getClass().getSimpleName());
         }
@@ -95,9 +97,18 @@ public class ExchangeApi {
         cmd.orderId = -1;
         cmd.symbol = -1;
         cmd.uid = api.uid;
-        cmd.price = (int) api.amount;// TODO migrate back to long?
+        cmd.price = api.amount;
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
     };
 
+    private static final EventTranslatorOneArg<OrderCommand, ApiReset> RESET_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.RESET;
+        cmd.orderId = -1;
+        cmd.symbol = -1;
+        cmd.uid = -1;
+        cmd.price = -1;
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+    };
 }

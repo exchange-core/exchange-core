@@ -219,6 +219,11 @@ public class ExchangeCore {
                 addSymbol(cmd);
                 break;
 
+            case RESET:
+                reset();
+                cmd.resultCode = CommandResultCode.SUCCESS;
+                break;
+
             case NOP:
                 cmd.resultCode = CommandResultCode.SUCCESS;
                 break;
@@ -349,5 +354,10 @@ public class ExchangeCore {
 
     }
 
+    private void reset(){
+        log.info("doing RESET");
+        userProfileService.reset();
+        symbolSpecificationProvider.reset();
+    }
 
 }

@@ -11,12 +11,30 @@ public class SymbolSpecificationProvider {
     // symbol->specs
     private IntObjectHashMap<CoreSymbolSpecification> symbolSpecs = new IntObjectHashMap<>();
 
+    /**
+     * Get symbol specification
+     *
+     * @param symbol
+     * @return
+     */
     public CoreSymbolSpecification getSymbolSpecification(int symbol) {
         return symbolSpecs.get(symbol);
     }
 
+    /**
+     * register new symbol specification
+     *
+     * @param symbol
+     * @param spec
+     */
     public void registerSymbol(int symbol, CoreSymbolSpecification spec) {
         symbolSpecs.put(symbol, spec);
     }
 
+    /**
+     * Reset state
+     */
+    public void reset() {
+        symbolSpecs.clear();
+    }
 }

@@ -86,6 +86,9 @@ public class ExchangeCorePerformance {
 
     public static final boolean WRITE_HDR_HISTOGRAMS = false;
 
+    public static final Consumer<OrderCommand> NO_CONSUMER = cmd -> {
+    };
+
     private long startTimeNs = 0;
     private long nextHiccupAcceptTimestampNs = 0;
 
@@ -108,28 +111,28 @@ public class ExchangeCorePerformance {
         try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
 
             List<Long> uids = Stream.iterate(1L, i -> i + 1).limit(numUsers).collect(Collectors.toList());
-            uids.forEach(uid -> {
-                apiCore.submitCommand(ApiAddUser.builder().uid(uid).build());
-                apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(2_000_000_000L).build());
-            });
 
             TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids, SYMBOL, false);
             List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
 
             AtomicInteger counter = new AtomicInteger();
 
-            exchangeCore.setResultsConsumer(resultEvent -> {
+
+            Consumer<OrderCommand> resultsConsumer = cmd -> {
 //            log.debug("RESULT {}", resultEvent);
                 counter.decrementAndGet();
-            });
+            };
 
             List<Float> perfResults = new ArrayList<>();
             for (int j = 0; j < 100; j++) {
                 Thread.sleep(20);
                 userProfileService.reset();
                 matchingEngineRouter.reset();
+                exchangeCore.setResultsConsumer(NO_CONSUMER);
+                uids.forEach(this::userInit);
                 System.gc();
                 Thread.sleep(200);
+                exchangeCore.setResultsConsumer(resultsConsumer);
                 counter.set(apiCommands.size());
 
                 long t = System.currentTimeMillis();
@@ -161,7 +164,7 @@ public class ExchangeCorePerformance {
 
 
     @Test
-    public void latencyTest() throws FileNotFoundException {
+    public void latencyTest() {
 
         final int numOrders = 3_000_000;
         final int targetOrderBookOrders = 1000;
@@ -175,10 +178,6 @@ public class ExchangeCorePerformance {
         try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
 
             List<Long> uids = Stream.iterate(1L, i -> i + 1).limit(numUsers).collect(Collectors.toList());
-            uids.forEach(uid -> {
-                apiCore.submitCommand(ApiAddUser.builder().uid(uid).build());
-                apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(2_000_000_000L).build());
-            });
 
             TestOrdersGenerator.GenResult genResult = generator.generateCommands(
                     numOrders,
@@ -191,21 +190,22 @@ public class ExchangeCorePerformance {
             AtomicLong receiveCounter = new AtomicLong();
             SingleWriterRecorder hdrRecorder = new SingleWriterRecorder(1_000_000_000, 3);
 
-            exchangeCore.setResultsConsumer(cmd -> {
+            Consumer<OrderCommand> resultsConsumer = cmd -> {
                 hdrRecorder.recordValue((System.nanoTime() - cmd.timestamp));
                 receiveCounter.lazySet(cmd.timestamp);
-            });
-
+            };
             // TODO - first run should validate the output (orders are accepted and processed properly)
-
 
             IntConsumer testIteration = tps -> {
                 try {
                     Thread.sleep(20);
                     userProfileService.reset();
                     matchingEngineRouter.reset();
+                    exchangeCore.setResultsConsumer(NO_CONSUMER);
+                    uids.forEach(this::userInit);
                     System.gc();
                     Thread.sleep(200);
+                    exchangeCore.setResultsConsumer(resultsConsumer);
 
                     hdrRecorder.reset();
 
@@ -280,10 +280,6 @@ public class ExchangeCorePerformance {
         try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
 
             List<Long> uids = Stream.iterate(1L, i -> i + 1).limit(numUsers).collect(Collectors.toList());
-            uids.forEach(uid -> {
-                apiCore.submitCommand(ApiAddUser.builder().uid(uid).build());
-                apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(2_000_000_000L).build());
-            });
 
             TestOrdersGenerator.GenResult genResult = generator.generateCommands(
                     numOrders,
@@ -295,7 +291,7 @@ public class ExchangeCorePerformance {
 
             LongLongHashMap hiccupTimestampsNs = new LongLongHashMap(10000);
 
-            exchangeCore.setResultsConsumer(cmd -> {
+            Consumer<OrderCommand> resultsConsumer = cmd -> {
                 long now = System.nanoTime();
                 // skip other messages in delayed group
                 if (now < nextHiccupAcceptTimestampNs) {
@@ -307,7 +303,7 @@ public class ExchangeCorePerformance {
                     hiccupTimestampsNs.put(cmd.timestamp, diffNs);
                     nextHiccupAcceptTimestampNs = cmd.timestamp + diffNs;
                 }
-            });
+            };
 
             // TODO - first run should validate the output (orders are accepted and processed properly)
 
@@ -317,8 +313,11 @@ public class ExchangeCorePerformance {
                     Thread.sleep(20);
                     userProfileService.reset();
                     matchingEngineRouter.reset();
+                    exchangeCore.setResultsConsumer(NO_CONSUMER);
+                    uids.forEach(this::userInit);
                     System.gc();
                     Thread.sleep(200);
+                    exchangeCore.setResultsConsumer(resultsConsumer);
 
                     hiccupTimestampsNs.clear();
                     nextHiccupAcceptTimestampNs = Long.MIN_VALUE;
@@ -387,21 +386,17 @@ public class ExchangeCorePerformance {
 //        int targetTps = 4_000_000; // transactions per second
 
         List<Long> uids = Stream.iterate(1L, i -> i + 1).limit(numUsers).collect(Collectors.toList());
-        uids.forEach(uid -> {
-            apiCore.submitCommand(ApiAddUser.builder().uid(uid).build());
-            apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(2_000_000_000L).build());
-        });
 
         TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids, SYMBOL, true);
         List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
 
         IntLongHashMap latencies = new IntLongHashMap(20000);
 
-        exchangeCore.setResultsConsumer(cmd -> {
+        Consumer<OrderCommand> resultsConsumer = cmd -> {
             int key = (int) (System.nanoTime() - cmd.timestamp);
             key |= ((Integer.highestOneBit(key) - 1) >> LATENCY_PRECISION_BITS);
             latencies.updateValue(key, 0, x -> x + 1);
-        });
+        };
 
         // TODO - first run should validate the output (orders are accepted and processed properly)
 
@@ -413,8 +408,11 @@ public class ExchangeCorePerformance {
             Thread.sleep(20);
             userProfileService.reset();
             matchingEngineRouter.reset();
+            exchangeCore.setResultsConsumer(NO_CONSUMER);
+            uids.forEach(this::userInit);
             System.gc();
             Thread.sleep(200);
+            exchangeCore.setResultsConsumer(resultsConsumer);
 
             long t = System.currentTimeMillis();
             long plannedTimestamp = System.nanoTime();
@@ -456,5 +454,9 @@ public class ExchangeCorePerformance {
         }
     }
 
+    public void userInit(long uid) {
+        apiCore.submitCommand(ApiAddUser.builder().uid(uid).build());
+        apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(2_000_000_000L).build());
+    }
 
 }
