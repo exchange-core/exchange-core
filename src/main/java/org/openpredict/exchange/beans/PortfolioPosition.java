@@ -20,4 +20,8 @@ public enum PortfolioPosition {
         return (this == PortfolioPosition.LONG && action == OrderAction.ASK) || (this == PortfolioPosition.SHORT && action == OrderAction.BID);
     }
 
+    public boolean isSameAsAction(OrderAction action) {
+        return (this == PortfolioPosition.LONG && action == OrderAction.BID) || (this == PortfolioPosition.SHORT && action == OrderAction.ASK);
+    }
+
 }

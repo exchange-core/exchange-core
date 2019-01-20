@@ -30,4 +30,7 @@ public final class CoreSymbolSpecification {
     public long longSwap = 0;
     public long shortSwap = 0;
 
+
+    // TODO collect ask/bin from L2, user deposit when unknown
+    public long lastPrice;
 }

@@ -3,11 +3,13 @@ package org.openpredict.exchange.core;
 import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.OrderAction;
-import org.openpredict.exchange.beans.SymbolPortfolio;
+import org.openpredict.exchange.beans.SymbolPortfolioRecord;
 import org.openpredict.exchange.beans.UserProfile;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+
+import java.util.function.IntFunction;
 
 
 /**
@@ -33,13 +35,14 @@ public class RiskEngine {
      */
 
     public boolean checkIfCanPlaceOrder(OrderCommand cmd, UserProfile userProfile) {
-        SymbolPortfolio portfolio = userProfile.getOrCreatePortfolio(cmd.symbol);
+        final int symbol = cmd.symbol;
+        SymbolPortfolioRecord portfolio = userProfile.getOrCreatePortfolio(symbol);
 
-        final long signedPosition = portfolio.totalSize * portfolio.position.getMultiplier();
+        final long signedPosition = portfolio.openVolume * portfolio.position.getMultiplier();
         final long currentRiskBuySize = portfolio.pendingBuySize + signedPosition;
         final long currentRiskSellSize = portfolio.pendingSellSize - signedPosition;
 
-        CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(cmd.symbol);
+        CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(symbol);
 
         long depositBuy = spec.depositBuy * currentRiskBuySize;
         long depositSell = spec.depositSell * currentRiskSellSize;
@@ -62,12 +65,14 @@ public class RiskEngine {
 
         // extra deposit is required
         // check if current balance and margin can cover new deposit
-        if (newDeposit <= userProfile.fastBalance + userProfile.fastMargin) {
+        final IntFunction<CoreSymbolSpecification> specSupplier = s -> symbolSpecificationProvider.getSymbolSpecification(s);
+        final long availableFunds = userProfile.getAvailableFunds(specSupplier);
+        if (newDeposit <= availableFunds) {
             return true;
         }
 
         // try to cleanup portfolio if refusing to place
-        userProfile.removePortfolioIfEmpty(portfolio);
+        userProfile.removeRecordIfEmpty(portfolio);
         return false;
     }
 

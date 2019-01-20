@@ -8,7 +8,10 @@ import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.openpredict.exchange.beans.*;
+import org.openpredict.exchange.beans.CfgWaitStrategyType;
+import org.openpredict.exchange.beans.CoreSymbolSpecification;
+import org.openpredict.exchange.beans.MatcherTradeEvent;
+import org.openpredict.exchange.beans.UserProfile;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
@@ -291,8 +294,8 @@ public class ExchangeCore {
         //log.info("Adjust balance: {}", cmd);
 
         userProfile.externalTransactions.put(cmd.orderId, amount);
-        userProfile.fastBalance += amount;
-        cmd.size = userProfile.fastBalance;
+        userProfile.balance += amount;
+        cmd.size = userProfile.balance;
         cmd.resultCode = CommandResultCode.SUCCESS;
     }
 
@@ -354,37 +357,24 @@ public class ExchangeCore {
             // TODO group by user profile ??
 
             // update taker's portfolio
-            final UserProfile takerProfile = userProfileService.getUserProfile(ev.activeOrderUid);
-            if (takerProfile != null) {
-                final SymbolPortfolio takerPortfolio = takerProfile.getOrCreatePortfolio(ev.symbol);
-                portfolioService.updatePortfolioForTrade(ev.activeOrderAction, ev.size, ev.price, takerPortfolio, (p, av) -> {
-                    takerProfile.fastBalance -= av * spec.takerCommission;
-                    takerProfile.fastBalance += p;
-                });
-                takerProfile.removePortfolioIfEmpty(takerPortfolio);
-            }
+            userProfileService.processSymbolPortfolioRecord(ev.activeOrderUid, ev.symbol, (userProfile, symbolPortfolioRecord) -> {
+                symbolPortfolioRecord.updatePortfolioForTrade(ev.activeOrderAction, ev.size, ev.price, spec.takerCommission);
+                userProfile.removeRecordIfEmpty(symbolPortfolioRecord);
+            });
 
             // update maker's portfolio
-            final UserProfile makerProfile = userProfileService.getUserProfile(ev.matchedOrderUid);
-            if (makerProfile != null) {
-                final SymbolPortfolio makerPortfolio = makerProfile.getOrCreatePortfolio(ev.symbol);
-                portfolioService.updatePortfolioForTrade(ev.activeOrderAction.opposite(), ev.size, ev.price, makerPortfolio, (p, av) -> {
-                    makerProfile.fastBalance -= av * spec.makerCommission;
-                    takerProfile.fastBalance += p;
-                });
-                makerProfile.removePortfolioIfEmpty(makerPortfolio);
-            }
+            userProfileService.processSymbolPortfolioRecord(ev.matchedOrderUid, ev.symbol, (userProfile, symbolPortfolioRecord) -> {
+                symbolPortfolioRecord.updatePortfolioForTrade(ev.activeOrderAction.opposite(), ev.size, ev.price, spec.makerCommission);
+                userProfile.removeRecordIfEmpty(symbolPortfolioRecord);
+            });
 
         } else if (ev.eventType == REJECTION || ev.eventType == REDUCE) {
 
             // for reduce/rejection only one party is involved
-            UserProfile userProfile = userProfileService.getUserProfile(ev.activeOrderUid);
-            if (userProfile != null) {
-                SymbolPortfolio portfolio = userProfile.getOrCreatePortfolio(ev.symbol);
-                portfolioService.updatePortfolioForReduce(ev.activeOrderAction, ev.size, portfolio);
-                userProfile.removePortfolioIfEmpty(portfolio);
-            }
-            // userProfile.removePortfolioIfEmpty(portfolio);
+            userProfileService.processSymbolPortfolioRecord(ev.activeOrderUid, ev.symbol, (up, spr) -> {
+                portfolioService.updatePortfolioForReduce(ev.activeOrderAction, ev.size, spr);
+                up.removeRecordIfEmpty(spr);
+            });
 
         } else {
             log.error("unsupported eventType: {}", ev.eventType);
