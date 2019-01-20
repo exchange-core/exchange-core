@@ -3,6 +3,7 @@ package org.openpredict.exchange.core;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.api.map.primitive.MutableLongObjectMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
+import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.SymbolPortfolioRecord;
 import org.openpredict.exchange.beans.UserProfile;
 import org.springframework.stereotype.Service;
@@ -16,7 +17,7 @@ import java.util.function.BiConsumer;
  */
 @Service
 @Slf4j
-public class UserProfileService {
+public final class UserProfileService {
 
     /**
      * State: uid -> user profile

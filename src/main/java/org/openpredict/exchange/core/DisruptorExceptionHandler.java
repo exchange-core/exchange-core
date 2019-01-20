@@ -8,7 +8,7 @@ import java.util.function.BiConsumer;
 
 @Slf4j
 @RequiredArgsConstructor
-public class DisruptorExceptionHandler<T> implements ExceptionHandler<T> {
+public final class DisruptorExceptionHandler<T> implements ExceptionHandler<T> {
 
     public final String name;
     public final BiConsumer<Throwable, Long> onException;

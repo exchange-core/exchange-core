@@ -12,7 +12,7 @@ import org.springframework.stereotype.Service;
  */
 @Service
 @Slf4j
-public class PortfolioService {
+public final class PortfolioService {
 
     /**
      * Hold deposit

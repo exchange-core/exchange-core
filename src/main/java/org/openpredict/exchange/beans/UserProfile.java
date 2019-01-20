@@ -7,7 +7,7 @@ import org.eclipse.collections.impl.map.mutable.primitive.LongLongHashMap;
 import java.util.function.IntFunction;
 
 @Slf4j
-public class UserProfile {
+public final class UserProfile {
 
     public final long uid;
 
@@ -40,15 +40,16 @@ public class UserProfile {
         return record;
     }
 
-    public long getAvailableFunds(IntFunction<CoreSymbolSpecification> symbolSpecSupplier) {
-        return balance + getCurrentPortfolioProfit(symbolSpecSupplier);
-    }
-
-    public long getCurrentPortfolioProfit(IntFunction<CoreSymbolSpecification> symbolSpecSupplier) {
-        return portfolio.injectInto(0L, (long result, SymbolPortfolioRecord record) -> {
-            CoreSymbolSpecification spec = symbolSpecSupplier.apply(record.symbol);
-            return result + record.estimateProfit(spec);
-        });
+    public long getMarginMinusDeposit(IntFunction<CoreSymbolSpecification> symbolSpecSupplier, int ignoreDepositForSymbol) {
+        long profit = 0L;
+        for (SymbolPortfolioRecord r : portfolio) {
+            final CoreSymbolSpecification spec = symbolSpecSupplier.apply(r.symbol);
+            profit += r.estimateProfit(spec);
+            if (ignoreDepositForSymbol != r.symbol) {
+                profit -= r.calculateRequiredDeposit(spec);
+            }
+        }
+        return profit;
     }
 
     public void removeRecordIfEmpty(SymbolPortfolioRecord record) {

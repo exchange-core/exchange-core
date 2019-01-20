@@ -12,7 +12,7 @@ import java.util.*;
 
 @Slf4j
 @RequiredArgsConstructor
-public class OrderBookSlow extends OrderBookBase {
+public final class OrderBookSlow extends OrderBookBase {
 
     private NavigableMap<Long, IOrdersBucket> askBuckets = new TreeMap<>();
     private NavigableMap<Long, IOrdersBucket> bidBuckets = new TreeMap<>(Collections.reverseOrder());

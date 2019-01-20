@@ -6,7 +6,7 @@ import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.springframework.stereotype.Service;
 
 @Service
-public class SymbolSpecificationProvider {
+public final class SymbolSpecificationProvider {
 
     // symbol->specs
     private IntObjectHashMap<CoreSymbolSpecification> symbolSpecs = new IntObjectHashMap<>();

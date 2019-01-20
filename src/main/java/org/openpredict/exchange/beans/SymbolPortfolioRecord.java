@@ -10,7 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 @ToString
 @AllArgsConstructor
 @Slf4j
-public class SymbolPortfolioRecord {
+public final class SymbolPortfolioRecord {
 
     public final int symbol;
     public final long uid;
@@ -72,6 +72,46 @@ public class SymbolPortfolioRecord {
             return profit + (openPriceSum - openVolume * spec.lastPrice) * position.getMultiplier();
         }
     }
+
+    public long calculateRequiredDeposit(CoreSymbolSpecification spec) {
+        final long specDepositBuy = spec.depositBuy;
+        final long specDepositSell = spec.depositSell;
+
+        final long signedPosition = openVolume * position.getMultiplier();
+        final long currentRiskBuySize = pendingBuySize + signedPosition;
+        final long currentRiskSellSize = pendingSellSize - signedPosition;
+
+        final long depositBuy = specDepositBuy * currentRiskBuySize;
+        final long depositSell = specDepositSell * currentRiskSellSize;
+        // depositBuy or depositSell can be negative, but not both of them
+        return Math.max(depositBuy, depositSell);
+    }
+
+    public long calculateRequiredDepositForOrder(final CoreSymbolSpecification spec, final OrderAction action, final long size) {
+        final long specDepositBuy = spec.depositBuy;
+        final long specDepositSell = spec.depositSell;
+
+        final long signedPosition = openVolume * position.getMultiplier();
+        final long currentRiskBuySize = pendingBuySize + signedPosition;
+        final long currentRiskSellSize = pendingSellSize - signedPosition;
+
+        long depositBuy = specDepositBuy * currentRiskBuySize;
+        long depositSell = specDepositSell * currentRiskSellSize;
+        // depositBuy or depositSell can be negative, but not both of them
+        final long currentDeposit = Math.max(depositBuy, depositSell);
+
+        if (action == OrderAction.BID) {
+            depositBuy += spec.depositBuy * size;
+        } else {
+            depositSell += spec.depositSell * size;
+        }
+
+        // depositBuy or depositSell can be negative, but not both of them
+        final long newDeposit = Math.max(depositBuy, depositSell);
+
+        return (newDeposit <= currentDeposit) ? -1 : newDeposit;
+    }
+
 
     /**
      * Update portfolio for one user

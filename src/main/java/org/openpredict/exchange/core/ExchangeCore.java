@@ -32,7 +32,7 @@ import static org.openpredict.exchange.beans.MatcherEventType.*;
 
 @Service
 @Slf4j
-public class ExchangeCore {
+public final class ExchangeCore {
 
     @Autowired
     private PortfolioService portfolioService;

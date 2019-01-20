@@ -11,7 +11,7 @@ import java.util.Objects;
 @AllArgsConstructor
 @NoArgsConstructor
 @ToString
-public class MatcherTradeEvent {
+public final class MatcherTradeEvent {
 
     public MatcherEventType eventType; // TRADE, REDUCE or REJECTION (rare)
 

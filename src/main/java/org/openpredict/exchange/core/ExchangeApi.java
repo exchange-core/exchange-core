@@ -12,7 +12,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 @Slf4j
-public class ExchangeApi {
+public final class ExchangeApi {
 
     @Autowired
     private ExchangeCore exchangeCore;

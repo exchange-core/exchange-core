@@ -17,7 +17,7 @@ import static org.openpredict.exchange.beans.OrderAction.ASK;
 import static org.openpredict.exchange.beans.OrderAction.BID;
 
 @Slf4j
-public class OrderBookFast extends OrderBookBase {
+public final class OrderBookFast extends OrderBookBase {
 
     private final int hotPricesRange; // TODO must be aligned by 64 bit, can not be lower than 1024
 

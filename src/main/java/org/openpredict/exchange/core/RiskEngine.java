@@ -2,7 +2,6 @@ package org.openpredict.exchange.core;
 
 import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
-import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.SymbolPortfolioRecord;
 import org.openpredict.exchange.beans.UserProfile;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
@@ -17,7 +16,7 @@ import java.util.function.IntFunction;
  */
 @Service
 @Slf4j
-public class RiskEngine {
+public final class RiskEngine {
 
     @Autowired
     private UserProfileService userProfileService;
@@ -38,35 +37,18 @@ public class RiskEngine {
         final int symbol = cmd.symbol;
         SymbolPortfolioRecord portfolio = userProfile.getOrCreatePortfolio(symbol);
 
-        final long signedPosition = portfolio.openVolume * portfolio.position.getMultiplier();
-        final long currentRiskBuySize = portfolio.pendingBuySize + signedPosition;
-        final long currentRiskSellSize = portfolio.pendingSellSize - signedPosition;
-
-        CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(symbol);
-
-        long depositBuy = spec.depositBuy * currentRiskBuySize;
-        long depositSell = spec.depositSell * currentRiskSellSize;
-        // depositBuy or depositSell can be negative, but not both of them
-        final long originalDeposit = Math.max(depositBuy, depositSell);
-
-        if (cmd.action == OrderAction.BID) {
-            depositBuy += spec.depositBuy * cmd.size;
-        } else {
-            depositSell += spec.depositSell * cmd.size;
-        }
-
-        // depositBuy or depositSell can be negative, but not both of them
-        final long newDeposit = Math.max(depositBuy, depositSell);
-
-        // always allow to place an order that would not increase trader's risk
-        if (newDeposit <= originalDeposit) {
+        final CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(symbol);
+        final long newDeposit = portfolio.calculateRequiredDepositForOrder(spec, cmd.action, cmd.size);
+        if (newDeposit == -1) {
+            // always allow to place an order that would not increase trader's risk
             return true;
         }
 
         // extra deposit is required
         // check if current balance and margin can cover new deposit
         final IntFunction<CoreSymbolSpecification> specSupplier = s -> symbolSpecificationProvider.getSymbolSpecification(s);
-        final long availableFunds = userProfile.getAvailableFunds(specSupplier);
+        final long availableFunds = userProfile.balance + userProfile.getMarginMinusDeposit(specSupplier, symbol);  //final long availableFunds = userProfile.balance;
+
         if (newDeposit <= availableFunds) {
             return true;
         }

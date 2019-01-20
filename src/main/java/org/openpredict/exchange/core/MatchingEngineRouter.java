@@ -9,7 +9,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 @Slf4j
-public class MatchingEngineRouter {
+public final class MatchingEngineRouter {
 
     // symbol->OB
     private final IntObjectHashMap<IOrderBook> orderBooks = new IntObjectHashMap<>();
