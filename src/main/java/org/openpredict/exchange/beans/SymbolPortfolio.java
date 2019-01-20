@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
+import org.openpredict.exchange.core.PortfolioFundsAdjustmentCallback;
 
 import java.util.Arrays;
 
@@ -20,7 +21,7 @@ public class SymbolPortfolio {
     // open positions state
     public PortfolioPosition position = PortfolioPosition.EMPTY;
     public long totalSize = 0;
-    public long acquireAmountSum = 0; //
+    public long openPriceSum = 0; //
 
     // pending orders total size
     // increment before sending order to matching engine
@@ -28,7 +29,7 @@ public class SymbolPortfolio {
     public long pendingSellSize = 0;
     public long pendingBuySize = 0;
 
-    // TODO use external implementation (Eclipse?)
+    // TODO remove (don't need for calculating risk)
     // portfolio records array queue (processed as FIFO)
     public long[] portfolioVolumes = new long[64];
     public long[] portfolioPrices = new long[64];
@@ -52,17 +53,6 @@ public class SymbolPortfolio {
                 && pendingBuySize == 0;
     }
 
-    public void validateInternalState() {
-        if (position == PortfolioPosition.EMPTY && (totalSize != 0 || acquireAmountSum != 0)) {
-            log.error("uid {} : position:{} totalSize:{} acquireAmountSum:{}", uid, position, totalSize, acquireAmountSum);
-            throw new IllegalStateException();
-        }
-        if (position != PortfolioPosition.EMPTY && (totalSize == 0 || acquireAmountSum == 0)) {
-            log.error("uid {} : position:{} totalSize:{} acquireAmountSum:{}", uid, position, totalSize, acquireAmountSum);
-            throw new IllegalStateException();
-        }
-    }
-
     public void pendingHold(OrderAction orderAction, long size) {
         if (orderAction == OrderAction.ASK) {
             pendingSellSize += size;
@@ -83,33 +73,73 @@ public class SymbolPortfolio {
         }
     }
 
-    public long reducePositionIfOppositeAction(long remainingVolume, OrderAction action) {
+    public void openClosePosition(final OrderAction action, final long tradeSize, final long tradePrice, final PortfolioFundsAdjustmentCallback callback) {
+//        if(uid == 196) {
+//            log.debug("{} {} {}", uid, action, size);
+//        }
 
+        final long profit;
+
+        long remainingVolume = tradeSize;
+
+        // try to close existing position first
         if (position.isOppositeToAction(action)) {
-            // remove position until position is empty or no trade size left (whichever comes first)
+
+            long closedAmount = 0;
+            long closedVolume = 0;
+
+            // remove position records until either whole position is empty or there are no size left (whichever comes first)
             while (remainingVolume != 0 && portfolioHasElement()) {
-                final long portfRecordVol = headVolume();
-                if (portfRecordVol <= remainingVolume) {
+                final long recordVolume = headVolume();
+                if (recordVolume <= remainingVolume) {
                     // portfolio record is smaller than size left, can remove completely
-                    totalSize -= portfRecordVol;
-                    acquireAmountSum -= headPrice() * portfRecordVol;
-                    remainingVolume -= portfRecordVol;
+                    closedVolume += recordVolume;
+                    closedAmount += headPrice() * recordVolume;
                     portfolioRemove();
+                    remainingVolume -= recordVolume;
                 } else {
                     // portfolio record has bigger size than we need - reduce size partially
+                    closedVolume += remainingVolume;
+                    closedAmount += headPrice() * remainingVolume;
                     reduceHeadVolume(remainingVolume);
-                    totalSize -= remainingVolume;
-                    acquireAmountSum -= headPrice() * remainingVolume;
                     remainingVolume = 0;
                 }
             }
+
+            openPriceSum -= closedAmount;
+            totalSize -= closedVolume;
+            if (totalSize == 0) {
+                position = PortfolioPosition.EMPTY;
+            }
+
+            // calculate profit as a difference between close amount and open amount
+            profit = (tradePrice * closedVolume - closedAmount) * position.getMultiplier();
+        } else {
+            profit = 0;
         }
 
-        if (totalSize == 0) {
-            position = PortfolioPosition.EMPTY;
+        // open position
+        final long openedVolume;
+        if (remainingVolume > 0) {
+            totalSize += remainingVolume;
+            openPriceSum += tradePrice * remainingVolume;
+            position = PortfolioPosition.of(action);
+
+            openedVolume = remainingVolume;
+
+            if (portfolioHasElement() && tailPrice() == tradePrice) {
+                // just an optimization: when opening big volume for the same price - combine smaller records
+                increaseTailVolume(remainingVolume);
+            } else {
+                portfolioAdd(tradePrice, remainingVolume);
+            }
+        } else {
+            openedVolume = 0;
         }
 
-        return remainingVolume;
+        callback.submit(profit, openedVolume);
+
+        validateInternalState();
     }
 
 
@@ -132,7 +162,7 @@ public class SymbolPortfolio {
         portfolioVolumes[portfolioHead] -= size;
     }
 
-    public void incTailVolume(long size) {
+    public void increaseTailVolume(long size) {
         portfolioPrices[portfolioTail] += size;
     }
 
@@ -147,6 +177,7 @@ public class SymbolPortfolio {
     public boolean portfolioHasElement() {
         return portfolioSize > 0;
     }
+
 
     public void portfolioRemove() {
         portfolioSize--;
@@ -218,8 +249,25 @@ public class SymbolPortfolio {
         portfolioPrices = new long[16];
 
         totalSize = 0;
-        acquireAmountSum = 0;
+        openPriceSum = 0;
         position = PortfolioPosition.EMPTY;
+    }
+
+    public void validateInternalState() {
+        if (position == PortfolioPosition.EMPTY && (totalSize != 0 || openPriceSum != 0)) {
+            log.error("uid {} : position:{} totalSize:{} openPriceSum:{}", uid, position, totalSize, openPriceSum);
+            throw new IllegalStateException();
+        }
+        if (position != PortfolioPosition.EMPTY && (totalSize <= 0 || openPriceSum <= 0)) {
+            log.error("uid {} : position:{} totalSize:{} openPriceSum:{}", uid, position, totalSize, openPriceSum);
+            throw new IllegalStateException();
+        }
+
+        if (pendingSellSize < 0 || pendingBuySize < 0) {
+            log.error("uid {} : pendingSellSize:{} pendingBuySize:{}", uid, pendingSellSize, pendingBuySize);
+            throw new IllegalStateException();
+        }
+
     }
 
 }

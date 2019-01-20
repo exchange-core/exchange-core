@@ -8,7 +8,9 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class CoreSymbolSpecification {
+public final class CoreSymbolSpecification {
+
+    // TODO make immutable (copy on write)??
 
     public int symbolId;
 
@@ -19,5 +21,13 @@ public class CoreSymbolSpecification {
     // order book limits
     public long highLimit;
     public long lowLimit;
+
+    // commissions
+    public long takerCommission = 0;
+    public long makerCommission = 0;
+
+    // swaps
+    public long longSwap = 0;
+    public long shortSwap = 0;
 
 }

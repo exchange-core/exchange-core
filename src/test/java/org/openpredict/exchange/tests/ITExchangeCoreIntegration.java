@@ -269,7 +269,7 @@ public class ITExchangeCoreIntegration {
         Thread.sleep(20);
         uids.forEach(uid -> {
             apiCore.submitCommand(ApiAddUser.builder().uid(uid).build());
-            apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(70_000_000L).build());
+            apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(7_000_000L).build());
         });
 
         System.gc();

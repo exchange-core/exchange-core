@@ -2,7 +2,6 @@ package org.openpredict.exchange.core;
 
 import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.OrderAction;
-import org.openpredict.exchange.beans.PortfolioPosition;
 import org.openpredict.exchange.beans.SymbolPortfolio;
 import org.openpredict.exchange.beans.UserProfile;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
@@ -33,38 +32,13 @@ public class PortfolioService {
      * 2. Reduce opposite position accordingly (if exists)
      * 3. Increase forward position accordingly (if size left in the trading event)
      */
-    public void updatePortfolioForTrade(OrderAction action, long size, long price, SymbolPortfolio portfolio) {
+    public void updatePortfolioForTrade(OrderAction action, long size, long price, SymbolPortfolio portfolio, PortfolioFundsAdjustmentCallback callback) {
 
         // 1. un-hold pending size
         portfolio.pendingRelease(action, size);
 
-        if (portfolio.pendingSellSize < 0 || portfolio.pendingBuySize < 0) {
-            log.error("uid {} : pendingSellSize:{} pendingBuySize:{}", portfolio.uid, portfolio.pendingSellSize, portfolio.pendingBuySize);
-        }
-
-        long remainingVolume = size;
-
         // 2. Reduce opposite position accordingly (if exists)
-        remainingVolume = portfolio.reducePositionIfOppositeAction(remainingVolume, action);
-
-        if (remainingVolume < 0) {
-            log.error("uid {} : remainingVolume:{}", portfolio.uid, remainingVolume);
-        }
-
-        // 3. Increase forward position accordingly
-        if (remainingVolume > 0) {
-            portfolio.totalSize += remainingVolume;
-            portfolio.acquireAmountSum += price * remainingVolume;
-            portfolio.position = portfolio.totalSize != 0 ? PortfolioPosition.of(action) : PortfolioPosition.EMPTY;
-
-            if (portfolio.portfolioHasElement() && portfolio.tailPrice() == price) {
-                // just an optimization
-                // if trading big amount for the same price - smaller parts can be glued together into a bigger one
-                portfolio.incTailVolume(remainingVolume);
-            } else {
-                portfolio.portfolioAdd(price, remainingVolume);
-            }
-        }
+        portfolio.openClosePosition(action, size, price, callback);
     }
 
     /**

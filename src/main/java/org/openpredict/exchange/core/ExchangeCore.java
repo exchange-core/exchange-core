@@ -337,8 +337,10 @@ public class ExchangeCore {
 //            log.debug("accepted R2: sequence {} <= avail {}", seq, cmd.availableEventSeq);
 //        }
 
-        // TODO ?? check if order is not reverse
-        cmd.processMatherEvents(this::handleMatcherEvent);
+        final CoreSymbolSpecification spec = (cmd.matcherEvent == null) ? null : symbolSpecificationProvider.getSymbolSpecification(cmd.symbol);
+
+        // TODO ?? check if processing order is not reversed
+        cmd.processMatherEvents(ev -> handleMatcherEvent(ev, spec));
 
 //        lastReleaseSeqProcessed = seq;
 //        log.debug("lastReleaseSeqProcessed set to {}", lastReleaseSeqProcessed);
@@ -346,24 +348,30 @@ public class ExchangeCore {
     }
 
     // TODO process uid only for designated shard
-    private void handleMatcherEvent(MatcherTradeEvent ev) {
+    private void handleMatcherEvent(MatcherTradeEvent ev, CoreSymbolSpecification spec) {
 
         if (ev.eventType == TRADE) {
             // TODO group by user profile ??
 
             // update taker's portfolio
-            UserProfile takerProfile = userProfileService.getUserProfile(ev.activeOrderUid);
+            final UserProfile takerProfile = userProfileService.getUserProfile(ev.activeOrderUid);
             if (takerProfile != null) {
-                SymbolPortfolio takerPortfolio = takerProfile.getOrCreatePortfolio(ev.symbol);
-                portfolioService.updatePortfolioForTrade(ev.activeOrderAction, ev.size, ev.price, takerPortfolio);
+                final SymbolPortfolio takerPortfolio = takerProfile.getOrCreatePortfolio(ev.symbol);
+                portfolioService.updatePortfolioForTrade(ev.activeOrderAction, ev.size, ev.price, takerPortfolio, (p, av) -> {
+                    takerProfile.fastBalance -= av * spec.takerCommission;
+                    takerProfile.fastBalance += p;
+                });
                 takerProfile.removePortfolioIfEmpty(takerPortfolio);
             }
 
             // update maker's portfolio
-            UserProfile makerProfile = userProfileService.getUserProfile(ev.matchedOrderUid);
+            final UserProfile makerProfile = userProfileService.getUserProfile(ev.matchedOrderUid);
             if (makerProfile != null) {
-                SymbolPortfolio makerPortfolio = makerProfile.getOrCreatePortfolio(ev.symbol);
-                portfolioService.updatePortfolioForTrade(ev.activeOrderAction.opposite(), ev.size, ev.price, makerPortfolio);
+                final SymbolPortfolio makerPortfolio = makerProfile.getOrCreatePortfolio(ev.symbol);
+                portfolioService.updatePortfolioForTrade(ev.activeOrderAction.opposite(), ev.size, ev.price, makerPortfolio, (p, av) -> {
+                    makerProfile.fastBalance -= av * spec.makerCommission;
+                    takerProfile.fastBalance += p;
+                });
                 makerProfile.removePortfolioIfEmpty(makerPortfolio);
             }
 

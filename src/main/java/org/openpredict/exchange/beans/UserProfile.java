@@ -19,6 +19,7 @@ public class UserProfile {
     public long fastBalance = 0L;
 
     // collected from portfolio
+    // TODO change to cached guaranteed available funds based on current position?
     public long fastMargin = 0L;
 
     public long commandsCounter = 0L;
