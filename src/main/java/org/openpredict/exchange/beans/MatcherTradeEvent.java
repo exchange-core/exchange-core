@@ -17,12 +17,14 @@ public class MatcherTradeEvent {
 
     public int symbol;
 
+    // taker (for TRADE)
     public long activeOrderId;
     public long activeOrderUid;
     public boolean activeOrderCompleted; // false, except when activeOrder is completely filled
     public OrderAction activeOrderAction; // assume matched order has opposite action
 //    public long activeOrderSeq;
 
+    // maker (for TRADE)
     public long matchedOrderId;
     public long matchedOrderUid; // 0 for rejection
     public boolean matchedOrderCompleted; // false, except when matchedOrder is completely filled

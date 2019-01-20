@@ -10,7 +10,7 @@ public class UserProfile {
     public final long uid;
 
     // symbol -> portfolio records
-    public IntObjectHashMap<SymbolPortfolio> portfolio = new IntObjectHashMap<>();
+    private IntObjectHashMap<SymbolPortfolio> portfolios = new IntObjectHashMap<>();
 
     // transactionId -> amount
     public LongLongHashMap externalTransactions = new LongLongHashMap();
@@ -28,9 +28,25 @@ public class UserProfile {
         this.uid = uid;
     }
 
+
+    public SymbolPortfolio getOrCreatePortfolio(int symbol) {
+        SymbolPortfolio portfolio = portfolios.get(symbol);
+        if (portfolio == null) {
+            portfolio = new SymbolPortfolio(symbol, uid);
+            portfolios.put(symbol, portfolio);
+        }
+        return portfolio;
+    }
+
+    public void removePortfolioIfEmpty(SymbolPortfolio portfolio) {
+        if (portfolio.isEmpty()) {
+            portfolios.removeKey(portfolio.symbol);
+        }
+    }
+
     public void clear() {
 //        log.debug("{} Portfolio size: {}, commands {}, fastBalance: {}", uid, portfolio.size(), commandsCounter.longValue(), fastBalance);
-        portfolio.forEach(SymbolPortfolio::reset);
+        portfolios.forEach(SymbolPortfolio::reset);
         commandsCounter = 0;
         // TODO clear margin?
     }
@@ -40,7 +56,7 @@ public class UserProfile {
     public String toString() {
         return "UserProfile{" +
                 "uid=" + uid +
-                ", portfolio=" + portfolio +
+                ", portfolios=" + portfolios.size() +
                 ", fastBalance=" + fastBalance +
                 ", commandsCounter=" + commandsCounter +
                 '}';

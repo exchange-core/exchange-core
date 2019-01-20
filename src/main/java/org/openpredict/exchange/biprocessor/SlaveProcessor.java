@@ -31,13 +31,17 @@ public final class SlaveProcessor<T> implements EventProcessor {
     private final SequenceBarrier sequenceBarrier;
     private final SimpleEventHandler<? super T> eventHandler;
     private final Sequence sequence = new Sequence(Sequencer.INITIAL_CURSOR_VALUE);
-
+    private final ExceptionHandler<? super T> exceptionHandler;
     private long nextSequence = -1;
 
-    public SlaveProcessor(DataProvider<T> dataProvider, SequenceBarrier sequenceBarrier, SimpleEventHandler<? super T> eventHandler) {
+    public SlaveProcessor(final DataProvider<T> dataProvider,
+                          final SequenceBarrier sequenceBarrier,
+                          final SimpleEventHandler<? super T> eventHandler,
+                          final ExceptionHandler<? super T> exceptionHandler) {
         this.dataProvider = dataProvider;
         this.sequenceBarrier = sequenceBarrier;
         this.eventHandler = eventHandler;
+        this.exceptionHandler = exceptionHandler;
     }
 
     @Override
@@ -74,12 +78,14 @@ public final class SlaveProcessor<T> implements EventProcessor {
 
     public void handlingCycle(long processUpToSequence) {
         while (true) {
+            T event = null;
             try {
                 long availableSequence = sequenceBarrier.tryWaitFor(nextSequence, 0);
 
                 // process batch
                 while (nextSequence <= availableSequence && nextSequence < processUpToSequence) {
-                    eventHandler.onEvent(dataProvider.get(nextSequence));
+                    event = dataProvider.get(nextSequence);
+                    eventHandler.onEvent(event);
                     nextSequence++;
                 }
 
@@ -94,6 +100,7 @@ public final class SlaveProcessor<T> implements EventProcessor {
             } catch (final TimeoutException e) {
                 //
             } catch (final Throwable ex) {
+                exceptionHandler.handleEventException(ex, nextSequence, event);
                 sequence.set(nextSequence);
                 nextSequence++;
             }

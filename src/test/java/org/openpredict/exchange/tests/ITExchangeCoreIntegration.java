@@ -74,7 +74,7 @@ public class ITExchangeCoreIntegration {
     public void before() {
         detatchConsumer();
 
-        CoreSymbolSpecification spec = CoreSymbolSpecification.builder().depositBuy(22000).depositSell(32100).symbolId(SYMBOL).build();
+        CoreSymbolSpecification spec = CoreSymbolSpecification.builder().depositBuy(2200).depositSell(4210).symbolId(SYMBOL).build();
         symbolSpecificationProvider.registerSymbol(SYMBOL, spec);
         matchingEngineRouter.addOrderBook(SYMBOL);
 
@@ -90,7 +90,8 @@ public class ITExchangeCoreIntegration {
     }
 
     @After
-    public void after() {
+    public void after() throws Exception{
+        Thread.sleep(100);
         BlockingQueue<OrderCommand> results = attachBufferedConsumer();
         apiCore.submitCommand(ApiReset.builder().build());
         List<OrderCommand> commands = waitForOrderCommands(results, 1);
@@ -114,15 +115,11 @@ public class ITExchangeCoreIntegration {
         log.debug("PLACE: {}", order101);
         apiCore.submitCommand(order101);
 
-        //ArgumentCaptor<OrderCommand> argumentCaptor = ArgumentCaptor.forClass(OrderCommand.class);
-        //Thread.sleep(100);
-        //verify(resultsConsumerMock, times(1)).accept(argumentCaptor.capture());
-
-
         List<OrderCommand> orderCommands = waitForOrderCommands(results, 1);
 
         assertThat(orderCommands.size(), is(1));
         OrderCommand cmd = orderCommands.get(0);
+        assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
         assertThat(cmd.orderId, is(101L));
         assertThat(cmd.uid, is((long) UID_1));
         assertThat(cmd.price, is(1600L));
@@ -130,7 +127,6 @@ public class ITExchangeCoreIntegration {
         assertThat(cmd.action, is(OrderAction.ASK));
         assertThat(cmd.orderType, is(OrderType.LIMIT));
         assertThat(cmd.symbol, is(SYMBOL));
-        assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
         assertNull(cmd.matcherEvent);
 
         results.clear();
@@ -273,7 +269,7 @@ public class ITExchangeCoreIntegration {
         Thread.sleep(20);
         uids.forEach(uid -> {
             apiCore.submitCommand(ApiAddUser.builder().uid(uid).build());
-            apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(2_000_000_000L).build());
+            apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(70_000_000L).build());
         });
 
         System.gc();

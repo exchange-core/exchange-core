@@ -34,6 +34,8 @@ public class TestOrdersGenerator {
 
     public static final int CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND = 1024;
 
+    // TODO allow limiting max volume
+
     public GenResult generateCommands(
             int transactionsNumber,
             int targetOrderBookOrders,

@@ -34,16 +34,20 @@ public final class MasterProcessor implements EventProcessor {
     private final DataProvider<OrderCommand> dataProvider;
     private final SequenceBarrier sequenceBarrier;
     private final SimpleEventHandler<OrderCommand> eventHandler;
+    private final ExceptionHandler<OrderCommand> exceptionHandler;
     private final Sequence sequence = new Sequence(Sequencer.INITIAL_CURSOR_VALUE);
 
     @Setter
     private SlaveProcessor<OrderCommand> slaveProcessor;
 
-    public MasterProcessor(final DataProvider<OrderCommand> dataProvider, final SequenceBarrier sequenceBarrier,
-                           final SimpleEventHandler<OrderCommand> eventHandler) {
+    public MasterProcessor(final DataProvider<OrderCommand> dataProvider,
+                           final SequenceBarrier sequenceBarrier,
+                           final SimpleEventHandler<OrderCommand> eventHandler,
+                           final ExceptionHandler<OrderCommand> exceptionHandler) {
         this.dataProvider = dataProvider;
         this.sequenceBarrier = sequenceBarrier;
         this.eventHandler = eventHandler;
+        this.exceptionHandler = exceptionHandler;
     }
 
     @Override
@@ -103,6 +107,7 @@ public final class MasterProcessor implements EventProcessor {
         }
 
         while (true) {
+            OrderCommand cmd = null;
             try {
 
                 // should spin and also check another barrier
@@ -110,7 +115,7 @@ public final class MasterProcessor implements EventProcessor {
 
                 if (availableSequence >= nextSequence) {
                     while (nextSequence <= availableSequence) {
-                        final OrderCommand cmd = dataProvider.get(nextSequence);
+                        cmd = dataProvider.get(nextSequence);
 
                         // switch to next group - process
                         if (cmd.eventsGroup > currentSequenceGroup) {
@@ -141,6 +146,7 @@ public final class MasterProcessor implements EventProcessor {
                     break;
                 }
             } catch (final Throwable ex) {
+                exceptionHandler.handleEventException(ex, nextSequence, cmd);
                 sequence.set(nextSequence);
                 nextSequence++;
             }

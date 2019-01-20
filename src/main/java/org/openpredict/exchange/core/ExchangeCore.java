@@ -1,6 +1,9 @@
 package org.openpredict.exchange.core;
 
-import com.lmax.disruptor.*;
+import com.lmax.disruptor.BatchEventProcessor;
+import com.lmax.disruptor.EventHandler;
+import com.lmax.disruptor.EventTranslator;
+import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
 import lombok.Setter;
@@ -21,6 +24,8 @@ import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
+
+import static org.openpredict.exchange.beans.MatcherEventType.*;
 
 @Service
 @Slf4j
@@ -73,7 +78,12 @@ public class ExchangeCore {
                 ProducerType.MULTI, // multiple gateway threads are writing
                 CfgWaitStrategyType.BUSY_SPIN.create());
 
-        disruptor.setDefaultExceptionHandler(new DisruptorExceptionHandler<>("main"));
+        DisruptorExceptionHandler<OrderCommand> exceptionHandler = new DisruptorExceptionHandler<>("main", (ex, seq) -> {
+            cmdRingBuffer.publishEvent(SHUTDOWN_SIGNAL_TRANSLATOR);
+            disruptor.shutdown();
+        });
+
+        disruptor.setDefaultExceptionHandler(exceptionHandler);
 
 //        LoggingBarrierHandler loggingBarrierHandler = new LoggingBarrierHandler();
 
@@ -123,7 +133,7 @@ public class ExchangeCore {
         disruptor
                 .after(procG)
                 .handleEventsWith((rb, bs) -> {
-                    procR1 = new MasterProcessor(rb, rb.newBarrier(bs), handlerR1);
+                    procR1 = new MasterProcessor(rb, rb.newBarrier(bs), handlerR1, exceptionHandler);
                     return procR1;
                 });
         disruptor.after(procR1).handleEventsWith(matchingEngineHandler);
@@ -135,7 +145,7 @@ public class ExchangeCore {
 
         disruptor.after(matchingEngineHandler)
                 .then((rb, bs) -> {
-                    procR2 = new SlaveProcessor<>(rb, rb.newBarrier(bs), handlerR2);
+                    procR2 = new SlaveProcessor<>(rb, rb.newBarrier(bs), handlerR2, exceptionHandler);
                     procR1.setSlaveProcessor(procR2);
                     return procR2;
                 });
@@ -204,7 +214,7 @@ public class ExchangeCore {
                 break;
 
             case PLACE_ORDER:
-                placeOrder(cmd);
+                placeOrderRiskCheck(cmd);
                 break;
 
             case ADD_USER:
@@ -232,25 +242,26 @@ public class ExchangeCore {
         //return true;
     }
 
-    private void placeOrder(OrderCommand cmd) {
-        UserProfile userProfile;
-        userProfile = userProfileService.getUserProfile(cmd.uid);
+    private void placeOrderRiskCheck(OrderCommand cmd) {
+
+//        boolean debug = cmd.uid == 124;
+//        if (debug) log.debug(">>> {}", cmd);
+
+
+        final UserProfile userProfile = userProfileService.getUserProfile(cmd.uid);
         if (userProfile == null) {
+            cmd.resultCode = CommandResultCode.AUTH_INVALID_USER;
             log.warn("User profile {} not found", cmd.uid);
             return;
         }
 
+        // check if enough funds
         if (!riskEngine.checkIfCanPlaceOrder(cmd, userProfile)) {
             cmd.resultCode = CommandResultCode.RISK_NSF;
-
-            // TODO SEND rejected by risk engine
-            log.debug("Can not place {}", cmd);
-            log.debug("         user {}", userProfile);
+            log.warn("NSF uid={}: Can not place {}", userProfile.uid, cmd);
             return;
         }
 
-        // send event accepted
-        // TODO SEND pending
         // lock funds
         portfolioService.holdDepositForNewOrder(cmd, userProfile);
         cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
@@ -334,27 +345,46 @@ public class ExchangeCore {
         //return true;
     }
 
+    // TODO process uid only for designated shard
     private void handleMatcherEvent(MatcherTradeEvent ev) {
 
-        switch (ev.eventType) {
-            case TRADE:
-                // TODO group by user profile ??
-                SymbolPortfolio portfolio = userProfileService.getUserProfile(ev.activeOrderUid).portfolio.get(ev.symbol);
-                portfolioService.updatePortfolioForTrade(ev.activeOrderAction, ev.size, ev.price, portfolio);
-                portfolio = userProfileService.getUserProfile(ev.matchedOrderUid).portfolio.get(ev.symbol);
-                portfolioService.updatePortfolioForTrade(ev.activeOrderAction.opposite(), ev.size, ev.price, portfolio);
-                return;
+        if (ev.eventType == TRADE) {
+            // TODO group by user profile ??
 
-            case REJECTION:
-            case REDUCE:
-                portfolio = userProfileService.getUserProfile(ev.activeOrderUid).portfolio.get(ev.symbol);
+            // update taker's portfolio
+            UserProfile takerProfile = userProfileService.getUserProfile(ev.activeOrderUid);
+            if (takerProfile != null) {
+                SymbolPortfolio takerPortfolio = takerProfile.getOrCreatePortfolio(ev.symbol);
+                portfolioService.updatePortfolioForTrade(ev.activeOrderAction, ev.size, ev.price, takerPortfolio);
+                takerProfile.removePortfolioIfEmpty(takerPortfolio);
+            }
+
+            // update maker's portfolio
+            UserProfile makerProfile = userProfileService.getUserProfile(ev.matchedOrderUid);
+            if (makerProfile != null) {
+                SymbolPortfolio makerPortfolio = makerProfile.getOrCreatePortfolio(ev.symbol);
+                portfolioService.updatePortfolioForTrade(ev.activeOrderAction.opposite(), ev.size, ev.price, makerPortfolio);
+                makerProfile.removePortfolioIfEmpty(makerPortfolio);
+            }
+
+        } else if (ev.eventType == REJECTION || ev.eventType == REDUCE) {
+
+            // for reduce/rejection only one party is involved
+            UserProfile userProfile = userProfileService.getUserProfile(ev.activeOrderUid);
+            if (userProfile != null) {
+                SymbolPortfolio portfolio = userProfile.getOrCreatePortfolio(ev.symbol);
                 portfolioService.updatePortfolioForReduce(ev.activeOrderAction, ev.size, portfolio);
-        }
+                userProfile.removePortfolioIfEmpty(portfolio);
+            }
+            // userProfile.removePortfolioIfEmpty(portfolio);
 
+        } else {
+            log.error("unsupported eventType: {}", ev.eventType);
+        }
 
     }
 
-    private void reset(){
+    private void reset() {
         log.info("doing RESET");
         userProfileService.reset();
         symbolSpecificationProvider.reset();

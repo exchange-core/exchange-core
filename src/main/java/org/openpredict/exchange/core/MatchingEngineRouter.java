@@ -12,19 +12,22 @@ import org.springframework.stereotype.Service;
 public class MatchingEngineRouter {
 
     // symbol->OB
-    private IntObjectHashMap<IOrderBook> orderBooks = new IntObjectHashMap<>();
+    private final IntObjectHashMap<IOrderBook> orderBooks = new IntObjectHashMap<>();
 
     public void processOrder(OrderCommand cmd) {
         if (cmd.resultCode != CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
+            cmd.matcherEvent = null; // remove and let garbage collected
             return;
         }
 
-        IOrderBook orderBook = orderBooks.get(cmd.symbol);
-        if (orderBook != null) {
-            orderBook.processCommand(cmd);
-        } else {
+        final IOrderBook orderBook = orderBooks.get(cmd.symbol);
+        if (orderBook == null) {
+            cmd.matcherEvent = null; // remove and let garbage collected
             cmd.resultCode = CommandResultCode.MATCHING_INVALID_ORDER_ID;
+            return;
         }
+
+        orderBook.processCommand(cmd);
     }
 
     public void addOrderBook(int symbol) {
