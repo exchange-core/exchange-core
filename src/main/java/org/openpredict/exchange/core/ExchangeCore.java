@@ -289,7 +289,7 @@ public final class ExchangeCore {
     }
 
 
-    private void handlerRiskRelease(OrderCommand cmd) {
+    private void handlerRiskRelease(final OrderCommand cmd) {
 
 //        log.debug("R2 Release {}", seq);
 
@@ -321,24 +321,37 @@ public final class ExchangeCore {
             // TODO group by user profile ??
 
             // update taker's portfolio
-            userProfileService.processSymbolPortfolioRecord(ev.activeOrderUid, ev.symbol, (userProfile, symbolPortfolioRecord) -> {
-                symbolPortfolioRecord.updatePortfolioForTrade(ev.activeOrderAction, ev.size, ev.price, spec.takerCommission);
-                userProfile.removeRecordIfEmpty(symbolPortfolioRecord);
-            });
+            final UserProfile taker = userProfileService.getUserProfile(ev.activeOrderUid);
+            if (taker != null) {
+                final SymbolPortfolioRecord spr = taker.getOrCreatePortfolioRecord(ev.symbol);
+                spr.updatePortfolioForTrade(ev.activeOrderAction, ev.size, ev.price, spec.takerCommission);
+                taker.removeRecordIfEmpty(spr);
+            } else {
+                log.warn("User TAKER profile {} not found", ev.activeOrderUid);
+
+            }
 
             // update maker's portfolio
-            userProfileService.processSymbolPortfolioRecord(ev.matchedOrderUid, ev.symbol, (userProfile, symbolPortfolioRecord) -> {
-                symbolPortfolioRecord.updatePortfolioForTrade(ev.activeOrderAction.opposite(), ev.size, ev.price, spec.makerCommission);
-                userProfile.removeRecordIfEmpty(symbolPortfolioRecord);
-            });
+            final UserProfile maker = userProfileService.getUserProfile(ev.matchedOrderUid);
+            if (maker != null) {
+                final SymbolPortfolioRecord spr = maker.getOrCreatePortfolioRecord(ev.symbol);
+                spr.updatePortfolioForTrade(ev.activeOrderAction.opposite(), ev.size, ev.price, spec.makerCommission);
+                maker.removeRecordIfEmpty(spr);
+            } else {
+                log.warn("User MAKER profile {} not found", ev.activeOrderUid);
+            }
 
         } else if (ev.eventType == REJECTION || ev.eventType == REDUCE) {
 
             // for reduce/rejection only one party is involved
-            userProfileService.processSymbolPortfolioRecord(ev.activeOrderUid, ev.symbol, (up, spr) -> {
+            final UserProfile up = userProfileService.getUserProfile(ev.activeOrderUid);
+            if (up != null) {
+                final SymbolPortfolioRecord spr = up.getOrCreatePortfolioRecord(ev.symbol);
                 spr.pendingRelease(ev.activeOrderAction, ev.size);
                 up.removeRecordIfEmpty(spr);
-            });
+            } else {
+                log.warn("{} User profile {} not found", ev.eventType, ev.activeOrderUid);
+            }
 
         } else {
             log.error("unsupported eventType: {}", ev.eventType);

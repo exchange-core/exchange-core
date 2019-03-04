@@ -36,6 +36,8 @@ public final class ExchangeApi {
             ringBuffer.publishEvent(ADJUST_USER_BALANCE_TRANSLATOR, (ApiAdjustUserBalance) cmd);
         } else if (cmd instanceof ApiReset) {
             ringBuffer.publishEvent(RESET_TRANSLATOR, (ApiReset) cmd);
+        } else if (cmd instanceof ApiNoOp) {
+            ringBuffer.publishEvent(NOOP_TRANSLATOR, (ApiNoOp) cmd);
         } else {
             throw new IllegalArgumentException("Unsupported command type: " + cmd.getClass().getSimpleName());
         }
@@ -104,6 +106,16 @@ public final class ExchangeApi {
 
     private static final EventTranslatorOneArg<OrderCommand, ApiReset> RESET_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.RESET;
+        cmd.orderId = -1;
+        cmd.symbol = -1;
+        cmd.uid = -1;
+        cmd.price = -1;
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+    };
+
+    private static final EventTranslatorOneArg<OrderCommand, ApiNoOp> NOOP_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.NOP;
         cmd.orderId = -1;
         cmd.symbol = -1;
         cmd.uid = -1;

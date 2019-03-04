@@ -3,11 +3,8 @@ package org.openpredict.exchange.core;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.api.map.primitive.MutableLongObjectMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
-import org.openpredict.exchange.beans.SymbolPortfolioRecord;
 import org.openpredict.exchange.beans.UserProfile;
 import org.springframework.stereotype.Service;
-
-import java.util.function.BiConsumer;
 
 /**
  * Stateful (!) User profile service
@@ -31,13 +28,6 @@ public final class UserProfileService {
      */
     public UserProfile getUserProfile(long uid) {
         return userProfiles.get(uid);
-    }
-
-    public void processSymbolPortfolioRecord(long uid, int symbol, BiConsumer<UserProfile, SymbolPortfolioRecord> biconsumer) {
-        UserProfile userProfile = userProfiles.get(uid);
-        if (userProfile != null) {
-            biconsumer.accept(userProfile, userProfile.getOrCreatePortfolioRecord(symbol));
-        }
     }
 
     /**

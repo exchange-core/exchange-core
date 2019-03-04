@@ -13,6 +13,7 @@ import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.api.ApiAddUser;
 import org.openpredict.exchange.beans.api.ApiAdjustUserBalance;
 import org.openpredict.exchange.beans.api.ApiCommand;
+import org.openpredict.exchange.beans.api.ApiNoOp;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.core.*;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
@@ -152,6 +153,7 @@ public class ExchangeCorePerformance {
                 // TODO compare events
                 assertThat(matchingEngineRouter.getOrderBook(SYMBOL).hashCode(), is(genResult.getFinalOrderbookHash()));
 
+                apiCore.submitCommand(ApiNoOp.builder().build());
             }
 
             double avg = (float) perfResults.stream().mapToDouble(x -> x).average().orElse(0);
@@ -199,6 +201,8 @@ public class ExchangeCorePerformance {
                     userProfileService.reset();
                     matchingEngineRouter.reset();
                     exchangeCore.setResultsConsumer(NO_CONSUMER);
+                    apiCore.submitCommand(ApiNoOp.builder().build());
+                    Thread.sleep(20);
                     uids.forEach(this::userInit);
                     System.gc();
                     Thread.sleep(200);
@@ -311,6 +315,8 @@ public class ExchangeCorePerformance {
                     userProfileService.reset();
                     matchingEngineRouter.reset();
                     exchangeCore.setResultsConsumer(NO_CONSUMER);
+                    apiCore.submitCommand(ApiNoOp.builder().build());
+                    Thread.sleep(20);
                     uids.forEach(this::userInit);
                     System.gc();
                     Thread.sleep(200);
@@ -406,6 +412,8 @@ public class ExchangeCorePerformance {
             userProfileService.reset();
             matchingEngineRouter.reset();
             exchangeCore.setResultsConsumer(NO_CONSUMER);
+            apiCore.submitCommand(ApiNoOp.builder().build());
+            Thread.sleep(20);
             uids.forEach(this::userInit);
             System.gc();
             Thread.sleep(200);
