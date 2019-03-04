@@ -73,6 +73,12 @@ public final class SymbolPortfolioRecord {
         }
     }
 
+    /**
+     * Calculate required deposit based on specification and current position/orders
+     *
+     * @param spec
+     * @return
+     */
     public long calculateRequiredDeposit(CoreSymbolSpecification spec) {
         final long specDepositBuy = spec.depositBuy;
         final long specDepositSell = spec.depositSell;
@@ -87,6 +93,13 @@ public final class SymbolPortfolioRecord {
         return Math.max(depositBuy, depositSell);
     }
 
+    /**
+     * Calculate required deposit based on specification and current position/orders
+     * considering extra size added to current position (or outstanding orders)
+     *
+     * @param spec
+     * @return -1 if no extra deposit will be required (order will reduce current exposure)
+     */
     public long calculateRequiredDepositForOrder(final CoreSymbolSpecification spec, final OrderAction action, final long size) {
         final long specDepositBuy = spec.depositBuy;
         final long specDepositSell = spec.depositSell;
@@ -97,7 +110,7 @@ public final class SymbolPortfolioRecord {
 
         long depositBuy = specDepositBuy * currentRiskBuySize;
         long depositSell = specDepositSell * currentRiskSellSize;
-        // depositBuy or depositSell can be negative, but not both of them
+        // either depositBuy or depositSell can be negative (because of signedPosition), but not both of them
         final long currentDeposit = Math.max(depositBuy, depositSell);
 
         if (action == OrderAction.BID) {

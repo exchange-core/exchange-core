@@ -60,9 +60,6 @@ public class ExchangeCorePerformance {
     private ExchangeCore exchangeCore;
 
     @Autowired
-    private PortfolioService portfolioService;
-
-    @Autowired
     private UserProfileService userProfileService;
 
     @Autowired

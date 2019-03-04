@@ -2,13 +2,12 @@ package org.openpredict.exchange.core;
 
 import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
+import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.SymbolPortfolioRecord;
 import org.openpredict.exchange.beans.UserProfile;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-
-import java.util.function.IntFunction;
 
 
 /**
@@ -22,9 +21,6 @@ public final class RiskEngine {
     private UserProfileService userProfileService;
 
     @Autowired
-    private PortfolioService portfolioService;
-
-    @Autowired
     private SymbolSpecificationProvider symbolSpecificationProvider;
 
     /**
@@ -32,24 +28,39 @@ public final class RiskEngine {
      * 2. Margin
      * 3. Current limit orders
      */
-
-    public boolean checkIfCanPlaceOrder(OrderCommand cmd, UserProfile userProfile) {
+    public boolean placeOrder(OrderCommand cmd, UserProfile userProfile) {
         final int symbol = cmd.symbol;
-        SymbolPortfolioRecord portfolio = userProfile.getOrCreatePortfolio(symbol);
-
+        final OrderAction action = cmd.action;
+        final long size = cmd.size;
+        final SymbolPortfolioRecord portfolio = userProfile.getOrCreatePortfolioRecord(symbol);
         final CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(symbol);
-        final long newDeposit = portfolio.calculateRequiredDepositForOrder(spec, cmd.action, cmd.size);
-        if (newDeposit == -1) {
+
+        final long newRequiredDeposit = portfolio.calculateRequiredDepositForOrder(spec, action, size);
+        if (newRequiredDeposit == -1) {
             // always allow to place an order that would not increase trader's risk
+            portfolio.pendingHold(action, size);
             return true;
+        }
+
+        long estimatedSymbolProfit = portfolio.estimateProfit(spec);
+
+        long profitMinusDepositOtherSymbols = 0L;
+        for (SymbolPortfolioRecord portfolioRecord : userProfile.portfolio) {
+            if (portfolioRecord.symbol != symbol) {
+                final CoreSymbolSpecification spec2 = symbolSpecificationProvider.getSymbolSpecification(portfolioRecord.symbol);
+                profitMinusDepositOtherSymbols += portfolioRecord.estimateProfit(spec2);
+                profitMinusDepositOtherSymbols -= portfolioRecord.calculateRequiredDeposit(spec2);
+            }
         }
 
         // extra deposit is required
         // check if current balance and margin can cover new deposit
-        final IntFunction<CoreSymbolSpecification> specSupplier = s -> symbolSpecificationProvider.getSymbolSpecification(s);
-        final long availableFunds = userProfile.balance + userProfile.getMarginMinusDeposit(specSupplier, symbol);  //final long availableFunds = userProfile.balance;
+        final long availableFunds = userProfile.balance
+                + estimatedSymbolProfit
+                + profitMinusDepositOtherSymbols;
 
-        if (newDeposit <= availableFunds) {
+        if (newRequiredDeposit <= availableFunds) {
+            portfolio.pendingHold(action, size);
             return true;
         }
 
@@ -57,5 +68,6 @@ public final class RiskEngine {
         userProfile.removeRecordIfEmpty(portfolio);
         return false;
     }
+
 
 }

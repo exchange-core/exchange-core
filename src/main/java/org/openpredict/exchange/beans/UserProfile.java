@@ -4,15 +4,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongLongHashMap;
 
-import java.util.function.IntFunction;
-
 @Slf4j
 public final class UserProfile {
 
     public final long uid;
 
     // symbol -> portfolio records
-    private IntObjectHashMap<SymbolPortfolioRecord> portfolio = new IntObjectHashMap<>();
+    public IntObjectHashMap<SymbolPortfolioRecord> portfolio = new IntObjectHashMap<>();
 
     // transactionId -> amount
     public LongLongHashMap externalTransactions = new LongLongHashMap();
@@ -31,7 +29,7 @@ public final class UserProfile {
         this.uid = uid;
     }
 
-    public SymbolPortfolioRecord getOrCreatePortfolio(int symbol) {
+    public SymbolPortfolioRecord getOrCreatePortfolioRecord(int symbol) {
         SymbolPortfolioRecord record = portfolio.get(symbol);
         if (record == null) {
             record = new SymbolPortfolioRecord(symbol, uid);
@@ -40,17 +38,6 @@ public final class UserProfile {
         return record;
     }
 
-    public long getMarginMinusDeposit(IntFunction<CoreSymbolSpecification> symbolSpecSupplier, int ignoreDepositForSymbol) {
-        long profit = 0L;
-        for (SymbolPortfolioRecord r : portfolio) {
-            final CoreSymbolSpecification spec = symbolSpecSupplier.apply(r.symbol);
-            profit += r.estimateProfit(spec);
-            if (ignoreDepositForSymbol != r.symbol) {
-                profit -= r.calculateRequiredDeposit(spec);
-            }
-        }
-        return profit;
-    }
 
     public void removeRecordIfEmpty(SymbolPortfolioRecord record) {
         if (record.isEmpty()) {

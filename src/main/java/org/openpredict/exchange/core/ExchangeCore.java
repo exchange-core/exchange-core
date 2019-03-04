@@ -8,10 +8,7 @@ import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.openpredict.exchange.beans.CfgWaitStrategyType;
-import org.openpredict.exchange.beans.CoreSymbolSpecification;
-import org.openpredict.exchange.beans.MatcherTradeEvent;
-import org.openpredict.exchange.beans.UserProfile;
+import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
@@ -33,9 +30,6 @@ import static org.openpredict.exchange.beans.MatcherEventType.*;
 @Service
 @Slf4j
 public final class ExchangeCore {
-
-    @Autowired
-    private PortfolioService portfolioService;
 
     @Autowired
     private UserProfileService userProfileService;
@@ -109,25 +103,6 @@ public final class ExchangeCore {
             return procG;
         });
 
-//        disruptor.handleEventsWith((event, sequence, endOfBatch) -> {
-//            if((sequence & 32767) == 0){
-//                log.debug("sequence={}", sequence);
-//            }
-//        });
-
-
-//        disruptor.handleEventsWith((rb, bs) -> {
-//            procTest = new BatchEventProcessor<>(rb, rb.newBarrier(bs),
-//                    (event, sequence, endOfBatch) -> {
-//                        if ((sequence & 32767) == 0) {
-//                            log.debug("2. sequence={}", sequence);
-//                        }
-//                    });
-//
-//            return procTest;
-//        });
-//
-
         // 2. journalling (J) in parallel with risk hold (R1) + matching engine (ME)
         disruptor
                 .after(procG)
@@ -162,19 +137,6 @@ public final class ExchangeCore {
         disruptor.start();
 
         cmdRingBuffer = disruptor.getRingBuffer();
-
-
-//        Executors.newSingleThreadScheduledExecutor().scheduleWithFixedDelay(() -> {
-////            long lg = disruptor.getBarrierFor(loggingBarrierHandler).getCursor();
-////            long me = disruptor.getBarrierFor(matchingEngineHandler).getCursor();
-//            long g = procG.getSequence().get();
-//            long r1 = procR1.getSequence().get();
-//            long r2 = procR2.getSequence().get();
-//
-////            log.debug("lg:{} r1:{} me:{} r2:{}", lg, r1.getSequence().get(), me, r2.getSequence().get());
-////            log.debug("lg:{} r1:{} me:{} ", lg, r1.getSequence().get(), me);
-//            log.debug("g:{} r1:{} me:{} r2:{} D={}", g, r1, -4, r2, r1-r2);
-//        }, 1001, 1000, TimeUnit.MILLISECONDS);
 
     }
 
@@ -258,15 +220,13 @@ public final class ExchangeCore {
             return;
         }
 
-        // check if enough funds
-        if (!riskEngine.checkIfCanPlaceOrder(cmd, userProfile)) {
+        // check if account has enough funds
+        if (!riskEngine.placeOrder(cmd, userProfile)) {
             cmd.resultCode = CommandResultCode.RISK_NSF;
             log.warn("NSF uid={}: Can not place {}", userProfile.uid, cmd);
             return;
         }
 
-        // lock funds
-        portfolioService.holdDepositForNewOrder(cmd, userProfile);
         cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
         userProfile.commandsCounter++; // TODO should also set for MOVE
     }
@@ -345,6 +305,10 @@ public final class ExchangeCore {
         // TODO ?? check if processing order is not reversed
         cmd.processMatherEvents(ev -> handleMatcherEvent(ev, spec));
 
+        if (cmd.marketData != null) {
+
+        }
+
 //        lastReleaseSeqProcessed = seq;
 //        log.debug("lastReleaseSeqProcessed set to {}", lastReleaseSeqProcessed);
         //return true;
@@ -372,7 +336,7 @@ public final class ExchangeCore {
 
             // for reduce/rejection only one party is involved
             userProfileService.processSymbolPortfolioRecord(ev.activeOrderUid, ev.symbol, (up, spr) -> {
-                portfolioService.updatePortfolioForReduce(ev.activeOrderAction, ev.size, spr);
+                spr.pendingRelease(ev.activeOrderAction, ev.size);
                 up.removeRecordIfEmpty(spr);
             });
 
