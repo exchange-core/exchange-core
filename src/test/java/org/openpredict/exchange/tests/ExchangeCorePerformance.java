@@ -92,12 +92,20 @@ public class ExchangeCorePerformance {
 
     @Before
     public void before() {
-        CoreSymbolSpecification spec = CoreSymbolSpecification.builder().depositBuy(22000).depositSell(32100).symbolId(SYMBOL).build();
+        // TODO send ADD_SYMBOL command
+        CoreSymbolSpecification spec = CoreSymbolSpecification.builder()
+                .depositBuy(22000)
+                .depositSell(32100)
+                .symbolId(SYMBOL)
+                .lastAskPrice(Long.MAX_VALUE)
+                .lastBidPrice(0)
+                .build();
         symbolSpecificationProvider.registerSymbol(SYMBOL, spec);
         matchingEngineRouter.addOrderBook(SYMBOL);
     }
 
     // TODO shutdown disruptor if test fails
+    // TODO start new disruptor for every test iteration (re-usage is not possible in real use case anyway)
     @Test
     public void throughputTest() throws Exception {
 

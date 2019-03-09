@@ -64,13 +64,26 @@ public final class SymbolPortfolioRecord {
     }
 
     public long estimateProfit(CoreSymbolSpecification spec) {
-        if (spec.lastPrice == 0) {
-            // unknown price - no liquidity - use extra deposit
-            return profit + (position == PortfolioPosition.LONG ? spec.depositBuy : spec.depositSell) * openVolume;
+
+        final long varProfit;
+        if (position == PortfolioPosition.LONG) {
+            varProfit = spec.lastBidPrice != 0
+                    ? (openVolume * spec.lastBidPrice - openPriceSum)
+                    : spec.depositBuy * openVolume; // unknown price - no liquidity - use extra deposit
+
+//            if(Math.random()<0.001) log.debug("LONG  {} spec.lastBidPrice={} openVolume={} openPriceSum={}", varProfit, spec.lastBidPrice, openVolume, openPriceSum);
 
         } else {
-            return profit + (openPriceSum - openVolume * spec.lastPrice) * position.getMultiplier();
+            varProfit = spec.lastAskPrice != Long.MAX_VALUE
+                    ? (openPriceSum - openVolume * spec.lastAskPrice)
+                    : spec.depositSell * openVolume; // unknown price - no liquidity - use extra deposit
+
+//            if(Math.random()<0.001) log.debug("SHORT {} spec.lastBidPrice={} openVolume={} openPriceSum={}", varProfit, spec.lastAskPrice, openVolume, openPriceSum);
+
         }
+
+
+        return profit + varProfit;
     }
 
     /**

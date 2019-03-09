@@ -809,6 +809,16 @@ public final class OrderBookFast extends OrderBookBase {
     }
 
     @Override
+    public long getBestAsk() {
+        return minAskPrice;
+    }
+
+    @Override
+    public long getBestBid() {
+        return maxBidPrice;
+    }
+
+    @Override
     public void validateInternalState() {
 
         // check price in the bucket is the same as map key

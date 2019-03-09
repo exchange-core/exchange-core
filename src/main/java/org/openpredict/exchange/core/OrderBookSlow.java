@@ -325,6 +325,17 @@ public final class OrderBookSlow extends OrderBookBase {
         return new ArrayList<>(bidBuckets.values());
     }
 
+    @Override
+    public long getBestAsk() {
+        Long price = askBuckets.firstKey();
+        return price != null ? price : Long.MAX_VALUE;
+    }
+
+    @Override
+    public long getBestBid() {
+        Long price = bidBuckets.firstKey();
+        return price != null ? price : 0;
+    }
 
     @Override
     public void validateInternalState() {

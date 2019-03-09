@@ -8,15 +8,13 @@ import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
-import java.util.ArrayDeque;
+import static org.openpredict.exchange.beans.cmd.OrderCommandType.ORDER_BOOK_REQUEST;
 
 /**
  * TODO get rid of this class in favor of new interface
  */
 @Slf4j
 public abstract class OrderBookBase implements IOrderBook {
-
-    private final ArrayDeque<MatcherTradeEvent> eventsPool = new ArrayDeque<>(1024);
 
     private OrderCommand currentCmd;
 
@@ -59,7 +57,18 @@ public abstract class OrderBookBase implements IOrderBook {
                 cmd.marketData = getL2MarketDataSnapshot((int) cmd.size);
                 cmd.resultCode = CommandResultCode.SUCCESS;
                 break;
+
+            default:
+                log.warn("unsupported command {}", cmd.command);
+                cmd.resultCode = CommandResultCode.SUCCESS;
         }
+
+
+        // posting market data for risk processor makes sense only if command execution is successful, otherwise it will be ignored (possible garbage from previous cycle)
+        if ((cmd.serviceFlags & 1) != 0 && cmd.command != ORDER_BOOK_REQUEST && cmd.resultCode == CommandResultCode.SUCCESS) {
+            cmd.marketData = getL2MarketDataSnapshot(8);
+        }
+
 
     }
 
@@ -156,23 +165,24 @@ public abstract class OrderBookBase implements IOrderBook {
 
     private void revokeEvents() {
 
+        // TODO collect market data
         currentCmd.marketData = null;
 
-        MatcherTradeEvent matcherEvent = currentCmd.matcherEvent;
+        // TODO collect matcher events
+        //MatcherTradeEvent matcherEvent = currentCmd.matcherEvent;
         currentCmd.matcherEvent = null;
         //log.debug("  {}", cmd);
-        while (matcherEvent != null) {
-            eventsPool.addLast(matcherEvent);
-            MatcherTradeEvent tmp = matcherEvent;
-            matcherEvent = matcherEvent.nextEvent;
-            tmp.nextEvent = null;
-//            log.debug("  eventsPool: {}", eventsPool.size());
-        }
+//        while (matcherEvent != null) {
+//            eventsPool.addLast(matcherEvent);
+//            MatcherTradeEvent tmp = matcherEvent;
+//            matcherEvent = matcherEvent.nextEvent;
+//            tmp.nextEvent = null;
+////            log.debug("  eventsPool: {}", eventsPool.size());
+//        }
     }
 
     private MatcherTradeEvent newMatcherEvent() {
-        MatcherTradeEvent event = eventsPool.pollLast();
-        return (event == null) ? new MatcherTradeEvent() : event;
+        return new MatcherTradeEvent();
     }
 
 

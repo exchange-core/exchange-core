@@ -92,6 +92,9 @@ public final class GroupingProcessor implements EventProcessor {
 
         long groupLastNs = 0;
 
+        long l2dataLastNs = 0;
+        boolean triggerL2DataRequest = false;
+
         while (true) {
             try {
 
@@ -107,8 +110,18 @@ public final class GroupingProcessor implements EventProcessor {
 
                         cmd.eventsGroup = groupCounter;
 
+                        cmd.serviceFlags = 0;
+                        if (triggerL2DataRequest) {
+                            triggerL2DataRequest = false;
+                            cmd.serviceFlags = 1;
+                        }
+
+                        // cleaning attached objects
+                        cmd.marketData = null;
+                        cmd.matcherEvent = null;
+
                         if (cmd.command == OrderCommandType.NOP) {
-                            // gust set next group and pass
+                            // just set next group and pass
                             continue;
                         }
 
@@ -124,10 +137,18 @@ public final class GroupingProcessor implements EventProcessor {
                     sequence.set(availableSequence);
                     groupLastNs = System.nanoTime() + 1000;
 
-                } else if (msgsInGroup > 0 && System.nanoTime() > groupLastNs) {
-                    // switch group after T microseconds elapsed, if group is non empty
-                    msgsInGroup = 0;
-                    groupCounter++;
+                } else {
+                    long t = System.nanoTime();
+                    if (msgsInGroup > 0 && t > groupLastNs) {
+                        // switch group after T microseconds elapsed, if group is non empty
+                        groupCounter++;
+                        msgsInGroup = 0;
+                    }
+
+                    if (t > l2dataLastNs) {
+                        l2dataLastNs = t + 10_000_000; // trigger L2 data every 10ms
+                        triggerL2DataRequest = true;
+                    }
                 }
 
 

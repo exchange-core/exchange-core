@@ -118,7 +118,7 @@ public final class MasterProcessor implements EventProcessor {
                         cmd = dataProvider.get(nextSequence);
 
                         // switch to next group - process
-                        if (cmd.eventsGroup > currentSequenceGroup) {
+                        if (cmd.eventsGroup != currentSequenceGroup) {
                             sequence.set(nextSequence - 1);
                             slaveProcessor.handlingCycle(nextSequence);
                             currentSequenceGroup = cmd.eventsGroup;

@@ -117,7 +117,8 @@ public final class ExchangeCore {
         disruptor.after(procR1).handleEventsWith(matchingEngineHandler);
 
 
-        // 3. results handler (E) and risk release (R2) after matching engine (ME) + journalling (J)
+        // 3. results handler (E) after matching engine (ME) + journalling (J)
+        // 4. risk release (R2) after matching engine (ME)
         disruptor.after(matchingEngineHandler, journallingHandler)
                 .then(resultsHandler);
 
@@ -128,6 +129,14 @@ public final class ExchangeCore {
                     return procR2;
                 });
 
+
+        // 5. cleaning handler
+//        final EventHandler<OrderCommand> cleaningHandler = (cmd, seq, eob) -> {
+//            //            log.debug("cleaning {}", seq);
+//            cmd.marketData = null;
+//            cmd.matcherEvent = null;
+//        };
+//        disruptor.after(procR2, resultsHandler).handleEventsWith(cleaningHandler);
 
         // TODO add second journalling handler?
 
@@ -280,6 +289,8 @@ public final class ExchangeCore {
                 .depositSell(cmd.uid)
                 .lowLimit(cmd.orderId)
                 .highLimit(cmd.size)
+                .lastAskPrice(Long.MAX_VALUE)
+                .lastBidPrice(0)
                 .build();
 
         symbolSpecificationProvider.registerSymbol(cmd.symbol, spec);
@@ -300,13 +311,37 @@ public final class ExchangeCore {
 //            log.debug("accepted R2: sequence {} <= avail {}", seq, cmd.availableEventSeq);
 //        }
 
-        final CoreSymbolSpecification spec = (cmd.matcherEvent == null) ? null : symbolSpecificationProvider.getSymbolSpecification(cmd.symbol);
+        CoreSymbolSpecification spec = null;
 
-        // TODO ?? check if processing order is not reversed
-        cmd.processMatherEvents(ev -> handleMatcherEvent(ev, spec));
+        if (cmd.matcherEvent != null) {
+            spec = symbolSpecificationProvider.getSymbolSpecification(cmd.symbol);
+            if (spec == null) {
+                return;
+            }
 
-        if (cmd.marketData != null) {
+            // TODO ?? check if processing order is not reversed
+            MatcherTradeEvent mte = cmd.matcherEvent;
+            do {
+                handleMatcherEvent(mte, spec);
+                mte = mte.nextEvent;
+            } while (mte != null);
+        }
 
+        L2MarketData marketData = cmd.marketData;
+        if (marketData != null) {
+            if (spec == null) {
+                spec = symbolSpecificationProvider.getSymbolSpecification(cmd.symbol);
+            }
+            if (spec != null) {
+                if (marketData.askSize > 0) {
+                    spec.lastAskPrice = marketData.askPrices[0];
+                }
+                if (marketData.bidSize > 0) {
+                    spec.lastBidPrice = marketData.bidPrices[0];
+                }
+
+                //log.debug("MARKED DATA: {}+{} ask={} bid={}", marketData.askSize, marketData.bidSize, spec.lastAskPrice, spec.lastBidPrice);
+            }
         }
 
 //        lastReleaseSeqProcessed = seq;
@@ -328,7 +363,6 @@ public final class ExchangeCore {
                 taker.removeRecordIfEmpty(spr);
             } else {
                 log.warn("User TAKER profile {} not found", ev.activeOrderUid);
-
             }
 
             // update maker's portfolio

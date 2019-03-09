@@ -42,6 +42,7 @@ public class OrderCommand {
     // ---- false sharing section ------
 
     public long eventsGroup;
+    public int serviceFlags;
 
     // result code of command execution - can also be used for saving intermediate state
     public CommandResultCode resultCode;

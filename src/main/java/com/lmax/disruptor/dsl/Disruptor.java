@@ -306,6 +306,14 @@ public class Disruptor<T>
         return new EventHandlerGroup<>(this, consumerRepository, Util.getSequencesFor(processors));
     }
 
+    // TODO add general method
+    public EventHandlerGroup<T> after(final EventProcessor proc, final EventHandler<T> handler) {
+        final Sequence[] sequences = new Sequence[2];
+        sequences[0] = consumerRepository.getSequenceFor(handler);
+        sequences[1] = proc.getSequence();
+        return new EventHandlerGroup<>(this, consumerRepository, sequences);
+    }
+
     /**
      * Publish an event to the ring buffer.
      *

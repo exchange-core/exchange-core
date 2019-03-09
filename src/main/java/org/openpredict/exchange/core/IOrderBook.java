@@ -45,6 +45,20 @@ public interface IOrderBook {
     List<IOrdersBucket> getAllBidBuckets();
 
     /**
+     * Request best ask price.
+     *
+     * @return best ask price, or Long.MAX_VALUE if there are no asks
+     */
+    long getBestAsk();
+
+    /**
+     * Request best bid price.
+     *
+     * @return best ask price, or 0 if there are no bids
+     */
+    long getBestBid();
+
+    /**
      * Obtain new instance of order book
      *
      * @return new instance
