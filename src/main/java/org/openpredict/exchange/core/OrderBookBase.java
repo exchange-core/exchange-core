@@ -16,8 +16,6 @@ import java.util.ArrayDeque;
 @Slf4j
 public abstract class OrderBookBase implements IOrderBook {
 
-    private final ArrayDeque<MatcherTradeEvent> eventsPool = new ArrayDeque<>(1024);
-
     private OrderCommand currentCmd;
 
     @Override
@@ -153,21 +151,11 @@ public abstract class OrderBookBase implements IOrderBook {
 
 
     private void revokeMatcherEvents() {
-        MatcherTradeEvent matcherEvent = currentCmd.matcherEvent;
         currentCmd.matcherEvent = null;
-        //log.debug("  {}", cmd);
-        while (matcherEvent != null) {
-            eventsPool.addLast(matcherEvent);
-            MatcherTradeEvent tmp = matcherEvent;
-            matcherEvent = matcherEvent.nextEvent;
-            tmp.nextEvent = null;
-//            log.debug("  eventsPool: {}", eventsPool.size());
-        }
     }
 
     private MatcherTradeEvent newMatcherEvent() {
-        MatcherTradeEvent event = eventsPool.pollLast();
-        return (event == null) ? new MatcherTradeEvent() : event;
+        return new MatcherTradeEvent();
     }
 
 

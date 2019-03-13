@@ -33,7 +33,7 @@
         <fixio.version>1.2</fixio.version>
         <quickfix.version>1.6.4</quickfix.version>
         <openhft.smoothiemap.version>1.3</openhft.smoothiemap.version>
-        <openhft.affinity.version>3.1.10</openhft.affinity.version>
+        <openhft.affinity.version>3.1.11</openhft.affinity.version>
         <eclipse.collections.version>9.2.0</eclipse.collections.version>
         <hdr.histogram.version>2.1.10</hdr.histogram.version>
     </properties>

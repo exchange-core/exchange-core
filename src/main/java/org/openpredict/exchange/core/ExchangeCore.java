@@ -1,10 +1,14 @@
 package org.openpredict.exchange.core;
 
-import com.lmax.disruptor.*;
+import com.lmax.disruptor.BatchEventProcessor;
+import com.lmax.disruptor.EventHandler;
+import com.lmax.disruptor.EventTranslator;
+import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.affinity.AffinityLock;
 import org.openpredict.exchange.beans.CfgWaitStrategyType;
 import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.SymbolPortfolio;
@@ -22,7 +26,7 @@ import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 import java.util.function.Consumer;
 
 @Service
@@ -64,12 +68,22 @@ public class ExchangeCore {
 
     private BatchEventProcessor<OrderCommand> procTest;
 
+    private static final boolean THREAD_AFFINITY_PER_CORE = false;
+
     @PostConstruct
     public void start() {
+
+        ThreadFactory threadFactory = eventProcessor -> new Thread(() -> {
+            try (AffinityLock lock = THREAD_AFFINITY_PER_CORE ? AffinityLock.acquireCore() : AffinityLock.acquireLock()) {
+                log.debug("{} pinned to {}", Thread.currentThread(), lock.cpuId());
+                eventProcessor.run();
+            }
+        });
+
         disruptor = new Disruptor<>(
                 OrderCommand::new,
-                64 * 1024,
-                Executors.defaultThreadFactory(),
+                32 * 1024,
+                threadFactory,
                 ProducerType.MULTI, // multiple gateway threads are writing
                 CfgWaitStrategyType.BUSY_SPIN.create());
 
