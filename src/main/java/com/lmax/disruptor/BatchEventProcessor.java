@@ -15,8 +15,6 @@
  */
 package com.lmax.disruptor;
 
-import net.openhft.affinity.AffinityLock;
-
 import java.util.concurrent.atomic.AtomicInteger;
 
 
@@ -124,9 +122,7 @@ public final class BatchEventProcessor<T>
             {
                 if (running.get() == RUNNING)
                 {
-                    try (AffinityLock cpuLock = AffinityLock.acquireLock()) {
-                        processEvents();
-                    }
+                    processEvents();
                 }
             }
             finally

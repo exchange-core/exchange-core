@@ -17,7 +17,6 @@ package org.openpredict.exchange.biprocessor;
 
 import com.lmax.disruptor.*;
 import lombok.extern.slf4j.Slf4j;
-import net.openhft.affinity.AffinityLock;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
 
@@ -67,9 +66,7 @@ public final class GroupingProcessor implements EventProcessor {
             sequenceBarrier.clearAlert();
             try {
                 if (running.get() == RUNNING) {
-                    try (AffinityLock cpuLock = AffinityLock.acquireLock()) {
-                        processEvents();
-                    }
+                    processEvents();
                 }
             } finally {
                 running.set(IDLE);
