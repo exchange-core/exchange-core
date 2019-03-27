@@ -41,7 +41,7 @@ public final class Util
     }
 
     /**
-     * Get the minimum sequence from an array of {@link Sequence}s.
+     * Get the minimum sequence from an array of {@link com.lmax.disruptor.Sequence}s.
      *
      * @param sequences to compare.
      * @return the minimum sequence found or Long.MAX_VALUE if the array is empty.
@@ -52,7 +52,7 @@ public final class Util
     }
 
     /**
-     * Get the minimum sequence from an array of {@link Sequence}s.
+     * Get the minimum sequence from an array of {@link com.lmax.disruptor.Sequence}s.
      *
      * @param sequences to compare.
      * @param minimum   an initial default minimum.  If the array is empty this value will be
@@ -138,5 +138,17 @@ public final class Util
             ++r;
         }
         return r;
+    }
+
+    public static long awaitNanos(Object mutex, long timeoutNanos) throws InterruptedException
+    {
+        long millis = timeoutNanos / 1_000_000;
+        long nanos = timeoutNanos % 1_000_000;
+
+        long t0 = System.nanoTime();
+        mutex.wait(millis, (int) nanos);
+        long t1 = System.nanoTime();
+
+        return timeoutNanos - (t1 - t0);
     }
 }

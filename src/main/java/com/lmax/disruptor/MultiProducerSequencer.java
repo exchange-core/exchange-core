@@ -15,10 +15,11 @@
  */
 package com.lmax.disruptor;
 
-import com.lmax.disruptor.util.Util;
+import java.util.concurrent.locks.LockSupport;
+
 import sun.misc.Unsafe;
 
-import java.util.concurrent.locks.LockSupport;
+import com.lmax.disruptor.util.Util;
 
 
 /**
@@ -110,9 +111,9 @@ public final class MultiProducerSequencer extends AbstractSequencer
     @Override
     public long next(int n)
     {
-        if (n < 1)
+        if (n < 1 || n > bufferSize)
         {
-            throw new IllegalArgumentException("n must be > 0");
+            throw new IllegalArgumentException("n must be > 0 and < bufferSize");
         }
 
         long current;

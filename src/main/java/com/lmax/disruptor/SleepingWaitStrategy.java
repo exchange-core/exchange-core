@@ -21,7 +21,7 @@ import java.util.concurrent.locks.LockSupport;
  * Sleeping strategy that initially spins, then uses a Thread.yield(), and
  * eventually sleep (<code>LockSupport.parkNanos(n)</code>) for the minimum
  * number of nanos the OS and JVM will allow while the
- * {@link EventProcessor}s are waiting on a barrier.
+ * {@link com.lmax.disruptor.EventProcessor}s are waiting on a barrier.
  * <p>
  * This strategy is a good compromise between performance and CPU resource.
  * Latency spikes can occur after quiet periods.  It will also reduce the impact
@@ -54,7 +54,7 @@ public final class SleepingWaitStrategy implements WaitStrategy
 
     @Override
     public long waitFor(
-            final long sequence, Sequence cursor, final Sequence dependentSequence, final SequenceBarrier barrier)
+        final long sequence, Sequence cursor, final Sequence dependentSequence, final SequenceBarrier barrier)
         throws AlertException
     {
         long availableSequence;

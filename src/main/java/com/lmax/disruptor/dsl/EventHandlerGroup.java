@@ -15,7 +15,11 @@
  */
 package com.lmax.disruptor.dsl;
 
-import com.lmax.disruptor.*;
+import com.lmax.disruptor.EventHandler;
+import com.lmax.disruptor.EventProcessor;
+import com.lmax.disruptor.Sequence;
+import com.lmax.disruptor.SequenceBarrier;
+import com.lmax.disruptor.WorkHandler;
 
 import java.util.Arrays;
 
@@ -41,7 +45,7 @@ public class EventHandlerGroup<T>
     }
 
     /**
-     * Create a new event handler group that combines the consumers in this group with <tt>otherHandlerGroup</tt>.
+     * Create a new event handler group that combines the consumers in this group with <code>otherHandlerGroup</code>.
      *
      * @param otherHandlerGroup the event handler group to combine.
      * @return a new EventHandlerGroup combining the existing and new consumers into a single dependency group.
@@ -57,7 +61,7 @@ public class EventHandlerGroup<T>
     }
 
     /**
-     * Create a new event handler group that combines the handlers in this group with <tt>processors</tt>.
+     * Create a new event handler group that combines the handlers in this group with <code>processors</code>.
      *
      * @param processors the processors to combine.
      * @return a new EventHandlerGroup combining the existing and new processors into a single dependency group.
@@ -187,7 +191,7 @@ public class EventHandlerGroup<T>
     /**
      * Create a dependency barrier for the processors in this group.
      * This allows custom event processors to have dependencies on
-     * {@link BatchEventProcessor}s created by the com.lmax.disruptor.
+     * {@link com.lmax.disruptor.BatchEventProcessor}s created by the disruptor.
      *
      * @return a {@link SequenceBarrier} including all the processors in this group.
      */

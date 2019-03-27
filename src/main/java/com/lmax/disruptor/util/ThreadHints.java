@@ -18,13 +18,14 @@ package com.lmax.disruptor.util;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 
+
 import static java.lang.invoke.MethodType.methodType;
 
 /**
  * This class captures possible hints that may be used by some
  * runtimes to improve code performance. It is intended to capture hinting
  * behaviours that are implemented in or anticipated to be spec'ed under the
- * {@link Thread} class in some Java SE versions, but missing in prior
+ * {@link java.lang.Thread} class in some Java SE versions, but missing in prior
  * versions.
  */
 public final class ThreadHints

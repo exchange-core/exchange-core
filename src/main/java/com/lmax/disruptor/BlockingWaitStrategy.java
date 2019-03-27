@@ -17,10 +17,6 @@ package com.lmax.disruptor;
 
 import com.lmax.disruptor.util.ThreadHints;
 
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
-
 /**
  * Blocking strategy that uses a lock and condition variable for {@link EventProcessor}s waiting on a barrier.
  * <p>
@@ -28,8 +24,7 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public final class BlockingWaitStrategy implements WaitStrategy
 {
-    private final Lock lock = new ReentrantLock();
-    private final Condition processorNotifyCondition = lock.newCondition();
+    private final Object mutex = new Object();
 
     @Override
     public long waitFor(long sequence, Sequence cursorSequence, Sequence dependentSequence, SequenceBarrier barrier)
@@ -38,18 +33,13 @@ public final class BlockingWaitStrategy implements WaitStrategy
         long availableSequence;
         if (cursorSequence.get() < sequence)
         {
-            lock.lock();
-            try
+            synchronized (mutex)
             {
                 while (cursorSequence.get() < sequence)
                 {
                     barrier.checkAlert();
-                    processorNotifyCondition.await();
+                    mutex.wait();
                 }
-            }
-            finally
-            {
-                lock.unlock();
             }
         }
 
@@ -70,14 +60,9 @@ public final class BlockingWaitStrategy implements WaitStrategy
     @Override
     public void signalAllWhenBlocking()
     {
-        lock.lock();
-        try
+        synchronized (mutex)
         {
-            processorNotifyCondition.signalAll();
-        }
-        finally
-        {
-            lock.unlock();
+            mutex.notifyAll();
         }
     }
 
@@ -85,7 +70,7 @@ public final class BlockingWaitStrategy implements WaitStrategy
     public String toString()
     {
         return "BlockingWaitStrategy{" +
-            "processorNotifyCondition=" + processorNotifyCondition +
+            "mutex=" + mutex +
             '}';
     }
 }
