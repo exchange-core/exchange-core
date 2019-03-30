@@ -5,6 +5,7 @@ import com.lmax.disruptor.EventHandler;
 import com.lmax.disruptor.EventTranslator;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;
+import com.lmax.disruptor.dsl.EventHandlerGroup;
 import com.lmax.disruptor.dsl.ProducerType;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -70,6 +71,9 @@ public class ExchangeCore {
 
     private static final boolean THREAD_AFFINITY_PER_CORE = false;
 
+    private static final boolean JOURNALLING_ENABLED = false;
+
+
     @PostConstruct
     public void start() {
 
@@ -82,7 +86,7 @@ public class ExchangeCore {
 
         disruptor = new Disruptor<>(
                 OrderCommand::new,
-                32 * 1024,
+                64 * 1024,
                 threadFactory,
                 ProducerType.MULTI, // multiple gateway threads are writing
                 CfgWaitStrategyType.BUSY_SPIN.create());
@@ -105,55 +109,34 @@ public class ExchangeCore {
         SimpleEventHandler<OrderCommand> handlerR2 = this::handlerRiskRelease;
 
 //         1. grouping processor (G)
-        disruptor.handleEventsWith((rb, bs) -> {
+        EventHandlerGroup<OrderCommand> afterGrouping = disruptor.handleEventsWith((rb, bs) -> {
             procG = new GroupingProcessor(rb, rb.newBarrier(bs));
             return procG;
         });
 
-//        disruptor.handleEventsWith((event, sequence, endOfBatch) -> {
-//            if((sequence & 32767) == 0){
-//                log.debug("sequence={}", sequence);
-//            }
-//        });
-
-
-//        disruptor.handleEventsWith((rb, bs) -> {
-//            procTest = new BatchEventProcessor<>(rb, rb.newBarrier(bs),
-//                    (event, sequence, endOfBatch) -> {
-//                        if ((sequence & 32767) == 0) {
-//                            log.debug("2. sequence={}", sequence);
-//                        }
-//                    });
-//
-//            return procTest;
-//        });
-//
-
         // 2. journalling (J) in parallel with risk hold (R1) + matching engine (ME)
-        disruptor
-                .after(procG)
-                .handleEventsWith(journallingHandler);
+        if (JOURNALLING_ENABLED) {
+            afterGrouping.handleEventsWith(journallingHandler);
+        }
 
-        disruptor
-                .after(procG)
+        afterGrouping
                 .handleEventsWith((rb, bs) -> {
                     procR1 = new MasterProcessor(rb, rb.newBarrier(bs), handlerR1);
                     return procR1;
-                });
-        disruptor.after(procR1).handleEventsWith(matchingEngineHandler);
-
+                })
+                .handleEventsWith(matchingEngineHandler);
 
         // 3. results handler (E) and risk release (R2) after matching engine (ME) + journalling (J)
-        disruptor.after(matchingEngineHandler, journallingHandler)
-                .then(resultsHandler);
-
-        disruptor.after(matchingEngineHandler)
+        EventHandlerGroup<OrderCommand> afterMatchingEngine = disruptor.after(matchingEngineHandler);
+        afterMatchingEngine
                 .then((rb, bs) -> {
                     procR2 = new SlaveProcessor<>(rb, rb.newBarrier(bs), handlerR2);
                     procR1.setSlaveProcessor(procR2);
                     return procR2;
                 });
 
+        (JOURNALLING_ENABLED ? disruptor.after(matchingEngineHandler, journallingHandler) : afterMatchingEngine)
+                .then(resultsHandler);
 
         // TODO add second journalling handler?
 
@@ -163,7 +146,6 @@ public class ExchangeCore {
         disruptor.start();
 
         cmdRingBuffer = disruptor.getRingBuffer();
-
 
 //        Executors.newSingleThreadScheduledExecutor().scheduleWithFixedDelay(() -> {
 ////            long lg = disruptor.getBarrierFor(loggingBarrierHandler).getCursor();

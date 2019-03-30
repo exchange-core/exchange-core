@@ -59,14 +59,12 @@
                 <version>${commons-math3.version}</version>
             </dependency>
 
-            <!--lmax-->
-<!--
+            <!-- LMAX Disruptor -->
             <dependency>
                 <groupId>com.lmax</groupId>
-                <artifactId>com.lmax.disruptor</artifactId>
+                <artifactId>disruptor</artifactId>
                 <version>${lmax.com.lmax.disruptor.version}</version>
             </dependency>
--->
 
             <!-- OpenHFT -->
             <dependency>
@@ -115,6 +113,11 @@
     </dependencyManagement>
 
     <dependencies>
+
+        <dependency>
+            <groupId>com.lmax</groupId>
+            <artifactId>disruptor</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>
