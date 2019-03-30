@@ -1,7 +1,11 @@
 package org.openpredict.exchange.core;
 
-import com.lmax.disruptor.*;
+import com.lmax.disruptor.BatchEventProcessor;
+import com.lmax.disruptor.EventHandler;
+import com.lmax.disruptor.EventTranslator;
+import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;
+import com.lmax.disruptor.dsl.EventHandlerGroup;
 import com.lmax.disruptor.dsl.ProducerType;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -13,7 +17,10 @@ import org.openpredict.exchange.beans.UserProfile;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
-import org.openpredict.exchange.biprocessor.*;
+import org.openpredict.exchange.biprocessor.GroupingProcessor;
+import org.openpredict.exchange.biprocessor.MasterProcessor;
+import org.openpredict.exchange.biprocessor.SimpleEventHandler;
+import org.openpredict.exchange.biprocessor.SlaveProcessor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -99,24 +106,20 @@ public class ExchangeCore {
         SimpleEventHandler<OrderCommand> handlerR2 = this::handlerRiskRelease;
 
 //         1. grouping processor (G)
-        disruptor.handleEventsWith((rb, bs) -> {
+        EventHandlerGroup<OrderCommand> afterGrouping = disruptor.handleEventsWith((rb, bs) -> {
             procG = new GroupingProcessor(rb, rb.newBarrier(bs));
             return procG;
         });
 
         // 2. journalling (J) in parallel with risk hold (R1) + matching engine (ME)
-        disruptor
-                .after(procG)
-                .handleEventsWith(journallingHandler);
+        afterGrouping.handleEventsWith(journallingHandler);
 
-        disruptor
-                .after(procG)
+        afterGrouping
                 .handleEventsWith((rb, bs) -> {
                     procR1 = new MasterProcessor(rb, rb.newBarrier(bs), handlerR1);
                     return procR1;
-                });
-        disruptor.after(procR1).handleEventsWith(matchingEngineHandler);
-
+                })
+                .handleEventsWith(matchingEngineHandler);
 
         // 3. results handler (E) and risk release (R2) after matching engine (ME) + journalling (J)
         disruptor.after(matchingEngineHandler, journallingHandler)
@@ -138,7 +141,6 @@ public class ExchangeCore {
         disruptor.start();
 
         cmdRingBuffer = disruptor.getRingBuffer();
-
 
 //        Executors.newSingleThreadScheduledExecutor().scheduleWithFixedDelay(() -> {
 ////            long lg = disruptor.getBarrierFor(loggingBarrierHandler).getCursor();
@@ -296,7 +298,6 @@ public class ExchangeCore {
 
 
     }
-
 
 
 }
