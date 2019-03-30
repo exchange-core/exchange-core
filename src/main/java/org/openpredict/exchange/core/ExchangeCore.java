@@ -1,9 +1,6 @@
 package org.openpredict.exchange.core;
 
-import com.lmax.disruptor.BatchEventProcessor;
-import com.lmax.disruptor.EventHandler;
-import com.lmax.disruptor.EventTranslator;
-import com.lmax.disruptor.RingBuffer;
+import com.lmax.disruptor.*;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
 import lombok.Setter;
@@ -16,10 +13,7 @@ import org.openpredict.exchange.beans.UserProfile;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
-import org.openpredict.exchange.biprocessor.GroupingProcessor;
-import org.openpredict.exchange.biprocessor.MasterProcessor;
-import org.openpredict.exchange.biprocessor.SimpleEventHandler;
-import org.openpredict.exchange.biprocessor.SlaveProcessor;
+import org.openpredict.exchange.biprocessor.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -82,7 +76,7 @@ public class ExchangeCore {
 
         disruptor = new Disruptor<>(
                 OrderCommand::new,
-                32 * 1024,
+                64 * 1024,
                 threadFactory,
                 ProducerType.MULTI, // multiple gateway threads are writing
                 CfgWaitStrategyType.BUSY_SPIN.create());
@@ -109,25 +103,6 @@ public class ExchangeCore {
             procG = new GroupingProcessor(rb, rb.newBarrier(bs));
             return procG;
         });
-
-//        disruptor.handleEventsWith((event, sequence, endOfBatch) -> {
-//            if((sequence & 32767) == 0){
-//                log.debug("sequence={}", sequence);
-//            }
-//        });
-
-
-//        disruptor.handleEventsWith((rb, bs) -> {
-//            procTest = new BatchEventProcessor<>(rb, rb.newBarrier(bs),
-//                    (event, sequence, endOfBatch) -> {
-//                        if ((sequence & 32767) == 0) {
-//                            log.debug("2. sequence={}", sequence);
-//                        }
-//                    });
-//
-//            return procTest;
-//        });
-//
 
         // 2. journalling (J) in parallel with risk hold (R1) + matching engine (ME)
         disruptor
@@ -321,6 +296,7 @@ public class ExchangeCore {
 
 
     }
+
 
 
 }

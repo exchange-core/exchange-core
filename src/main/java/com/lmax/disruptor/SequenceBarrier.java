@@ -33,11 +33,6 @@ public interface SequenceBarrier
      */
     long waitFor(long sequence) throws AlertException, InterruptedException, TimeoutException;
 
-
-    long tryWaitFor(long sequence, long spin) throws AlertException, InterruptedException, TimeoutException;
-
-    long maxAvailable(long sequence) throws AlertException, InterruptedException, TimeoutException;
-
     /**
      * Get the current cursor value that can be read.
      *

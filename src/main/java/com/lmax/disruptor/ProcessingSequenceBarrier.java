@@ -63,29 +63,6 @@ final class ProcessingSequenceBarrier implements SequenceBarrier
     }
 
     @Override
-    public long tryWaitFor(long sequence, long spin) throws AlertException, InterruptedException, TimeoutException {
-
-        checkAlert();
-
-        long availableSequence = waitStrategy.tryWaitFor(sequence, cursorSequence, dependentSequence, this, spin);
-
-        if (availableSequence < sequence) {
-            return availableSequence;
-        }
-
-        return sequencer.getHighestPublishedSequence(sequence, availableSequence);
-    }
-
-    @Override
-    public long maxAvailable(long sequence) {
-        long availableSequence = dependentSequence.get();
-        if (availableSequence < sequence) {
-            return availableSequence;
-        }
-        return sequencer.getHighestPublishedSequence(sequence, availableSequence);
-    }
-
-    @Override
     public long getCursor() {
         return dependentSequence.get();
     }

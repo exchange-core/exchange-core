@@ -29,14 +29,16 @@ public final class SlaveProcessor<T> implements EventProcessor {
     private final AtomicInteger running = new AtomicInteger(IDLE);
     private final DataProvider<T> dataProvider;
     private final SequenceBarrier sequenceBarrier;
+    private final WaitSpinningHelper waitSpinningHelper;
     private final SimpleEventHandler<? super T> eventHandler;
     private final Sequence sequence = new Sequence(Sequencer.INITIAL_CURSOR_VALUE);
 
     private long nextSequence = -1;
 
-    public SlaveProcessor(DataProvider<T> dataProvider, SequenceBarrier sequenceBarrier, SimpleEventHandler<? super T> eventHandler) {
-        this.dataProvider = dataProvider;
+    public SlaveProcessor(RingBuffer<T> ringBuffer, SequenceBarrier sequenceBarrier, SimpleEventHandler<? super T> eventHandler) {
+        this.dataProvider = ringBuffer;
         this.sequenceBarrier = sequenceBarrier;
+        this.waitSpinningHelper = new WaitSpinningHelper(ringBuffer, sequenceBarrier, 0);
         this.eventHandler = eventHandler;
     }
 
@@ -75,7 +77,7 @@ public final class SlaveProcessor<T> implements EventProcessor {
     public void handlingCycle(long processUpToSequence) {
         while (true) {
             try {
-                long availableSequence = sequenceBarrier.tryWaitFor(nextSequence, 0);
+                long availableSequence = waitSpinningHelper.tryWaitFor(nextSequence);
 
                 // process batch
                 while (nextSequence <= availableSequence && nextSequence < processUpToSequence) {
@@ -83,7 +85,7 @@ public final class SlaveProcessor<T> implements EventProcessor {
                     nextSequence++;
                 }
 
-                // exit if processed all group
+                // exit if finished processing entire group (up to specified sequence)
                 if (nextSequence == processUpToSequence) {
                     sequence.set(nextSequence - 1);
                     return;
@@ -91,8 +93,6 @@ public final class SlaveProcessor<T> implements EventProcessor {
 
                 sequence.set(availableSequence);
 
-            } catch (final TimeoutException e) {
-                //
             } catch (final Throwable ex) {
                 sequence.set(nextSequence);
                 nextSequence++;

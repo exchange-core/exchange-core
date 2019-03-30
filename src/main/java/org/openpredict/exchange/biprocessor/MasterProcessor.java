@@ -29,19 +29,23 @@ public final class MasterProcessor implements EventProcessor {
     private static final int HALTED = IDLE + 1;
     private static final int RUNNING = HALTED + 1;
 
+    private static final int MASTER_SPIN_LIMIT = 5000;
+
     private final AtomicInteger running = new AtomicInteger(IDLE);
     private final DataProvider<OrderCommand> dataProvider;
     private final SequenceBarrier sequenceBarrier;
+    private final WaitSpinningHelper waitSpinningHelper;
     private final SimpleEventHandler<OrderCommand> eventHandler;
     private final Sequence sequence = new Sequence(Sequencer.INITIAL_CURSOR_VALUE);
 
     @Setter
     private SlaveProcessor<OrderCommand> slaveProcessor;
 
-    public MasterProcessor(final DataProvider<OrderCommand> dataProvider, final SequenceBarrier sequenceBarrier,
+    public MasterProcessor(final RingBuffer<OrderCommand> ringBuffer, final SequenceBarrier sequenceBarrier,
                            final SimpleEventHandler<OrderCommand> eventHandler) {
-        this.dataProvider = dataProvider;
+        this.dataProvider = ringBuffer;
         this.sequenceBarrier = sequenceBarrier;
+        this.waitSpinningHelper = new WaitSpinningHelper(ringBuffer, sequenceBarrier, MASTER_SPIN_LIMIT);
         this.eventHandler = eventHandler;
     }
 
@@ -103,13 +107,13 @@ public final class MasterProcessor implements EventProcessor {
             try {
 
                 // should spin and also check another barrier
-                final long availableSequence = sequenceBarrier.tryWaitFor(nextSequence, 5000);
+                final long availableSequence = waitSpinningHelper.tryWaitFor(nextSequence);
 
                 if (availableSequence >= nextSequence) {
                     while (nextSequence <= availableSequence) {
                         final OrderCommand cmd = dataProvider.get(nextSequence);
 
-                        // switch to next group - process
+                        // switch to next group - let slave processor to do a handling cycle
                         if (cmd.eventsGroup > currentSequenceGroup) {
                             sequence.set(nextSequence - 1);
                             slaveProcessor.handlingCycle(nextSequence);
@@ -131,8 +135,6 @@ public final class MasterProcessor implements EventProcessor {
                     }
                     sequence.set(availableSequence);
                 }
-            } catch (final TimeoutException e) {
-                //
             } catch (final AlertException ex) {
                 if (running.get() != RUNNING) {
                     break;
@@ -142,9 +144,7 @@ public final class MasterProcessor implements EventProcessor {
                 nextSequence++;
             }
 
-
         }
     }
-
 
 }
