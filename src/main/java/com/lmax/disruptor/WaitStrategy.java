@@ -41,9 +41,6 @@ public interface WaitStrategy
     long waitFor(long sequence, Sequence cursor, Sequence dependentSequence, SequenceBarrier barrier)
         throws AlertException, InterruptedException, TimeoutException;
 
-    long tryWaitFor(long sequence, Sequence cursor, Sequence dependentSequence, SequenceBarrier barrier, long spin)
-        throws AlertException, InterruptedException, TimeoutException;
-
     /**
      * Implementations should signal the waiting {@link EventProcessor}s that the cursor has advanced.
      */

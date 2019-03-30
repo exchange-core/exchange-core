@@ -44,16 +44,6 @@ public final class YieldingWaitStrategy implements WaitStrategy
     }
 
     @Override
-    public long tryWaitFor(long sequence, Sequence cursor, Sequence dependentSequence, SequenceBarrier barrier, long spin) throws AlertException, InterruptedException, TimeoutException {
-        //return waitFor(sequence, cursor, dependentSequence, barrier);
-        long availableSequence;
-        do {
-            availableSequence = dependentSequence.get();
-        } while (availableSequence < sequence && spin-- > 0);
-        return availableSequence;
-    }
-
-    @Override
     public void signalAllWhenBlocking()
     {
     }

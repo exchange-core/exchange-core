@@ -58,11 +58,6 @@ public class TimeoutBlockingWaitStrategy implements WaitStrategy
     }
 
     @Override
-    public long tryWaitFor(long sequence, Sequence cursor, Sequence dependentSequence, SequenceBarrier barrier, long spin) throws AlertException, InterruptedException, TimeoutException {
-        return waitFor(sequence, cursor, dependentSequence, barrier);
-    }
-
-    @Override
     public void signalAllWhenBlocking()
     {
         synchronized (mutex)

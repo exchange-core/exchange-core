@@ -55,7 +55,8 @@ final class ProcessingSequenceBarrier implements SequenceBarrier
 
         long availableSequence = waitStrategy.waitFor(sequence, cursorSequence, dependentSequence, this);
 
-        if (availableSequence < sequence) {
+        if (availableSequence < sequence)
+        {
             return availableSequence;
         }
 
@@ -63,7 +64,8 @@ final class ProcessingSequenceBarrier implements SequenceBarrier
     }
 
     @Override
-    public long getCursor() {
+    public long getCursor()
+    {
         return dependentSequence.get();
     }
 

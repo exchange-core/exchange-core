@@ -43,15 +43,6 @@ public final class BusySpinWaitStrategy implements WaitStrategy
     }
 
     @Override
-    public long tryWaitFor(long sequence, Sequence cursor, Sequence dependentSequence, SequenceBarrier barrier, long spin) throws AlertException, InterruptedException, TimeoutException {
-        long availableSequence;
-        do {
-            availableSequence = dependentSequence.get();
-        } while (availableSequence < sequence && spin-- > 0);
-        return availableSequence;
-    }
-
-    @Override
     public void signalAllWhenBlocking()
     {
     }
