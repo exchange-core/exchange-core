@@ -71,6 +71,9 @@ public class ExchangeCore {
 
     private static final boolean THREAD_AFFINITY_PER_CORE = false;
 
+    private static final boolean JOURNALLING_ENABLED = false;
+
+
     @PostConstruct
     public void start() {
 
@@ -112,7 +115,9 @@ public class ExchangeCore {
         });
 
         // 2. journalling (J) in parallel with risk hold (R1) + matching engine (ME)
-        afterGrouping.handleEventsWith(journallingHandler);
+        if (JOURNALLING_ENABLED) {
+            afterGrouping.handleEventsWith(journallingHandler);
+        }
 
         afterGrouping
                 .handleEventsWith((rb, bs) -> {
@@ -122,16 +127,16 @@ public class ExchangeCore {
                 .handleEventsWith(matchingEngineHandler);
 
         // 3. results handler (E) and risk release (R2) after matching engine (ME) + journalling (J)
-        disruptor.after(matchingEngineHandler, journallingHandler)
-                .then(resultsHandler);
-
-        disruptor.after(matchingEngineHandler)
+        EventHandlerGroup<OrderCommand> afterMatchingEngine = disruptor.after(matchingEngineHandler);
+        afterMatchingEngine
                 .then((rb, bs) -> {
                     procR2 = new SlaveProcessor<>(rb, rb.newBarrier(bs), handlerR2);
                     procR1.setSlaveProcessor(procR2);
                     return procR2;
                 });
 
+        (JOURNALLING_ENABLED ? disruptor.after(matchingEngineHandler, journallingHandler) : afterMatchingEngine)
+                .then(resultsHandler);
 
         // TODO add second journalling handler?
 

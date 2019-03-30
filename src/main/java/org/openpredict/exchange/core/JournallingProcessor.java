@@ -22,8 +22,6 @@ import java.time.format.DateTimeFormatter;
 @Service
 public class JournallingProcessor implements EventHandler<OrderCommand> {
 
-    private static final boolean JOURNALLING_DISABLED = true;
-
     private static final int MB = 1024 * 1024;
     private static final int FILE_SIZE_TRIGGER = 1024 * MB; // split files by size
     private static final String FILE_NAME_PATTERN = "/exchange/data/%s_%04d.olog";
@@ -45,9 +43,6 @@ public class JournallingProcessor implements EventHandler<OrderCommand> {
     @Override
     public void onEvent(OrderCommand cmd, long seq, boolean eob) throws Exception {
 
-        if (JOURNALLING_DISABLED) {
-            return;
-        }
 //        log.debug("Writing {}", cmd);
 
         //buffer.putInt(cmd.symbol); // TODO Header
