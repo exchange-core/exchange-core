@@ -2,9 +2,7 @@ package org.openpredict.exchange.rest;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import lombok.AllArgsConstructor;
 import lombok.Getter;
-import lombok.Setter;
 import lombok.ToString;
 import org.atmosphere.config.service.Get;
 import org.atmosphere.config.service.ManagedService;

@@ -10,9 +10,6 @@ import com.lmax.disruptor.dsl.ProducerType;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
-import org.openpredict.exchange.beans.CfgWaitStrategyType;
-import org.openpredict.exchange.beans.MatcherTradeEvent;
-import org.openpredict.exchange.beans.UserProfile;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
@@ -27,7 +24,6 @@ import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.function.Consumer;
 
