@@ -28,14 +28,18 @@ public final class GroupingProcessor implements EventProcessor {
     private static final int HALTED = IDLE + 1;
     private static final int RUNNING = HALTED + 1;
 
+    private static final int GROUP_SPIN_LIMIT = 1000;
+
     private final AtomicInteger running = new AtomicInteger(IDLE);
     private final RingBuffer<OrderCommand> ringBuffer;
     private final SequenceBarrier sequenceBarrier;
+    private final WaitSpinningHelper waitSpinningHelper;
     private final Sequence sequence = new Sequence(Sequencer.INITIAL_CURSOR_VALUE);
 
     public GroupingProcessor(final RingBuffer<OrderCommand> ringBuffer, final SequenceBarrier sequenceBarrier) {
         this.ringBuffer = ringBuffer;
         this.sequenceBarrier = sequenceBarrier;
+        this.waitSpinningHelper = new WaitSpinningHelper(ringBuffer, sequenceBarrier, GROUP_SPIN_LIMIT);
     }
 
     @Override
@@ -96,8 +100,7 @@ public final class GroupingProcessor implements EventProcessor {
             try {
 
                 // should spin and also check another barrier
-                sequenceBarrier.checkAlert();
-                long availableSequence = sequenceBarrier.tryWaitFor(nextSequence, 1000);
+                long availableSequence = waitSpinningHelper.tryWaitFor(nextSequence);
 
                 if (nextSequence <= availableSequence) {
                     while (nextSequence <= availableSequence) {
@@ -148,9 +151,6 @@ public final class GroupingProcessor implements EventProcessor {
                     }
                 }
 
-
-            } catch (final TimeoutException e) {
-                //
             } catch (final AlertException ex) {
                 if (running.get() != RUNNING) {
                     break;

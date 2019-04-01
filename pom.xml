@@ -61,14 +61,12 @@
                 <version>${commons-math3.version}</version>
             </dependency>
 
-            <!--lmax-->
-<!--
+            <!-- LMAX Disruptor -->
             <dependency>
                 <groupId>com.lmax</groupId>
-                <artifactId>com.lmax.disruptor</artifactId>
+                <artifactId>disruptor</artifactId>
                 <version>${lmax.com.lmax.disruptor.version}</version>
             </dependency>
--->
 
             <!-- OpenHFT -->
             <dependency>
@@ -133,6 +131,11 @@
     <dependencies>
 
         <dependency>
+            <groupId>com.lmax</groupId>
+            <artifactId>disruptor</artifactId>
+        </dependency>
+
+        <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
@@ -140,7 +143,7 @@
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
-            <version>1.16.20</version>
+            <version>1.16.22</version>
         </dependency>
 
         <dependency>

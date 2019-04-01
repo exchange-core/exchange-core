@@ -29,17 +29,19 @@ public final class SlaveProcessor<T> implements EventProcessor {
     private final AtomicInteger running = new AtomicInteger(IDLE);
     private final DataProvider<T> dataProvider;
     private final SequenceBarrier sequenceBarrier;
+    private final WaitSpinningHelper waitSpinningHelper;
     private final SimpleEventHandler<? super T> eventHandler;
     private final Sequence sequence = new Sequence(Sequencer.INITIAL_CURSOR_VALUE);
     private final ExceptionHandler<? super T> exceptionHandler;
     private long nextSequence = -1;
 
-    public SlaveProcessor(final DataProvider<T> dataProvider,
+    public SlaveProcessor(final RingBuffer<T> ringBuffer,
                           final SequenceBarrier sequenceBarrier,
                           final SimpleEventHandler<? super T> eventHandler,
                           final ExceptionHandler<? super T> exceptionHandler) {
-        this.dataProvider = dataProvider;
+        this.dataProvider = ringBuffer;
         this.sequenceBarrier = sequenceBarrier;
+        this.waitSpinningHelper = new WaitSpinningHelper(ringBuffer, sequenceBarrier, 0);
         this.eventHandler = eventHandler;
         this.exceptionHandler = exceptionHandler;
     }
@@ -80,7 +82,7 @@ public final class SlaveProcessor<T> implements EventProcessor {
         while (true) {
             T event = null;
             try {
-                long availableSequence = sequenceBarrier.tryWaitFor(nextSequence, 0);
+                long availableSequence = waitSpinningHelper.tryWaitFor(nextSequence);
 
                 // process batch
                 while (nextSequence <= availableSequence && nextSequence < processUpToSequence) {
@@ -89,7 +91,7 @@ public final class SlaveProcessor<T> implements EventProcessor {
                     nextSequence++;
                 }
 
-                // exit if processed all group
+                // exit if finished processing entire group (up to specified sequence)
                 if (nextSequence == processUpToSequence) {
                     sequence.set(nextSequence - 1);
                     return;
@@ -97,8 +99,6 @@ public final class SlaveProcessor<T> implements EventProcessor {
 
                 sequence.set(availableSequence);
 
-            } catch (final TimeoutException e) {
-                //
             } catch (final Throwable ex) {
                 exceptionHandler.handleEventException(ex, nextSequence, event);
                 sequence.set(nextSequence);
