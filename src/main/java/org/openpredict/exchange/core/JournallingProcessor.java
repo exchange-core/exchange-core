@@ -4,7 +4,6 @@ import com.lmax.disruptor.EventHandler;
 import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
-import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -19,7 +18,6 @@ import java.time.format.DateTimeFormatter;
  * - not thread safe!
  */
 @Slf4j
-@Service
 public class JournallingProcessor implements EventHandler<OrderCommand> {
 
     private static final int MB = 1024 * 1024;

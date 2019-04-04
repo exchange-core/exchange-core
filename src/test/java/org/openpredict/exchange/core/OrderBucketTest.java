@@ -8,6 +8,7 @@ import org.junit.runner.RunWith;
 import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.openpredict.exchange.beans.Order;
+import org.openpredict.exchange.core.orderbook.IOrdersBucket;
 
 import java.util.ArrayList;
 import java.util.Collections;

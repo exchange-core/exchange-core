@@ -4,14 +4,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.api.map.primitive.MutableLongObjectMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.beans.UserProfile;
-import org.springframework.stereotype.Service;
 
 /**
  * Stateful (!) User profile service
  * <p>
  * TODO make multi instance (post-Spring migration)
  */
-@Service
 @Slf4j
 public final class UserProfileService {
 

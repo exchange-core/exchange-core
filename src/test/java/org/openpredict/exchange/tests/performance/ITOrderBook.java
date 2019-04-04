@@ -12,15 +12,13 @@ import org.openpredict.exchange.beans.MatcherEventType;
 import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
-import org.openpredict.exchange.core.IOrderBook;
+import org.openpredict.exchange.core.orderbook.IOrderBook;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
@@ -68,8 +66,7 @@ public class ITOrderBook {
 
         TestOrdersGenerator generator = new TestOrdersGenerator();
 
-        List<Long> uid = Stream.iterate(99000L, i -> i + 1).limit(1000).collect(Collectors.toList());
-        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uid, 0, false);
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, 1000, 0, false);
         List<OrderCommand> orderCommands = genResult.getCommands();
         log.debug("orderCommands size: {}", orderCommands.size());
 

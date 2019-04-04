@@ -5,9 +5,9 @@ import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
-import org.springframework.stereotype.Service;
+import org.openpredict.exchange.beans.cmd.OrderCommandType;
+import org.openpredict.exchange.core.orderbook.IOrderBook;
 
-@Service
 @Slf4j
 public final class MatchingEngineRouter {
 
@@ -17,6 +17,12 @@ public final class MatchingEngineRouter {
     public void processOrder(OrderCommand cmd) {
         if (cmd.resultCode != CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
             cmd.matcherEvent = null; // remove and let garbage collected
+            return;
+        }
+
+        if (cmd.command == OrderCommandType.RESET) {
+            orderBooks.clear();
+            cmd.resultCode = CommandResultCode.SUCCESS;
             return;
         }
 
@@ -43,8 +49,5 @@ public final class MatchingEngineRouter {
         return orderBooks.get(symbol).getL2MarketDataSnapshot(size);
     }
 
-    public void reset() {
-        orderBooks.forEach(IOrderBook::clear);
-    }
 
 }

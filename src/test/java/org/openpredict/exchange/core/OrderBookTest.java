@@ -14,6 +14,8 @@ import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.core.orderbook.IOrderBook;
+import org.openpredict.exchange.core.orderbook.OrderBookFast;
 import org.openpredict.exchange.tests.util.L2MarketDataHelper;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 
@@ -29,7 +31,7 @@ import static org.openpredict.exchange.beans.OrderAction.ASK;
 import static org.openpredict.exchange.beans.OrderAction.BID;
 import static org.openpredict.exchange.beans.cmd.CommandResultCode.MATCHING_INVALID_ORDER_ID;
 import static org.openpredict.exchange.beans.cmd.CommandResultCode.SUCCESS;
-import static org.openpredict.exchange.core.IOrderBook.DEFAULT_HOT_WIDTH;
+import static org.openpredict.exchange.core.orderbook.IOrderBook.DEFAULT_HOT_WIDTH;
 
 /**
  * TODO add tests where orders for same UID ignored during matching
@@ -756,7 +758,7 @@ public class OrderBookTest {
 
         TestOrdersGenerator.GenResult genResult = generator.generateCommands(tranNum,
                 200,
-                Longs.asList(10, 11, 12, 13, 14, 15),
+                6,
                 0,
                 false);
 

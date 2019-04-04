@@ -176,6 +176,10 @@ public class OrderCommand {
 //            System.out.println(">>> newCmd.matcherEvent: " + newCmd.matcherEvent);
         }
 
+        if (marketData != null) {
+            newCmd.marketData = marketData.copy();
+        }
+
 //        System.out.println(">>> newCmd: " + newCmd);
         return newCmd;
     }

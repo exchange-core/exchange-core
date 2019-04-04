@@ -1,4 +1,4 @@
-package org.openpredict.exchange.core;
+package org.openpredict.exchange.core.orderbook;
 
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -11,6 +11,8 @@ import org.eclipse.collections.api.map.primitive.MutableLongIntMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongIntHashMap;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.core.ReduceEventCallback;
+import org.openpredict.exchange.core.TradeEventCallback;
 
 import java.util.Arrays;
 import java.util.List;

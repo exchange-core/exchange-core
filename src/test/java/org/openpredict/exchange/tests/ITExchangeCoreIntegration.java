@@ -1,65 +1,33 @@
 package org.openpredict.exchange.tests;
 
 import lombok.extern.slf4j.Slf4j;
-import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.api.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
-import org.openpredict.exchange.core.*;
+import org.openpredict.exchange.core.ExchangeApi;
+import org.openpredict.exchange.core.ExchangeCore;
 import org.openpredict.exchange.tests.util.L2MarketDataHelper;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.context.annotation.ComponentScan;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.junit4.SpringRunner;
 
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
 import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.*;
 
-@RunWith(SpringRunner.class)
-@SpringBootTest
-@ComponentScan(basePackages = {
-        "org.openpredict.exchange",
-})
-@TestPropertySource(locations = "classpath:it.properties")
 @Slf4j
 public class ITExchangeCoreIntegration {
-
-    @Autowired
-    private ExchangeApi apiCore;
-
-    @Autowired
-    private ExchangeCore exchangeCore;
-
-    @Autowired
-    private UserProfileService userProfileService;
-
-    @Autowired
-    private MatchingEngineRouter matchingEngineRouter;
-
-    @Autowired
-    private RiskEngine riskEngine;
-
-    @Autowired
-    private SymbolSpecificationProvider symbolSpecificationProvider;
-
-    @MockBean
-    private Consumer<OrderCommand> resultsConsumerMock;
 
     private TestOrdersGenerator generator = new TestOrdersGenerator();
 
@@ -67,50 +35,56 @@ public class ITExchangeCoreIntegration {
     private static final int UID_1 = 1442412;
     private static final int UID_2 = 1442413;
 
+    private ExchangeCore exchangeCore;
+    private ExchangeApi api;
+
+    private volatile Consumer<OrderCommand> consumer;
+
     @Before
     public void before() {
+
         detatchConsumer();
+        this.exchangeCore = new ExchangeCore(cmd -> consumer.accept(cmd));
+        this.exchangeCore.startup();
+        this.api = exchangeCore.getApi();
 
-        CoreSymbolSpecification spec = CoreSymbolSpecification.builder().depositBuy(2200).depositSell(4210).symbolId(SYMBOL).build();
-        symbolSpecificationProvider.registerSymbol(SYMBOL, spec);
-        matchingEngineRouter.addOrderBook(SYMBOL);
+        ApiAddSymbol addSymbol = ApiAddSymbol.builder().depositBuy(2200).depositSell(4210).symbolId(SYMBOL).build();
+        this.api.submitCommand(addSymbol);
 
-        BlockingQueue<OrderCommand> results = attachBufferedConsumer();
+        BlockingQueue<OrderCommand> results = attachNewConsumerQueue();
 
-        apiCore.submitCommand(ApiAddUser.builder().uid(UID_1).build());
-        apiCore.submitCommand(ApiAddUser.builder().uid(UID_2).build());
+        api.submitCommand(ApiAddUser.builder().uid(UID_1).build());
+        api.submitCommand(ApiAddUser.builder().uid(UID_2).build());
 
-        apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(UID_1).amount(1_000_000L).build());
-        apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(UID_2).amount(2_000_000L).build());
+        api.submitCommand(ApiAdjustUserBalance.builder().uid(UID_1).amount(1_000_000L).build());
+        api.submitCommand(ApiAdjustUserBalance.builder().uid(UID_2).amount(2_000_000L).build());
 
-        waitForOrderCommands(results, 4).forEach(cmd -> assertEquals(CommandResultCode.SUCCESS, cmd.resultCode));
+        waitForOrderCommands(results, 4).forEach(cmd -> {
+            assertEquals(CommandResultCode.SUCCESS, cmd.resultCode);
+        });
     }
 
     @After
-    public void after() throws Exception{
+    public void after() throws Exception {
         Thread.sleep(100);
-        BlockingQueue<OrderCommand> results = attachBufferedConsumer();
-        apiCore.submitCommand(ApiReset.builder().build());
+        BlockingQueue<OrderCommand> results = attachNewConsumerQueue();
+        api.submitCommand(ApiReset.builder().build());
         List<OrderCommand> commands = waitForOrderCommands(results, 1);
         assertThat(commands.get(0).resultCode, is(CommandResultCode.SUCCESS));
         detatchConsumer();
+        exchangeCore.shutdown();
     }
 
 
-    @Test
-    public void contextStarts() {
-
-    }
-
-    @Test
+    @Test(timeout = 10_000)
     public void basicFullCycleTest() throws Exception {
 
-        BlockingQueue<OrderCommand> results = attachBufferedConsumer();
+        BlockingQueue<OrderCommand> results = attachNewConsumerQueue();
 
         // ### 1. first trader places limit orders
         ApiPlaceOrder order101 = ApiPlaceOrder.builder().uid(UID_1).id(101).price(1600).size(7).action(OrderAction.ASK).orderType(OrderType.LIMIT).symbol(SYMBOL).build();
         log.debug("PLACE: {}", order101);
-        apiCore.submitCommand(order101);
+        api.submitCommand(order101);
 
         List<OrderCommand> orderCommands = waitForOrderCommands(results, 1);
 
@@ -130,7 +104,7 @@ public class ITExchangeCoreIntegration {
 
         ApiPlaceOrder order102 = ApiPlaceOrder.builder().uid(UID_1).id(102).price(1550).size(4).action(OrderAction.BID).orderType(OrderType.LIMIT).symbol(SYMBOL).build();
         log.debug("PLACE: {}", order102);
-        apiCore.submitCommand(order102);
+        api.submitCommand(order102);
 
         orderCommands = waitForOrderCommands(results, 1);
         assertThat(orderCommands.size(), is(1));
@@ -138,17 +112,16 @@ public class ITExchangeCoreIntegration {
         assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
         assertNull(cmd.matcherEvent);
 
-        L2MarketDataHelper l2helper = new L2MarketDataHelper().addAsk(1600, 7).addBid(1550, 4);
-        L2MarketData expectedState = l2helper.build();
-        assertEquals(expectedState, matchingEngineRouter.getMarketData(SYMBOL, 10));
 
+        final L2MarketDataHelper l2helper = new L2MarketDataHelper().addAsk(1600, 7).addBid(1550, 4);
+        assertEquals(l2helper.build(), requestCurrentOrderBook(results));
 
         // ### 2. second trader sends market order, first order partially matched
         results.clear();
 
         ApiPlaceOrder order201 = ApiPlaceOrder.builder().uid(UID_2).id(201).size(2).action(OrderAction.BID).orderType(OrderType.MARKET).symbol(SYMBOL).build();
         log.debug("PLACE: {}", order201);
-        apiCore.submitCommand(order201);
+        api.submitCommand(order201);
 
         orderCommands = waitForOrderCommands(results, 1);
         cmd = orderCommands.get(0);
@@ -171,15 +144,13 @@ public class ITExchangeCoreIntegration {
         assertThat(evt.price, is(1600L));
 
         // volume decreased to 5
-        expectedState = l2helper.setAskVolume(0, 5).build();
-        Thread.sleep(100);
-        assertEquals(expectedState, matchingEngineRouter.getMarketData(SYMBOL, 10));
-
+        l2helper.setAskVolume(0, 5);
+        assertEquals(l2helper.build(), requestCurrentOrderBook(results));
 
         // ### 3. second trader places limit order
         ApiPlaceOrder order202 = ApiPlaceOrder.builder().uid(UID_2).id(202).price(1583).size(4).action(OrderAction.BID).orderType(OrderType.LIMIT).symbol(SYMBOL).build();
         log.debug("PLACE: {}", order202);
-        apiCore.submitCommand(order202);
+        api.submitCommand(order202);
 
         orderCommands = waitForOrderCommands(results, 1);
         cmd = orderCommands.get(0);
@@ -189,9 +160,8 @@ public class ITExchangeCoreIntegration {
         matcherEvents = cmd.extractEvents();
         assertThat(matcherEvents.size(), is(0));
 
-        expectedState = l2helper.insertBid(0, 1583, 4).build();
-        Thread.sleep(100);
-        assertEquals(expectedState, matchingEngineRouter.getMarketData(SYMBOL, 10));
+        l2helper.insertBid(0, 1583, 4);
+        assertEquals(l2helper.build(), requestCurrentOrderBook(results));
 
         //log.debug("{}", dumpOrderBook(matchingEngineRouter.getMarketData(SYMBOL, 10)));
 
@@ -199,7 +169,7 @@ public class ITExchangeCoreIntegration {
         // ### 4. first trader moves his order - it will match existing order (202) but not entirely
         ApiMoveOrder moveOrder = ApiMoveOrder.builder().symbol(SYMBOL).uid(UID_1).id(101).newPrice(1580).build();
         log.debug("MOVE: {}", moveOrder);
-        apiCore.submitCommand(moveOrder);
+        api.submitCommand(moveOrder);
 
         orderCommands = waitForOrderCommands(results, 1);
         cmd = orderCommands.get(0);
@@ -221,75 +191,84 @@ public class ITExchangeCoreIntegration {
         assertThat(evt.size, is(4L));
         assertThat(evt.price, is(1583L));
 
-        expectedState = l2helper.setAskPriceVolume(0, 1580, 1).removeBid(0).build();
-        Thread.sleep(100);
-        assertEquals(expectedState, matchingEngineRouter.getMarketData(SYMBOL, 10));
-
+        l2helper.setAskPriceVolume(0, 1580, 1).removeBid(0);
+        assertEquals(l2helper.build(), requestCurrentOrderBook(results));
     }
 
-    private BlockingQueue<OrderCommand> attachBufferedConsumer() {
+    private L2MarketData requestCurrentOrderBook(BlockingQueue<OrderCommand> results) {
+        return requestCurrentOrderBook(results, 10);
+    }
+
+    private L2MarketData requestCurrentOrderBook(BlockingQueue<OrderCommand> results, int orderBookSize) {
+        api.submitCommand(ApiOrderBookRequest.builder().symbol(SYMBOL).size(orderBookSize).build());
+        OrderCommand orderBookCmd = waitForOrderCommands(results, 1).get(0);
+        L2MarketData actualState = orderBookCmd.marketData;
+        assertNotNull(actualState);
+        return actualState;
+    }
+
+
+    private BlockingQueue<OrderCommand> attachNewConsumerQueue() {
         BlockingQueue<OrderCommand> results = new LinkedBlockingQueue<>();
 
-        exchangeCore.setResultsConsumer(cmd -> {
+        consumer = cmd -> {
             //log.debug(">>>>: {}", cmd);
             results.add(cmd.copy());
-        });
+        };
         return results;
     }
 
     private List<OrderCommand> waitForOrderCommands(BlockingQueue<OrderCommand> results, int c) {
         return Stream.generate(() -> {
             try {
-                return results.poll(100, TimeUnit.MILLISECONDS);
+                return results.poll(10000, TimeUnit.MILLISECONDS);
             } catch (InterruptedException ex) {
                 throw new IllegalStateException();
             }
-        }).limit(c).collect(Collectors.toList());
+        })
+                .limit(c)
+                .collect(Collectors.toList());
     }
 
-    @Test
+
+    @Test(timeout = 30_000)
     public void manyOperations() throws Exception {
 
-        int numOrders = 200_000;
+        int numOrders = 1_000_000;
         int targetOrderBookOrders = 1000;
         int numUsers = 1000;
 
-        List<Long> uids = Stream.iterate(1L, i -> i + 1).limit(numUsers).collect(Collectors.toList());
-        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids, SYMBOL, false);
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, numUsers, SYMBOL, false);
         List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
 
-        detatchConsumer();
-
-        Thread.sleep(20);
-        userProfileService.reset();
-        matchingEngineRouter.reset();
-        Thread.sleep(20);
-        uids.forEach(uid -> {
-            apiCore.submitCommand(ApiAddUser.builder().uid(uid).build());
-            apiCore.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(7_000_000L).build());
+        final CountDownLatch usersLatch = new CountDownLatch(numUsers * 2);
+        consumer = cmd -> usersLatch.countDown();
+        LongStream.rangeClosed(1, numUsers).forEach(uid -> {
+            api.submitCommand(ApiAddUser.builder().uid(uid).build());
+            api.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(7_000_000L).build());
         });
+        usersLatch.await();
 
-        System.gc();
-        Thread.sleep(200);
-
-        log.info("Start");
+        final CountDownLatch ordersLatch = new CountDownLatch(apiCommands.size());
+        consumer = cmd -> ordersLatch.countDown();
         for (ApiCommand cmd : apiCommands) {
             cmd.timestamp = System.currentTimeMillis();
-            apiCore.submitCommand(cmd);
+            api.submitCommand(cmd);
         }
-        log.info("Done");
-        Thread.sleep(200);
+        ordersLatch.await();
 
-        // weak compare orderBook final state just to make sure all commands executed same way
+        // compare orderBook final state just to make sure all commands executed same way
         // TODO compare events, wait until finish
-        assertThat(matchingEngineRouter.getOrderBook(SYMBOL).hashCode(), Matchers.is(genResult.getFinalOrderbookHash()));
-
+        L2MarketData l2MarketData = requestCurrentOrderBook(attachNewConsumerQueue(), -1);
+        assertEquals(genResult.getFinalOrderBookSnapshot(), l2MarketData);
+        assertTrue(l2MarketData.askSize > targetOrderBookOrders / 4);
+        assertTrue(l2MarketData.bidSize > targetOrderBookOrders / 4);
     }
 
     private void detatchConsumer() {
-        exchangeCore.setResultsConsumer(cmd -> {
+        consumer = orderCommand -> {
             //log.debug("Result: {}", cmd);
-        });
+        };
     }
 
 }

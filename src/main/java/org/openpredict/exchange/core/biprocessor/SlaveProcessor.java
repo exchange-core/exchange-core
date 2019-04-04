@@ -13,32 +13,33 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.openpredict.exchange.biprocessor;
+package org.openpredict.exchange.core.biprocessor;
 
 import com.lmax.disruptor.*;
 import lombok.extern.slf4j.Slf4j;
+import org.openpredict.exchange.beans.cmd.OrderCommand;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
-public final class SlaveProcessor<T> implements EventProcessor {
+public final class SlaveProcessor implements EventProcessor {
     private static final int IDLE = 0;
     private static final int HALTED = IDLE + 1;
     private static final int RUNNING = HALTED + 1;
 
     private final AtomicInteger running = new AtomicInteger(IDLE);
-    private final DataProvider<T> dataProvider;
+    private final DataProvider<OrderCommand> dataProvider;
     private final SequenceBarrier sequenceBarrier;
     private final WaitSpinningHelper waitSpinningHelper;
-    private final SimpleEventHandler<? super T> eventHandler;
+    private final SimpleEventHandler<? super OrderCommand> eventHandler;
     private final Sequence sequence = new Sequence(Sequencer.INITIAL_CURSOR_VALUE);
-    private final ExceptionHandler<? super T> exceptionHandler;
+    private final ExceptionHandler<? super OrderCommand> exceptionHandler;
     private long nextSequence = -1;
 
-    public SlaveProcessor(final RingBuffer<T> ringBuffer,
+    public SlaveProcessor(final RingBuffer<OrderCommand> ringBuffer,
                           final SequenceBarrier sequenceBarrier,
-                          final SimpleEventHandler<? super T> eventHandler,
-                          final ExceptionHandler<? super T> exceptionHandler) {
+                          final SimpleEventHandler<? super OrderCommand> eventHandler,
+                          final ExceptionHandler<? super OrderCommand> exceptionHandler) {
         this.dataProvider = ringBuffer;
         this.sequenceBarrier = sequenceBarrier;
         this.waitSpinningHelper = new WaitSpinningHelper(ringBuffer, sequenceBarrier, 0);
@@ -80,7 +81,7 @@ public final class SlaveProcessor<T> implements EventProcessor {
 
     public void handlingCycle(long processUpToSequence) {
         while (true) {
-            T event = null;
+            OrderCommand event = null;
             try {
                 long availableSequence = waitSpinningHelper.tryWaitFor(nextSequence);
 

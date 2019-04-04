@@ -12,7 +12,7 @@ import org.openpredict.exchange.beans.api.ApiPlaceOrder;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
-import org.openpredict.exchange.core.IOrderBook;
+import org.openpredict.exchange.core.orderbook.IOrderBook;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -39,7 +39,7 @@ public class TestOrdersGenerator {
     public GenResult generateCommands(
             int transactionsNumber,
             int targetOrderBookOrders,
-            List<Long> uids,
+            int numUsers,
             int symbol,
             boolean enableSlidingPrice) {
 
@@ -49,7 +49,7 @@ public class TestOrdersGenerator {
                 orderBook,
                 targetOrderBookOrders,
                 PRICE_DEVIATION_DEFAULT,
-                uids,
+                numUsers,
                 symbol,
                 CENTRAL_PRICE,
                 enableSlidingPrice ? 1 : 0);
@@ -129,7 +129,12 @@ public class TestOrdersGenerator {
         log.debug("Average limit orders number in the order book:{} (target:{})", avgOrdersNumInOrderBook, targetOrderBookOrders);
         log.debug("Commands success={}%", succPerc);
 
-        return GenResult.builder().commands(commands).finalOrderbookHash(orderBook.hashCode()).build();
+        L2MarketData l2MarketData = orderBook.getL2MarketDataSnapshot(-1);
+
+        return GenResult.builder().commands(commands)
+                .finalOrderbookHash(orderBook.hashCode())
+                .finalOrderBookSnapshot(l2MarketData)
+                .build();
     }
 
     private void updateOrderBookSizeStat(TestOrdersGeneratorSession session) {
@@ -204,7 +209,7 @@ public class TestOrdersGenerator {
             long size = 1 + rand.nextInt(6) * rand.nextInt(6) * rand.nextInt(6);
 
             OrderType orderType = growOrders ? OrderType.LIMIT : OrderType.MARKET;
-            long uid = session.uids.get(rand.nextInt(session.uids.size()));
+            long uid = 1 + rand.nextInt(session.numUsers);
 
             OrderCommand placeCmd = OrderCommand.builder().command(OrderCommandType.PLACE_ORDER).uid(uid).orderId(session.seq).size(size)
                     .action(action).orderType(orderType).build();
@@ -303,6 +308,7 @@ public class TestOrdersGenerator {
     @Getter
     @Setter
     public static class GenResult {
+        private L2MarketData finalOrderBookSnapshot;
         private int finalOrderbookHash;
         private List<OrderCommand> commands;
     }

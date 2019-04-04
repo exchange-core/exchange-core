@@ -10,6 +10,7 @@ import java.util.TreeMap;
 
 public class LatencyTools {
 
+
     public static final double[] PERCENTILES = new double[]{50, 90, 95, 99, 99.9, 99.99};
 
     public static Map<String, String> createLatencyReportFast(Histogram histogram) {

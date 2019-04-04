@@ -1,80 +1,48 @@
 package org.openpredict.exchange.core;
 
-import com.lmax.disruptor.BatchEventProcessor;
 import com.lmax.disruptor.EventHandler;
 import com.lmax.disruptor.EventTranslator;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.EventHandlerGroup;
 import com.lmax.disruptor.dsl.ProducerType;
-import lombok.Setter;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
-import org.openpredict.exchange.biprocessor.GroupingProcessor;
-import org.openpredict.exchange.biprocessor.MasterProcessor;
-import org.openpredict.exchange.biprocessor.SimpleEventHandler;
-import org.openpredict.exchange.biprocessor.SlaveProcessor;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
+import org.openpredict.exchange.core.biprocessor.GroupingProcessor;
+import org.openpredict.exchange.core.biprocessor.MasterProcessor;
+import org.openpredict.exchange.core.biprocessor.SimpleEventHandler;
+import org.openpredict.exchange.core.biprocessor.SlaveProcessor;
 
-import javax.annotation.PostConstruct;
-import javax.annotation.PreDestroy;
 import java.util.concurrent.ThreadFactory;
 import java.util.function.Consumer;
 
 import static org.openpredict.exchange.beans.MatcherEventType.*;
 
-@Service
+@RequiredArgsConstructor
 @Slf4j
 public final class ExchangeCore {
 
-    @Autowired
-    private UserProfileService userProfileService;
-
-    @Autowired
-    private MatchingEngineRouter matchingEngineRouter;
-
-    @Autowired
-    private RiskEngine riskEngine;
-
-    @Autowired
-    private SymbolSpecificationProvider symbolSpecificationProvider;
-
-    @Autowired
-    private JournallingProcessor journallingHandler;
-
-    @Autowired
-    @Setter
-    private Consumer<OrderCommand> resultsConsumer;
-
-
-    @Value("${riskEngine.orderCommands.bufferSize}")
-    private int commandsBufferSize;
-    @Value("${matchingEngine.tradingEvents.bufferSize}")
-    private int tradeEventsBufferSize;
-
-    private Disruptor<OrderCommand> disruptor;
-    private RingBuffer<OrderCommand> cmdRingBuffer;
-
-    private MasterProcessor procR1;
-    private SlaveProcessor<OrderCommand> procR2;
-
-    private GroupingProcessor procG;
-
-    private BatchEventProcessor<OrderCommand> procTest;
-
     private static final boolean THREAD_AFFINITY_PER_CORE = false;
-
     private static final boolean JOURNALLING_ENABLED = false;
 
 
-    @PostConstruct
-    public void start() {
+    private final UserProfileService userProfileService = new UserProfileService();
+    private final MatchingEngineRouter matchingEngineRouter = new MatchingEngineRouter();
+    private final SymbolSpecificationProvider symbolSpecificationProvider = new SymbolSpecificationProvider();
+    private final RiskEngine riskEngine = new RiskEngine(symbolSpecificationProvider);
+    private final JournallingProcessor journallingHandler = new JournallingProcessor();
+
+    private final Disruptor<OrderCommand> disruptor;
+    private final RingBuffer<OrderCommand> cmdRingBuffer;
+
+    private MasterProcessor procR1;
+
+    public ExchangeCore(Consumer<OrderCommand> resultsConsumer) {
 
         ThreadFactory threadFactory = eventProcessor -> new Thread(() -> {
             try (AffinityLock lock = THREAD_AFFINITY_PER_CORE ? AffinityLock.acquireCore() : AffinityLock.acquireLock()) {
@@ -83,12 +51,14 @@ public final class ExchangeCore {
             }
         });
 
-        disruptor = new Disruptor<>(
+        this.disruptor = new Disruptor<>(
                 OrderCommand::new,
                 64 * 1024,
                 threadFactory,
                 ProducerType.MULTI, // multiple gateway threads are writing
                 CfgWaitStrategyType.BUSY_SPIN.create());
+
+        this.cmdRingBuffer = disruptor.getRingBuffer();
 
         DisruptorExceptionHandler<OrderCommand> exceptionHandler = new DisruptorExceptionHandler<>("main", (ex, seq) -> {
             cmdRingBuffer.publishEvent(SHUTDOWN_SIGNAL_TRANSLATOR);
@@ -96,8 +66,6 @@ public final class ExchangeCore {
         });
 
         disruptor.setDefaultExceptionHandler(exceptionHandler);
-
-//        LoggingBarrierHandler loggingBarrierHandler = new LoggingBarrierHandler();
 
         EventHandler<OrderCommand> matchingEngineHandler = (cmd, seq, eob) -> {
 //            log.debug("ME processOrder {}", seq);
@@ -113,66 +81,44 @@ public final class ExchangeCore {
         SimpleEventHandler<OrderCommand> handlerR2 = this::handlerRiskRelease;
 
 //         1. grouping processor (G)
-        EventHandlerGroup<OrderCommand> afterGrouping = disruptor.handleEventsWith((rb, bs) -> {
-            procG = new GroupingProcessor(rb, rb.newBarrier(bs));
-            return procG;
-        });
+        EventHandlerGroup<OrderCommand> afterGrouping =
+                disruptor.handleEventsWith((rb, bs) -> new GroupingProcessor(rb, rb.newBarrier(bs)));
 
         // 2. journalling (J) in parallel with risk hold (R1) + matching engine (ME)
         if (JOURNALLING_ENABLED) {
             afterGrouping.handleEventsWith(journallingHandler);
         }
 
-        afterGrouping
-                .handleEventsWith((rb, bs) -> {
-                    procR1 = new MasterProcessor(rb, rb.newBarrier(bs), handlerR1, exceptionHandler);
-                    return procR1;
-                });
+        afterGrouping.handleEventsWith((rb, bs) -> {
+            procR1 = new MasterProcessor(rb, rb.newBarrier(bs), handlerR1, exceptionHandler);
+            return procR1;
+        });
         disruptor.after(procR1).handleEventsWith(matchingEngineHandler);
 
 
         // 3. results handler (E) after matching engine (ME) + [journalling (J)]
         // 4. risk release (R2) after matching engine (ME)
         EventHandlerGroup<OrderCommand> afterMatchingEngine = disruptor.after(matchingEngineHandler);
-        afterMatchingEngine
-                .then((rb, bs) -> {
-                    procR2 = new SlaveProcessor<>(rb, rb.newBarrier(bs), handlerR2, exceptionHandler);
-                    procR1.setSlaveProcessor(procR2);
-                    return procR2;
-                });
+        afterMatchingEngine.then((rb, bs) -> {
+            final SlaveProcessor procR2 = new SlaveProcessor(rb, rb.newBarrier(bs), handlerR2, exceptionHandler);
+            procR1.setSlaveProcessor(procR2);
+            return procR2;
+        });
 
         (JOURNALLING_ENABLED ? disruptor.after(matchingEngineHandler, journallingHandler) : afterMatchingEngine)
                 .then(resultsHandler);
 
-        // 5. cleaning handler
-//        final EventHandler<OrderCommand> cleaningHandler = (cmd, seq, eob) -> {
-//            //            log.debug("cleaning {}", seq);
-//            cmd.marketData = null;
-//            cmd.matcherEvent = null;
-//        };
-//        disruptor.after(procR2, resultsHandler).handleEventsWith(cleaningHandler);
+    }
 
-        // TODO add second journalling handler?
-
+    public void startup() {
         log.debug("STARTING Disruptor");
 
         // starting disruptor
         disruptor.start();
+    }
 
-        cmdRingBuffer = disruptor.getRingBuffer();
-
-//        Executors.newSingleThreadScheduledExecutor().scheduleWithFixedDelay(() -> {
-////            long lg = disruptor.getBarrierFor(loggingBarrierHandler).getCursor();
-////            long me = disruptor.getBarrierFor(matchingEngineHandler).getCursor();
-//            long g = procG.getSequence().get();
-//            long r1 = procR1.getSequence().get();
-//            long r2 = procR2.getSequence().get();
-//
-////            log.debug("lg:{} r1:{} me:{} r2:{}", lg, r1.getSequence().get(), me, r2.getSequence().get());
-////            log.debug("lg:{} r1:{} me:{} ", lg, r1.getSequence().get(), me);
-//            log.debug("g:{} r1:{} me:{} r2:{} D={}", g, r1, -4, r2, r1-r2);
-//        }, 1001, 1000, TimeUnit.MILLISECONDS);
-
+    public ExchangeApi getApi() {
+        return new ExchangeApi(this);
     }
 
     public RingBuffer<OrderCommand> getRingBuffer() {
@@ -184,8 +130,7 @@ public final class ExchangeCore {
         cmd.resultCode = CommandResultCode.NEW;
     };
 
-    @PreDestroy
-    public void stop() {
+    public void shutdown() {
 
         // TODO stop accepting new events first
         cmdRingBuffer.publishEvent(SHUTDOWN_SIGNAL_TRANSLATOR);
@@ -196,14 +141,6 @@ public final class ExchangeCore {
     }
 
     private void handleRiskHold(OrderCommand cmd) {
-
-//        log.debug("R1 Hold {}", cmd);
-
-        //log.debug("uid={} n={}", cmd.uid, Long.hashCode(cmd.uid) % USER_CHECK_PARALLELISM);
-
-//        if ((cmd.uid & 1) != mod) {
-//            return;
-//        }
 
         switch (cmd.command) {
             case MOVE_ORDER:
@@ -230,8 +167,8 @@ public final class ExchangeCore {
                 break;
 
             case RESET:
-                reset();
-                cmd.resultCode = CommandResultCode.SUCCESS;
+                resetState();
+                cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
                 break;
 
             case NOP:
@@ -328,15 +265,6 @@ public final class ExchangeCore {
 
     private void handlerRiskRelease(final OrderCommand cmd) {
 
-//        log.debug("R2 Release {}", seq);
-
-//        if (seq > cmd.availableEventSeq) {
-//            log.debug("refused R2: sequence {} > avail {}", seq, cmd.availableEventSeq);
-//            return false;
-//        }else{
-//            log.debug("accepted R2: sequence {} <= avail {}", seq, cmd.availableEventSeq);
-//        }
-
         CoreSymbolSpecification spec = null;
 
         if (cmd.matcherEvent != null) {
@@ -365,14 +293,8 @@ public final class ExchangeCore {
                 if (marketData.bidSize > 0) {
                     spec.lastBidPrice = marketData.bidPrices[0];
                 }
-
-                //log.debug("MARKED DATA: {}+{} ask={} bid={}", marketData.askSize, marketData.bidSize, spec.lastAskPrice, spec.lastBidPrice);
             }
         }
-
-//        lastReleaseSeqProcessed = seq;
-//        log.debug("lastReleaseSeqProcessed set to {}", lastReleaseSeqProcessed);
-        //return true;
     }
 
     // TODO process uid only for designated shard
@@ -419,10 +341,8 @@ public final class ExchangeCore {
 
     }
 
-    private void reset() {
-        log.info("doing RESET");
+    private void resetState() {
         userProfileService.reset();
         symbolSpecificationProvider.reset();
     }
-
 }

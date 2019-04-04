@@ -2,20 +2,18 @@ package org.openpredict.exchange.core;
 
 import com.lmax.disruptor.EventTranslatorOneArg;
 import com.lmax.disruptor.RingBuffer;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.api.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
 
-@Service
+@RequiredArgsConstructor
 @Slf4j
 public final class ExchangeApi {
 
-    @Autowired
-    private ExchangeCore exchangeCore;
+    private final ExchangeCore exchangeCore;
 
     public void submitCommand(ApiCommand cmd) {
         //log.debug("{}", cmd);
@@ -34,6 +32,8 @@ public final class ExchangeApi {
             ringBuffer.publishEvent(ADD_USER_TRANSLATOR, (ApiAddUser) cmd);
         } else if (cmd instanceof ApiAdjustUserBalance) {
             ringBuffer.publishEvent(ADJUST_USER_BALANCE_TRANSLATOR, (ApiAdjustUserBalance) cmd);
+        } else if (cmd instanceof ApiAddSymbol) {
+            ringBuffer.publishEvent(ADD_SYMBOL_TRANSLATOR, (ApiAddSymbol) cmd);
         } else if (cmd instanceof ApiReset) {
             ringBuffer.publishEvent(RESET_TRANSLATOR, (ApiReset) cmd);
         } else if (cmd instanceof ApiNoOp) {
@@ -100,6 +100,17 @@ public final class ExchangeApi {
         cmd.symbol = -1;
         cmd.uid = api.uid;
         cmd.price = api.amount;
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+    };
+
+    private static final EventTranslatorOneArg<OrderCommand, ApiAddSymbol> ADD_SYMBOL_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.ADD_SYMBOL;
+        cmd.symbol = api.symbolId;
+        cmd.price = api.depositBuy;
+        cmd.uid = api.depositSell;
+        cmd.orderId = api.priceLowLimit;
+        cmd.size = api.priceHighLimit;
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
     };

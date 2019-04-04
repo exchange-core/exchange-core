@@ -11,55 +11,28 @@
     <name>Exchange Core Project</name>
     <description>Java Exchange Market Engine</description>
 
-    <parent>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-parent</artifactId>
-        <version>2.0.2.RELEASE</version>
-        <relativePath/>
-    </parent>
-
     <properties>
         <skip.it>false</skip.it>
 
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <java.version>1.8</java.version>
+        <maven.compiler.target>1.8</maven.compiler.target>
+        <maven.compiler.source>1.8</maven.compiler.source>
 
         <guava.version>25.0-jre</guava.version>
         <commons-math3.version>3.6.1</commons-math3.version>
         <commons-lang3.version>3.7</commons-lang3.version>
 
         <lmax.com.lmax.disruptor.version>3.4.2</lmax.com.lmax.disruptor.version>
-        <fixio.version>1.2</fixio.version>
-        <quickfix.version>1.6.4</quickfix.version>
         <openhft.smoothiemap.version>1.3</openhft.smoothiemap.version>
         <openhft.affinity.version>3.1.11</openhft.affinity.version>
         <eclipse.collections.version>9.2.0</eclipse.collections.version>
         <hdr.histogram.version>2.1.10</hdr.histogram.version>
-        <rapidoid.http.server.version>5.5.5</rapidoid.http.server.version>
-        <nettosphere.version>3.0.11</nettosphere.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
-
-            <dependency>
-                <groupId>com.google.guava</groupId>
-                <artifactId>guava</artifactId>
-                <version>${guava.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>org.apache.commons</groupId>
-                <artifactId>commons-lang3</artifactId>
-                <version>${commons-lang3.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>org.apache.commons</groupId>
-                <artifactId>commons-math3</artifactId>
-                <version>${commons-math3.version}</version>
-            </dependency>
 
             <!-- LMAX Disruptor -->
             <dependency>
@@ -78,20 +51,6 @@
                 <groupId>net.openhft</groupId>
                 <artifactId>affinity</artifactId>
                 <version>${openhft.affinity.version}</version>
-            </dependency>
-
-            <!-- Rapidoid -->
-            <dependency>
-                <groupId>org.rapidoid</groupId>
-                <artifactId>rapidoid-http-server</artifactId>
-                <version>${rapidoid.http.server.version}</version>
-            </dependency>
-
-            <!-- Nettosphere -->
-            <dependency>
-                <groupId>org.atmosphere</groupId>
-                <artifactId>nettosphere</artifactId>
-                <version>${nettosphere.version}</version>
             </dependency>
 
             <!-- JMH -->
@@ -125,6 +84,78 @@
                 <version>9.2.0</version>
             </dependency>
 
+            <!-- Google Guava -->
+            <dependency>
+                <groupId>com.google.guava</groupId>
+                <artifactId>guava</artifactId>
+                <version>${guava.version}</version>
+            </dependency>
+
+            <!-- Apache Commons -->
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-lang3</artifactId>
+                <version>${commons-lang3.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-math3</artifactId>
+                <version>${commons-math3.version}</version>
+            </dependency>
+
+            <!-- FastUtil -->
+            <dependency>
+                <groupId>it.unimi.dsi</groupId>
+                <artifactId>fastutil</artifactId>
+                <version>8.2.1</version>
+            </dependency>
+
+            <!-- Real Logic Agrona -->
+            <dependency>
+                <groupId>org.agrona</groupId>
+                <artifactId>agrona</artifactId>
+                <version>0.9.20</version>
+            </dependency>
+
+            <!-- HPPC -->
+            <dependency>
+                <groupId>com.carrotsearch</groupId>
+                <artifactId>hppc</artifactId>
+                <version>0.8.1</version>
+            </dependency>
+
+            <!-- logging -->
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>slf4j-api</artifactId>
+                <version>1.7.25</version>
+            </dependency>
+            <dependency>
+                <groupId>ch.qos.logback</groupId>
+                <artifactId>logback-classic</artifactId>
+                <version>1.2.3</version>
+            </dependency>
+
+            <!-- unit tests -->
+            <dependency>
+                <groupId>junit</groupId>
+                <artifactId>junit</artifactId>
+                <version>4.12</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.mockito</groupId>
+                <artifactId>mockito-core</artifactId>
+                <version>2.25.1</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.hamcrest</groupId>
+                <artifactId>hamcrest-library</artifactId>
+                <version>1.3</version>
+                <scope>test</scope>
+            </dependency>
+
         </dependencies>
     </dependencyManagement>
 
@@ -133,11 +164,6 @@
         <dependency>
             <groupId>com.lmax</groupId>
             <artifactId>disruptor</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>com.fasterxml.jackson.datatype</groupId>
-            <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
 
         <dependency>
@@ -151,68 +177,25 @@
             <artifactId>slf4j-api</artifactId>
         </dependency>
         <dependency>
-            <groupId>junit</groupId>
-            <artifactId>junit</artifactId>
-            <scope>test</scope>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
         </dependency>
+
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
         </dependency>
+
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-configuration-processor</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.openjdk.jmh</groupId>
-            <artifactId>jmh-core</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.openjdk.jmh</groupId>
-            <artifactId>jmh-generator-annprocess</artifactId>
-        </dependency>
-
-        <!-- Real Logic Agrona -->
-        <!--
-                <dependency>
-                    <groupId>org.agrona</groupId>
-                    <artifactId>agrona</artifactId>
-                    <version>0.9.20</version>
-                </dependency>
-        -->
-
-        <!-- Smoothie Map -->
-        <!--
-        <dependency>
-            <groupId>net.openhft</groupId>
-            <artifactId>smoothie-map</artifactId>
-        </dependency>
-        -->
-
-        <!-- HPPC -->
-        <!--
-        <dependency>
-            <groupId>com.carrotsearch</groupId>
-            <artifactId>hppc</artifactId>
-            <version>0.8.1</version>
-        </dependency>
-        -->
 
         <dependency>
             <groupId>net.openhft</groupId>
             <artifactId>affinity</artifactId>
         </dependency>
 
-        <!-- Eclipse (Goldman Sachs) collections -->
         <dependency>
             <groupId>org.eclipse.collections</groupId>
             <artifactId>eclipse-collections-api</artifactId>
@@ -223,45 +206,26 @@
             <artifactId>eclipse-collections</artifactId>
         </dependency>
 
-        <!-- FastUtil -->
-        <!--
-        <dependency>
-            <groupId>it.unimi.dsi</groupId>
-            <artifactId>fastutil</artifactId>
-            <version>8.2.1</version>
-        </dependency>
-        -->
-
-        <!-- HDR Histogram -->
         <dependency>
             <groupId>org.hdrhistogram</groupId>
             <artifactId>HdrHistogram</artifactId>
         </dependency>
 
         <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
             <scope>test</scope>
         </dependency>
-
-        <!-- Rapidoid -->
         <dependency>
-            <groupId>org.rapidoid</groupId>
-            <artifactId>rapidoid-http-server</artifactId>
-        </dependency>
-
-        <!-- Nettosphere -->
-        <dependency>
-            <groupId>org.atmosphere</groupId>
-            <artifactId>nettosphere</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
+            <groupId>org.hamcrest</groupId>
+            <artifactId>hamcrest-library</artifactId>
             <scope>test</scope>
         </dependency>
-
     </dependencies>
 
     <profiles>

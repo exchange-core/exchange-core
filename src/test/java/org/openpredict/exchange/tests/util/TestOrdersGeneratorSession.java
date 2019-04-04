@@ -4,7 +4,7 @@ import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.eclipse.collections.impl.map.mutable.primitive.IntIntHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
-import org.openpredict.exchange.core.IOrderBook;
+import org.openpredict.exchange.core.orderbook.IOrderBook;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -20,7 +20,7 @@ public class TestOrdersGeneratorSession {
 
     public final long priceDeviation;
 
-    public final List<Long> uids;
+    public final int numUsers;
 
     public final int symbol;
 

@@ -100,6 +100,13 @@ public class L2MarketData {
                 .orElse(minWidth);
     }
 
+    public L2MarketData copy() {
+        return new L2MarketData(
+                getAskPricesCopy(),
+                getAskVolumesCopy(),
+                getBidPricesCopy(),
+                getBidVolumesCopy());
+    }
 
     @Override
     public boolean equals(Object obj) {

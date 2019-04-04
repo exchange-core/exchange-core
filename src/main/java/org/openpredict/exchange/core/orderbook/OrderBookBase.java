@@ -1,4 +1,4 @@
-package org.openpredict.exchange.core;
+package org.openpredict.exchange.core.orderbook;
 
 import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.L2MarketData;

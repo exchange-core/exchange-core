@@ -1,4 +1,4 @@
-package org.openpredict.exchange.biprocessor;
+package org.openpredict.exchange.core.biprocessor;
 
 import com.lmax.disruptor.AlertException;
 import com.lmax.disruptor.RingBuffer;

@@ -13,10 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.openpredict.exchange.biprocessor;
+package org.openpredict.exchange.core.biprocessor;
 
 import com.lmax.disruptor.*;
-import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
@@ -24,33 +23,23 @@ import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
-public final class MasterProcessor implements EventProcessor {
+public final class GroupingProcessor implements EventProcessor {
     private static final int IDLE = 0;
     private static final int HALTED = IDLE + 1;
     private static final int RUNNING = HALTED + 1;
 
-    private static final int MASTER_SPIN_LIMIT = 5000;
+    private static final int GROUP_SPIN_LIMIT = 1000;
 
     private final AtomicInteger running = new AtomicInteger(IDLE);
-    private final DataProvider<OrderCommand> dataProvider;
+    private final RingBuffer<OrderCommand> ringBuffer;
     private final SequenceBarrier sequenceBarrier;
     private final WaitSpinningHelper waitSpinningHelper;
-    private final SimpleEventHandler<OrderCommand> eventHandler;
-    private final ExceptionHandler<OrderCommand> exceptionHandler;
     private final Sequence sequence = new Sequence(Sequencer.INITIAL_CURSOR_VALUE);
 
-    @Setter
-    private SlaveProcessor<OrderCommand> slaveProcessor;
-
-    public MasterProcessor(final RingBuffer<OrderCommand> ringBuffer,
-                           final SequenceBarrier sequenceBarrier,
-                           final SimpleEventHandler<OrderCommand> eventHandler,
-                           final ExceptionHandler<OrderCommand> exceptionHandler) {
-        this.dataProvider = ringBuffer;
+    public GroupingProcessor(final RingBuffer<OrderCommand> ringBuffer, final SequenceBarrier sequenceBarrier) {
+        this.ringBuffer = ringBuffer;
         this.sequenceBarrier = sequenceBarrier;
-        this.waitSpinningHelper = new WaitSpinningHelper(ringBuffer, sequenceBarrier, MASTER_SPIN_LIMIT);
-        this.eventHandler = eventHandler;
-        this.exceptionHandler = exceptionHandler;
+        this.waitSpinningHelper = new WaitSpinningHelper(ringBuffer, sequenceBarrier, GROUP_SPIN_LIMIT);
     }
 
     @Override
@@ -79,7 +68,6 @@ public final class MasterProcessor implements EventProcessor {
     public void run() {
         if (running.compareAndSet(IDLE, RUNNING)) {
             sequenceBarrier.clearAlert();
-
             try {
                 if (running.get() == RUNNING) {
                     processEvents();
@@ -100,57 +88,77 @@ public final class MasterProcessor implements EventProcessor {
     private void processEvents() {
         long nextSequence = sequence.get() + 1L;
 
-        long currentSequenceGroup = 0;
+        long groupCounter = 0;
+        long msgsInGroup = 0;
 
-        // wait until slave processor has instructed to run
-        while (!slaveProcessor.isRunning()) {
-            Thread.yield();
-        }
+        long groupLastNs = 0;
+
+        long l2dataLastNs = 0;
+        boolean triggerL2DataRequest = false;
 
         while (true) {
-            OrderCommand cmd = null;
             try {
 
                 // should spin and also check another barrier
-                final long availableSequence = waitSpinningHelper.tryWaitFor(nextSequence);
+                long availableSequence = waitSpinningHelper.tryWaitFor(nextSequence);
 
-                if (availableSequence >= nextSequence) {
+                if (nextSequence <= availableSequence) {
                     while (nextSequence <= availableSequence) {
-                        cmd = dataProvider.get(nextSequence);
 
-                        // switch to next group - let slave processor to do a handling cycle
-                        if (cmd.eventsGroup != currentSequenceGroup) {
-                            sequence.set(nextSequence - 1);
-                            slaveProcessor.handlingCycle(nextSequence);
-                            currentSequenceGroup = cmd.eventsGroup;
-                        }
-
-                        eventHandler.onEvent(cmd);
+                        OrderCommand cmd = ringBuffer.get(nextSequence);
                         nextSequence++;
 
-                        if (cmd.command == OrderCommandType.SHUTDOWN_SIGNAL) {
-                            // having all sequences aligned with the ringbuffer cursor is a requirement for proper shutdown
+                        cmd.eventsGroup = groupCounter;
 
-                            // let following processors to catch up
-                            sequence.set(availableSequence);
-
-                            // trigger slave processor
-                            slaveProcessor.handlingCycle(nextSequence);
+                        cmd.serviceFlags = 0;
+                        if (triggerL2DataRequest) {
+                            triggerL2DataRequest = false;
+                            cmd.serviceFlags = 1;
                         }
+
+                        // cleaning attached objects
+                        cmd.marketData = null;
+                        cmd.matcherEvent = null;
+
+                        if (cmd.command == OrderCommandType.NOP) {
+                            // just set next group and pass
+                            continue;
+                        }
+
+                        msgsInGroup++;
+
+                        // switch group after each N messages
+                        if (msgsInGroup >= 192) {
+                            groupCounter++;
+                            msgsInGroup = 0;
+                        }
+
                     }
                     sequence.set(availableSequence);
+                    groupLastNs = System.nanoTime() + 1000;
+
+                } else {
+                    long t = System.nanoTime();
+                    if (msgsInGroup > 0 && t > groupLastNs) {
+                        // switch group after T microseconds elapsed, if group is non empty
+                        groupCounter++;
+                        msgsInGroup = 0;
+                    }
+
+                    if (t > l2dataLastNs) {
+                        l2dataLastNs = t + 10_000_000; // trigger L2 data every 10ms
+                        triggerL2DataRequest = true;
+                    }
                 }
+
             } catch (final AlertException ex) {
                 if (running.get() != RUNNING) {
                     break;
                 }
             } catch (final Throwable ex) {
-                exceptionHandler.handleEventException(ex, nextSequence, cmd);
                 sequence.set(nextSequence);
                 nextSequence++;
             }
-
         }
     }
-
 }

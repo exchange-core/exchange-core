@@ -1,4 +1,4 @@
-package org.openpredict.exchange.core;
+package org.openpredict.exchange.core.orderbook;
 
 import com.google.common.collect.ObjectArrays;
 import lombok.extern.slf4j.Slf4j;
@@ -9,6 +9,7 @@ import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.OrderType;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.core.TradeEventCallback;
 
 import java.util.*;
 import java.util.stream.Collectors;

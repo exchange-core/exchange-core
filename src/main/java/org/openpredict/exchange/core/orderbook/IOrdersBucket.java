@@ -1,7 +1,9 @@
-package org.openpredict.exchange.core;
+package org.openpredict.exchange.core.orderbook;
 
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.core.ReduceEventCallback;
+import org.openpredict.exchange.core.TradeEventCallback;
 
 import java.util.Arrays;
 import java.util.List;

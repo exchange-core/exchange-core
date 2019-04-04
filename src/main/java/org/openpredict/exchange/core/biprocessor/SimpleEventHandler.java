@@ -1,4 +1,4 @@
-package org.openpredict.exchange.biprocessor;
+package org.openpredict.exchange.core.biprocessor;
 
 public interface SimpleEventHandler<T> {
 

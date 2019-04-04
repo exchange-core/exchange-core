@@ -6,6 +6,9 @@ import org.junit.runner.RunWith;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.core.orderbook.IOrderBook;
+import org.openpredict.exchange.core.orderbook.OrderBookFast;
+import org.openpredict.exchange.core.orderbook.OrderBookSlow;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 
 import java.util.ArrayList;
@@ -33,12 +36,7 @@ public class OrderBookCompareTest {
         //IOrderBook orderBook = new OrderBookSlow();
         IOrderBook orderBookRef = new OrderBookSlow();
 
-        ArrayList<Long> uids = new ArrayList<>();
-        for (long i = 1; i <= numUsers; i++) {
-            uids.add(i);
-        }
-
-        TestOrdersGenerator.GenResult genResult = generator.generateCommands(tranNum, targetOrderBookOrders, uids, 0, true);
+        TestOrdersGenerator.GenResult genResult = generator.generateCommands(tranNum, targetOrderBookOrders, numUsers, 0, true);
 
         long i = 0;
         for (OrderCommand cmd : genResult.getCommands()) {

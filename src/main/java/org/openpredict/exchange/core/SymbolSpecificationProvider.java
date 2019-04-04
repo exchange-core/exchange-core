@@ -3,9 +3,7 @@ package org.openpredict.exchange.core;
 
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
-import org.springframework.stereotype.Service;
 
-@Service
 public final class SymbolSpecificationProvider {
 
     // symbol->specs
