@@ -1,6 +1,8 @@
 package org.openpredict.exchange.tests;
 
 import lombok.extern.slf4j.Slf4j;
+import org.junit.After;
+import org.junit.Before;
 import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.api.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
@@ -25,18 +27,28 @@ import static org.junit.Assert.assertNotNull;
 public class IntegrationTestBase {
 
     static final int SYMBOL = 5991;
-    static final int UID_1 = 1442412;
-    static final int UID_2 = 1442413;
-
 
     ExchangeCore exchangeCore;
     ExchangeApi api;
 
     volatile Consumer<OrderCommand> consumer;
 
+    static final Consumer<OrderCommand> CHECK_SUCCESS = cmd -> assertEquals(CommandResultCode.SUCCESS, cmd.resultCode);
+
+    @Before
+    public void initExchange() {
+        exchangeCore = new ExchangeCore(cmd -> consumer.accept(cmd));
+        exchangeCore.startup();
+        api = exchangeCore.getApi();
+    }
+
+    @After
+    public void shutdownExchange() {
+        exchangeCore.shutdown();
+    }
 
     void initSymbol() throws InterruptedException {
-        submitCommandSync(ApiAddSymbol.builder().depositBuy(22000).depositSell(32100).symbolId(SYMBOL).build());
+        submitCommandSync(ApiAddSymbol.builder().depositBuy(22000).depositSell(32100).symbolId(SYMBOL).build(), CHECK_SUCCESS);
     }
 
     void usersInit(int numUsers) throws InterruptedException {
@@ -50,17 +62,19 @@ public class IntegrationTestBase {
     }
 
     void resetExchangeCore() throws InterruptedException {
-        submitCommandSync(ApiReset.builder().build());
+        submitCommandSync(ApiReset.builder().build(), CHECK_SUCCESS);
     }
 
-    void submitCommandSync(ApiCommand apiCommand) throws InterruptedException {
+    void submitCommandSync(ApiCommand apiCommand, Consumer<OrderCommand> validator) throws InterruptedException {
         final CountDownLatch latch = new CountDownLatch(1);
         consumer = cmd -> {
-            assertEquals(CommandResultCode.SUCCESS, cmd.resultCode);
+            validator.accept(cmd);
             latch.countDown();
         };
         api.submitCommand(apiCommand);
         latch.await();
+        consumer = cmd -> {
+        };
     }
 
     void submitCommandsSync(List<ApiCommand> apiCommand) throws InterruptedException {
@@ -71,6 +85,8 @@ public class IntegrationTestBase {
         };
         apiCommand.forEach(api::submitCommand);
         latch.await();
+        consumer = cmd -> {
+        };
     }
 
 

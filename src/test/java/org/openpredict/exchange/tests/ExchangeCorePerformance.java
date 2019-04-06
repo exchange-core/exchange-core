@@ -8,7 +8,6 @@ import org.eclipse.collections.impl.map.mutable.primitive.LongLongHashMap;
 import org.junit.Before;
 import org.junit.Test;
 import org.openpredict.exchange.beans.api.ApiCommand;
-import org.openpredict.exchange.core.ExchangeCore;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 
 import java.io.File;
@@ -27,22 +26,16 @@ import static org.junit.Assert.assertEquals;
 import static org.openpredict.exchange.tests.util.LatencyTools.createLatencyReportFast;
 
 @Slf4j
-public class ExchangeCorePerformance extends IntegrationTestBase {
+public final class ExchangeCorePerformance extends IntegrationTestBase {
 
     private static final boolean WRITE_HDR_HISTOGRAMS = false;
 
     private long nextHiccupAcceptTimestampNs = 0;
 
-
     @Before
     public void before() {
-
         consumer = cmd -> {
         };
-        exchangeCore = new ExchangeCore(cmd -> consumer.accept(cmd));
-        exchangeCore.startup();
-        api = exchangeCore.getApi();
-
     }
 
 
