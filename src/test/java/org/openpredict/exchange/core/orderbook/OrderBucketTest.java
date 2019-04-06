@@ -1,4 +1,4 @@
-package org.openpredict.exchange.core;
+package org.openpredict.exchange.core.orderbook;
 
 
 import lombok.extern.slf4j.Slf4j;
@@ -8,6 +8,7 @@ import org.junit.runner.RunWith;
 import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.openpredict.exchange.beans.Order;
+import org.openpredict.exchange.core.TradeEventCallback;
 import org.openpredict.exchange.core.orderbook.IOrdersBucket;
 
 import java.util.ArrayList;

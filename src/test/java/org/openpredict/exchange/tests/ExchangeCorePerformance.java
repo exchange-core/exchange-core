@@ -7,10 +7,7 @@ import org.HdrHistogram.SingleWriterRecorder;
 import org.eclipse.collections.impl.map.mutable.primitive.LongLongHashMap;
 import org.junit.Before;
 import org.junit.Test;
-import org.openpredict.exchange.beans.L2MarketData;
-import org.openpredict.exchange.beans.api.*;
-import org.openpredict.exchange.beans.cmd.OrderCommand;
-import org.openpredict.exchange.core.ExchangeApi;
+import org.openpredict.exchange.beans.api.ApiCommand;
 import org.openpredict.exchange.core.ExchangeCore;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 
@@ -21,43 +18,21 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.TreeMap;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
 import java.util.function.IntConsumer;
 import java.util.function.IntFunction;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import java.util.stream.LongStream;
-import java.util.stream.Stream;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.openpredict.exchange.util.LatencyTools.createLatencyReportFast;
+import static org.openpredict.exchange.tests.util.LatencyTools.createLatencyReportFast;
 
 @Slf4j
-public class ExchangeCorePerformance {
+public class ExchangeCorePerformance extends IntegrationTestBase {
 
-    private ExchangeCore exchangeCore;
-    private ExchangeApi api;
+    private static final boolean WRITE_HDR_HISTOGRAMS = false;
 
-    private TestOrdersGenerator generator = new TestOrdersGenerator();
-
-    private static final int SYMBOL = 5991;
-
-    public static final int LATENCY_PRECISION_BITS = 8; // Latency precision ~0.4%
-
-    public static final boolean WRITE_HDR_HISTOGRAMS = false;
-
-    public static final Consumer<OrderCommand> NO_CONSUMER = cmd -> {
-    };
-
-    private long startTimeNs = 0;
     private long nextHiccupAcceptTimestampNs = 0;
 
-    private volatile Consumer<OrderCommand> consumer;
 
     @Before
     public void before() {
@@ -82,8 +57,8 @@ public class ExchangeCorePerformance {
         int numUsers = 1_000;
 
         try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
-            TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, numUsers, SYMBOL, false);
-            List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
+            TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, SYMBOL, false);
+            List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
 
             List<Float> perfResults = new ArrayList<>();
             for (int j = 0; j < 100; j++) {
@@ -105,7 +80,7 @@ public class ExchangeCorePerformance {
 
                 // compare orderBook final state just to make sure all commands executed same way
                 // TODO compare events, balances, portfolios
-                assertEquals(genResult.getFinalOrderBookSnapshot(), requestCurrentOrderBook(-1));
+                assertEquals(genResult.getFinalOrderBookSnapshot(), requestCurrentOrderBook());
 
                 resetExchangeCore();
 
@@ -133,8 +108,8 @@ public class ExchangeCorePerformance {
 
         try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
 
-            TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, numUsers, SYMBOL, false);
-            List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
+            TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, SYMBOL, false);
+            List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
 
             SingleWriterRecorder hdrRecorder = new SingleWriterRecorder(10_000_000_000L, 3);
 
@@ -178,7 +153,7 @@ public class ExchangeCorePerformance {
 
                     // compare orderBook final state just to make sure all commands executed same way
                     // TODO compare events, balances, portfolios
-                    assertEquals(genResult.getFinalOrderBookSnapshot(), requestCurrentOrderBook(-1));
+                    assertEquals(genResult.getFinalOrderBookSnapshot(), requestCurrentOrderBook());
 
                     if (WRITE_HDR_HISTOGRAMS) {
                         PrintStream printStream = new PrintStream(new File(System.currentTimeMillis() + "-" + perfMt + ".perc"));
@@ -223,8 +198,8 @@ public class ExchangeCorePerformance {
 
         try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
 
-            TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, numUsers, SYMBOL, false);
-            List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
+            TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, SYMBOL, false);
+            List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
 
             IntFunction<TreeMap<Instant, Long>> testIteration = tps -> {
                 try {
@@ -258,7 +233,7 @@ public class ExchangeCorePerformance {
                     final int nanosPerCmd = (1_000_000_000 / tps);
                     final long startTimeMs = System.currentTimeMillis();
 
-                    startTimeNs = System.nanoTime();
+                    final long startTimeNs = System.nanoTime();
                     long plannedTimestamp = startTimeNs;
 
                     for (ApiCommand cmd : apiCommands) {
@@ -394,57 +369,4 @@ public class ExchangeCorePerformance {
 */
 
 
-    private void initSymbol() throws InterruptedException {
-        submitCommandSync(ApiAddSymbol.builder().depositBuy(22000).depositSell(32100).symbolId(SYMBOL).build());
-    }
-
-
-    public void usersInit(int numUsers) throws InterruptedException {
-        final CountDownLatch usersLatch = new CountDownLatch(numUsers * 2);
-        consumer = cmd -> usersLatch.countDown();
-        LongStream.rangeClosed(1, numUsers).forEach(uid -> {
-            api.submitCommand(ApiAddUser.builder().uid(uid).build());
-            api.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(2_000_000_000L).build());
-        });
-        usersLatch.await();
-    }
-
-    public void resetExchangeCore() throws InterruptedException {
-        submitCommandSync(ApiReset.builder().build());
-    }
-
-    private void submitCommandSync(ApiCommand apiCommand) throws InterruptedException {
-        final CountDownLatch latch = new CountDownLatch(1);
-        consumer = cmd -> latch.countDown();
-        api.submitCommand(apiCommand);
-        latch.await();
-    }
-
-
-    private L2MarketData requestCurrentOrderBook(int orderBookSize) {
-        BlockingQueue<OrderCommand> queue = attachNewConsumerQueue();
-        api.submitCommand(ApiOrderBookRequest.builder().symbol(SYMBOL).size(orderBookSize).build());
-        OrderCommand orderBookCmd = waitForOrderCommands(queue, 1).get(0);
-        L2MarketData actualState = orderBookCmd.marketData;
-        assertNotNull(actualState);
-        return actualState;
-    }
-
-    private BlockingQueue<OrderCommand> attachNewConsumerQueue() {
-        final BlockingQueue<OrderCommand> results = new LinkedBlockingQueue<>();
-        consumer = cmd -> results.add(cmd.copy());
-        return results;
-    }
-
-    private List<OrderCommand> waitForOrderCommands(BlockingQueue<OrderCommand> results, int c) {
-        return Stream.generate(() -> {
-            try {
-                return results.poll(10000, TimeUnit.MILLISECONDS);
-            } catch (InterruptedException ex) {
-                throw new IllegalStateException();
-            }
-        })
-                .limit(c)
-                .collect(Collectors.toList());
-    }
 }

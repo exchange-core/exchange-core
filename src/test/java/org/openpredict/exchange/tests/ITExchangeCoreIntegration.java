@@ -8,7 +8,6 @@ import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.api.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
-import org.openpredict.exchange.core.ExchangeApi;
 import org.openpredict.exchange.core.ExchangeCore;
 import org.openpredict.exchange.tests.util.L2MarketDataHelper;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
@@ -16,40 +15,23 @@ import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
-import java.util.stream.Collectors;
 import java.util.stream.LongStream;
-import java.util.stream.Stream;
 
 import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.*;
 
 @Slf4j
-public class ITExchangeCoreIntegration {
-
-    private TestOrdersGenerator generator = new TestOrdersGenerator();
-
-    private static final int SYMBOL = 5991;
-    private static final int UID_1 = 1442412;
-    private static final int UID_2 = 1442413;
-
-    private ExchangeCore exchangeCore;
-    private ExchangeApi api;
-
-    private volatile Consumer<OrderCommand> consumer;
+public class ITExchangeCoreIntegration extends IntegrationTestBase {
 
     @Before
     public void before() {
 
-        detatchConsumer();
-        this.exchangeCore = new ExchangeCore(cmd -> consumer.accept(cmd));
-        this.exchangeCore.startup();
-        this.api = exchangeCore.getApi();
+        exchangeCore = new ExchangeCore(cmd -> consumer.accept(cmd));
+        exchangeCore.startup();
+        api = exchangeCore.getApi();
 
         ApiAddSymbol addSymbol = ApiAddSymbol.builder().depositBuy(2200).depositSell(4210).symbolId(SYMBOL).build();
-        this.api.submitCommand(addSymbol);
+        api.submitCommand(addSymbol);
 
         BlockingQueue<OrderCommand> results = attachNewConsumerQueue();
 
@@ -65,13 +47,11 @@ public class ITExchangeCoreIntegration {
     }
 
     @After
-    public void after() throws Exception {
-        Thread.sleep(100);
+    public void after() {
         BlockingQueue<OrderCommand> results = attachNewConsumerQueue();
         api.submitCommand(ApiReset.builder().build());
         List<OrderCommand> commands = waitForOrderCommands(results, 1);
         assertThat(commands.get(0).resultCode, is(CommandResultCode.SUCCESS));
-        detatchConsumer();
         exchangeCore.shutdown();
     }
 
@@ -196,38 +176,11 @@ public class ITExchangeCoreIntegration {
     }
 
     private L2MarketData requestCurrentOrderBook(BlockingQueue<OrderCommand> results) {
-        return requestCurrentOrderBook(results, 10);
-    }
-
-    private L2MarketData requestCurrentOrderBook(BlockingQueue<OrderCommand> results, int orderBookSize) {
-        api.submitCommand(ApiOrderBookRequest.builder().symbol(SYMBOL).size(orderBookSize).build());
+        api.submitCommand(ApiOrderBookRequest.builder().symbol(SYMBOL).size(-1).build());
         OrderCommand orderBookCmd = waitForOrderCommands(results, 1).get(0);
         L2MarketData actualState = orderBookCmd.marketData;
         assertNotNull(actualState);
         return actualState;
-    }
-
-
-    private BlockingQueue<OrderCommand> attachNewConsumerQueue() {
-        BlockingQueue<OrderCommand> results = new LinkedBlockingQueue<>();
-
-        consumer = cmd -> {
-            //log.debug(">>>>: {}", cmd);
-            results.add(cmd.copy());
-        };
-        return results;
-    }
-
-    private List<OrderCommand> waitForOrderCommands(BlockingQueue<OrderCommand> results, int c) {
-        return Stream.generate(() -> {
-            try {
-                return results.poll(10000, TimeUnit.MILLISECONDS);
-            } catch (InterruptedException ex) {
-                throw new IllegalStateException();
-            }
-        })
-                .limit(c)
-                .collect(Collectors.toList());
     }
 
 
@@ -238,8 +191,8 @@ public class ITExchangeCoreIntegration {
         int targetOrderBookOrders = 1000;
         int numUsers = 1000;
 
-        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, numUsers, SYMBOL, false);
-        List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
+        TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, SYMBOL, false);
+        List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
 
         final CountDownLatch usersLatch = new CountDownLatch(numUsers * 2);
         consumer = cmd -> usersLatch.countDown();
@@ -259,16 +212,10 @@ public class ITExchangeCoreIntegration {
 
         // compare orderBook final state just to make sure all commands executed same way
         // TODO compare events, wait until finish
-        L2MarketData l2MarketData = requestCurrentOrderBook(attachNewConsumerQueue(), -1);
+        L2MarketData l2MarketData = requestCurrentOrderBook(attachNewConsumerQueue());
         assertEquals(genResult.getFinalOrderBookSnapshot(), l2MarketData);
         assertTrue(l2MarketData.askSize > targetOrderBookOrders / 4);
         assertTrue(l2MarketData.bidSize > targetOrderBookOrders / 4);
-    }
-
-    private void detatchConsumer() {
-        consumer = orderCommand -> {
-            //log.debug("Result: {}", cmd);
-        };
     }
 
 }

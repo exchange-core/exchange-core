@@ -1,4 +1,4 @@
-package org.openpredict.exchange.core;
+package org.openpredict.exchange.core.orderbook.compare;
 
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;

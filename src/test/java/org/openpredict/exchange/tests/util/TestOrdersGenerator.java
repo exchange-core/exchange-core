@@ -36,7 +36,7 @@ public class TestOrdersGenerator {
 
     // TODO allow limiting max volume
 
-    public GenResult generateCommands(
+    public static GenResult generateCommands(
             int transactionsNumber,
             int targetOrderBookOrders,
             int numUsers,
@@ -137,7 +137,7 @@ public class TestOrdersGenerator {
                 .build();
     }
 
-    private void updateOrderBookSizeStat(TestOrdersGeneratorSession session) {
+    private static void updateOrderBookSizeStat(TestOrdersGeneratorSession session) {
         L2MarketData l2MarketDataSnapshot = session.orderBook.getL2MarketDataSnapshot(-1);
 //                log.debug("{}", dumpOrderBook(l2MarketDataSnapshot));
         session.orderBookSizeAskStat.add(l2MarketDataSnapshot.askSize);
@@ -150,7 +150,7 @@ public class TestOrdersGenerator {
         session.orderBookNumOrdersStat.add(ordersNum);
     }
 
-    private void matcherTradeEventEventHandler(TestOrdersGeneratorSession session, MatcherTradeEvent ev) {
+    private static void matcherTradeEventEventHandler(TestOrdersGeneratorSession session, MatcherTradeEvent ev) {
         if (ev.eventType == MatcherEventType.TRADE) {
             if (ev.activeOrderCompleted) {
 //                log.debug("Complete active: {}", ev.activeOrderId);
@@ -192,7 +192,7 @@ public class TestOrdersGenerator {
     }
 
 
-    private OrderCommand generateRandomOrder(TestOrdersGeneratorSession session) {
+    private static OrderCommand generateRandomOrder(TestOrdersGeneratorSession session) {
 
         Random rand = session.rand;
 
@@ -287,7 +287,7 @@ public class TestOrdersGenerator {
     }
 
 
-    public List<ApiCommand> convertToApiCommand(List<OrderCommand> commands) {
+    public static List<ApiCommand> convertToApiCommand(List<OrderCommand> commands) {
         return commands.stream()
                 .map(cmd -> {
                     switch (cmd.command) {

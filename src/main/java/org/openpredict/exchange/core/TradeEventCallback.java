@@ -29,7 +29,7 @@ public interface TradeEventCallback {
     class TradeEventCollector {
         private List<TradeEventContainer> list = new ArrayList<>();
 
-        void collect(Order order, long volume, boolean fullMatch, boolean fullMatchForActiveOrder) {
+        public void collect(Order order, long volume, boolean fullMatch, boolean fullMatchForActiveOrder) {
             list.add(new TradeEventContainer(order, volume, fullMatch, fullMatchForActiveOrder));
         }
 

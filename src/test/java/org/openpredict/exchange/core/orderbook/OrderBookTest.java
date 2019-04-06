@@ -1,4 +1,4 @@
-package org.openpredict.exchange.core;
+package org.openpredict.exchange.core.orderbook;
 
 import com.google.common.primitives.Longs;
 import lombok.extern.slf4j.Slf4j;
@@ -54,8 +54,6 @@ public class OrderBookTest {
 
     @Before
     public void before() {
-        //tradesConsumer = new QueuedEventSink<>(MatcherTradeEvent::new, 1024);
-
         orderBook = IOrderBook.newInstance();
         orderBook.validateInternalState();
 
