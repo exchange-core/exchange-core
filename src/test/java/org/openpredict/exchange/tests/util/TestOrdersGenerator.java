@@ -13,6 +13,7 @@ import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.orderbook.IOrderBook;
+import org.openpredict.exchange.core.orderbook.OrderBookSlow;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -43,7 +44,7 @@ public class TestOrdersGenerator {
             int symbol,
             boolean enableSlidingPrice) {
 
-        IOrderBook orderBook = IOrderBook.newInstance();
+        IOrderBook orderBook = new OrderBookSlow();
 
         TestOrdersGeneratorSession session = new TestOrdersGeneratorSession(
                 orderBook,

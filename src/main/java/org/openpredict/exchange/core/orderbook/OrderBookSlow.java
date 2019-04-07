@@ -63,7 +63,7 @@ public final class OrderBookSlow extends OrderBookBase {
 
         IOrdersBucket bucket = getBucketsByAction(cmd.action)
                 .computeIfAbsent(cmd.price, price -> {
-                    IOrdersBucket b = IOrdersBucket.newInstance();
+                    IOrdersBucket b = new OrdersBucketSlow();
                     b.setPrice(price);
                     return b;
                 });
@@ -247,7 +247,7 @@ public final class OrderBookSlow extends OrderBookBase {
 
         // if not filled completely - put it into corresponding bucket
         ordersBucket = buckets.computeIfAbsent(newPrice, p -> {
-            IOrdersBucket b = IOrdersBucket.newInstance();
+            IOrdersBucket b = new OrdersBucketSlow();
             b.setPrice(p);
             return b;
         });
