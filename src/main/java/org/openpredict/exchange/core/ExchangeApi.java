@@ -18,7 +18,7 @@ public final class ExchangeApi {
     public void submitCommand(ApiCommand cmd) {
         //log.debug("{}", cmd);
         RingBuffer<OrderCommand> ringBuffer = exchangeCore.getRingBuffer();
-        // TODO benchmark instance of performance
+        // TODO benchmark instanceof performance
 
         if (cmd instanceof ApiMoveOrder) {
             ringBuffer.publishEvent(MOVE_ORDER_TRANSLATOR, (ApiMoveOrder) cmd);

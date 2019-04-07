@@ -18,10 +18,10 @@ public class L2MarketData {
     public int askSize;
     public int bidSize;
 
-    public long askPrices[];
-    public long askVolumes[];
-    public long bidPrices[];
-    public long bidVolumes[];
+    public long[] askPrices;
+    public long[] askVolumes;
+    public long[] bidPrices;
+    public long[] bidVolumes;
 
     // when published
     public long timestamp;

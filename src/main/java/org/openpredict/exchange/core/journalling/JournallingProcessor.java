@@ -1,4 +1,4 @@
-package org.openpredict.exchange.core;
+package org.openpredict.exchange.core.journalling;
 
 import com.lmax.disruptor.EventHandler;
 import lombok.extern.slf4j.Slf4j;

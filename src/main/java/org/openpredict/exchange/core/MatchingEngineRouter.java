@@ -41,13 +41,4 @@ public final class MatchingEngineRouter {
         orderBooks.put(symbol, orderBook);
     }
 
-    public IOrderBook getOrderBook(int symbol) {
-        return orderBooks.get(symbol);
-    }
-
-    public L2MarketData getMarketData(int symbol, int size) {
-        return orderBooks.get(symbol).getL2MarketDataSnapshot(size);
-    }
-
-
 }

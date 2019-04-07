@@ -17,6 +17,7 @@ import org.openpredict.exchange.core.biprocessor.GroupingProcessor;
 import org.openpredict.exchange.core.biprocessor.MasterProcessor;
 import org.openpredict.exchange.core.biprocessor.SimpleEventHandler;
 import org.openpredict.exchange.core.biprocessor.SlaveProcessor;
+import org.openpredict.exchange.core.journalling.JournallingProcessor;
 
 import java.util.concurrent.ThreadFactory;
 import java.util.function.Consumer;
