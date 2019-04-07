@@ -83,8 +83,8 @@ public interface IOrdersBucket extends Comparable<IOrdersBucket> {
      * @return new instance of the IOrdersBucket
      */
     static IOrdersBucket newInstance() {
-        return new OrdersBucketFast();
-//        return new OrdersBucketSlow();
+        return new OrdersBucketFastImpl();
+//        return new OrdersBucketNaiveImpl();
     }
 
     // TODO to default?

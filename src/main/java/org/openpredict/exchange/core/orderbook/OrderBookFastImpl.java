@@ -18,7 +18,7 @@ import static org.openpredict.exchange.beans.OrderAction.ASK;
 import static org.openpredict.exchange.beans.OrderAction.BID;
 
 @Slf4j
-public final class OrderBookFast extends OrderBookBase {
+public final class OrderBookFastImpl extends OrderBookBase {
 
     private final int hotPricesRange; // TODO must be aligned by 64 bit, can not be lower than 1024
 
@@ -53,7 +53,7 @@ public final class OrderBookFast extends OrderBookBase {
     private final ArrayDeque<Order> ordersPool = new ArrayDeque<>(65536);
     private final ArrayDeque<IOrdersBucket> bucketsPool = new ArrayDeque<>(65536);
 
-    public OrderBookFast(int hotPricesRange) {
+    public OrderBookFastImpl(int hotPricesRange) {
         this.hotPricesRange = hotPricesRange;
         this.hotAskBitSet = new BitSet(hotPricesRange);
         this.hotBidBitSet = new BitSet(hotPricesRange);

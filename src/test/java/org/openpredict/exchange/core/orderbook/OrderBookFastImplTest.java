@@ -1,30 +1,26 @@
-package org.openpredict.exchange.core.orderbook.compare;
+package org.openpredict.exchange.core.orderbook;
 
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.junit.MockitoJUnitRunner;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
-import org.openpredict.exchange.core.orderbook.IOrderBook;
-import org.openpredict.exchange.core.orderbook.OrderBookFast;
-import org.openpredict.exchange.core.orderbook.OrderBookSlow;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
-
-import java.util.ArrayList;
 
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
-@RunWith(MockitoJUnitRunner.class)
 @Slf4j
-public class OrderBookCompareTest {
+public class OrderBookFastImplTest extends OrderBookBaseTest {
+
+    @Override
+    protected IOrderBook createNewOrderBook() {
+        return new OrderBookFastImpl(IOrderBook.DEFAULT_HOT_WIDTH);
+    }
+
 
     @Test
-    public void multipleCommandsTest() {
-
-        TestOrdersGenerator generator = new TestOrdersGenerator();
+    public void multipleCommandsCompareTest() {
 
         long nextUpdateTime = 0;
 
@@ -32,11 +28,11 @@ public class OrderBookCompareTest {
         int targetOrderBookOrders = 500;
         int numUsers = 500;
 
-        IOrderBook orderBook = new OrderBookFast(4096);
-        //IOrderBook orderBook = new OrderBookSlow();
-        IOrderBook orderBookRef = new OrderBookSlow();
+        IOrderBook orderBook = new OrderBookFastImpl(4096);
+        //IOrderBook orderBook = new OrderBookNaiveImpl();
+        IOrderBook orderBookRef = new OrderBookNaiveImpl();
 
-        TestOrdersGenerator.GenResult genResult = generator.generateCommands(tranNum, targetOrderBookOrders, numUsers, 0, true);
+        TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(tranNum, targetOrderBookOrders, numUsers, 0, true);
 
         long i = 0;
         for (OrderCommand cmd : genResult.getCommands()) {
@@ -86,5 +82,4 @@ public class OrderBookCompareTest {
         }
 
     }
-
 }

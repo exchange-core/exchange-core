@@ -9,7 +9,6 @@ import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.core.TradeEventCallback;
-import org.openpredict.exchange.core.orderbook.IOrdersBucket;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -28,20 +27,21 @@ import static org.mockito.Mockito.verify;
 
 @RunWith(MockitoJUnitRunner.class)
 @Slf4j
-public class OrderBucketTest {
+public abstract class OrdersBucketBaseTest {
 
+    static final int PRICE = 1000;
+    static final int UID_1 = 412;
+    static final int UID_2 = 413;
+    static final int UID_9 = 419;
 
-    private static final int PRICE = 1000;
-    private static final int UID_1 = 412;
-    private static final int UID_2 = 413;
-    private static final int UID_9 = 419;
+    protected abstract IOrdersBucket createNewBucket();
 
-    private IOrdersBucket bucket;
+    protected IOrdersBucket bucket;
 
     @Before
-    public void before() {
-        bucket = IOrdersBucket.newInstance();
-        bucket.setPrice(PRICE);
+    public void beforeGlobal() {
+
+        bucket = createNewBucket();
 
         bucket.add(Order.orderBuilder().orderId(1).uid(UID_1).size(100).build());
         assertThat(bucket.getNumOrders(), is(1));

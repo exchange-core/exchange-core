@@ -1,6 +1,5 @@
 package org.openpredict.exchange.core.orderbook;
 
-import com.google.common.primitives.Longs;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.After;
 import org.junit.Before;
@@ -14,8 +13,6 @@ import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
-import org.openpredict.exchange.core.orderbook.IOrderBook;
-import org.openpredict.exchange.core.orderbook.OrderBookFast;
 import org.openpredict.exchange.tests.util.L2MarketDataHelper;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 
@@ -39,22 +36,24 @@ import static org.openpredict.exchange.core.orderbook.IOrderBook.DEFAULT_HOT_WID
  */
 @RunWith(MockitoJUnitRunner.class)
 @Slf4j
-public class OrderBookTest {
+public abstract class OrderBookBaseTest {
 
     private IOrderBook orderBook;
 
     private L2MarketDataHelper expectedState;
 
-    public static final int INITIAL_PRICE = 81600;
+    private static final int INITIAL_PRICE = 81600;
 
     private static final int UID_1 = 412;
     private static final int UID_2 = 413;
 
-    //private QueuedEventSink<MatcherTradeEvent> tradesConsumer;
+
+    protected abstract IOrderBook createNewOrderBook();
+
 
     @Before
     public void before() {
-        orderBook = IOrderBook.newInstance();
+        orderBook = createNewOrderBook();
         orderBook.validateInternalState();
 
         orderBook.processCommand(OrderCommand.limitOrder(0, UID_2, INITIAL_PRICE, 131, ASK));
@@ -686,7 +685,7 @@ public class OrderBookTest {
     public void sequentialAsksTest() {
 
         int hotPricesRange = 1024;
-        OrderBookFast orderBookFast = new OrderBookFast(hotPricesRange);
+        OrderBookFastImpl orderBookFast = new OrderBookFastImpl(hotPricesRange);
 
         // empty order book
         clearOrderBook();
@@ -747,14 +746,12 @@ public class OrderBookTest {
     @Test
     public void multipleCommandsTest() {
 
-        TestOrdersGenerator generator = new TestOrdersGenerator();
-
-        int tranNum = 5000;
+        int tranNum = 25000;
 
         orderBook = IOrderBook.newInstance();
         orderBook.validateInternalState();
 
-        TestOrdersGenerator.GenResult genResult = generator.generateCommands(tranNum,
+        TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(tranNum,
                 200,
                 6,
                 0,

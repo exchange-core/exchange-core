@@ -16,7 +16,7 @@ import java.util.*;
 @NoArgsConstructor
 @Slf4j
 @ToString
-public final class OrdersBucketSlow implements IOrdersBucket {
+public final class OrdersBucketNaiveImpl implements IOrdersBucket {
 
     @Getter
     @Setter

@@ -1,29 +1,30 @@
-package org.openpredict.exchange.core.orderbook.compare;
+package org.openpredict.exchange.core.orderbook;
 
 
 import lombok.extern.slf4j.Slf4j;
+import org.hamcrest.MatcherAssert;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.junit.MockitoJUnitRunner;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.core.TradeEventCallback;
-import org.openpredict.exchange.core.orderbook.IOrdersBucket;
-import org.openpredict.exchange.core.orderbook.OrdersBucketFast;
-import org.openpredict.exchange.core.orderbook.OrdersBucketSlow;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 
-import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 
 // TODO add test ignoring own order
 
-@RunWith(MockitoJUnitRunner.class)
 @Slf4j
-public class OrderBucketCompareTest {
+public class OrdersBucketFastImplTest extends OrdersBucketBaseTest {
+
+    @Override
+    protected IOrdersBucket createNewBucket() {
+        IOrdersBucket bucket = new OrdersBucketFastImpl();
+        bucket.setPrice(PRICE);
+        return bucket;
+    }
 
     private static final int UID_2 = 413;
     private static final int UID_9 = 419;
@@ -36,8 +37,8 @@ public class OrderBucketCompareTest {
         int numOrdersToAdd = 1000;
         long expectedVolume = 0;
 
-        IOrdersBucket bucketRef = new OrdersBucketSlow();
-        IOrdersBucket bucket = new OrdersBucketFast();
+        IOrdersBucket bucketRef = new OrdersBucketNaiveImpl();
+        IOrdersBucket bucket = new OrdersBucketFastImpl();
 
         int orderId = 0;
 
@@ -59,7 +60,7 @@ public class OrderBucketCompareTest {
 
                 //log.debug("{}-{}: orderId:{}", j, i, orderId);
 
-                assertThat(bucket, is(bucketRef));
+                MatcherAssert.assertThat(bucket, is(bucketRef));
             }
 
             Collections.shuffle(orders, rnd);
@@ -69,7 +70,7 @@ public class OrderBucketCompareTest {
                 bucket.remove(order.orderId, UID_2);
                 bucketRef.remove(order.orderId, UID_2);
                 expectedVolume -= order.size;
-                assertThat(bucket, is(bucketRef));
+                MatcherAssert.assertThat(bucket, is(bucketRef));
             }
 
 
@@ -79,16 +80,16 @@ public class OrderBucketCompareTest {
             long totalVolume = bucket.match(toMatch, UID_9, events::collect);
             bucketRef.match(toMatch, UID_9, eventsRef::collect);
             expectedVolume -= totalVolume;
-            assertThat(bucket, is(bucketRef));
-            assertThat(events, is(eventsRef));
+            MatcherAssert.assertThat(bucket, is(bucketRef));
+            MatcherAssert.assertThat(events, is(eventsRef));
         }
 
         TradeEventCallback.TradeEventCollector events = new TradeEventCallback.TradeEventCollector();
         TradeEventCallback.TradeEventCollector eventsRef = new TradeEventCallback.TradeEventCollector();
         bucket.match(expectedVolume, UID_9, events::collect);
         bucketRef.match(expectedVolume, UID_9, eventsRef::collect);
-        assertThat(bucket, is(bucketRef));
-        assertThat(events, is(eventsRef));
+        MatcherAssert.assertThat(bucket, is(bucketRef));
+        MatcherAssert.assertThat(events, is(eventsRef));
     }
 
 

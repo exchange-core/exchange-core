@@ -64,8 +64,8 @@ public interface IOrderBook {
      * @return new instance
      */
     static IOrderBook newInstance() {
-        return new OrderBookFast(DEFAULT_HOT_WIDTH);
-        //return new OrderBookSlow();
+        return new OrderBookFastImpl(DEFAULT_HOT_WIDTH);
+        //return new OrderBookNaiveImpl();
     }
 
     // TODO to default?

@@ -12,7 +12,7 @@ import java.util.*;
 
 @Slf4j
 @RequiredArgsConstructor
-public final class OrderBookSlow extends OrderBookBase {
+public final class OrderBookNaiveImpl extends OrderBookBase {
 
     private NavigableMap<Long, IOrdersBucket> askBuckets = new TreeMap<>();
     private NavigableMap<Long, IOrdersBucket> bidBuckets = new TreeMap<>(Collections.reverseOrder());
@@ -63,7 +63,7 @@ public final class OrderBookSlow extends OrderBookBase {
 
         IOrdersBucket bucket = getBucketsByAction(cmd.action)
                 .computeIfAbsent(cmd.price, price -> {
-                    IOrdersBucket b = new OrdersBucketSlow();
+                    IOrdersBucket b = new OrdersBucketNaiveImpl();
                     b.setPrice(price);
                     return b;
                 });
@@ -247,7 +247,7 @@ public final class OrderBookSlow extends OrderBookBase {
 
         // if not filled completely - put it into corresponding bucket
         ordersBucket = buckets.computeIfAbsent(newPrice, p -> {
-            IOrdersBucket b = new OrdersBucketSlow();
+            IOrdersBucket b = new OrdersBucketNaiveImpl();
             b.setPrice(p);
             return b;
         });

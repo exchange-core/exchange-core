@@ -28,7 +28,7 @@ import java.util.List;
 @NoArgsConstructor
 @Slf4j
 @ToString
-public final class OrdersBucketFast implements IOrdersBucket {
+public final class OrdersBucketFastImpl implements IOrdersBucket {
 
     @Getter
     @Setter
