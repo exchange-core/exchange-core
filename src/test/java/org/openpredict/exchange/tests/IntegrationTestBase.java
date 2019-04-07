@@ -31,7 +31,8 @@ public class IntegrationTestBase {
     ExchangeCore exchangeCore;
     ExchangeApi api;
 
-    volatile Consumer<OrderCommand> consumer;
+    volatile Consumer<OrderCommand> consumer = cmd -> {
+    };
 
     static final Consumer<OrderCommand> CHECK_SUCCESS = cmd -> assertEquals(CommandResultCode.SUCCESS, cmd.resultCode);
 

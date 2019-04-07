@@ -22,16 +22,16 @@ Capable to process 5M order book operations per second on 7-years old hardware (
 ![Latencies HDR Histogram](hdr-histogram.png)
 
 Benchmark configuration:
-- Single order book.
+- Single symbol order book.
 - 3,000,000 inbound messages are distributed as follows: 9% limit + 3% market new orders, 6% cancel operations, 82% move operations. About 6% commands are causing trades.
 - 1,000 active user accounts.
-- In average ~1,000 limit orders in the order book, placed in ~750 different price slots.
-- Latency results are only for risk processing and matcing engine. Network interface latency, IPC, journslling are not included.
+- In average ~1,000 limit orders are active, placed in ~750 different price slots.
+- Latency results are only for risk processing and orders matching. Other stuff like network interface latency, IPC, journalling is not included.
 - Test data is not bursty, meaning constant interval between commands (0.2~8µs depending on target throughput).
-- BBO prices are not changing significantly thoghout the test, no avalanche orders.
-- No coordinated omission effect. Processing delay is always affecting latency measurements for following messages.
-- GC is triggered prior running every benchmark cycle (of 3,000,000 messages).
-- RHEL 7.5, network-latency tuned profile, dual X5690, one socket isolated and tickless, no spectre/meltdown protection.
+- BBO prices are not changing significantly throughout the test. No avalanche orders.
+- No coordinated omission effect for latency benchmark. Any processing delay affects measurements for next following messages.
+- GC is triggered prior/after running every benchmark cycle (3,000,000 messages).
+- RHEL 7.5, network-latency tuned profile, dual X5690 6 cores 3.47GHz, one socket isolated and tickless, spectre/meltdown protection disabled.
 
 ### Main features
 - HFT optimized. Priority is a limit-order-move operation mean latency (currently ~0.5µs). Cancel operation takes ~0.7µs, placing new order ~1.0µs;
@@ -41,12 +41,12 @@ Benchmark configuration:
 - Pipelined processing (based on LMAX Disruptor): each CPU core is responsible for different processing stage, user accounts shard, or symbol order books set.
 - Low GC pressure, objects pooling.
 - Supports crossing Ask-Bid orders for market makers.
-- Two implementations of matching engine: simple and optimized.
+- Two implementations of matching engine: reference (simplified) and performance-optimized.
 - Testing - unit-tests, integration tests, stress tests, integrity tests.
 - Automatic threads affinity (requires JNA).
 
 ### TODOs
-- Journaling support, event-sourcing - snapshot and replay operations support.
+- Journalling support, event-sourcing - snapshot and replay operations support.
 - Market data feeds (full order log, L2 market data, BBO, trades).
 - Clearing and settlement.
 - FIX and REST API gateways.
@@ -54,9 +54,9 @@ Benchmark configuration:
 - NUMA-aware.
 
 ### How to run tests
-- Latency test: mvn -Dtest=ExchangeCorePerformance#latencyTest test
-- Throughput test: mvn -Dtest=ExchangeCorePerformance#throughputTest test
-- Hiccups test: mvn -Dtest=ExchangeCorePerformance#hiccupsTest test
+- Latency test: mvn -Dtest=PerfLatency#latencyTest test
+- Throughput test: mvn -Dtest=PerfThroughput#throughputTest test
+- Hiccups test: mvn -Dtest=PerfHiccups#hiccupsTest test
 
 [license]:LICENSE.txt
 [license img]:https://img.shields.io/badge/License-Apache%202-blue.svg
