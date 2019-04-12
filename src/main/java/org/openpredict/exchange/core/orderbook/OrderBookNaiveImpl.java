@@ -12,7 +12,7 @@ import java.util.*;
 
 @Slf4j
 @RequiredArgsConstructor
-public final class OrderBookNaiveImpl extends OrderBookBase {
+public final class OrderBookNaiveImpl implements IOrderBook {
 
     private NavigableMap<Long, IOrdersBucket> askBuckets = new TreeMap<>();
     private NavigableMap<Long, IOrdersBucket> bidBuckets = new TreeMap<>(Collections.reverseOrder());
@@ -24,27 +24,29 @@ public final class OrderBookNaiveImpl extends OrderBookBase {
 //    private MutableLongObjectMap<Order> idMap = new LongObjectHashMap<>();
 
 
-    protected void matchMarketOrder(OrderCommand order) {
-        long filledSize = tryMatchInstantly(order, order.action == OrderAction.ASK ? bidBuckets : askBuckets, 0);
+    public void matchMarketOrder(OrderCommand cmd) {
+        final NavigableMap<Long, IOrdersBucket> matchingBuckets = cmd.action == OrderAction.ASK ? bidBuckets : askBuckets;
+        long filledSize = tryMatchInstantly(cmd, matchingBuckets, 0, cmd);
 
-        // rare case - partially filled due no liquidity - should report PARTIAL order execution
-        if (filledSize < order.size) {
-            sendRejectEvent(order, filledSize);
+        // partially filled due no liquidity - should report PARTIAL order execution
+        if (filledSize < cmd.size) {
+            OrderBookEventsHelper.attachRejectEvent(cmd, filledSize);
         }
     }
 
     @Override
-    protected void placeNewLimitOrder(OrderCommand cmd) {
+    public boolean placeNewLimitOrder(OrderCommand cmd) {
 
         if (idMap.containsKey(cmd.orderId)) {
-            throw new IllegalArgumentException("duplicate orderId: " + cmd.orderId);
+            // duplicate
+            return false;
         }
 
         // check if order is marketable (if there are opposite matching orders)
-        long filled = tryMatchInstantly(cmd, subtreeForMatching(cmd.action, cmd.price), 0);
+        long filled = tryMatchInstantly(cmd, subtreeForMatching(cmd.action, cmd.price), 0, cmd);
         if (filled == cmd.size) {
             // fully matched as marketable before actually place - can just return
-            return;
+            return true;
         }
 
         // normally placing regular limit order
@@ -70,6 +72,8 @@ public final class OrderBookNaiveImpl extends OrderBookBase {
         bucket.add(orderRecord);
 
         idMap.put(cmd.orderId, orderRecord);
+
+        return true;
     }
 
     private SortedMap<Long, IOrdersBucket> subtreeForMatching(OrderAction action, long price) {
@@ -82,12 +86,17 @@ public final class OrderBookNaiveImpl extends OrderBookBase {
      * Fully matching orders are removed from orderId index
      * Should any trades occur - they sent to tradesConsumer
      *
-     * @param order           - LIMIT or MARKET order to match
+     * @param activeOrder     - LIMIT or MARKET order to match
      * @param matchingBuckets - sorted buckets map
      * @param filled          - current 'filled' value for the order
+     * @param triggerCmd      -
      * @return new filled size
      */
-    private long tryMatchInstantly(final OrderCommand order, final SortedMap<Long, IOrdersBucket> matchingBuckets, long filled) {
+    private long tryMatchInstantly(
+            final OrderCommand activeOrder,
+            final SortedMap<Long, IOrdersBucket> matchingBuckets,
+            long filled,
+            final OrderCommand triggerCmd) {
 
 //        log.info("matchInstantly: {} {}", order, matchingBuckets);
 
@@ -95,28 +104,22 @@ public final class OrderBookNaiveImpl extends OrderBookBase {
             return filled;
         }
 
-        long orderSize = order.size;
+        long orderSize = activeOrder.size;
 
         List<Long> emptyBuckets = new ArrayList<>();
         for (IOrdersBucket bucket : matchingBuckets.values()) {
 
 //            log.debug("Matching bucket: {} ...", bucket);
-//            log.debug("... with order: {}", order);
+//            log.debug("... with order: {}", activeOrder);
 
-            //OrderMatchingResult matchingOrders = bucket.match(order.size - filled, order.uid);
+            //OrderMatchingResult matchingOrders = bucket.match(activeOrder.size - filled, activeOrder.uid);
 
-            long tradePrice = bucket.getPrice();
+            final long sizeLeft = orderSize - filled;
 
-            filled += bucket.match(orderSize - filled, order.uid,
-                    (mOrder, v, fm, fma) -> {
-                        sendTradeEvent(order, mOrder, fm, fma, tradePrice, v);
-                        if (fm) {
-                            idMap.remove(mOrder.orderId);
-                        }
-                    });
+            filled += bucket.match(sizeLeft, activeOrder, triggerCmd, this::removeFullyMatchedOrder);
 
 //            log.debug("Matching orders: {}", matchingOrders);
-//            log.debug("order.filled: {}", order.filled);
+//            log.debug("order.filled: {}", activeOrder.filled);
 
             long price = bucket.getPrice();
 
@@ -125,7 +128,7 @@ public final class OrderBookNaiveImpl extends OrderBookBase {
                 emptyBuckets.add(price);
             }
 
-            if (filled == order.size) {
+            if (filled == activeOrder.size) {
                 // enough matched
                 break;
             }
@@ -141,6 +144,9 @@ public final class OrderBookNaiveImpl extends OrderBookBase {
         return filled;
     }
 
+    private void removeFullyMatchedOrder(Order mOrder) {
+        idMap.remove(mOrder.orderId);
+    }
 
     /**
      * Remove an order
@@ -175,7 +181,7 @@ public final class OrderBookNaiveImpl extends OrderBookBase {
             buckets.remove(price);
         }
 
-        sendReduceEvent(order, order.size - order.filled);
+        OrderBookEventsHelper.sendReduceEvent(cmd, order, order.size - order.filled);
 
         return true;
     }
@@ -214,7 +220,7 @@ public final class OrderBookNaiveImpl extends OrderBookBase {
         // if change volume operation - use bucket implementation
         // not very efficient if moving and reducing volume
         if (newSize > 0) {
-            if (!ordersBucket.tryReduceSize(cmd, super::sendReduceEvent)) {
+            if (!ordersBucket.tryReduceSize(cmd)) {
                 return false;
             }
         }
@@ -237,7 +243,7 @@ public final class OrderBookNaiveImpl extends OrderBookBase {
 
         // try match with new price
         SortedMap<Long, IOrdersBucket> matchingArea = subtreeForMatching(order.action, newPrice);
-        long filled = tryMatchInstantly(order, matchingArea, order.filled);
+        long filled = tryMatchInstantly(order, matchingArea, order.filled, cmd);
         if (filled == order.size) {
             // order was fully matched (100% marketable) - removing from order book
             idMap.remove(orderId);
@@ -279,7 +285,7 @@ public final class OrderBookNaiveImpl extends OrderBookBase {
     }
 
     @Override
-    protected void fillAsks(final int size, L2MarketData data) {
+    public void fillAsks(final int size, L2MarketData data) {
         int i = 0;
         for (IOrdersBucket bucket : askBuckets.values()) {
             data.askPrices[i] = bucket.getPrice();
@@ -292,7 +298,7 @@ public final class OrderBookNaiveImpl extends OrderBookBase {
     }
 
     @Override
-    protected void fillBids(final int size, L2MarketData data) {
+    public void fillBids(final int size, L2MarketData data) {
         int i = 0;
         for (IOrdersBucket bucket : bidBuckets.values()) {
             data.bidPrices[i] = bucket.getPrice();
@@ -305,12 +311,12 @@ public final class OrderBookNaiveImpl extends OrderBookBase {
     }
 
     @Override
-    protected int getTotalAskBuckets() {
+    public int getTotalAskBuckets() {
         return askBuckets.size();
     }
 
     @Override
-    protected int getTotalBidBuckets() {
+    public int getTotalBidBuckets() {
         return bidBuckets.size();
     }
 
@@ -341,14 +347,6 @@ public final class OrderBookNaiveImpl extends OrderBookBase {
     public void validateInternalState() {
         askBuckets.values().forEach(IOrdersBucket::validate);
         bidBuckets.values().forEach(IOrdersBucket::validate);
-    }
-
-    // for testing only
-    @Override
-    public void clear() {
-        askBuckets.clear();
-        bidBuckets.clear();
-        idMap.clear();
     }
 
     // for testing only

@@ -9,7 +9,6 @@ import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.OrderType;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
-import org.openpredict.exchange.core.TradeEventCallback;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -18,7 +17,9 @@ import static org.openpredict.exchange.beans.OrderAction.ASK;
 import static org.openpredict.exchange.beans.OrderAction.BID;
 
 @Slf4j
-public final class OrderBookFastImpl extends OrderBookBase {
+public final class OrderBookFastImpl implements IOrderBook {
+
+    public static final int DEFAULT_HOT_WIDTH = 32768;
 
     private final int hotPricesRange; // TODO must be aligned by 64 bit, can not be lower than 1024
 
@@ -73,35 +74,22 @@ public final class OrderBookFastImpl extends OrderBookBase {
         return idx + basePrice;
     }
 
-    /**
-     * Process new MARKET order
-     * Such order matched to any existing LIMIT orders
-     * Of there is not enough volume in order book - reject as partially filled
-     *
-     * @param order - market order to match
-     */
-    protected void matchMarketOrder(OrderCommand order) {
-        long filledSize = tryMatchInstantly(order, 0);
+    public void matchMarketOrder(OrderCommand cmd) {
+        long filledSize = tryMatchInstantly(cmd, 0, cmd);
 
-        // rare case - partially filled due no liquidity - should report PARTIAL order execution
-        if (filledSize < order.size) {
-            sendRejectEvent(order, filledSize);
+        // partially filled due no liquidity - should report PARTIAL order execution
+        if (filledSize < cmd.size) {
+            OrderBookEventsHelper.attachRejectEvent(cmd, filledSize);
         }
     }
 
-
-    /**
-     * Place new LIMIT order
-     * If order is marketable (there are matching limit orders) - match it first with existing liquidity
-     *
-     * @param cmd - limit order to place
-     */
     @Override
-    protected void placeNewLimitOrder(OrderCommand cmd) {
+    public boolean placeNewLimitOrder(OrderCommand cmd) {
 
         long orderId = cmd.orderId;
         if (idMapToBucket.containsKey(orderId)) {
-            throw new IllegalArgumentException("duplicate orderId: " + orderId);
+            // duplicate
+            return false;
         }
 
         if (basePrice == -1) {
@@ -110,10 +98,10 @@ public final class OrderBookFastImpl extends OrderBookBase {
         }
 
         // check if order is marketable there are matching orders
-        long filled = tryMatchInstantly(cmd, 0);
+        long filled = tryMatchInstantly(cmd, 0, cmd);
         if (filled == cmd.size) {
             // fully matched as marketable before actually place - can just return
-            return;
+            return true;
         }
 
         OrderAction action = cmd.action;
@@ -144,6 +132,7 @@ public final class OrderBookFastImpl extends OrderBookBase {
 
         idMapToBucket.put(orderId, bucket);
 
+        return true;
     }
 
     /**
@@ -190,7 +179,7 @@ public final class OrderBookFastImpl extends OrderBookBase {
 
         ordersBucket = bucketsPool.pollLast();
         if (ordersBucket == null) {
-            ordersBucket = IOrdersBucket.newInstance();
+            ordersBucket = new OrdersBucketFastImpl();
         }
 
         ordersBucket.setPrice(price);
@@ -225,7 +214,7 @@ public final class OrderBookFastImpl extends OrderBookBase {
 
         ordersBucket = bucketsPool.pollLast();
         if (ordersBucket == null) {
-            ordersBucket = IOrdersBucket.newInstance();
+            ordersBucket = new OrdersBucketFastImpl();
         }
 
         ordersBucket.setPrice(price);
@@ -241,19 +230,23 @@ public final class OrderBookFastImpl extends OrderBookBase {
     }
 
     /**
-     * Match the order instantly to specified sorted buckets map
+     * Match the activeOrder instantly to specified sorted buckets map
      * Fully matching orders are removed from orderId index
      * Should any trades occur - they sent to tradesConsumer
      *
-     * @param order  - LIMIT or MARKET order to match
-     * @param filled - current filled value of the order
-     * @return matched size (filled - if nothing is matching to the order)
+     * @param activeOrder - LIMIT or MARKET activeOrder to match
+     * @param filled      - current filled value of the activeOrder
+     * @param triggerCmd  -
+     * @return matched size (filled - if nothing is matching to the activeOrder)
      */
-    private long tryMatchInstantly(OrderCommand order, long filled) {
-        OrderAction action = order.action;
+    private long tryMatchInstantly(
+            final OrderCommand activeOrder,
+            long filled,
+            final OrderCommand triggerCmd) {
+        OrderAction action = activeOrder.action;
 
-//      log.info("-------- matchInstantly: {}", order);
-//      log.info("filled {} to match {}", filled, order.size);
+//      log.info("-------- matchInstantly: {}", activeOrder);
+//      log.info("filled {} to match {}", filled, activeOrder.size);
 
         long nextPrice;
         long limitPrice;
@@ -263,17 +256,17 @@ public final class OrderBookFastImpl extends OrderBookBase {
                 return filled;
             }
             nextPrice = minAskPrice;
-            limitPrice = (order.orderType == OrderType.LIMIT) ? order.price : Long.MAX_VALUE;
+            limitPrice = (activeOrder.orderType == OrderType.LIMIT) ? activeOrder.price : Long.MAX_VALUE;
         } else {
             if (maxBidPrice == 0) {
                 // no orders to match
                 return filled;
             }
             nextPrice = maxBidPrice;
-            limitPrice = (order.orderType == OrderType.LIMIT) ? order.price : 0;
+            limitPrice = (activeOrder.orderType == OrderType.LIMIT) ? activeOrder.price : 0;
         }
 
-        long orderSize = order.size;
+        long orderSize = activeOrder.size;
 
         while (filled < orderSize) {
 
@@ -287,20 +280,10 @@ public final class OrderBookFastImpl extends OrderBookBase {
             // next iteration price
             nextPrice = (action == BID) ? tradePrice + 1 : tradePrice - 1;
 
-            TradeEventCallback tradeEventCallback = (mOrder, v, fm, fma) -> {
-                sendTradeEvent(order, mOrder, fm, fma, tradePrice, v);
-                if (fm) {
-                    // forget if fully matched
-                    idMapToBucket.remove(mOrder.orderId);
-                    // saving free object back to pool
-                    ordersPool.addLast(mOrder);
-                }
-            };
-
             // matching orders within bucket
-            long sizeLeft = orderSize - filled;
+            final long sizeLeft = orderSize - filled;
             // log.debug("bucket {} match size: {}", bucket.getPrice(), sizeLeft);
-            filled += bucket.match(sizeLeft, order.uid, tradeEventCallback);
+            filled += bucket.match(sizeLeft, activeOrder, triggerCmd, this::removeFullyMatchedOrder);
 
             // remove bucket if its empty
             if (bucket.getTotalVolume() == 0) {
@@ -308,6 +291,13 @@ public final class OrderBookFastImpl extends OrderBookBase {
             }
         }
         return filled;
+    }
+
+    private void removeFullyMatchedOrder(Order mOrder) {
+        // forget if fully matched
+        idMapToBucket.remove(mOrder.orderId);
+        // saving free object back to pool
+        ordersPool.addLast(mOrder);
     }
 
     /**
@@ -398,7 +388,7 @@ public final class OrderBookFastImpl extends OrderBookBase {
 
         // send reduce event
         long reducedBy = removedOrder.size - removedOrder.filled;
-        sendReduceEvent(removedOrder, reducedBy);
+        OrderBookEventsHelper.sendReduceEvent(cmd, removedOrder, reducedBy);
 
         // saving free object back to the pool
         ordersPool.addLast(removedOrder);
@@ -441,7 +431,7 @@ public final class OrderBookFastImpl extends OrderBookBase {
         // if change volume operation - use bucket implementation
         // NOTE: not very efficient if moving and reducing volume
         if (newSize > 0) {
-            if (!bucket.tryReduceSize(cmd, super::sendReduceEvent)) {
+            if (!bucket.tryReduceSize(cmd)) {
                 return false;
             }
         }
@@ -465,7 +455,7 @@ public final class OrderBookFastImpl extends OrderBookBase {
         order.price = newPrice;
         //if ((action == BID && newPrice >= minAskPrice) || (action == ASK && newPrice <= maxBidPrice)) {
         // try match with new price
-        long filled = tryMatchInstantly(order, order.filled);
+        long filled = tryMatchInstantly(order, order.filled, cmd);
         if (filled == order.size) {
             // order was fully matched (100% marketable) - removing from order book
             idMapToBucket.remove(orderId);
@@ -723,7 +713,7 @@ public final class OrderBookFastImpl extends OrderBookBase {
     }
 
     @Override
-    protected void fillAsks(final int size, L2MarketData data) {
+    public void fillAsks(final int size, L2MarketData data) {
         if (minAskPrice == Long.MAX_VALUE || size == 0) {
             data.askSize = 0;
             return;
@@ -760,7 +750,7 @@ public final class OrderBookFastImpl extends OrderBookBase {
     }
 
     @Override
-    protected void fillBids(final int size, L2MarketData data) {
+    public void fillBids(final int size, L2MarketData data) {
 
         if (maxBidPrice == 0 || size == 0) {
             data.bidSize = 0;
@@ -800,12 +790,12 @@ public final class OrderBookFastImpl extends OrderBookBase {
     }
 
     @Override
-    protected int getTotalAskBuckets() {
+    public int getTotalAskBuckets() {
         return hotAskBuckets.size() + farAskBuckets.size();
     }
 
     @Override
-    protected int getTotalBidBuckets() {
+    public int getTotalBidBuckets() {
         return hotBidBuckets.size() + farBidBuckets.size();
     }
 
@@ -941,23 +931,6 @@ public final class OrderBookFastImpl extends OrderBookBase {
         }
         return asSet;
     }
-
-
-    // for testing only
-    @Override
-    public void clear() {
-        hotAskBuckets.clear();
-        hotBidBuckets.clear();
-        hotAskBitSet.clear();
-        hotBidBitSet.clear();
-        farAskBuckets.clear();
-        farBidBuckets.clear();
-        minAskPrice = Long.MAX_VALUE;
-        maxBidPrice = 0;
-        idMapToBucket.clear();
-//        ordersPool.clear(); // ?
-    }
-
 
     // for testing only
     @Override

@@ -5,8 +5,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.junit.MockitoJUnitRunner;
 import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.MatcherEventType;
 import org.openpredict.exchange.beans.MatcherTradeEvent;
@@ -28,13 +26,11 @@ import static org.openpredict.exchange.beans.OrderAction.ASK;
 import static org.openpredict.exchange.beans.OrderAction.BID;
 import static org.openpredict.exchange.beans.cmd.CommandResultCode.MATCHING_INVALID_ORDER_ID;
 import static org.openpredict.exchange.beans.cmd.CommandResultCode.SUCCESS;
-import static org.openpredict.exchange.core.orderbook.IOrderBook.DEFAULT_HOT_WIDTH;
 
 /**
  * TODO add tests where orders for same UID ignored during matching
  * TODO cancel/update other uid not allowed
  */
-@RunWith(MockitoJUnitRunner.class)
 @Slf4j
 public abstract class OrderBookBaseTest {
 
@@ -630,9 +626,9 @@ public abstract class OrderBookBaseTest {
         orderBook.validateInternalState();
 
         // bid prices starts from here, overlap with far bid area
-        final int bottomPrice = INITIAL_PRICE - DEFAULT_HOT_WIDTH / 2 - 4;
+        final int bottomPrice = INITIAL_PRICE - OrderBookFastImpl.DEFAULT_HOT_WIDTH / 2 - 4;
         // bid prices stop here, overlap with far ask area
-        final int topPrice = INITIAL_PRICE + DEFAULT_HOT_WIDTH / 2 + 21;
+        final int topPrice = INITIAL_PRICE + OrderBookFastImpl.DEFAULT_HOT_WIDTH / 2 + 21;
 
         int orderId = 100;
 
@@ -748,8 +744,8 @@ public abstract class OrderBookBaseTest {
 
         int tranNum = 25000;
 
-        orderBook = IOrderBook.newInstance();
-        orderBook.validateInternalState();
+        IOrderBook local = createNewOrderBook();
+        local.validateInternalState();
 
         TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(tranNum,
                 200,
@@ -759,10 +755,10 @@ public abstract class OrderBookBaseTest {
 
         genResult.getCommands().forEach(cmd -> {
             cmd.orderId += 100; // TODO set start id
-            orderBook.processCommand(cmd);
+            local.processCommand(cmd);
 
             assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
-            orderBook.validateInternalState();
+            local.validateInternalState();
         });
 
     }

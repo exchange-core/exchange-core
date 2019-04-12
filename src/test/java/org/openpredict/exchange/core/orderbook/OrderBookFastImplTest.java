@@ -15,7 +15,7 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
 
     @Override
     protected IOrderBook createNewOrderBook() {
-        return new OrderBookFastImpl(IOrderBook.DEFAULT_HOT_WIDTH);
+        return new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH);
     }
 
 

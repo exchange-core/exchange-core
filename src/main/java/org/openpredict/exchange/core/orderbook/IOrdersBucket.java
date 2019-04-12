@@ -2,12 +2,11 @@ package org.openpredict.exchange.core.orderbook;
 
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
-import org.openpredict.exchange.core.ReduceEventCallback;
-import org.openpredict.exchange.core.TradeEventCallback;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 public interface IOrdersBucket extends Comparable<IOrdersBucket> {
@@ -23,6 +22,7 @@ public interface IOrdersBucket extends Comparable<IOrdersBucket> {
      * Remove order from the bucket
      *
      * @param orderId - order id
+     * @param uid     - order uid
      * @return order if removed, or null if not found
      */
     Order remove(long orderId, long uid);
@@ -31,11 +31,13 @@ public interface IOrdersBucket extends Comparable<IOrdersBucket> {
      * Match specified volume,
      * ignore orders from uid
      *
-     * @param volumeToCollect - volume to collect
-     * @param ignoreUid       - ignore orders from uid
+     * @param volumeToCollect     - volume to collect
+     * @param activeOrder         (ignore orders same uid)
+     * @param triggerCmd
+     * @param removeOrderCallback
      * @return - total matched volume
      */
-    long match(long volumeToCollect, long ignoreUid, TradeEventCallback lambda);
+    long match(long volumeToCollect, OrderCommand activeOrder, OrderCommand triggerCmd, Consumer<Order> removeOrderCallback);
 
     /**
      * Try to reduce size of the order.
@@ -43,9 +45,9 @@ public interface IOrdersBucket extends Comparable<IOrdersBucket> {
      * orderId - order Id
      * newSize - new size
      *
-     * @param lambda - call if reduced
+     * @param cmd - update order command
      */
-    boolean tryReduceSize(OrderCommand cmd, ReduceEventCallback lambda);
+    boolean tryReduceSize(OrderCommand cmd);
 
     /**
      * Get number of orders in the bucket
@@ -61,6 +63,12 @@ public interface IOrdersBucket extends Comparable<IOrdersBucket> {
      */
     long getPrice();
 
+    /**
+     * Set new price if bucket is reused
+     * TODO verify bucket is empty
+     *
+     * @param price - new price
+     */
     void setPrice(long price);
 
     /**
@@ -70,22 +78,13 @@ public interface IOrdersBucket extends Comparable<IOrdersBucket> {
      */
     long getTotalVolume();
 
-    // testing only
-    void validate();
 
     Order findOrder(long orderId);
 
     List<Order> getAllOrders();
 
-    /**
-     * Factory method to create new instance of the IOrdersBucket
-     *
-     * @return new instance of the IOrdersBucket
-     */
-    static IOrdersBucket newInstance() {
-        return new OrdersBucketFastImpl();
-//        return new OrdersBucketNaiveImpl();
-    }
+    // testing only
+    void validate();
 
     // TODO to default?
     static int hash(long price, Order[] orders) {

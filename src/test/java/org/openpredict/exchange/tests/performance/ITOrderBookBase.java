@@ -5,8 +5,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.junit.After;
 import org.junit.Ignore;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.junit.MockitoJUnitRunner;
 import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.MatcherEventType;
 import org.openpredict.exchange.beans.MatcherTradeEvent;
@@ -28,11 +26,12 @@ import static org.openpredict.exchange.beans.OrderAction.BID;
 /**
  * TODO add tests where orders for same UID ignored during matching
  */
-@RunWith(MockitoJUnitRunner.class)
 @Slf4j
-public class ITOrderBook {
+public abstract class ITOrderBookBase {
 
     private IOrderBook orderBook;
+
+    protected abstract IOrderBook createNewOrderBook();
 
     @After
     public void after() {
@@ -64,15 +63,13 @@ public class ITOrderBook {
         int numOrders = 3_000_000;
         int targetOrderBookOrders = 1000;
 
-        TestOrdersGenerator generator = new TestOrdersGenerator();
-
-        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, 1000, 0, false);
+        TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, 1000, 0, false);
         List<OrderCommand> orderCommands = genResult.getCommands();
         log.debug("orderCommands size: {}", orderCommands.size());
 
         List<Float> perfResults = new ArrayList<>();
-        for (int j = 0; j < 1000; j++) {
-            orderBook = IOrderBook.newInstance();
+        for (int j = 0; j < 100; j++) {
+            orderBook = createNewOrderBook();
 
             long t = System.currentTimeMillis();
             OrderCommand workCmd = new OrderCommand();

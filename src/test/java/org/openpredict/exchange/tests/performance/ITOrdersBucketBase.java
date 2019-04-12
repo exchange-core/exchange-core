@@ -4,12 +4,9 @@ package org.openpredict.exchange.tests.performance;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.Mockito;
-import org.mockito.junit.MockitoJUnitRunner;
 import org.openpredict.exchange.beans.Order;
+import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.core.orderbook.IOrdersBucket;
-import org.openpredict.exchange.core.TradeEventCallback;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -18,15 +15,10 @@ import java.util.Random;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
+import static org.openpredict.exchange.core.orderbook.OrdersBucketBaseTest.IGNORE_CMD_CONSUMER;
 
-@RunWith(MockitoJUnitRunner.class)
 @Slf4j
-public class ITOrderBucket {
+public abstract class ITOrdersBucketBase {
 
 
     private static final int PRICE = 1000;
@@ -36,9 +28,11 @@ public class ITOrderBucket {
 
     private IOrdersBucket bucket;
 
+    protected abstract IOrdersBucket createNewOrdersBucket();
+
     @Before
     public void before() {
-        bucket = IOrdersBucket.newInstance();
+        bucket = createNewOrdersBucket();
         bucket.setPrice(PRICE);
 
         bucket.add(Order.orderBuilder().orderId(1).uid(UID_1).size(100).build());
@@ -113,7 +107,8 @@ public class ITOrderBucket {
             }
 
             long toMatch = expectedVolume / 2;
-            long totalVolume = bucket.match(toMatch, UID_9, TradeEventCallback::empty);
+            OrderCommand triggerOrder = OrderCommand.update(1238729387, UID_9, 1000, toMatch);
+            long totalVolume = bucket.match(toMatch, triggerOrder, triggerOrder, IGNORE_CMD_CONSUMER);
             assertThat(totalVolume, is(toMatch));
             expectedVolume -= totalVolume;
             assertThat(bucket.getTotalVolume(), is(expectedVolume));
@@ -122,12 +117,9 @@ public class ITOrderBucket {
             bucket.validate();
         }
 
-        TradeEventCallback callbackMock = Mockito.mock(TradeEventCallback.class);
-        bucket.match(expectedVolume, UID_9, callbackMock);
-
-        verify(callbackMock, times(expectedNumOrders)).submit(any(), anyLong(), anyBoolean(), anyBoolean());
-
-        //assertThat(matching.records.size(), is(expectedNumOrders));
+        OrderCommand triggerOrder = OrderCommand.update(1238729387, UID_9, 1000, expectedVolume);
+        bucket.match(expectedVolume, triggerOrder, triggerOrder, IGNORE_CMD_CONSUMER);
+        assertThat(triggerOrder.extractEvents().size(), is(expectedNumOrders));
 
         assertThat(bucket.getNumOrders(), is(0));
         assertThat(bucket.getTotalVolume(), is(0L));
@@ -144,7 +136,7 @@ public class ITOrderBucket {
         int numOrdersToAdd = 10_000_000;
         long expectedVolume = bucket.getTotalVolume();
         int expectedNumOrders = bucket.getNumOrders() + numOrdersToAdd;
-        Order orders[] = new Order[numOrdersToAdd];
+        Order[] orders = new Order[numOrdersToAdd];
         for (int i = 0; i < numOrdersToAdd; i++) {
             orders[i] = Order.orderBuilder().orderId(i + 5).uid(UID_2).size(i).build();
             expectedVolume += i;
@@ -207,7 +199,10 @@ public class ITOrderBucket {
 
             long toMatch = expectedVolume / 2;
             s = System.nanoTime();
-            long matchingTotalVol = bucket.match(toMatch, UID_9, TradeEventCallback::empty);
+
+            OrderCommand triggerOrd = OrderCommand.update(1238729387, UID_9, 1000, toMatch);
+            long matchingTotalVol = bucket.match(toMatch, triggerOrd, triggerOrd, IGNORE_CMD_CONSUMER);
+
             timeAccum += System.nanoTime() - s;
             assertThat(matchingTotalVol, is(toMatch));
             expectedVolume -= matchingTotalVol;

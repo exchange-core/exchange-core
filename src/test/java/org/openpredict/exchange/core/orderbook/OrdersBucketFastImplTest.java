@@ -5,7 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.hamcrest.MatcherAssert;
 import org.junit.Test;
 import org.openpredict.exchange.beans.Order;
-import org.openpredict.exchange.core.TradeEventCallback;
+import org.openpredict.exchange.beans.cmd.OrderCommand;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -73,23 +73,28 @@ public class OrdersBucketFastImplTest extends OrdersBucketBaseTest {
                 MatcherAssert.assertThat(bucket, is(bucketRef));
             }
 
-
-            TradeEventCallback.TradeEventCollector events = new TradeEventCallback.TradeEventCollector();
-            TradeEventCallback.TradeEventCollector eventsRef = new TradeEventCallback.TradeEventCollector();
+//            TradeEventCallback.TradeEventCollector events = new TradeEventCallback.TradeEventCollector();
+//            TradeEventCallback.TradeEventCollector eventsRef = new TradeEventCallback.TradeEventCollector();
             long toMatch = expectedVolume / 2;
-            long totalVolume = bucket.match(toMatch, UID_9, events::collect);
-            bucketRef.match(toMatch, UID_9, eventsRef::collect);
+
+            OrderCommand trig = OrderCommand.update(1238729387, UID_9, 1000, toMatch);
+            OrderCommand trigRef = OrderCommand.update(1238729387, UID_9, 1000, toMatch);
+
+            long totalVolume = bucket.match(toMatch, trig, trig,IGNORE_CMD_CONSUMER);
+            bucketRef.match(toMatch, trigRef, trigRef, IGNORE_CMD_CONSUMER);
             expectedVolume -= totalVolume;
             MatcherAssert.assertThat(bucket, is(bucketRef));
-            MatcherAssert.assertThat(events, is(eventsRef));
+//            MatcherAssert.assertThat(events, is(eventsRef));
         }
 
-        TradeEventCallback.TradeEventCollector events = new TradeEventCallback.TradeEventCollector();
-        TradeEventCallback.TradeEventCollector eventsRef = new TradeEventCallback.TradeEventCollector();
-        bucket.match(expectedVolume, UID_9, events::collect);
-        bucketRef.match(expectedVolume, UID_9, eventsRef::collect);
+//        TradeEventCallback.TradeEventCollector events = new TradeEventCallback.TradeEventCollector();
+//        TradeEventCallback.TradeEventCollector eventsRef = new TradeEventCallback.TradeEventCollector();
+        OrderCommand trig = OrderCommand.update(1238729387, UID_9, 1000, expectedVolume);
+        OrderCommand trigRef = OrderCommand.update(1238729387, UID_9, 1000, expectedVolume);
+        bucket.match(expectedVolume, trig, trig, IGNORE_CMD_CONSUMER);
+        bucketRef.match(expectedVolume, trigRef, trigRef, IGNORE_CMD_CONSUMER);
         MatcherAssert.assertThat(bucket, is(bucketRef));
-        MatcherAssert.assertThat(events, is(eventsRef));
+//        MatcherAssert.assertThat(events, is(eventsRef));
     }
 
 

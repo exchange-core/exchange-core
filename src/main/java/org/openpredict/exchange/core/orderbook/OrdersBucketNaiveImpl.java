@@ -8,10 +8,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
-import org.openpredict.exchange.core.ReduceEventCallback;
-import org.openpredict.exchange.core.TradeEventCallback;
 
 import java.util.*;
+import java.util.function.Consumer;
 
 @NoArgsConstructor
 @Slf4j
@@ -68,9 +67,10 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
      * @return
      */
     @Override
-    public long match(long volumeToCollect, long uid, TradeEventCallback lambda) {
+    public long match(long volumeToCollect, OrderCommand activeOrder, OrderCommand triggerCmd, Consumer<Order> removeOrderCallback) {
 
 //        log.debug("---- match: {}", volumeToCollect);
+        final long ignoreUid = activeOrder.uid;
 
         Iterator<Map.Entry<Long, Order>> iterator = entries.entrySet().iterator();
 
@@ -81,7 +81,7 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
             Map.Entry<Long, Order> next = iterator.next();
             Order order = next.getValue();
 
-            if (order.uid == uid) {
+            if (order.uid == ignoreUid) {
                 // continue uid
                 continue;
             }
@@ -99,9 +99,10 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
             // remove from order book filled orders
             boolean fullMatch = order.size == order.filled;
 
-            lambda.submit(order, v, fullMatch, volumeToCollect == 0);
+            OrderBookEventsHelper.sendTradeEvent(triggerCmd, activeOrder, order, fullMatch, volumeToCollect == 0, price, v);
 
             if (fullMatch) {
+                removeOrderCallback.accept(order);
                 iterator.remove();
             }
         }
@@ -118,7 +119,7 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
      * @return
      */
     @Override
-    public boolean tryReduceSize(OrderCommand cmd, ReduceEventCallback callback) {
+    public boolean tryReduceSize(OrderCommand cmd) {
         Order order = entries.get(cmd.orderId);
         if (order == null || order.uid != cmd.uid) {
             return false;
@@ -128,7 +129,7 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
         if (reduceBy > 0) {
             order.size -= reduceBy;
             totalVolume -= reduceBy;
-            callback.submit(order, reduceBy);
+            OrderBookEventsHelper.sendReduceEvent(cmd, order, reduceBy);
         }
 
         return true;
@@ -142,7 +143,11 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
 
     @Override
     public void validate() {
-
+        long sum = entries.values().stream().mapToLong(c -> c.size - c.filled).sum();
+        if (sum != totalVolume) {
+            String msg = String.format("totalVolume=%d calculated=%d", totalVolume, sum);
+            throw new IllegalStateException(msg);
+        }
     }
 
     @Override

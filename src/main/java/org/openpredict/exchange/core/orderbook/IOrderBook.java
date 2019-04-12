@@ -3,42 +3,61 @@ package org.openpredict.exchange.core.orderbook;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.Order;
+import org.openpredict.exchange.beans.OrderType;
+import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
+import static org.openpredict.exchange.beans.cmd.OrderCommandType.ORDER_BOOK_REQUEST;
+
 public interface IOrderBook {
 
-    int DEFAULT_HOT_WIDTH = 32768;
+    /**
+     * Process new MARKET order
+     * Such order matched to any existing LIMIT orders
+     * Of there is not enough volume in order book - reject as partially filled
+     *
+     * @param order - market order to match
+     */
+    void matchMarketOrder(OrderCommand order);
 
-    void processCommand(OrderCommand cmd);
+    /**
+     * Place new LIMIT order
+     * If order is marketable (there are matching limit orders) - match it first with existing liquidity
+     * <p>
+     * // todo return reject reason ?
+     *
+     * @param cmd - limit order to place
+     */
+    boolean placeNewLimitOrder(OrderCommand cmd);
 
-    // testing only - validateInternalState without changing state
-    void validateInternalState();
+    /**
+     * Cancel order
+     * <p>
+     * orderId - order Id
+     *
+     * @return false if order was not found, otherwise always true
+     */
+    boolean cancelOrder(OrderCommand cmd);
 
-    void clear();
+    /**
+     * Reduce volume or/and move an order
+     * <p>
+     * orderId  - order Id
+     * newPrice - new price (if 0 or same - order will not moved)
+     * newSize  - new size (if higher than current size or 0 - order will not downsized)
+     *
+     * @return false if order was not found, otherwise always true
+     */
+    boolean updateOrder(OrderCommand cmd);
+
 
     int getOrdersNum();
 
     Order getOrderById(long orderId);
-
-    /**
-     * Obtain current L2 Market Data snapshot
-     *
-     * @param size max size for each part (ask, bid), if negative - all records returned
-     * @return L2 Market Data snapshot
-     */
-    L2MarketData getL2MarketDataSnapshot(int size);
-
-    /**
-     * Request to publish L2 market data into outgoing disruptor message
-     *
-     * @param data - pre-allocated object from ring buffer
-     */
-    void publishL2MarketDataSnapshot(L2MarketData data);
-
 
     List<IOrdersBucket> getAllAskBuckets();
 
@@ -58,15 +77,8 @@ public interface IOrderBook {
      */
     long getBestBid();
 
-    /**
-     * Obtain new instance of order book
-     *
-     * @return new instance
-     */
-    static IOrderBook newInstance() {
-        return new OrderBookFastImpl(DEFAULT_HOT_WIDTH);
-        //return new OrderBookNaiveImpl();
-    }
+    // testing only - validateInternalState without changing state
+    void validateInternalState();
 
     // TODO to default?
     static int hash(IOrdersBucket[] askBuckets, IOrdersBucket[] bidBuckets) {
@@ -94,4 +106,106 @@ public interface IOrderBook {
         getAllBidBuckets().forEach(b -> System.out.println(String.format("BID %s", b.dumpToSingleLine())));
     }
 
+
+    /**
+     * @param size max size for each part (ask, bid)
+     * @return
+     */
+
+    /**
+     * Obtain current L2 Market Data snapshot
+     *
+     * @param size max size for each part (ask, bid), if negative - all records returned
+     * @return L2 Market Data snapshot
+     */
+    default L2MarketData getL2MarketDataSnapshot(int size) {
+        int asksSize = getTotalAskBuckets();
+        int bidsSize = getTotalBidBuckets();
+        if (size >= 0) {
+            // limit size
+            asksSize = Math.min(asksSize, size);
+            bidsSize = Math.min(bidsSize, size);
+        }
+        L2MarketData data = new L2MarketData(asksSize, bidsSize);
+        fillAsks(asksSize, data);
+        fillBids(bidsSize, data);
+        return data;
+    }
+
+    /**
+     * Request to publish L2 market data into outgoing disruptor message
+     *
+     * @param data - pre-allocated object from ring buffer
+     */
+    default void publishL2MarketDataSnapshot(L2MarketData data) {
+        int size = L2MarketData.L2_SIZE;
+        fillAsks(size, data);
+        fillBids(size, data);
+    }
+
+    void fillAsks(final int size, L2MarketData data);
+
+    void fillBids(final int size, L2MarketData data);
+
+    int getTotalAskBuckets();
+
+    int getTotalBidBuckets();
+
+    default void processCommand(OrderCommand cmd) {
+
+        // TODO revoke
+        cmd.marketData = null;
+        cmd.matcherEvent = null;
+
+        if (cmd.resultCode != CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
+            return;
+        }
+
+        // TODO check symbol
+
+        switch (cmd.command) {
+            case MOVE_ORDER:
+//                log.debug("Move {}", cmd.orderId);
+                boolean isUpdated = updateOrder(cmd);
+                cmd.resultCode = isUpdated ? CommandResultCode.SUCCESS : CommandResultCode.MATCHING_INVALID_ORDER_ID;
+//                log.debug("Move {} = {}", cmd.orderId, isUpdated);
+                break;
+
+            case CANCEL_ORDER:
+//                log.debug("Cancel {}", cmd.orderId);
+                boolean isCancelled = cancelOrder(cmd);
+                cmd.resultCode = isCancelled ? CommandResultCode.SUCCESS : CommandResultCode.MATCHING_INVALID_ORDER_ID;
+//                log.debug("Cancel {} = {}", cmd.orderId, isCancelled);
+                break;
+
+            case PLACE_ORDER:
+//                log.debug("Place {}", cmd.orderId);
+                if (cmd.orderType == OrderType.LIMIT) {
+                    cmd.resultCode = placeNewLimitOrder(cmd)
+                            ? CommandResultCode.SUCCESS
+                            : CommandResultCode.MATCHING_DUPLICATE_ORDER_ID;
+                } else {
+                    matchMarketOrder(cmd);
+                    cmd.resultCode = CommandResultCode.SUCCESS;
+                }
+                break;
+
+            case ORDER_BOOK_REQUEST:
+                //log.debug("ORDER_BOOK_REQUEST {}", cmd.size);
+                cmd.marketData = getL2MarketDataSnapshot((int) cmd.size);
+                cmd.resultCode = CommandResultCode.SUCCESS;
+                break;
+
+            default:
+                //log.warn("unsupported command {}", cmd.command);
+                cmd.resultCode = CommandResultCode.MATCHING_UNSUPPORTED_COMMAND;
+        }
+
+
+        // posting market data for risk processor makes sense only if command execution is successful, otherwise it will be ignored (possible garbage from previous cycle)
+        if ((cmd.serviceFlags & 1) != 0 && cmd.command != ORDER_BOOK_REQUEST && cmd.resultCode == CommandResultCode.SUCCESS) {
+            cmd.marketData = getL2MarketDataSnapshot(8);
+        }
+
+    }
 }

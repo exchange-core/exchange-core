@@ -2,11 +2,11 @@ package org.openpredict.exchange.core;
 
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
-import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.orderbook.IOrderBook;
+import org.openpredict.exchange.core.orderbook.OrderBookFastImpl;
 
 @Slf4j
 public final class MatchingEngineRouter {
@@ -37,8 +37,9 @@ public final class MatchingEngineRouter {
     }
 
     public void addOrderBook(int symbol) {
-        IOrderBook orderBook = IOrderBook.newInstance();
+        IOrderBook orderBook = new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH);
         orderBooks.put(symbol, orderBook);
     }
+
 
 }

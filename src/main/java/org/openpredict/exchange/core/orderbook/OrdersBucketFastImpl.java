@@ -11,11 +11,10 @@ import org.eclipse.collections.api.map.primitive.MutableLongIntMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongIntHashMap;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
-import org.openpredict.exchange.core.ReduceEventCallback;
-import org.openpredict.exchange.core.TradeEventCallback;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * Fast version of Order Bucket.<br/>
@@ -141,7 +140,8 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
      * Completely matching orders will be removed, partially matched order kept in the bucked.
      */
     @Override
-    public long match(long volumeToCollect, long ignoreUid, TradeEventCallback lambda) {
+
+    public long match(long volumeToCollect, OrderCommand activeOrder, OrderCommand triggerCmd, Consumer<Order> removeOrderCallback) {
 
         //validate();
 
@@ -150,6 +150,7 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
         int ptr = head;
         int numOrdersToScan = realSize;
         int ownOrderBarrier = -1;
+        final long ignoreUid = activeOrder.uid;
 
         while (numOrdersToScan > 0 && volumeToCollect > 0) {
             // fast-forward head pointer until non-empty element found
@@ -194,13 +195,12 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
             // remove from order book filled orders
             boolean fullMatch = order.size == order.filled;
 
-            //matchingRecords.add(new OrderMatchingRecord(order.orderId, order.uid, v, fullMatch, volumeToCollect == 0));
-
-            // order + v +fullMatch
-
-            lambda.submit(order, v, fullMatch, volumeToCollect == 0);
+            OrderBookEventsHelper.sendTradeEvent(triggerCmd, activeOrder, order, fullMatch, volumeToCollect == 0, price, v);
 
             if (fullMatch) {
+
+                removeOrderCallback.accept(order);
+
                 // remove head
                 queue[ptr] = null;
                 ptr++;
@@ -231,7 +231,7 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
      * @return
      */
     @Override
-    public boolean tryReduceSize(OrderCommand cmd, ReduceEventCallback callback) {
+    public boolean tryReduceSize(OrderCommand cmd) {
 
         //validate();
 
@@ -250,7 +250,7 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
         if (reduceBy > 0) {
             order.size -= reduceBy;
             totalVolume -= reduceBy;
-            callback.submit(order, reduceBy);
+            OrderBookEventsHelper.sendReduceEvent(cmd, order, reduceBy);
         }
 
         //validate();

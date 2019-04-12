@@ -16,6 +16,8 @@ public enum CommandResultCode {
 
     // MATCHING_NO_LIQUIDITY(-3001), // ?? order can be applied partially
     MATCHING_INVALID_ORDER_ID(-3002),
+    MATCHING_DUPLICATE_ORDER_ID(-3003),
+    MATCHING_UNSUPPORTED_COMMAND(-3004),
 
     USER_MGMT_USER_ALREADY_EXISTS(-4001),
 
