@@ -33,10 +33,10 @@ public final class PerfLatency extends IntegrationTestBase {
     }
 
     @Test
-    public void latencyTestTripleMillion() throws Exception {
+    public void latencyTestTripleMillion() {
         latencyTestImpl(
                 8_000_000,
-                1_100_000,
+                1_075_000,
                 1_000_000);
     }
 
@@ -45,6 +45,10 @@ public final class PerfLatency extends IntegrationTestBase {
 //        int targetTps = 1000000; // transactions per second
         final int targetTps = 100_000; // transactions per second
         final int targetTpsEnd = 8_000_000;
+        final int targetTpsStep = 25_000;
+
+        final int warmupTps = 1_000_000;
+        final int warmupCycles = 20;
 //        int targetTps = 4_000_000; // transactions per second
 
         try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
@@ -112,104 +116,15 @@ public final class PerfLatency extends IntegrationTestBase {
                 }
             };
 
-            log.debug("Warming up 20 cycles...");
-            IntStream.range(0, 20)
-                    .forEach(i -> testIteration.accept(1_000_000));
+            log.debug("Warming up {} cycles...", warmupCycles);
+            IntStream.range(0, warmupCycles)
+                    .forEach(i -> testIteration.accept(warmupTps));
             log.debug("Warmup done, starting tests");
 
             IntStream.range(0, 10000)
-                    .map(i -> targetTps + 25000 * i)
+                    .map(i -> targetTps + targetTpsStep * i)
                     .filter(tps -> tps <= targetTpsEnd)
                     .forEach(testIteration);
         }
     }
-
-
-    /*
-    // TODO fix - fails with - int DEFAULT_HOT_WIDTH = 1024;
-    @Test
-    public void latencyTestFailing() throws Exception {
-
-        int numOrders = 3_000_000;
-        int targetOrderBookOrders = 1000;
-        int numUsers = 1000;
-
-//        int targetTps = 1000000; // transactions per second
-        int targetTps = 500_000; // transactions per second
-        int targetTpsEnd = 7_000_000;
-//        int targetTps = 4_000_000; // transactions per second
-
-        List<Long> uids = Stream.iterate(1L, i -> i + 1).limit(numUsers).collect(Collectors.toList());
-
-        TestOrdersGenerator.GenResult genResult = generator.generateCommands(numOrders, targetOrderBookOrders, uids, SYMBOL, true);
-        List<ApiCommand> apiCommands = generator.convertToApiCommand(genResult.getCommands());
-
-        IntLongHashMap latencies = new IntLongHashMap(20000);
-
-        Consumer<OrderCommand> resultsConsumer = cmd -> {
-            int key = (int) (System.nanoTime() - cmd.timestamp);
-            key |= ((Integer.highestOneBit(key) - 1) >> LATENCY_PRECISION_BITS);
-            latencies.updateValue(key, 0, x -> x + 1);
-        };
-
-        // TODO - first run should validate the output (orders are accepted and processed properly)
-
-        for (int j = 0; j < 10000; j++) {
-
-            int nanosPerCmd = 1_000_000_000 / targetTps;
-            targetTps += 50_000;
-
-            Thread.sleep(20);
-            userProfileService.reset();
-            matchingEngineRouter.reset();
-            exchangeCore.setResultsConsumer(NO_CONSUMER);
-            apiCore.submitCommand(ApiNoOp.builder().build());
-            Thread.sleep(20);
-            uids.forEach(this::userInit);
-            System.gc();
-            Thread.sleep(200);
-            exchangeCore.setResultsConsumer(resultsConsumer);
-
-            long t = System.currentTimeMillis();
-            long plannedTimestamp = System.nanoTime();
-
-            long latenciesSum = latencies.sum();
-
-            for (ApiCommand cmd : apiCommands) {
-                // calculate planned time and spin if too early
-                while (System.nanoTime() < plannedTimestamp) {
-                }
-                cmd.timestamp = plannedTimestamp;
-                apiCore.submitCommand(cmd);
-                plannedTimestamp += nanosPerCmd;
-            }
-
-            // wait until last response received
-            long expectedSum = latenciesSum + apiCommands.size();
-            while (latencies.sum() != expectedSum) {
-                //log.debug("commands not processed yet: {}", expectedSum - sum);
-            }
-            t = System.currentTimeMillis() - t;
-
-            float perfMt = (float) apiCommands.size() / (float) t / 1000.0f;
-            Map<String, String> fmtPlace = createLatencyReportFast(latencies);
-            log.info("{}. {} MT/s {}", j, perfMt, fmtPlace);
-
-            // weak compare orderBook final state just to make sure all commands executed same way
-            // TODO compare events
-            assertThat(matchingEngineRouter.getOrderBook(SYMBOL).hashCode(), is(genResult.getFinalOrderbookHash()));
-
-//            if (j == 5) {
-//                log.info("Warmup completed, RESET latency stat");
-            latencies.clear();
-//            }
-
-            if (targetTps > targetTpsEnd) {
-                break;
-            }
-        }
-    }
-*/
-
-
 }

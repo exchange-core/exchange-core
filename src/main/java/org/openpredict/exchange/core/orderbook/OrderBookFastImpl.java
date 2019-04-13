@@ -592,10 +592,8 @@ public final class OrderBookFastImpl implements IOrderBook {
 
         if (minAskPrice != Long.MAX_VALUE) {
             // evicting ASK buckets from the HOT section into the FAR section where price >= newBasePrice + hotPricesRange
-            int next = hotPricesRange - shift;
-            //log.debug("next1={}", next);
+            int next = Math.max(hotPricesRange - shift, 0);
             while ((next = hotAskBitSet.nextSetBit(next)) != -1) {
-                //log.debug("next={}", next);
                 IOrdersBucket bucket = hotAskBuckets.remove(indexToPrice(next));
                 farAskBuckets.put(bucket.getPrice(), bucket);
                 next++;

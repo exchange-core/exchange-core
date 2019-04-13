@@ -28,7 +28,7 @@ public final class PerfThroughput extends IntegrationTestBase {
     public void throughputTestTripleMillion() throws Exception {
         throughputTestImpl(
                 8_000_000,
-                1_100_000,
+                1_075_000,
                 1_000_000);
     }
 

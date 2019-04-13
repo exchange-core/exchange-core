@@ -77,11 +77,6 @@ public final class MasterProcessor implements EventProcessor {
      */
     @Override
     public void run() {
-
-        log.info("START MAIN PROCESSOR");
-        Thread.dumpStack();
-
-
         if (running.compareAndSet(IDLE, RUNNING)) {
             sequenceBarrier.clearAlert();
 
