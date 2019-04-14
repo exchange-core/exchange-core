@@ -1,8 +1,9 @@
 package org.openpredict.exchange.beans;
 
 import lombok.extern.slf4j.Slf4j;
+import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
-import org.eclipse.collections.impl.map.mutable.primitive.LongLongHashMap;
+import org.eclipse.collections.impl.set.mutable.primitive.LongHashSet;
 
 @Slf4j
 public final class UserProfile {
@@ -12,11 +13,16 @@ public final class UserProfile {
     // symbol -> portfolio records
     public IntObjectHashMap<SymbolPortfolioRecord> portfolio = new IntObjectHashMap<>();
 
-    // transactionId -> amount
-    public LongLongHashMap externalTransactions = new LongLongHashMap();
+    // set of applied transactionId
+    public LongHashSet externalTransactions = new LongHashSet();
 
     // collected from accounts
-    public long balance = 0L;
+    public long futuresBalance = 0L;
+
+    // currency accounts
+    // currency -> balance
+    public IntLongHashMap accounts = new IntLongHashMap();
+
 
     // collected from portfolio
     // TODO change to cached guaranteed available funds based on current position?
@@ -41,25 +47,18 @@ public final class UserProfile {
 
     public void removeRecordIfEmpty(SymbolPortfolioRecord record) {
         if (record.isEmpty()) {
-            balance += record.profit;
+            futuresBalance += record.profit;
             portfolio.removeKey(record.symbol);
         }
     }
-
-//    public void clear() {
-////        log.debug("{} Portfolio size: {}, commands {}, fastBalance: {}", uid, portfolio.size(), commandsCounter.longValue(), fastBalance);
-//        portfolio.forEach(SymbolPortfolioRecord::reset);
-//        commandsCounter = 0;
-//        // TODO clear margin?
-//    }
-
 
     @Override
     public String toString() {
         return "UserProfile{" +
                 "uid=" + uid +
                 ", portfolios=" + portfolio.size() +
-                ", balance=" + balance +
+                ", futuresBalance=" + futuresBalance +
+                ", accounts=" + accounts +
                 ", commandsCounter=" + commandsCounter +
                 '}';
     }

@@ -15,7 +15,7 @@ public final class SymbolPortfolioRecord {
     public final int symbol;
     public final long uid;
 
-    // open positions state
+    // open positions state (for margin trades only)
     public PortfolioPosition position = PortfolioPosition.EMPTY;
     public long openVolume = 0;
     public long openPriceSum = 0; //
@@ -58,9 +58,9 @@ public final class SymbolPortfolioRecord {
             pendingBuySize -= size;
         }
 
-        if (pendingSellSize < 0 || pendingBuySize < 0) {
-            log.error("uid {} : pendingSellSize:{} pendingBuySize:{}", uid, pendingSellSize, pendingBuySize);
-        }
+//        if (pendingSellSize < 0 || pendingBuySize < 0) {
+//            log.error("uid {} : pendingSellSize:{} pendingBuySize:{}", uid, pendingSellSize, pendingBuySize);
+//        }
     }
 
     public long estimateProfit(CoreSymbolSpecification spec) {
@@ -92,7 +92,7 @@ public final class SymbolPortfolioRecord {
      * @param spec
      * @return
      */
-    public long calculateRequiredDeposit(CoreSymbolSpecification spec) {
+    public long calculateRequiredDepositForFutures(CoreSymbolSpecification spec) {
         final long specDepositBuy = spec.depositBuy;
         final long specDepositSell = spec.depositSell;
 
@@ -145,23 +145,23 @@ public final class SymbolPortfolioRecord {
      * 2. Reduce opposite position accordingly (if exists)
      * 3. Increase forward position accordingly (if size left in the trading event)
      */
-    public void updatePortfolioForTrade(OrderAction action, long size, long price, final long commission) {
+    public void updatePortfolioForMarginTrade(OrderAction action, long size, long price, final long commission) {
 
         // 1. Un-hold pending size
         pendingRelease(action, size);
 
         // 2. Reduce opposite position accordingly (if exists)
-        final long sizeToOpen = closeCurrentPosition(action, size, price);
+        final long sizeToOpen = closeCurrentPositionFutures(action, size, price);
 
         // 3. Increase forward position accordingly (if size left in the trading event)
-        openPosition(action, sizeToOpen, price, commission);
+        if (sizeToOpen > 0) {
+            openPositionFutures(action, sizeToOpen, price, commission);
+        }
     }
 
+    private long closeCurrentPositionFutures(final OrderAction action, final long tradeSize, final long tradePrice) {
 
-    private long closeCurrentPosition(final OrderAction action, final long tradeSize, final long tradePrice) {
-//        if(uid == 196) {
-//            log.debug("{} {} {} {} cur:{}-{} profit={}", uid, action, tradeSize, tradePrice, position, totalSize, profit);
-//        }
+        // log.debug("{} {} {} {} cur:{}-{} profit={}", uid, action, tradeSize, tradePrice, position, totalSize, profit);
 
         if (position == PortfolioPosition.EMPTY || position == PortfolioPosition.of(action)) {
             // nothing to close
@@ -189,20 +189,18 @@ public final class SymbolPortfolioRecord {
         return sizeToOpen;
     }
 
-    private void openPosition(OrderAction action, long sizeToOpen, long tradePrice, long commission) {
-        if (sizeToOpen > 0) {
-            openVolume += sizeToOpen;
-            openPriceSum += tradePrice * sizeToOpen;
-            position = PortfolioPosition.of(action);
-            profit -= commission * sizeToOpen;
-        }
+    private void openPositionFutures(OrderAction action, long sizeToOpen, long tradePrice, long commission) {
+        openVolume += sizeToOpen;
+        openPriceSum += tradePrice * sizeToOpen;
+        position = PortfolioPosition.of(action);
+        profit -= commission * sizeToOpen;
 
-//        validateInternalState();
+        // validateInternalState();
     }
 
     public void reset() {
 
-//        log.debug("records: {}, Pending B{} S{} total size: {}", records.size(), pendingBuySize, pendingSellSize, totalSize);
+        // log.debug("records: {}, Pending B{} S{} total size: {}", records.size(), pendingBuySize, pendingSellSize, totalSize);
 
         pendingBuySize = 0;
         pendingSellSize = 0;
@@ -226,7 +224,6 @@ public final class SymbolPortfolioRecord {
             log.error("uid {} : pendingSellSize:{} pendingBuySize:{}", uid, pendingSellSize, pendingBuySize);
             throw new IllegalStateException();
         }
-
     }
 
 }

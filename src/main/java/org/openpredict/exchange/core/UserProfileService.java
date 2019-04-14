@@ -28,6 +28,18 @@ public final class UserProfileService {
         return userProfiles.get(uid);
     }
 
+    public UserProfile getUserProfileOrThrowEx(long uid) {
+
+        final UserProfile userProfile = userProfiles.get(uid);
+
+        if (userProfile == null) {
+            throw new IllegalStateException("User profile not found, uid=" + uid);
+        }
+
+        return userProfile;
+    }
+
+
     /**
      * Create a new user profile with known unique uid
      *

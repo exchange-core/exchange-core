@@ -97,7 +97,7 @@ public final class ExchangeApi {
     private static final EventTranslatorOneArg<OrderCommand, ApiAdjustUserBalance> ADJUST_USER_BALANCE_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.BALANCE_ADJUSTMENT;
         cmd.orderId = -1;
-        cmd.symbol = -1;
+        cmd.symbol = api.currency;
         cmd.uid = api.uid;
         cmd.price = api.amount;
         cmd.timestamp = api.timestamp;
