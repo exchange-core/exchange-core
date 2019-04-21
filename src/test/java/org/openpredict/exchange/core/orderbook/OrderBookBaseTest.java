@@ -209,9 +209,7 @@ public abstract class OrderBookBaseTest {
     public void shouldReturnErrorWhenCancelUnknownOrder() {
 
         OrderCommand cmd = OrderCommand.cancel(5291, UID_1);
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(MATCHING_INVALID_ORDER_ID));
-        orderBook.validateInternalState();
+        processAndValidate(cmd, MATCHING_INVALID_ORDER_ID);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
 //        log.debug("{}", dumpOrderBook(snapshot));
@@ -224,9 +222,7 @@ public abstract class OrderBookBaseTest {
     public void shouldReturnErrorWhenUpdatingUnknownOrder() {
 
         OrderCommand cmd = OrderCommand.update(2433, UID_1, 300, 5);
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(MATCHING_INVALID_ORDER_ID));
-        orderBook.validateInternalState();
+        processAndValidate(cmd, MATCHING_INVALID_ORDER_ID);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
         //        log.debug("{}", dumpOrderBook(snapshot));
@@ -241,9 +237,7 @@ public abstract class OrderBookBaseTest {
     public void shouldReduceOrderSize() {
 
         OrderCommand cmd = OrderCommand.update(2, UID_1, 0, 5);
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(SUCCESS));
-        orderBook.validateInternalState();
+        processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
 
@@ -259,9 +253,7 @@ public abstract class OrderBookBaseTest {
     @Test
     public void shouldMoveOrderExistingBucket() {
         OrderCommand cmd = OrderCommand.update(7, UID_1, 81590, 0);
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(SUCCESS));
-        orderBook.validateInternalState();
+        processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
 
@@ -276,9 +268,7 @@ public abstract class OrderBookBaseTest {
     @Test
     public void shouldMoveOrderNewBucket() {
         OrderCommand cmd = OrderCommand.update(7, UID_1, 81594, 0);
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(SUCCESS));
-        orderBook.validateInternalState();
+        processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
 
@@ -293,10 +283,7 @@ public abstract class OrderBookBaseTest {
     @Test
     public void shouldMoveAndReduceOrder() {
         OrderCommand cmd = OrderCommand.update(7, UID_1, 81590, 1);
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(SUCCESS));
-
-        orderBook.validateInternalState();
+        processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
 
@@ -317,9 +304,7 @@ public abstract class OrderBookBaseTest {
 
         // size=10
         OrderCommand cmd = OrderCommand.marketOrder(123, UID_2, 10, ASK);
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(SUCCESS));
-        orderBook.validateInternalState();
+        processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
         // best bid matched
@@ -337,9 +322,7 @@ public abstract class OrderBookBaseTest {
 
         // size=40
         OrderCommand cmd = OrderCommand.marketOrder(123, UID_2, 40, ASK);
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(SUCCESS));
-        orderBook.validateInternalState();
+        processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
         // best bid matched
@@ -356,9 +339,7 @@ public abstract class OrderBookBaseTest {
 
         // size=41
         OrderCommand cmd = OrderCommand.marketOrder(123, UID_2, 41, ASK);
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(SUCCESS));
-        orderBook.validateInternalState();
+        processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
         // bids matched
@@ -381,9 +362,7 @@ public abstract class OrderBookBaseTest {
 
         // size=175
         OrderCommand cmd = OrderCommand.marketOrder(123, UID_2, 175, BID);
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(SUCCESS));
-        orderBook.validateInternalState();
+        processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
         // all asks matched
@@ -407,9 +386,7 @@ public abstract class OrderBookBaseTest {
 
         // size=270
         OrderCommand cmd = OrderCommand.marketOrder(123, UID_2, 270, BID);
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(SUCCESS));
-        orderBook.validateInternalState();
+        processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
         // all asks matched
@@ -430,9 +407,7 @@ public abstract class OrderBookBaseTest {
 
         // size=1
         OrderCommand cmd = OrderCommand.limitOrder(123, UID_2, 81599, 1, BID);
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(SUCCESS));
-        orderBook.validateInternalState();
+        processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
         // best ask partially matched
@@ -450,9 +425,7 @@ public abstract class OrderBookBaseTest {
 
         // size=77
         OrderCommand cmd = OrderCommand.limitOrder(123, UID_2, 81599, 77, BID);
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(SUCCESS));
-        orderBook.validateInternalState();
+        processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
         // best asks fully matched, limit bid order placed
@@ -471,9 +444,7 @@ public abstract class OrderBookBaseTest {
 
         // size=77
         OrderCommand cmd = OrderCommand.limitOrder(123, UID_2, 81600, 77, BID);
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(SUCCESS));
-        orderBook.validateInternalState();
+        processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
         // best asks fully matched, limit bid order placed
@@ -494,9 +465,7 @@ public abstract class OrderBookBaseTest {
 
         // size=1000
         OrderCommand cmd = OrderCommand.limitOrder(123, UID_2, 220000, 1000, BID);
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(SUCCESS));
-        orderBook.validateInternalState();
+        processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
         // best asks fully matched, limit bid order placed
@@ -523,9 +492,7 @@ public abstract class OrderBookBaseTest {
 
         // add new order and check it is there
         OrderCommand cmd = OrderCommand.limitOrder(83, UID_2, 81200, 20, BID);
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(SUCCESS));
-        orderBook.validateInternalState();
+        processAndValidate(cmd, SUCCESS);
 
         List<MatcherTradeEvent> events = cmd.extractEvents();
         assertThat(events.size(), is(0));
@@ -535,10 +502,7 @@ public abstract class OrderBookBaseTest {
 
         // downsize and move to marketable price area
         cmd = OrderCommand.update(83, UID_2, 81602, 18);
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(SUCCESS));
-
-        orderBook.validateInternalState();
+        processAndValidate(cmd, SUCCESS);
 
         // moved
         expected = expectedState.setBidVolume(2, 20).setAskVolume(0, 57).build();
@@ -555,18 +519,14 @@ public abstract class OrderBookBaseTest {
     public void shouldMoveOrderFullyMatchAsMarketable2Prices() {
 
         OrderCommand cmd = OrderCommand.limitOrder(83, UID_2, 81594, 100, BID);
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(SUCCESS));
-        orderBook.validateInternalState();
+        processAndValidate(cmd, SUCCESS);
 
         List<MatcherTradeEvent> events = cmd.extractEvents();
         assertThat(events.size(), is(0));
 
         // move to marketable zone
         cmd = OrderCommand.update(83, UID_2, 81600, 0);
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(SUCCESS));
-        orderBook.validateInternalState();
+        processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
 
@@ -586,15 +546,11 @@ public abstract class OrderBookBaseTest {
     public void shouldMoveOrderMatchesAllLiquidity() {
 
         OrderCommand cmd = OrderCommand.limitOrder(83, UID_2, 81594, 247, BID);
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(SUCCESS));
-        orderBook.validateInternalState();
+        processAndValidate(cmd, SUCCESS);
 
         // downsize and move to marketable zone
         cmd = OrderCommand.update(83, UID_2, 201000, 246);
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(SUCCESS));
-        orderBook.validateInternalState();
+        processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
 
@@ -630,9 +586,8 @@ public abstract class OrderBookBaseTest {
 
         genResult.getCommands().forEach(cmd -> {
             cmd.orderId += 100; // TODO set start id
-            IOrderBook.processCommand(localOrderBook, cmd);
-
-            assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
+            CommandResultCode commandResultCode = IOrderBook.processCommand(localOrderBook, cmd);
+            assertThat(commandResultCode, is(SUCCESS));
             localOrderBook.validateInternalState();
         });
 
@@ -641,8 +596,8 @@ public abstract class OrderBookBaseTest {
     // ------------------------------- UTILITY METHODS --------------------------
 
     public void processAndValidate(OrderCommand cmd, CommandResultCode expectedCmdState) {
-        IOrderBook.processCommand(orderBook, cmd);
-        assertThat(cmd.resultCode, is(expectedCmdState));
+        CommandResultCode resultCode = IOrderBook.processCommand(orderBook, cmd);
+        assertThat(resultCode, is(expectedCmdState));
         orderBook.validateInternalState();
     }
 

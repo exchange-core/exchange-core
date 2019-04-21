@@ -5,11 +5,10 @@ import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
-import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.orderbook.IOrderBook;
 import org.openpredict.exchange.core.orderbook.OrderBookFastImpl;
 
-import static org.openpredict.exchange.beans.cmd.OrderCommandType.BINARY_DATA;
+import static org.openpredict.exchange.beans.cmd.OrderCommandType.ORDER_BOOK_REQUEST;
 
 @Slf4j
 public final class MatchingEngineRouter {
@@ -21,19 +20,33 @@ public final class MatchingEngineRouter {
     private final IntObjectHashMap<IOrderBook> orderBooks = new IntObjectHashMap<>();
 
     public void processOrder(OrderCommand cmd) {
-        if (cmd.resultCode != CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
-            cmd.matcherEvent = null; // remove and let garbage collected
 
-        } else if (cmd.command == OrderCommandType.RESET) {
-            orderBooks.clear();
-            binaryCommandsProcessor.reset();
-            cmd.resultCode = CommandResultCode.SUCCESS;
+        // TODO check symbolId
 
-        } else if (cmd.command == BINARY_DATA) {
-            cmd.resultCode = binaryCommandsProcessor.binaryData(cmd);
+        // TODO revoke with only symbol group specific processor
+        cmd.matcherEvent = null;
+        cmd.marketData = null;
 
-        } else {
-            processCommand(cmd);
+        switch (cmd.command) {
+            case MOVE_ORDER:
+            case CANCEL_ORDER:
+            case ORDER_BOOK_REQUEST:
+            case PLACE_ORDER:
+                // TODO process specific symbol group only
+                processCommand(cmd);
+                break;
+
+            case BINARY_DATA:
+                // TODO process all symbols groups, only processor 0 writes result
+                cmd.resultCode = binaryCommandsProcessor.binaryData(cmd);
+                break;
+
+            case RESET:
+                // TODO process all symbols groups, only processor 0 writes result
+                orderBooks.clear();
+                binaryCommandsProcessor.reset();
+                cmd.resultCode = CommandResultCode.SUCCESS;
+                break;
         }
     }
 
@@ -55,22 +68,15 @@ public final class MatchingEngineRouter {
 
         final IOrderBook orderBook = orderBooks.get(cmd.symbol);
         if (orderBook == null) {
-            cmd.matcherEvent = null; // remove and let garbage collected
             cmd.resultCode = CommandResultCode.MATCHING_INVALID_ORDER_BOOK_ID;
-            return;
+        }else {
+            cmd.resultCode = IOrderBook.processCommand(orderBook, cmd);
+
+            // posting market data for risk processor makes sense only if command execution is successful, otherwise it will be ignored (possible garbage from previous cycle)
+            if ((cmd.serviceFlags & 1) != 0 && cmd.command != ORDER_BOOK_REQUEST && cmd.resultCode == CommandResultCode.SUCCESS) {
+                cmd.marketData = orderBook.getL2MarketDataSnapshot(8);
+            }
         }
-
-
-        // TODO revoke
-        cmd.marketData = null;
-        cmd.matcherEvent = null;
-
-        if (cmd.resultCode != CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
-            return;
-        }
-
-        // TODO check symbol
-        IOrderBook.processCommand(orderBook, cmd);
     }
 
 }

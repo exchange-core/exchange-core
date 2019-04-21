@@ -56,9 +56,9 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
             IOrderBook.processCommand(orderBook, cmd);
 
             cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
-            IOrderBook.processCommand(orderBookRef, cmd);
+            CommandResultCode commandResultCode = IOrderBook.processCommand(orderBookRef, cmd);
 
-            assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
+            assertThat(commandResultCode, is(SUCCESS));
 
 //            if (!orderBook.equals(orderBookRef)) {
 //

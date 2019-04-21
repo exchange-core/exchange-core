@@ -144,7 +144,6 @@ public final class ExchangeCore {
             case CANCEL_ORDER:
             case ORDER_BOOK_REQUEST:
                 // NO checks for UPDATE or CANCEL
-                cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
                 break;
 
             case PLACE_ORDER:
@@ -160,15 +159,15 @@ public final class ExchangeCore {
                 break;
 
             case BINARY_DATA:
-                cmd.resultCode = riskEngine.getBinaryCommandsProcessor().binaryData(cmd);
+                riskEngine.getBinaryCommandsProcessor().binaryData(cmd);
                 break;
 
             case RESET:
                 resetState();
-                cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
                 break;
 
             case NOP:
+                // TODO set only by processor 0
                 cmd.resultCode = CommandResultCode.SUCCESS;
                 break;
         }

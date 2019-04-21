@@ -11,8 +11,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
-import static org.openpredict.exchange.beans.cmd.OrderCommandType.ORDER_BOOK_REQUEST;
-
 public interface IOrderBook {
 
     /**
@@ -152,60 +150,51 @@ public interface IOrderBook {
     int getTotalBidBuckets();
 
 
-    static void processCommand(final IOrderBook orderBook, final OrderCommand cmd) {
-
+    static CommandResultCode processCommand(final IOrderBook orderBook, final OrderCommand cmd) {
 
         switch (cmd.command) {
             case MOVE_ORDER:
-//                log.debug("Move {}", cmd.orderId);
                 boolean isUpdated = orderBook.updateOrder(cmd);
-                cmd.resultCode = isUpdated ? CommandResultCode.SUCCESS : CommandResultCode.MATCHING_INVALID_ORDER_ID;
-//                log.debug("Move {} = {}", cmd.orderId, isUpdated);
-                break;
+                return isUpdated ? CommandResultCode.SUCCESS : CommandResultCode.MATCHING_INVALID_ORDER_ID;
 
             case CANCEL_ORDER:
-//                log.debug("Cancel {}", cmd.orderId);
                 boolean isCancelled = orderBook.cancelOrder(cmd);
-                cmd.resultCode = isCancelled ? CommandResultCode.SUCCESS : CommandResultCode.MATCHING_INVALID_ORDER_ID;
-//                log.debug("Cancel {} = {}", cmd.orderId, isCancelled);
-                break;
+                return isCancelled ? CommandResultCode.SUCCESS : CommandResultCode.MATCHING_INVALID_ORDER_ID;
 
             case PLACE_ORDER:
 //                log.debug("Place {}", cmd.orderId);
-                if (cmd.orderType == OrderType.LIMIT) {
+                if (cmd.resultCode == CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
 
-                    // todo validate price step (also for MOVE_ORDER)
+                    if (cmd.orderType == OrderType.LIMIT) {
+
+                        // todo validate price step (also for MOVE_ORDER)
 //                    if (spec.stepSize != 1 && cmd.orderType == OrderType.LIMIT && cmd.price % spec.stepSize != 0) {
 //                        cmd.resultCode = CommandResultCode.INVALID_PRICE_STEP;
 //                        log.warn("Price {} does not match step {} of symbol {}", cmd.price, spec.stepSize, cmd.symbol);
 //                        return;
 //                    }
 
-
-                    cmd.resultCode = orderBook.placeNewLimitOrder(cmd)
-                            ? CommandResultCode.SUCCESS
-                            : CommandResultCode.MATCHING_DUPLICATE_ORDER_ID;
+                        return orderBook.placeNewLimitOrder(cmd)
+                                ? CommandResultCode.SUCCESS
+                                : CommandResultCode.MATCHING_DUPLICATE_ORDER_ID;
+                    } else {
+                        orderBook.matchMarketOrder(cmd);
+                        return CommandResultCode.SUCCESS;
+                    }
                 } else {
-                    orderBook.matchMarketOrder(cmd);
-                    cmd.resultCode = CommandResultCode.SUCCESS;
+                    // no change
+                    return cmd.resultCode;
                 }
-                break;
+
 
             case ORDER_BOOK_REQUEST:
                 //log.debug("ORDER_BOOK_REQUEST {}", cmd.size);
                 cmd.marketData = orderBook.getL2MarketDataSnapshot((int) cmd.size);
-                cmd.resultCode = CommandResultCode.SUCCESS;
-                break;
+                return CommandResultCode.SUCCESS;
 
             default:
                 //log.warn("unsupported command {}", cmd.command);
-                cmd.resultCode = CommandResultCode.MATCHING_UNSUPPORTED_COMMAND;
-        }
-
-
-        // posting market data for risk processor makes sense only if command execution is successful, otherwise it will be ignored (possible garbage from previous cycle)
-        if ((cmd.serviceFlags & 1) != 0 && cmd.command != ORDER_BOOK_REQUEST && cmd.resultCode == CommandResultCode.SUCCESS) {
-            cmd.marketData = orderBook.getL2MarketDataSnapshot(8);
+                return CommandResultCode.MATCHING_UNSUPPORTED_COMMAND;
         }
 
     }

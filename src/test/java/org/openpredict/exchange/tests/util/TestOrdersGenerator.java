@@ -75,9 +75,8 @@ public class TestOrdersGenerator {
             cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
             cmd.symbol = session.symbol;
             //log.debug("{}. {}",i, cmd);
-            IOrderBook.processCommand(orderBook, cmd);
 
-            if (cmd.resultCode == CommandResultCode.SUCCESS) {
+            if (IOrderBook.processCommand(orderBook, cmd) == CommandResultCode.SUCCESS) {
                 successfulCommands++;
             }
 
