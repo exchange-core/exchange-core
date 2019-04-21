@@ -10,7 +10,6 @@ import org.openpredict.exchange.beans.MatcherEventType;
 import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
-import org.openpredict.exchange.core.MatchingEngineRouter;
 import org.openpredict.exchange.core.orderbook.IOrderBook;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 

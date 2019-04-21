@@ -29,9 +29,10 @@ public final class CoreSymbolSpecification implements Serializable {
     public final long depositBuy;
     public final long depositSell;
 
-    // commissions (in base currency)
-    public final long takerCommission; // = 0;
-    public final long makerCommission; // = 0;
+    // fees (per lot)
+    public final int feeCurrency;
+    public final long takerFee; // = 0;
+    public final long makerFee; // = 0;
 
     // lot size
 //    public final long lotSize;

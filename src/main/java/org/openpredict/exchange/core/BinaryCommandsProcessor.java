@@ -23,7 +23,7 @@ import java.util.function.Function;
 public final class BinaryCommandsProcessor {
 
     // transactionId -> TransferRecord (long array + bitset)
-    private LongObjectHashMap<TransferRecord> incomingData = new LongObjectHashMap<>();
+    private final LongObjectHashMap<TransferRecord> incomingData = new LongObjectHashMap<>();
 
     private final Function<CoreSymbolSpecification, CommandResultCode> symbolsConsumer;
 
@@ -36,23 +36,23 @@ public final class BinaryCommandsProcessor {
     }
 
 
-    public void binaryData(OrderCommand cmd) {
+    public CommandResultCode binaryData(OrderCommand cmd) {
 
         final int dataSizeBytes = (int) (cmd.size >> 32);
         final int frameIndex = (int) (cmd.size);
 
         Object obj = registerData(cmd.orderId, frameIndex, cmd.price, dataSizeBytes);
         if (obj == null) {
-            cmd.resultCode = acceptedResultCode;
+            return acceptedResultCode;
 
         } else if (obj instanceof CoreSymbolSpecification) {
 
             final CoreSymbolSpecification symbolSpecification = (CoreSymbolSpecification) obj;
 
-            cmd.resultCode = symbolsConsumer.apply(symbolSpecification);
+            return symbolsConsumer.apply(symbolSpecification);
 
         } else {
-            cmd.resultCode = CommandResultCode.BINARY_COMMAND_FAILED;
+            return CommandResultCode.BINARY_COMMAND_FAILED;
         }
     }
 
@@ -91,6 +91,10 @@ public final class BinaryCommandsProcessor {
         }
 
         return null;
+    }
+
+    public void reset() {
+        incomingData.clear();
     }
 
     private static class TransferRecord {

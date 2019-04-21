@@ -14,6 +14,7 @@ import static org.openpredict.exchange.beans.cmd.OrderCommandType.BINARY_DATA;
 @Slf4j
 public final class MatchingEngineRouter {
 
+    // state
     private final BinaryCommandsProcessor binaryCommandsProcessor = new BinaryCommandsProcessor(this::addSymbol, CommandResultCode.ACCEPTED);
 
     // symbol->OB
@@ -22,21 +23,18 @@ public final class MatchingEngineRouter {
     public void processOrder(OrderCommand cmd) {
         if (cmd.resultCode != CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
             cmd.matcherEvent = null; // remove and let garbage collected
-            return;
-        }
 
-        if (cmd.command == OrderCommandType.RESET) {
+        } else if (cmd.command == OrderCommandType.RESET) {
             orderBooks.clear();
+            binaryCommandsProcessor.reset();
             cmd.resultCode = CommandResultCode.SUCCESS;
-            return;
-        }
 
-        if (cmd.command == BINARY_DATA) {
-            binaryCommandsProcessor.binaryData(cmd);
-            return;
-        }
+        } else if (cmd.command == BINARY_DATA) {
+            cmd.resultCode = binaryCommandsProcessor.binaryData(cmd);
 
-        processCommand(cmd);
+        } else {
+            processCommand(cmd);
+        }
     }
 
     private CommandResultCode addSymbol(final CoreSymbolSpecification symbolSpecification) {

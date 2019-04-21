@@ -63,8 +63,8 @@ public class IntegrationTestBase {
                 .quoteScaleK(1)
                 .depositBuy(22000)
                 .depositSell(32100)
-                .takerCommission(0)
-                .makerCommission(0)
+                .takerFee(0)
+                .makerFee(0)
                 .stepSize(1)
                 .build();
 

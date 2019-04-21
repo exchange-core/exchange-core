@@ -9,7 +9,7 @@ import com.lmax.disruptor.dsl.ProducerType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
-import org.openpredict.exchange.beans.*;
+import org.openpredict.exchange.beans.CfgWaitStrategyType;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
@@ -22,8 +22,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.function.Consumer;
 
-import static org.openpredict.exchange.beans.MatcherEventType.*;
-
 @RequiredArgsConstructor
 @Slf4j
 public final class ExchangeCore {
@@ -33,13 +31,12 @@ public final class ExchangeCore {
 
     private static final int RING_BUFFER_SIZE = 64 * 1024;
 
-    private final UserProfileService userProfileService = new UserProfileService();
     private final MatchingEngineRouter matchingEngineRouter = new MatchingEngineRouter();
-    private final SymbolSpecificationProvider symbolSpecificationProvider = new SymbolSpecificationProvider();
-    private final RiskEngine riskEngine = new RiskEngine(symbolSpecificationProvider);
-    private final BinaryCommandsProcessor binaryCommandsProcessor = new BinaryCommandsProcessor(this::addSymbol, CommandResultCode.VALID_FOR_MATCHING_ENGINE);
+
+    private final RiskEngine riskEngine = new RiskEngine();
 
     private final Disruptor<OrderCommand> disruptor;
+
     private final RingBuffer<OrderCommand> cmdRingBuffer;
 
     private MasterProcessor procR1;
@@ -87,7 +84,7 @@ public final class ExchangeCore {
         }
 
         afterGrouping.handleEventsWith((rb, bs) -> {
-            procR1 = new MasterProcessor(rb, rb.newBarrier(bs), this::handleRiskHold, exceptionHandler);
+            procR1 = new MasterProcessor(rb, rb.newBarrier(bs), this::riskPreProcess, exceptionHandler);
             return procR1;
         }).then(matchingEngineHandler);
 
@@ -131,7 +128,16 @@ public final class ExchangeCore {
         log.info("Disruptor stopped");
     }
 
-    private void handleRiskHold(OrderCommand cmd) {
+    /**
+     * Pre-process command handler
+     * 1. MOVE/CANCEL commands ignored, for specific uid marked as valid for matching engine
+     * 2. PLACE ORDER checked with risk ending for specific uid
+     * 3. ADD USER, BALANCE_ADJUSTMENT processed for specific uid, not valid for matching engine
+     * 4. BINARY_DATA commands processed for ANY uid and marked as valid for matching engine TODO which handler marks?
+     * 5. RESET commands processed for any uid
+     * @param cmd - command
+     */
+    private void riskPreProcess(OrderCommand cmd) {
 
         switch (cmd.command) {
             case MOVE_ORDER:
@@ -142,19 +148,19 @@ public final class ExchangeCore {
                 break;
 
             case PLACE_ORDER:
-                placeOrderRiskCheck(cmd);
+                cmd.resultCode = riskEngine.placeOrderRiskCheck(cmd);
                 break;
 
             case ADD_USER:
-                addUser(cmd);
+                cmd.resultCode = riskEngine.getUserProfileService().addEmptyUserProfile(cmd.uid);
                 break;
 
             case BALANCE_ADJUSTMENT:
-                balanceAdjustment(cmd);
+                cmd.resultCode = riskEngine.getUserProfileService().balanceAdjustment(cmd.uid, cmd.symbol, cmd.price, cmd.orderId);
                 break;
 
             case BINARY_DATA:
-                binaryCommandsProcessor.binaryData(cmd);
+                cmd.resultCode = riskEngine.getBinaryCommandsProcessor().binaryData(cmd);
                 break;
 
             case RESET:
@@ -168,218 +174,11 @@ public final class ExchangeCore {
         }
     }
 
-    private void placeOrderRiskCheck(OrderCommand cmd) {
-
-        final UserProfile userProfile = userProfileService.getUserProfile(cmd.uid);
-        if (userProfile == null) {
-            cmd.resultCode = CommandResultCode.AUTH_INVALID_USER;
-            log.warn("User profile {} not found", cmd.uid);
-            return;
-        }
-
-        final CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(cmd.symbol);
-        if (spec == null) {
-            cmd.resultCode = CommandResultCode.INVALID_SYMBOL;
-            log.warn("Symbol {} not found", cmd.symbol);
-            return;
-        }
-
-        // check if account has enough funds
-        if (!riskEngine.placeOrder(cmd, userProfile, spec)) {
-            cmd.resultCode = CommandResultCode.RISK_NSF;
-            log.warn("NSF uid={}: Can not place {}", userProfile.uid, cmd);
-            return;
-        }
-
-        cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
-        userProfile.commandsCounter++; // TODO should also set for MOVE
-    }
-
-    private void balanceAdjustment(OrderCommand cmd) {
-        final UserProfile userProfile = userProfileService.getUserProfile(cmd.uid);
-        if (userProfile == null) {
-            log.warn("User profile {} not found", cmd.uid);
-            cmd.resultCode = CommandResultCode.AUTH_INVALID_USER;
-            return;
-        }
-
-        final long amount = cmd.price;
-        if (amount == 0) {
-            cmd.resultCode = CommandResultCode.USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_ZERO;
-            return;
-        }
-
-        // double settlement protection
-        if (userProfile.externalTransactions.contains(cmd.orderId)) {
-            cmd.resultCode = CommandResultCode.USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_ALREADY_APPLIED;
-            return;
-        }
-
-        final int currency = cmd.symbol;
-        if (currency == 0) {
-            if (userProfile.futuresBalance + amount < 0) {
-                cmd.resultCode = CommandResultCode.USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_NSF;
-                return;
-            }
-
-            userProfile.externalTransactions.add(cmd.orderId);
-            userProfile.futuresBalance += amount;
-            cmd.size = userProfile.futuresBalance;
-            cmd.resultCode = CommandResultCode.SUCCESS;
-
-        } else {
-            if (amount < 0 && userProfile.accounts.get(currency) + amount < 0) {
-                cmd.resultCode = CommandResultCode.USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_NSF;
-                return;
-            }
-
-            userProfile.externalTransactions.add(cmd.orderId);
-            cmd.size = userProfile.accounts.addToValue(currency, amount);
-            cmd.resultCode = CommandResultCode.SUCCESS;
-        }
-    }
-
-    private void addUser(OrderCommand cmd) {
-        if (!userProfileService.addEmptyUserProfile(cmd.uid)) {
-            cmd.resultCode = CommandResultCode.USER_MGMT_USER_ALREADY_EXISTS;
-            return;
-        }
-        cmd.resultCode = CommandResultCode.SUCCESS;
-    }
-
-    private CommandResultCode addSymbol(final CoreSymbolSpecification symbolSpecification) {
-        if (symbolSpecificationProvider.getSymbolSpecification(symbolSpecification.symbolId) != null) {
-            return CommandResultCode.SYMBOL_MGMT_SYMBOL_ALREADY_EXISTS;
-        } else {
-            symbolSpecificationProvider.registerSymbol(symbolSpecification.symbolId, symbolSpecification);
-            return CommandResultCode.VALID_FOR_MATCHING_ENGINE;
-        }
-    }
-
     private void handlerRiskRelease(final OrderCommand cmd) {
-
-
-        final L2MarketData marketData = cmd.marketData;
-        MatcherTradeEvent mte = cmd.matcherEvent;
-
-        if (marketData == null && mte == null) {
-            return;
-        }
-
-        final CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(cmd.symbol);
-        if (spec == null) {
-            log.error("Symbol not found: {}", cmd.symbol);
-            return;
-        }
-
-        if (mte != null) {
-            // TODO ?? check if processing order is not reversed
-            do {
-                if (spec.type == SymbolType.CURRENCY_EXCHANGE_PAIR) {
-                    handleMatcherEventExchange(mte, spec);
-                } else {
-                    handleMatcherEventMargin(mte, spec);
-                }
-                mte = mte.nextEvent;
-            } while (mte != null);
-        }
-
-        // Process marked data
-        if (marketData != null) {
-            riskEngine.updateLastPrice(marketData, cmd.symbol);
-        }
+        riskEngine.handlerRiskRelease(cmd.symbol, cmd.marketData, cmd.matcherEvent);
     }
-
-    // TODO process uid only for designated shard
-    private void handleMatcherEventMargin(final MatcherTradeEvent ev, final CoreSymbolSpecification spec) {
-
-        final long size = ev.size;
-
-        if (ev.eventType == TRADE) {
-            // TODO group by user profile ??
-            // update taker's portfolio
-            final UserProfile taker = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
-            final SymbolPortfolioRecord takerSpr = taker.getOrCreatePortfolioRecord(ev.symbol);
-            takerSpr.updatePortfolioForMarginTrade(ev.activeOrderAction, size, ev.price, spec.takerCommission);
-            taker.removeRecordIfEmpty(takerSpr);
-
-            // update maker's portfolio
-            final UserProfile maker = userProfileService.getUserProfileOrThrowEx(ev.matchedOrderUid);
-            final SymbolPortfolioRecord makerSpr = maker.getOrCreatePortfolioRecord(ev.symbol);
-            makerSpr.updatePortfolioForMarginTrade(ev.activeOrderAction.opposite(), size, ev.price, spec.makerCommission);
-            maker.removeRecordIfEmpty(makerSpr);
-
-        } else if (ev.eventType == REJECTION || ev.eventType == REDUCE) {
-            // for reduce/rejection only one party is involved
-            final UserProfile up = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
-            final SymbolPortfolioRecord spr = up.getOrCreatePortfolioRecord(ev.symbol);
-            spr.pendingRelease(ev.activeOrderAction, size);
-            up.removeRecordIfEmpty(spr);
-
-        } else {
-            log.error("unsupported eventType: {}", ev.eventType);
-        }
-    }
-
-
-    private void handleMatcherEventExchange(final MatcherTradeEvent ev, final CoreSymbolSpecification spec) {
-
-        final long size = ev.size;
-
-        if (ev.eventType == TRADE) {
-            // TODO group by user profile ??
-
-            // release taker's portfolio
-            final UserProfile taker = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
-            final SymbolPortfolioRecord takerSpr = taker.getOrCreatePortfolioRecord(ev.symbol);
-            takerSpr.pendingRelease(ev.activeOrderAction, size);
-
-            // release maker's portfolio
-            final UserProfile maker = userProfileService.getUserProfileOrThrowEx(ev.matchedOrderUid);
-            final SymbolPortfolioRecord makerSpr = maker.getOrCreatePortfolioRecord(ev.symbol);
-            makerSpr.pendingRelease(ev.activeOrderAction.opposite(), size);
-
-            // perform account-to-account transfers
-            // TODO multiplier ???
-            final long amountInCounterCurrency = ev.price * size * spec.quoteScaleK;
-            final long amountInBaseCurrency = size * spec.baseScaleK;
-            // TODO add commission
-
-            final long takerFee = spec.takerCommission * size;
-            final long makerFee = spec.makerCommission * size;
-
-            if (ev.activeOrderAction == OrderAction.ASK) {
-                // taker is selling, maker is buying
-                taker.accounts.addToValue(spec.quoteCurrency, amountInCounterCurrency);
-                taker.accounts.addToValue(spec.baseCurrency, -amountInBaseCurrency - takerFee);
-                maker.accounts.addToValue(spec.baseCurrency, amountInBaseCurrency - makerFee);
-                maker.accounts.addToValue(spec.quoteCurrency, -amountInCounterCurrency);
-            } else {
-                // taker is buying, maker is selling
-                taker.accounts.addToValue(spec.quoteCurrency, -amountInCounterCurrency);
-                taker.accounts.addToValue(spec.baseCurrency, amountInBaseCurrency - takerFee);
-                maker.accounts.addToValue(spec.baseCurrency, -amountInBaseCurrency - makerFee);
-                maker.accounts.addToValue(spec.quoteCurrency, amountInCounterCurrency);
-            }
-
-            taker.removeRecordIfEmpty(takerSpr);
-            maker.removeRecordIfEmpty(makerSpr);
-
-        } else if (ev.eventType == REJECTION || ev.eventType == REDUCE) {
-            // for reduce/rejection only one party is involved
-            final UserProfile up = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
-            final SymbolPortfolioRecord spr = up.getOrCreatePortfolioRecord(ev.symbol);
-            spr.pendingRelease(ev.activeOrderAction, size);
-            up.removeRecordIfEmpty(spr);
-
-        } else {
-            log.error("unsupported eventType: {}", ev.eventType);
-        }
-    }
-
 
     private void resetState() {
-        userProfileService.reset();
-        symbolSpecificationProvider.reset();
+        riskEngine.reset();
     }
 }

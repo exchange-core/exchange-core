@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.api.map.primitive.MutableLongObjectMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.beans.UserProfile;
+import org.openpredict.exchange.beans.cmd.CommandResultCode;
 
 /**
  * Stateful (!) User profile service
@@ -16,7 +17,7 @@ public final class UserProfileService {
     /**
      * State: uid -> user profile
      */
-    private MutableLongObjectMap<UserProfile> userProfiles = new LongObjectHashMap<>();
+    private final MutableLongObjectMap<UserProfile> userProfiles = new LongObjectHashMap<>();
 
     /**
      * Find user profile
@@ -41,30 +42,70 @@ public final class UserProfileService {
 
 
     /**
+     * Perform balance adjustment for specific user
+     *
+     * @param uid
+     * @param currency
+     * @param amount
+     * @param fundingTransactionId
+     * @return result code
+     */
+    public CommandResultCode balanceAdjustment(final long uid, final int currency, final long amount, final long fundingTransactionId) {
+
+        final UserProfile userProfile = getUserProfile(uid);
+        if (userProfile == null) {
+            log.warn("User profile {} not found", uid);
+            return CommandResultCode.AUTH_INVALID_USER;
+        }
+
+        if (amount == 0) {
+            return CommandResultCode.USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_ZERO;
+        }
+
+        // double settlement protection
+        if (userProfile.externalTransactions.contains(fundingTransactionId)) {
+            return CommandResultCode.USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_ALREADY_APPLIED;
+        }
+
+        if (currency == 0) {
+            if (userProfile.futuresBalance + amount < 0) {
+                return CommandResultCode.USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_NSF;
+            } else {
+
+                userProfile.externalTransactions.add(fundingTransactionId);
+                userProfile.futuresBalance += amount;
+                return CommandResultCode.SUCCESS;
+            }
+
+        } else {
+            if (amount < 0 && userProfile.accounts.get(currency) + amount < 0) {
+                return CommandResultCode.USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_NSF;
+            } else {
+
+                userProfile.externalTransactions.add(fundingTransactionId);
+                userProfile.accounts.addToValue(currency, amount);
+                return CommandResultCode.SUCCESS;
+            }
+        }
+    }
+
+    /**
      * Create a new user profile with known unique uid
      *
      * @param uid
      * @return
      */
-    public boolean addEmptyUserProfile(long uid) {
+    public CommandResultCode addEmptyUserProfile(long uid) {
         if (userProfiles.get(uid) != null) {
             log.debug("Can not add user, already exists: {}", uid);
-            return false;
+            return CommandResultCode.USER_MGMT_USER_ALREADY_EXISTS;
         }
         userProfiles.put(uid, new UserProfile(uid));
-        return true;
+        return CommandResultCode.SUCCESS;
     }
 
-    /**
-     * Reset - TESTING only
-     */
     public void reset() {
         userProfiles.clear();
-//        for (Object v : userProfiles.values()) {
-//            if (v != null) {
-//                ((UserProfile) v).clear();
-//            }
-//        }
     }
 
 }

@@ -4,12 +4,23 @@ package org.openpredict.exchange.core;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
+import org.openpredict.exchange.beans.cmd.CommandResultCode;
 
 @Slf4j
 public final class SymbolSpecificationProvider {
 
     // symbol->specs
-    private IntObjectHashMap<CoreSymbolSpecification> symbolSpecs = new IntObjectHashMap<>();
+    private final IntObjectHashMap<CoreSymbolSpecification> symbolSpecs = new IntObjectHashMap<>();
+
+
+    public CommandResultCode addSymbol(final CoreSymbolSpecification symbolSpecification) {
+        if (getSymbolSpecification(symbolSpecification.symbolId) != null) {
+            return CommandResultCode.SYMBOL_MGMT_SYMBOL_ALREADY_EXISTS;
+        } else {
+            registerSymbol(symbolSpecification.symbolId, symbolSpecification);
+            return CommandResultCode.VALID_FOR_MATCHING_ENGINE;
+        }
+    }
 
     /**
      * Get symbol specification
