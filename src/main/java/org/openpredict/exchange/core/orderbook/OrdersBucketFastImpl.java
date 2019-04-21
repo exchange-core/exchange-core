@@ -33,7 +33,7 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
     @Setter
     private long price;
 
-    private MutableLongIntMap positions = new LongIntHashMap();
+    private final MutableLongIntMap positions = new LongIntHashMap();
 
     private Order[] queue = new Order[4];
 

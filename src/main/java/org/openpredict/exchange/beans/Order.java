@@ -16,7 +16,7 @@ import org.openpredict.exchange.beans.cmd.OrderCommandType;
  * No external references allowed to such object - order objects only live inside OrderBook.
  */
 @NoArgsConstructor
-public class Order extends OrderCommand {
+public final class Order extends OrderCommand {
 
     public long filled;
 

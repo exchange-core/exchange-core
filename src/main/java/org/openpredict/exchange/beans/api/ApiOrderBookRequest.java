@@ -4,11 +4,11 @@ package org.openpredict.exchange.beans.api;
 import lombok.Builder;
 
 @Builder
-public class ApiOrderBookRequest extends ApiCommand {
+public final class ApiOrderBookRequest extends ApiCommand {
 
-    public int symbol;
+    final public int symbol;
 
-    public int size;
+    final public int size;
 
     @Override
     public String toString() {

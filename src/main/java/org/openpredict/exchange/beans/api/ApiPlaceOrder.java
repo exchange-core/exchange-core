@@ -6,16 +6,16 @@ import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.OrderType;
 
 @Builder
-public class ApiPlaceOrder extends ApiCommand {
+public final class ApiPlaceOrder extends ApiCommand {
 
-    public long price;
-    public long size;
-    public long id;
-    public OrderAction action;
-    public OrderType orderType;
+    final public long price;
+    final public long size;
+    final public long id;
+    final public OrderAction action;
+    final public OrderType orderType;
 
-    public long uid;
-    public int symbol;
+    final public long uid;
+    final public int symbol;
 
     // options
 

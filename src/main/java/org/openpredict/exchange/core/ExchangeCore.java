@@ -37,6 +37,7 @@ public final class ExchangeCore {
     private final MatchingEngineRouter matchingEngineRouter = new MatchingEngineRouter();
     private final SymbolSpecificationProvider symbolSpecificationProvider = new SymbolSpecificationProvider();
     private final RiskEngine riskEngine = new RiskEngine(symbolSpecificationProvider);
+    private final BinaryCommandsProcessor binaryCommandsProcessor = new BinaryCommandsProcessor(this::addSymbol, CommandResultCode.VALID_FOR_MATCHING_ENGINE);
 
     private final Disruptor<OrderCommand> disruptor;
     private final RingBuffer<OrderCommand> cmdRingBuffer;
@@ -152,8 +153,8 @@ public final class ExchangeCore {
                 balanceAdjustment(cmd);
                 break;
 
-            case ADD_SYMBOL:
-                addSymbol(cmd);
+            case BINARY_DATA:
+                binaryCommandsProcessor.binaryData(cmd);
                 break;
 
             case RESET:
@@ -176,8 +177,15 @@ public final class ExchangeCore {
             return;
         }
 
+        final CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(cmd.symbol);
+        if (spec == null) {
+            cmd.resultCode = CommandResultCode.INVALID_SYMBOL;
+            log.warn("Symbol {} not found", cmd.symbol);
+            return;
+        }
+
         // check if account has enough funds
-        if (!riskEngine.placeOrder(cmd, userProfile)) {
+        if (!riskEngine.placeOrder(cmd, userProfile, spec)) {
             cmd.resultCode = CommandResultCode.RISK_NSF;
             log.warn("NSF uid={}: Can not place {}", userProfile.uid, cmd);
             return;
@@ -239,32 +247,14 @@ public final class ExchangeCore {
         cmd.resultCode = CommandResultCode.SUCCESS;
     }
 
-    private void addSymbol(OrderCommand cmd) {
-
-        if (symbolSpecificationProvider.getSymbolSpecification(cmd.symbol) != null) {
-            cmd.resultCode = CommandResultCode.SYMBOL_MGMT_SYMBOL_ALREADY_EXISTS;
-            return;
+    private CommandResultCode addSymbol(final CoreSymbolSpecification symbolSpecification) {
+        if (symbolSpecificationProvider.getSymbolSpecification(symbolSpecification.symbolId) != null) {
+            return CommandResultCode.SYMBOL_MGMT_SYMBOL_ALREADY_EXISTS;
+        } else {
+            symbolSpecificationProvider.registerSymbol(symbolSpecification.symbolId, symbolSpecification);
+            return CommandResultCode.VALID_FOR_MATCHING_ENGINE;
         }
-
-        // use order-specific fields for symbol spec
-        CoreSymbolSpecification spec = CoreSymbolSpecification.builder().symbolId(cmd.symbol)
-                .depositBuy(cmd.price)
-                .depositSell(cmd.uid)
-                .lowLimit(cmd.orderId)
-                .highLimit(cmd.size)
-                .baseCurrency(0)
-                .counterCurrency(0)
-                .type(SymbolType.FUTURES_CONTRACT) // TODO set
-                .lastAskPrice(Long.MAX_VALUE)
-                .lastBidPrice(0)
-                .build();
-
-        symbolSpecificationProvider.registerSymbol(cmd.symbol, spec);
-        matchingEngineRouter.addOrderBook(cmd.symbol);
-
-        cmd.resultCode = CommandResultCode.SUCCESS;
     }
-
 
     private void handlerRiskRelease(final OrderCommand cmd) {
 
@@ -296,12 +286,7 @@ public final class ExchangeCore {
 
         // Process marked data
         if (marketData != null) {
-            if (marketData.askSize > 0) {
-                spec.lastAskPrice = marketData.askPrices[0];
-            }
-            if (marketData.bidSize > 0) {
-                spec.lastBidPrice = marketData.bidPrices[0];
-            }
+            riskEngine.updateLastPrice(marketData, cmd.symbol);
         }
     }
 
@@ -356,8 +341,8 @@ public final class ExchangeCore {
 
             // perform account-to-account transfers
             // TODO multiplier ???
-            final long amountInCounterCurrency = ev.price * size * spec.counterLotScaleK;
-            final long amountInBaseCurrency = size * spec.baseLotScaleK;
+            final long amountInCounterCurrency = ev.price * size * spec.quoteScaleK;
+            final long amountInBaseCurrency = size * spec.baseScaleK;
             // TODO add commission
 
             final long takerFee = spec.takerCommission * size;
@@ -365,16 +350,16 @@ public final class ExchangeCore {
 
             if (ev.activeOrderAction == OrderAction.ASK) {
                 // taker is selling, maker is buying
-                taker.accounts.addToValue(spec.counterCurrency, amountInCounterCurrency);
+                taker.accounts.addToValue(spec.quoteCurrency, amountInCounterCurrency);
                 taker.accounts.addToValue(spec.baseCurrency, -amountInBaseCurrency - takerFee);
                 maker.accounts.addToValue(spec.baseCurrency, amountInBaseCurrency - makerFee);
-                maker.accounts.addToValue(spec.counterCurrency, -amountInCounterCurrency);
+                maker.accounts.addToValue(spec.quoteCurrency, -amountInCounterCurrency);
             } else {
                 // taker is buying, maker is selling
-                taker.accounts.addToValue(spec.counterCurrency, -amountInCounterCurrency);
+                taker.accounts.addToValue(spec.quoteCurrency, -amountInCounterCurrency);
                 taker.accounts.addToValue(spec.baseCurrency, amountInBaseCurrency - takerFee);
                 maker.accounts.addToValue(spec.baseCurrency, -amountInBaseCurrency - makerFee);
-                maker.accounts.addToValue(spec.counterCurrency, amountInCounterCurrency);
+                maker.accounts.addToValue(spec.quoteCurrency, amountInCounterCurrency);
             }
 
             taker.removeRecordIfEmpty(takerSpr);

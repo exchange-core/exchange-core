@@ -21,7 +21,8 @@ public final class PerfThroughput extends IntegrationTestBase {
         throughputTestImpl(
                 3_000_000,
                 1_000,
-                1_000);
+                1_000,
+                50);
     }
 
     @Test
@@ -29,17 +30,18 @@ public final class PerfThroughput extends IntegrationTestBase {
         throughputTestImpl(
                 8_000_000,
                 1_075_000,
-                1_000_000);
+                1_000_000,
+                20);
     }
 
-    private void throughputTestImpl(final int numOrders, final int targetOrderBookOrders, final int numUsers) throws InterruptedException {
+    private void throughputTestImpl(final int numOrders, final int targetOrderBookOrders, final int numUsers, int iterations) throws InterruptedException {
 
         try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
-            TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, SYMBOL, false);
+            TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, SYMBOL_MARGIN, false);
             List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
 
             List<Float> perfResults = new ArrayList<>();
-            for (int j = 0; j < 100; j++) {
+            for (int j = 0; j < iterations; j++) {
 
                 initSymbol();
                 usersInit(numUsers);
@@ -53,7 +55,7 @@ public final class PerfThroughput extends IntegrationTestBase {
                 latch.await();
                 t = System.currentTimeMillis() - t;
                 float perfMt = (float) apiCommands.size() / (float) t / 1000.0f;
-                log.info("{}. {} MT/s", j, perfMt);
+                log.info("{}. {} MT/s", j, String.format("%.3f",perfMt));
                 perfResults.add(perfMt);
 
                 // compare orderBook final state just to make sure all commands executed same way

@@ -33,7 +33,7 @@ public final class PerfHiccups extends IntegrationTestBase {
 
         try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
 
-            TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, SYMBOL, false);
+            TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, SYMBOL_MARGIN, false);
             List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
 
             IntFunction<TreeMap<Instant, Long>> testIteration = tps -> {

@@ -15,8 +15,7 @@ public enum OrderCommandType {
 
     CLEARING_OPERATION(30),
 
-    ADD_SYMBOL(50),
-    UPDATE_SYMBOL(51),
+    BINARY_DATA(90),
 
     NOP(120),
     RESET(124),

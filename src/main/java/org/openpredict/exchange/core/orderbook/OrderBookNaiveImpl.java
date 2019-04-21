@@ -14,15 +14,10 @@ import java.util.*;
 @RequiredArgsConstructor
 public final class OrderBookNaiveImpl implements IOrderBook {
 
-    private NavigableMap<Long, IOrdersBucket> askBuckets = new TreeMap<>();
-    private NavigableMap<Long, IOrdersBucket> bidBuckets = new TreeMap<>(Collections.reverseOrder());
+    private final NavigableMap<Long, IOrdersBucket> askBuckets = new TreeMap<>();
+    private final NavigableMap<Long, IOrdersBucket> bidBuckets = new TreeMap<>(Collections.reverseOrder());
 
-//    private Long2ObjectAVLTreeMap<IOrdersBucket> askBuckets = new Long2ObjectAVLTreeMap<>();
-//    private Long2ObjectAVLTreeMap<IOrdersBucket> bidBuckets = new Long2ObjectAVLTreeMap<>(Collections.reverseOrder());
-
-    private LongObjectHashMap<Order> idMap = new LongObjectHashMap<>();
-//    private MutableLongObjectMap<Order> idMap = new LongObjectHashMap<>();
-
+    private final LongObjectHashMap<Order> idMap = new LongObjectHashMap<>();
 
     public void matchMarketOrder(OrderCommand cmd) {
         final NavigableMap<Long, IOrdersBucket> matchingBuckets = cmd.action == OrderAction.ASK ? bidBuckets : askBuckets;

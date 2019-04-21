@@ -15,8 +15,7 @@ public final class DisruptorExceptionHandler<T> implements ExceptionHandler<T> {
 
     @Override
     public void handleEventException(Throwable ex, long sequence, T event) {
-        log.debug("Disruptor '{}' caught exception: {}", name, event, ex);
-        ex.printStackTrace();
+        log.debug("Disruptor '{}' seq={} caught exception: {}", name, sequence, event, ex);
         onException.accept(ex, sequence);
     }
 
@@ -27,6 +26,6 @@ public final class DisruptorExceptionHandler<T> implements ExceptionHandler<T> {
 
     @Override
     public void handleOnShutdownException(Throwable ex) {
-
+        log.debug("Disruptor '{}' shutdown exception: {}", name, ex);
     }
 }

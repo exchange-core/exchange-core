@@ -4,9 +4,9 @@ package org.openpredict.exchange.beans.api;
 import lombok.Builder;
 
 @Builder
-public class ApiAddUser extends ApiCommand {
+public final class ApiAddUser extends ApiCommand {
 
-    public long uid;
+    public final long uid;
 
     @Override
     public String toString() {

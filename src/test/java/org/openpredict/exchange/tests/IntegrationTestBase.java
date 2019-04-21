@@ -3,7 +3,10 @@ package org.openpredict.exchange.tests;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.After;
 import org.junit.Before;
+import org.nustaq.serialization.FSTConfiguration;
+import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.L2MarketData;
+import org.openpredict.exchange.beans.SymbolType;
 import org.openpredict.exchange.beans.api.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
@@ -26,7 +29,8 @@ import static org.junit.Assert.assertNotNull;
 @Slf4j
 public class IntegrationTestBase {
 
-    static final int SYMBOL = 5991;
+    static final int SYMBOL_MARGIN = 5991;
+    static final int SYMBOL_EXCHANGE = 9269;
 
     ExchangeCore exchangeCore;
     ExchangeApi api;
@@ -49,7 +53,27 @@ public class IntegrationTestBase {
     }
 
     void initSymbol() throws InterruptedException {
-        submitCommandSync(ApiAddSymbol.builder().depositBuy(22000).depositSell(32100).symbolId(SYMBOL).build(), CHECK_SUCCESS);
+
+        final CoreSymbolSpecification symbol = CoreSymbolSpecification.builder()
+                .symbolId(SYMBOL_MARGIN)
+                .type(SymbolType.FUTURES_CONTRACT)
+                .baseCurrency(978)
+                .quoteCurrency(840)
+                .baseScaleK(1)
+                .quoteScaleK(1)
+                .depositBuy(22000)
+                .depositSell(32100)
+                .takerCommission(0)
+                .makerCommission(0)
+                .stepSize(1)
+                .build();
+
+        final FSTConfiguration minBin = FSTConfiguration.createMinBinConfiguration();
+        minBin.registerCrossPlatformClassMappingUseSimpleName(CoreSymbolSpecification.class);
+        //new MBPrinter().printMessage(minBin.asByteArray(symbol));
+
+        final ApiBinaryDataCommand binaryCmd = ApiBinaryDataCommand.builder().transferId(0).data(symbol).build();
+        submitBinaryCommandSync(binaryCmd);
     }
 
     void usersInit(int numUsers) throws InterruptedException {
@@ -78,6 +102,24 @@ public class IntegrationTestBase {
         };
     }
 
+    void submitBinaryCommandSync(ApiBinaryDataCommand dataCommand) throws InterruptedException {
+        final CountDownLatch latch = new CountDownLatch(1);
+        consumer = cmd -> {
+            if (cmd.resultCode == CommandResultCode.ACCEPTED) {
+                //
+            } else if (cmd.resultCode == CommandResultCode.SUCCESS) {
+                latch.countDown();
+            } else {
+                throw new IllegalStateException("Expected ACCEPTED or SUCCESS only, but received " + cmd.resultCode);
+            }
+        };
+        api.submitCommand(dataCommand);
+        latch.await();
+        consumer = cmd -> {
+        };
+    }
+
+
     void submitCommandsSync(List<ApiCommand> apiCommand) throws InterruptedException {
         final CountDownLatch latch = new CountDownLatch(apiCommand.size());
         consumer = cmd -> {
@@ -93,7 +135,7 @@ public class IntegrationTestBase {
 
     L2MarketData requestCurrentOrderBook() {
         BlockingQueue<OrderCommand> queue = attachNewConsumerQueue();
-        api.submitCommand(ApiOrderBookRequest.builder().symbol(SYMBOL).size(-1).build());
+        api.submitCommand(ApiOrderBookRequest.builder().symbol(SYMBOL_MARGIN).size(-1).build());
         OrderCommand orderBookCmd = waitForOrderCommands(queue, 1).get(0);
         L2MarketData actualState = orderBookCmd.marketData;
         assertNotNull(actualState);

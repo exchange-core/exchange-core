@@ -53,7 +53,7 @@ public final class PerfLatency extends IntegrationTestBase {
 
         try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
 
-            TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, SYMBOL, false);
+            TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, SYMBOL_MARGIN, false);
             List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
 
             SingleWriterRecorder hdrRecorder = new SingleWriterRecorder(10_000_000_000L, 3);
@@ -92,7 +92,7 @@ public final class PerfLatency extends IntegrationTestBase {
                     latch.await();
                     final long processingTimeMs = System.currentTimeMillis() - startTimeMs;
                     float perfMt = (float) apiCommands.size() / (float) processingTimeMs / 1000.0f;
-                    String tag = String.format("%03f MT/s", perfMt);
+                    String tag = String.format("%.3f MT/s", perfMt);
                     Histogram histogram = hdrRecorder.getIntervalHistogram();
                     log.info("{} {}", tag, createLatencyReportFast(histogram));
 

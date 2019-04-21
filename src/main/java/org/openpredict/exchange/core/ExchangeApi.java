@@ -4,10 +4,15 @@ import com.lmax.disruptor.EventTranslatorOneArg;
 import com.lmax.disruptor.RingBuffer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.nustaq.serialization.FSTConfiguration;
+import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.api.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
+
+import java.nio.ByteBuffer;
+import java.nio.LongBuffer;
 
 @RequiredArgsConstructor
 @Slf4j
@@ -15,9 +20,16 @@ public final class ExchangeApi {
 
     private final ExchangeCore exchangeCore;
 
+    private final static FSTConfiguration minBin = FSTConfiguration.createMinBinConfiguration();
+
+    static {
+        minBin.registerCrossPlatformClassMappingUseSimpleName(CoreSymbolSpecification.class);
+    }
+
+
     public void submitCommand(ApiCommand cmd) {
         //log.debug("{}", cmd);
-        RingBuffer<OrderCommand> ringBuffer = exchangeCore.getRingBuffer();
+        final RingBuffer<OrderCommand> ringBuffer = exchangeCore.getRingBuffer();
         // TODO benchmark instanceof performance
 
         if (cmd instanceof ApiMoveOrder) {
@@ -32,14 +44,69 @@ public final class ExchangeApi {
             ringBuffer.publishEvent(ADD_USER_TRANSLATOR, (ApiAddUser) cmd);
         } else if (cmd instanceof ApiAdjustUserBalance) {
             ringBuffer.publishEvent(ADJUST_USER_BALANCE_TRANSLATOR, (ApiAdjustUserBalance) cmd);
-        } else if (cmd instanceof ApiAddSymbol) {
-            ringBuffer.publishEvent(ADD_SYMBOL_TRANSLATOR, (ApiAddSymbol) cmd);
+        } else if (cmd instanceof ApiBinaryDataCommand) {
+            publishBinaryData(ringBuffer, (ApiBinaryDataCommand) cmd);
         } else if (cmd instanceof ApiReset) {
             ringBuffer.publishEvent(RESET_TRANSLATOR, (ApiReset) cmd);
         } else if (cmd instanceof ApiNoOp) {
             ringBuffer.publishEvent(NOOP_TRANSLATOR, (ApiNoOp) cmd);
         } else {
             throw new IllegalArgumentException("Unsupported command type: " + cmd.getClass().getSimpleName());
+        }
+    }
+
+    private void publishBinaryData(final RingBuffer<OrderCommand> ringBuffer, final ApiBinaryDataCommand apiCmd) {
+
+        final byte[] bytes = minBin.asByteArray(apiCmd.data);
+
+        // 1010011000 >> 1010011
+        // 1010011001 >> 1010011 + 1
+        // 1010011010 >> 1010011 + 1
+        //       ..........
+        // 1010011110 >> 1010011 + 1
+        // 1010011111 >> 1010011 + 1
+
+        // TODO optimize
+
+        final int longLength = BinaryUtils.requiredLongArraySize(bytes.length);
+        long[] longArray = new long[longLength];
+        //log.debug("byte[{}]={}", bytes.length, bytes);
+
+
+        final ByteBuffer allocate = ByteBuffer.allocate(bytes.length * 2);
+        final LongBuffer longBuffer = allocate.asLongBuffer();
+        allocate.put(bytes);
+        longBuffer.get(longArray);
+        //log.debug("longArray[{}]={}",longArray.length, longArray);
+
+        int i = 0;
+        long highSeq = ringBuffer.next(longLength);
+        long lowSeq = highSeq - longLength + 1;
+
+        try {
+            for (long seq = lowSeq; seq <= highSeq; seq++) {
+
+                OrderCommand cmd = ringBuffer.get(seq);
+                cmd.command = OrderCommandType.BINARY_DATA;
+                cmd.orderId = apiCmd.transferId;
+                cmd.symbol = -1;
+                cmd.price = longArray[i];
+                cmd.size = ((long) bytes.length << 32) + i;
+                cmd.uid = -1;
+                cmd.timestamp = apiCmd.timestamp;
+                cmd.resultCode = CommandResultCode.NEW;
+
+                //log.debug("seq={} cmd.size={} data={}", seq, cmd.size, cmd.price);
+
+                i++;
+            }
+        } catch (Exception ex) {
+            log.error("Ex: ", ex);
+
+        } finally {
+            //System.out.println("publish " + lowSeq + "-" + highSeq);
+
+            ringBuffer.publish(lowSeq, highSeq);
         }
     }
 
@@ -100,17 +167,6 @@ public final class ExchangeApi {
         cmd.symbol = api.currency;
         cmd.uid = api.uid;
         cmd.price = api.amount;
-        cmd.timestamp = api.timestamp;
-        cmd.resultCode = CommandResultCode.NEW;
-    };
-
-    private static final EventTranslatorOneArg<OrderCommand, ApiAddSymbol> ADD_SYMBOL_TRANSLATOR = (cmd, seq, api) -> {
-        cmd.command = OrderCommandType.ADD_SYMBOL;
-        cmd.symbol = api.symbolId;
-        cmd.price = api.depositBuy;
-        cmd.uid = api.depositSell;
-        cmd.orderId = api.priceLowLimit;
-        cmd.size = api.priceHighLimit;
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
     };

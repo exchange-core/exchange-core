@@ -1,9 +1,11 @@
 package org.openpredict.exchange.core;
 
 
+import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
 
+@Slf4j
 public final class SymbolSpecificationProvider {
 
     // symbol->specs

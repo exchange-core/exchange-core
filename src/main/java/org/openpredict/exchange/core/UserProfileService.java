@@ -8,7 +8,7 @@ import org.openpredict.exchange.beans.UserProfile;
 /**
  * Stateful (!) User profile service
  * <p>
- * TODO make multi instance (post-Spring migration)
+ * TODO make multi instance
  */
 @Slf4j
 public final class UserProfileService {

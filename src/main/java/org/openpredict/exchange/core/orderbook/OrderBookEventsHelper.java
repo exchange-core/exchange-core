@@ -7,7 +7,7 @@ import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
 @Slf4j
-public class OrderBookEventsHelper {
+public final class OrderBookEventsHelper {
 
     //private OrderCommand currentCmd;
 

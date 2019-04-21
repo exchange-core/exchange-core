@@ -151,29 +151,21 @@ public interface IOrderBook {
 
     int getTotalBidBuckets();
 
-    default void processCommand(OrderCommand cmd) {
 
-        // TODO revoke
-        cmd.marketData = null;
-        cmd.matcherEvent = null;
+    static void processCommand(final IOrderBook orderBook, final OrderCommand cmd) {
 
-        if (cmd.resultCode != CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
-            return;
-        }
-
-        // TODO check symbol
 
         switch (cmd.command) {
             case MOVE_ORDER:
 //                log.debug("Move {}", cmd.orderId);
-                boolean isUpdated = updateOrder(cmd);
+                boolean isUpdated = orderBook.updateOrder(cmd);
                 cmd.resultCode = isUpdated ? CommandResultCode.SUCCESS : CommandResultCode.MATCHING_INVALID_ORDER_ID;
 //                log.debug("Move {} = {}", cmd.orderId, isUpdated);
                 break;
 
             case CANCEL_ORDER:
 //                log.debug("Cancel {}", cmd.orderId);
-                boolean isCancelled = cancelOrder(cmd);
+                boolean isCancelled = orderBook.cancelOrder(cmd);
                 cmd.resultCode = isCancelled ? CommandResultCode.SUCCESS : CommandResultCode.MATCHING_INVALID_ORDER_ID;
 //                log.debug("Cancel {} = {}", cmd.orderId, isCancelled);
                 break;
@@ -181,18 +173,27 @@ public interface IOrderBook {
             case PLACE_ORDER:
 //                log.debug("Place {}", cmd.orderId);
                 if (cmd.orderType == OrderType.LIMIT) {
-                    cmd.resultCode = placeNewLimitOrder(cmd)
+
+                    // todo validate price step (also for MOVE_ORDER)
+//                    if (spec.stepSize != 1 && cmd.orderType == OrderType.LIMIT && cmd.price % spec.stepSize != 0) {
+//                        cmd.resultCode = CommandResultCode.INVALID_PRICE_STEP;
+//                        log.warn("Price {} does not match step {} of symbol {}", cmd.price, spec.stepSize, cmd.symbol);
+//                        return;
+//                    }
+
+
+                    cmd.resultCode = orderBook.placeNewLimitOrder(cmd)
                             ? CommandResultCode.SUCCESS
                             : CommandResultCode.MATCHING_DUPLICATE_ORDER_ID;
                 } else {
-                    matchMarketOrder(cmd);
+                    orderBook.matchMarketOrder(cmd);
                     cmd.resultCode = CommandResultCode.SUCCESS;
                 }
                 break;
 
             case ORDER_BOOK_REQUEST:
                 //log.debug("ORDER_BOOK_REQUEST {}", cmd.size);
-                cmd.marketData = getL2MarketDataSnapshot((int) cmd.size);
+                cmd.marketData = orderBook.getL2MarketDataSnapshot((int) cmd.size);
                 cmd.resultCode = CommandResultCode.SUCCESS;
                 break;
 
@@ -204,7 +205,7 @@ public interface IOrderBook {
 
         // posting market data for risk processor makes sense only if command execution is successful, otherwise it will be ignored (possible garbage from previous cycle)
         if ((cmd.serviceFlags & 1) != 0 && cmd.command != ORDER_BOOK_REQUEST && cmd.resultCode == CommandResultCode.SUCCESS) {
-            cmd.marketData = getL2MarketDataSnapshot(8);
+            cmd.marketData = orderBook.getL2MarketDataSnapshot(8);
         }
 
     }

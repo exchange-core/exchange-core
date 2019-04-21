@@ -48,28 +48,28 @@ public abstract class OrderBookBaseTest {
         orderBook = createNewOrderBook();
         orderBook.validateInternalState();
 
-        orderBook.processCommand(OrderCommand.limitOrder(0, UID_2, INITIAL_PRICE, 131, ASK));
-        orderBook.processCommand(OrderCommand.cancel(0, UID_2));
+        IOrderBook.processCommand(orderBook, OrderCommand.limitOrder(0, UID_2, INITIAL_PRICE, 131, ASK));
+        orderBook.cancelOrder(OrderCommand.cancel(0, UID_2));
 
-        orderBook.processCommand(OrderCommand.limitOrder(1, UID_1, 81600, 100, ASK));
-        orderBook.processCommand(OrderCommand.limitOrder(2, UID_1, 81599, 50, ASK));
-        orderBook.processCommand(OrderCommand.limitOrder(3, UID_1, 81599, 25, ASK));
+        IOrderBook.processCommand(orderBook, OrderCommand.limitOrder(1, UID_1, 81600, 100, ASK));
+        IOrderBook.processCommand(orderBook, OrderCommand.limitOrder(2, UID_1, 81599, 50, ASK));
+        IOrderBook.processCommand(orderBook, OrderCommand.limitOrder(3, UID_1, 81599, 25, ASK));
         orderBook.validateInternalState();
 
-        orderBook.processCommand(OrderCommand.limitOrder(4, UID_1, 81593, 40, BID));
-        orderBook.processCommand(OrderCommand.limitOrder(5, UID_1, 81590, 20, BID));
-        orderBook.processCommand(OrderCommand.limitOrder(6, UID_1, 81590, 1, BID));
-        orderBook.processCommand(OrderCommand.limitOrder(7, UID_1, 81200, 20, BID));
+        IOrderBook.processCommand(orderBook, OrderCommand.limitOrder(4, UID_1, 81593, 40, BID));
+        IOrderBook.processCommand(orderBook, OrderCommand.limitOrder(5, UID_1, 81590, 20, BID));
+        IOrderBook.processCommand(orderBook, OrderCommand.limitOrder(6, UID_1, 81590, 1, BID));
+        IOrderBook.processCommand(orderBook, OrderCommand.limitOrder(7, UID_1, 81200, 20, BID));
         orderBook.validateInternalState();
 
         // FAR orders section
-        orderBook.processCommand(OrderCommand.limitOrder(8, UID_1, 201000, 28, ASK));
-        orderBook.processCommand(OrderCommand.limitOrder(9, UID_1, 201000, 32, ASK));
-        orderBook.processCommand(OrderCommand.limitOrder(10, UID_1, 200954, 10, ASK));
+        IOrderBook.processCommand(orderBook, OrderCommand.limitOrder(8, UID_1, 201000, 28, ASK));
+        IOrderBook.processCommand(orderBook, OrderCommand.limitOrder(9, UID_1, 201000, 32, ASK));
+        IOrderBook.processCommand(orderBook, OrderCommand.limitOrder(10, UID_1, 200954, 10, ASK));
         orderBook.validateInternalState();
-        orderBook.processCommand(OrderCommand.limitOrder(11, UID_1, 10000, 12, BID));
-        orderBook.processCommand(OrderCommand.limitOrder(12, UID_1, 10000, 1, BID));
-        orderBook.processCommand(OrderCommand.limitOrder(13, UID_1, 9136, 2, BID));
+        IOrderBook.processCommand(orderBook, OrderCommand.limitOrder(11, UID_1, 10000, 12, BID));
+        IOrderBook.processCommand(orderBook, OrderCommand.limitOrder(12, UID_1, 10000, 1, BID));
+        IOrderBook.processCommand(orderBook, OrderCommand.limitOrder(13, UID_1, 9136, 2, BID));
         orderBook.validateInternalState();
 
         expectedState = new L2MarketDataHelper(
@@ -100,7 +100,7 @@ public abstract class OrderBookBaseTest {
 
         // match all asks
         long askSum = Arrays.stream(snapshot.askVolumes).sum();
-        orderBook.processCommand(OrderCommand.marketOrder(100000000000L, -1, askSum, BID));
+        IOrderBook.processCommand(orderBook, OrderCommand.marketOrder(100000000000L, -1, askSum, BID));
 
 //        log.debug("{}", dumpOrderBook(orderBook.getL2MarketDataSnapshot(100000)));
 
@@ -108,7 +108,7 @@ public abstract class OrderBookBaseTest {
 
         // match all bids
         long bidSum = Arrays.stream(snapshot.bidVolumes).sum();
-        orderBook.processCommand(OrderCommand.marketOrder(100000000001L, -2, bidSum, ASK));
+        IOrderBook.processCommand(orderBook, OrderCommand.marketOrder(100000000001L, -2, bidSum, ASK));
 
 //        log.debug("{}", dumpOrderBook(orderBook.getL2MarketDataSnapshot(100000)));
 
@@ -127,20 +127,20 @@ public abstract class OrderBookBaseTest {
     @Test
     public void shouldAddLimitOrders() {
 
-        orderBook.processCommand(OrderCommand.limitOrder(93, UID_1, 81598, 1, ASK));
+        IOrderBook.processCommand(orderBook, OrderCommand.limitOrder(93, UID_1, 81598, 1, ASK));
         expectedState.insertAsk(0, 81598, 1);
 
-        orderBook.processCommand(OrderCommand.limitOrder(94, UID_1, 81594, 9_000_000_000L, BID));
+        IOrderBook.processCommand(orderBook, OrderCommand.limitOrder(94, UID_1, 81594, 9_000_000_000L, BID));
         expectedState.insertBid(0, 81594, 9_000_000_000L);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(25);
         assertEquals(expectedState.build(), snapshot);
         orderBook.validateInternalState();
 
-        orderBook.processCommand(OrderCommand.limitOrder(95, UID_1, 130000, 13_000_000_000L, ASK));
+        IOrderBook.processCommand(orderBook, OrderCommand.limitOrder(95, UID_1, 130000, 13_000_000_000L, ASK));
         expectedState.insertAsk(3, 130000, 13_000_000_000L);
 
-        orderBook.processCommand(OrderCommand.limitOrder(96, UID_1, 1000, 4, BID));
+        IOrderBook.processCommand(orderBook, OrderCommand.limitOrder(96, UID_1, 1000, 4, BID));
         expectedState.insertBid(6, 1000, 4);
 
         snapshot = orderBook.getL2MarketDataSnapshot(25);
@@ -209,7 +209,7 @@ public abstract class OrderBookBaseTest {
     public void shouldReturnErrorWhenCancelUnknownOrder() {
 
         OrderCommand cmd = OrderCommand.cancel(5291, UID_1);
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(MATCHING_INVALID_ORDER_ID));
         orderBook.validateInternalState();
 
@@ -224,7 +224,7 @@ public abstract class OrderBookBaseTest {
     public void shouldReturnErrorWhenUpdatingUnknownOrder() {
 
         OrderCommand cmd = OrderCommand.update(2433, UID_1, 300, 5);
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(MATCHING_INVALID_ORDER_ID));
         orderBook.validateInternalState();
 
@@ -241,7 +241,7 @@ public abstract class OrderBookBaseTest {
     public void shouldReduceOrderSize() {
 
         OrderCommand cmd = OrderCommand.update(2, UID_1, 0, 5);
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
         orderBook.validateInternalState();
 
@@ -259,7 +259,7 @@ public abstract class OrderBookBaseTest {
     @Test
     public void shouldMoveOrderExistingBucket() {
         OrderCommand cmd = OrderCommand.update(7, UID_1, 81590, 0);
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
         orderBook.validateInternalState();
 
@@ -276,7 +276,7 @@ public abstract class OrderBookBaseTest {
     @Test
     public void shouldMoveOrderNewBucket() {
         OrderCommand cmd = OrderCommand.update(7, UID_1, 81594, 0);
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
         orderBook.validateInternalState();
 
@@ -293,7 +293,7 @@ public abstract class OrderBookBaseTest {
     @Test
     public void shouldMoveAndReduceOrder() {
         OrderCommand cmd = OrderCommand.update(7, UID_1, 81590, 1);
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
 
         orderBook.validateInternalState();
@@ -317,7 +317,7 @@ public abstract class OrderBookBaseTest {
 
         // size=10
         OrderCommand cmd = OrderCommand.marketOrder(123, UID_2, 10, ASK);
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
         orderBook.validateInternalState();
 
@@ -337,7 +337,7 @@ public abstract class OrderBookBaseTest {
 
         // size=40
         OrderCommand cmd = OrderCommand.marketOrder(123, UID_2, 40, ASK);
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
         orderBook.validateInternalState();
 
@@ -356,7 +356,7 @@ public abstract class OrderBookBaseTest {
 
         // size=41
         OrderCommand cmd = OrderCommand.marketOrder(123, UID_2, 41, ASK);
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
         orderBook.validateInternalState();
 
@@ -381,7 +381,7 @@ public abstract class OrderBookBaseTest {
 
         // size=175
         OrderCommand cmd = OrderCommand.marketOrder(123, UID_2, 175, BID);
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
         orderBook.validateInternalState();
 
@@ -407,7 +407,7 @@ public abstract class OrderBookBaseTest {
 
         // size=270
         OrderCommand cmd = OrderCommand.marketOrder(123, UID_2, 270, BID);
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
         orderBook.validateInternalState();
 
@@ -430,7 +430,7 @@ public abstract class OrderBookBaseTest {
 
         // size=1
         OrderCommand cmd = OrderCommand.limitOrder(123, UID_2, 81599, 1, BID);
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
         orderBook.validateInternalState();
 
@@ -450,7 +450,7 @@ public abstract class OrderBookBaseTest {
 
         // size=77
         OrderCommand cmd = OrderCommand.limitOrder(123, UID_2, 81599, 77, BID);
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
         orderBook.validateInternalState();
 
@@ -471,7 +471,7 @@ public abstract class OrderBookBaseTest {
 
         // size=77
         OrderCommand cmd = OrderCommand.limitOrder(123, UID_2, 81600, 77, BID);
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
         orderBook.validateInternalState();
 
@@ -494,7 +494,7 @@ public abstract class OrderBookBaseTest {
 
         // size=1000
         OrderCommand cmd = OrderCommand.limitOrder(123, UID_2, 220000, 1000, BID);
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
         orderBook.validateInternalState();
 
@@ -523,7 +523,7 @@ public abstract class OrderBookBaseTest {
 
         // add new order and check it is there
         OrderCommand cmd = OrderCommand.limitOrder(83, UID_2, 81200, 20, BID);
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
         orderBook.validateInternalState();
 
@@ -535,7 +535,7 @@ public abstract class OrderBookBaseTest {
 
         // downsize and move to marketable price area
         cmd = OrderCommand.update(83, UID_2, 81602, 18);
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
 
         orderBook.validateInternalState();
@@ -555,7 +555,7 @@ public abstract class OrderBookBaseTest {
     public void shouldMoveOrderFullyMatchAsMarketable2Prices() {
 
         OrderCommand cmd = OrderCommand.limitOrder(83, UID_2, 81594, 100, BID);
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
         orderBook.validateInternalState();
 
@@ -564,7 +564,7 @@ public abstract class OrderBookBaseTest {
 
         // move to marketable zone
         cmd = OrderCommand.update(83, UID_2, 81600, 0);
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
         orderBook.validateInternalState();
 
@@ -586,13 +586,13 @@ public abstract class OrderBookBaseTest {
     public void shouldMoveOrderMatchesAllLiquidity() {
 
         OrderCommand cmd = OrderCommand.limitOrder(83, UID_2, 81594, 247, BID);
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
         orderBook.validateInternalState();
 
         // downsize and move to marketable zone
         cmd = OrderCommand.update(83, UID_2, 201000, 246);
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(SUCCESS));
         orderBook.validateInternalState();
 
@@ -619,8 +619,8 @@ public abstract class OrderBookBaseTest {
 
         int tranNum = 25000;
 
-        IOrderBook local = createNewOrderBook();
-        local.validateInternalState();
+        final IOrderBook localOrderBook = createNewOrderBook();
+        localOrderBook.validateInternalState();
 
         TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(tranNum,
                 200,
@@ -630,10 +630,10 @@ public abstract class OrderBookBaseTest {
 
         genResult.getCommands().forEach(cmd -> {
             cmd.orderId += 100; // TODO set start id
-            local.processCommand(cmd);
+            IOrderBook.processCommand(localOrderBook, cmd);
 
             assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
-            local.validateInternalState();
+            localOrderBook.validateInternalState();
         });
 
     }
@@ -641,7 +641,7 @@ public abstract class OrderBookBaseTest {
     // ------------------------------- UTILITY METHODS --------------------------
 
     public void processAndValidate(OrderCommand cmd, CommandResultCode expectedCmdState) {
-        orderBook.processCommand(cmd);
+        IOrderBook.processCommand(orderBook, cmd);
         assertThat(cmd.resultCode, is(expectedCmdState));
         orderBook.validateInternalState();
     }

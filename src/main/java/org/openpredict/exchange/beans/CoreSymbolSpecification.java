@@ -3,49 +3,46 @@ package org.openpredict.exchange.beans;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.NoArgsConstructor;
+import lombok.NonNull;
 import lombok.ToString;
 
+import java.io.Serializable;
+
 @Builder
-@NoArgsConstructor
 @AllArgsConstructor
 @ToString
-public final class CoreSymbolSpecification {
+public final class CoreSymbolSpecification implements Serializable {
 
-    // TODO make immutable (copy on write)??
+    public final int symbolId;
 
-    public int symbolId;
-
-    public SymbolType type =  SymbolType.FUTURES_CONTRACT;
+    @NonNull
+    public final SymbolType type;
 
     // currency pair specification
-    public int baseCurrency;    // base currency
-    public int counterCurrency; // quote/counter currency (OR futures contract currency)
+    public final int baseCurrency;  // base currency
+    public final int quoteCurrency; // quote/counter currency (OR futures contract currency)
 
-    // lot size
-    public long lotSize = 1; // = 1;
-
-    public long counterLotScaleK = 1;
-    public long baseLotScaleK = 1;
-    // TODO price step?
+    public final long baseScaleK;   // base currency amount multiplier
+    public final long quoteScaleK;  // quote currency amount multiplier
 
     // deposit settings
-    public long depositBuy;
-    public long depositSell;
-
-    // order book limits
-    public long highLimit;
-    public long lowLimit;
+    public final long depositBuy;
+    public final long depositSell;
 
     // commissions (in base currency)
-    public long takerCommission; // = 0;
-    public long makerCommission; // = 0;
+    public final long takerCommission; // = 0;
+    public final long makerCommission; // = 0;
+
+    // lot size
+//    public final long lotSize;
+    public final int stepSize; // TODO validate in OrderBook (place limit / move)
+
+    // order book limits
+//    public final long highLimit;
+//    public final long lowLimit;
 
     // swaps
-    public long longSwap;// = 0;
-    public long shortSwap;// = 0;
-
-    public long lastAskPrice; // = Long.MAX_VALUE
-    public long lastBidPrice; // = 0
+//    public final long longSwap;// = 0;
+//    public final long shortSwap;// = 0;
 
 }

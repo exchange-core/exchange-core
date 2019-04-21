@@ -4,7 +4,7 @@ package org.openpredict.exchange.beans.api;
 import lombok.Builder;
 
 @Builder
-public class ApiAdjustUserBalance extends ApiCommand {
+public final class ApiAdjustUserBalance extends ApiCommand {
 
     public final long uid;
 

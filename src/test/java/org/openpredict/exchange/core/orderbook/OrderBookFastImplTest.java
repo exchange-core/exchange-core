@@ -53,10 +53,10 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
             //log.debug("{}. {}", i, cmd);
 
             cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
-            orderBook.processCommand(cmd);
+            IOrderBook.processCommand(orderBook, cmd);
 
             cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
-            orderBookRef.processCommand(cmd);
+            IOrderBook.processCommand(orderBookRef, cmd);
 
             assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
 
@@ -83,7 +83,6 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
 
             // TODO compare events!
             // TODO compare L2 marketdata
-
 
             if (System.currentTimeMillis() > nextUpdateTime) {
                 log.debug("{}% done ({})", (i * 10000 / genResult.getCommands().size()) / 100f, i);

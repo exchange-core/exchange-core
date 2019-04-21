@@ -25,8 +25,8 @@ public final class OrderBookFastImpl implements IOrderBook {
 
     private BitSet hotAskBitSet;
     private BitSet hotBidBitSet;
-    private LongObjectHashMap<IOrdersBucket> hotAskBuckets = new LongObjectHashMap<>();
-    private LongObjectHashMap<IOrdersBucket> hotBidBuckets = new LongObjectHashMap<>();
+    private final LongObjectHashMap<IOrdersBucket> hotAskBuckets = new LongObjectHashMap<>();
+    private final LongObjectHashMap<IOrdersBucket> hotBidBuckets = new LongObjectHashMap<>();
     private long minAskPrice = Long.MAX_VALUE;
     private long maxBidPrice = 0;
 
@@ -38,15 +38,15 @@ public final class OrderBookFastImpl implements IOrderBook {
     private long rebalanceThresholdLow = -1;
     private long rebalanceThresholdHigh = -1;
 
-    private NavigableMap<Long, IOrdersBucket> farAskBuckets = new TreeMap<>();
-    private NavigableMap<Long, IOrdersBucket> farBidBuckets = new TreeMap<>(Collections.reverseOrder());
-
+    // TODO garbage-free navigable map implementation
+    private final NavigableMap<Long, IOrdersBucket> farAskBuckets = new TreeMap<>();
+    private final NavigableMap<Long, IOrdersBucket> farBidBuckets = new TreeMap<>(Collections.reverseOrder());
 
     //    private LongObjectHashMap<Order> idMap = new LongObjectHashMap<>();
     /**
      * Hashtable for fast resolving OrderId -> Bucket
      */
-    private LongObjectHashMap<IOrdersBucket> idMapToBucket = new LongObjectHashMap<>();
+    private final LongObjectHashMap<IOrdersBucket> idMapToBucket = new LongObjectHashMap<>();
 
     /**
      * Object pools
@@ -643,7 +643,7 @@ public final class OrderBookFastImpl implements IOrderBook {
         setBasePrice(newBasePrice);
     }
 
-    // TODO slow - implement rolling bitset
+    // TODO slow - implement rolling bitset (extending BitSet)
     private BitSet shiftBitSetDown(BitSet bitSet, int shift) {
         int shiftLongs = shift >> 6;
         long[] src = bitSet.toLongArray();
@@ -950,24 +950,24 @@ public final class OrderBookFastImpl implements IOrderBook {
     }
 
     private IOrdersBucket[] getBidsAsArray() {
-        IOrdersBucket[] farBids = farBidBuckets.values().toArray(new IOrdersBucket[farBidBuckets.size()]);
-        IOrdersBucket[] hotBids = hotBidBuckets.toSortedMap(k -> k, v -> v).values().toArray(new IOrdersBucket[hotBidBuckets.size()]);
+        final IOrdersBucket[] farBids = farBidBuckets.values().toArray(new IOrdersBucket[0]);
+        final IOrdersBucket[] hotBids = hotBidBuckets.toSortedMap(k -> k, v -> v).values().toArray(new IOrdersBucket[hotBidBuckets.size()]);
         ArrayUtils.reverse(hotBids);
         return ObjectArrays.concat(hotBids, farBids, IOrdersBucket.class);
     }
 
     private IOrdersBucket[] getAsksAsArray() {
-        IOrdersBucket[] farAsks = farAskBuckets.values().toArray(new IOrdersBucket[farAskBuckets.size()]);
-        IOrdersBucket[] hotAsks = hotAskBuckets.toSortedMap(k -> k, v -> v).values().toArray(new IOrdersBucket[hotAskBuckets.size()]);
+        final IOrdersBucket[] farAsks = farAskBuckets.values().toArray(new IOrdersBucket[0]);
+        final IOrdersBucket[] hotAsks = hotAskBuckets.toSortedMap(k -> k, v -> v).values().toArray(new IOrdersBucket[hotAskBuckets.size()]);
         return ObjectArrays.concat(hotAsks, farAsks, IOrdersBucket.class);
     }
 
     @Override
     public int hashCode() {
-        IOrdersBucket[] a = getAsksAsArray();
-        IOrdersBucket[] b = getBidsAsArray();
+        final IOrdersBucket[] a = getAsksAsArray();
+        final IOrdersBucket[] b = getBidsAsArray();
         //log.debug("FAST A:{} B:{}", a, b);
-        int hash = IOrderBook.hash(a, b);
+        final int hash = IOrderBook.hash(a, b);
 
         //log.debug("{} {} {} {} {}", hash, hotAskBuckets.size(), farAskBuckets.size(), hotBidBuckets.size(), farBidBuckets.size());
         return hash;

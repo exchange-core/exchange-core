@@ -10,6 +10,7 @@ import org.openpredict.exchange.beans.MatcherEventType;
 import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.core.MatchingEngineRouter;
 import org.openpredict.exchange.core.orderbook.IOrderBook;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 
@@ -40,14 +41,14 @@ public abstract class ITOrderBookBase {
 
         // match all asks
         long askSum = Arrays.stream(snapshot.askVolumes).sum();
-        orderBook.processCommand(OrderCommand.marketOrder(100000000000L, -1, askSum, BID));
+        IOrderBook.processCommand(orderBook, OrderCommand.marketOrder(100000000000L, -1, askSum, BID));
 //        log.debug("{}", dumpOrderBook(orderBook.getL2MarketDataSnapshot(100000)));
 
         // match all bids
         long bidSum = Arrays.stream(snapshot.bidVolumes).sum();
 
 //        log.debug("Matching {} bids", bidSum);
-        orderBook.processCommand(OrderCommand.marketOrder(100000000001L, -2, bidSum, ASK));
+        IOrderBook.processCommand(orderBook, OrderCommand.marketOrder(100000000001L, -2, bidSum, ASK));
 
 //        log.debug("{}", dumpOrderBook(orderBook.getL2MarketDataSnapshot(100000)));
 
@@ -68,7 +69,7 @@ public abstract class ITOrderBookBase {
         log.debug("orderCommands size: {}", orderCommands.size());
 
         List<Float> perfResults = new ArrayList<>();
-        for (int j = 0; j < 100; j++) {
+        for (int j = 0; j < 32; j++) {
             orderBook = createNewOrderBook();
 
             long t = System.currentTimeMillis();
@@ -76,7 +77,7 @@ public abstract class ITOrderBookBase {
             for (OrderCommand cmd : orderCommands) {
                 cmd.writeTo(workCmd);
                 workCmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
-                orderBook.processCommand(workCmd);
+                IOrderBook.processCommand(orderBook, workCmd);
             }
             t = System.currentTimeMillis() - t;
 

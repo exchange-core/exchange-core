@@ -4,7 +4,7 @@ package org.openpredict.exchange.beans.api;
 import lombok.Builder;
 
 @Builder
-public class ApiMoveOrder extends ApiCommand {
+public final class ApiMoveOrder extends ApiCommand {
 
     public long id;
 

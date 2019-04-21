@@ -21,8 +21,7 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
     @Setter
     private long price;
 
-    //    private Long2ObjectMap<Order> entries = new Long2ObjectLinkedOpenHashMap<>();
-    private LinkedHashMap<Long, Order> entries = new LinkedHashMap<>();
+    private final LinkedHashMap<Long, Order> entries = new LinkedHashMap<>();
 
     @Getter
     private long totalVolume = 0;

@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
+import org.openpredict.exchange.core.RiskEngine;
 
 @Builder
 @ToString
@@ -63,23 +64,17 @@ public final class SymbolPortfolioRecord {
 //        }
     }
 
-    public long estimateProfit(CoreSymbolSpecification spec) {
+    public long estimateProfit(final CoreSymbolSpecification spec, final RiskEngine.LastPriceCacheRecord lastPriceCacheRecord) {
 
         final long varProfit;
         if (position == PortfolioPosition.LONG) {
-            varProfit = spec.lastBidPrice != 0
-                    ? (openVolume * spec.lastBidPrice - openPriceSum)
-                    : spec.depositBuy * openVolume; // unknown price - no liquidity - use extra deposit
-
-//            if(Math.random()<0.001) log.debug("LONG  {} spec.lastBidPrice={} openVolume={} openPriceSum={}", varProfit, spec.lastBidPrice, openVolume, openPriceSum);
-
+            varProfit = (lastPriceCacheRecord != null && lastPriceCacheRecord.bidPrice != 0)
+                    ? (openVolume * lastPriceCacheRecord.bidPrice - openPriceSum)
+                    : spec.depositBuy * openVolume; // unknown price - no liquidity - require extra margin
         } else {
-            varProfit = spec.lastAskPrice != Long.MAX_VALUE
-                    ? (openPriceSum - openVolume * spec.lastAskPrice)
-                    : spec.depositSell * openVolume; // unknown price - no liquidity - use extra deposit
-
-//            if(Math.random()<0.001) log.debug("SHORT {} spec.lastBidPrice={} openVolume={} openPriceSum={}", varProfit, spec.lastAskPrice, openVolume, openPriceSum);
-
+            varProfit = (lastPriceCacheRecord != null && lastPriceCacheRecord.askPrice != Long.MAX_VALUE)
+                    ? (openPriceSum - openVolume * lastPriceCacheRecord.askPrice)
+                    : spec.depositSell * openVolume; // unknown price - no liquidity - require extra margin
         }
 
 

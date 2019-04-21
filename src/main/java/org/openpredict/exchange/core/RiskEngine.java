@@ -2,12 +2,13 @@ package org.openpredict.exchange.core;
 
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
 
 /**
- * Stateless risk engine
+ * Stateful risk engine
  */
 @Slf4j
 @AllArgsConstructor
@@ -15,9 +16,21 @@ public final class RiskEngine {
 
     final private SymbolSpecificationProvider symbolSpecificationProvider;
 
-    public boolean placeOrder(OrderCommand cmd, UserProfile userProfile) {
+    // state
+    final private IntObjectHashMap<LastPriceCacheRecord> lastAskPriceCache = new IntObjectHashMap<>();
 
-        final CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(cmd.symbol);
+    public static class LastPriceCacheRecord {
+        public long askPrice = Long.MAX_VALUE;
+        public long bidPrice = 0L;
+    }
+
+    public void updateLastPrice(final L2MarketData marketData, final int symbol) {
+        final LastPriceCacheRecord record = lastAskPriceCache.getIfAbsentPut(symbol, LastPriceCacheRecord::new);
+        record.askPrice = (marketData.askSize != 0) ? marketData.askPrices[0] : Long.MAX_VALUE;
+        record.bidPrice = (marketData.bidSize != 0) ? marketData.bidPrices[0] : 0;
+    }
+
+    public boolean placeOrder(OrderCommand cmd, UserProfile userProfile, final CoreSymbolSpecification spec) {
 
         final SymbolPortfolioRecord portfolio = userProfile.getOrCreatePortfolioRecord(cmd.symbol);
 
@@ -43,7 +56,7 @@ public final class RiskEngine {
 
     private boolean placeExchangeOrder(OrderCommand cmd, UserProfile userProfile, CoreSymbolSpecification spec) {
 
-        final int currency = (cmd.action == OrderAction.BID) ? spec.counterCurrency : spec.baseCurrency;
+        final int currency = (cmd.action == OrderAction.BID) ? spec.quoteCurrency : spec.baseCurrency;
 
         final long currencyAccountBalance = userProfile.accounts.get(currency);
 
@@ -56,7 +69,7 @@ public final class RiskEngine {
             if (prSpec.type == SymbolType.CURRENCY_EXCHANGE_PAIR) {
                 if (prSpec.baseCurrency == currency) {
                     pendingAmount += portfolioRecord.pendingSellSize;
-                } else if (prSpec.counterCurrency == currency) {
+                } else if (prSpec.quoteCurrency == currency) {
                     pendingAmount += portfolioRecord.pendingBuySize;
                 }
             }
@@ -81,7 +94,7 @@ public final class RiskEngine {
             return true;
         }
 
-        long estimatedSymbolProfit = portfolio.estimateProfit(spec);
+        long estimatedSymbolProfit = portfolio.estimateProfit(spec, lastAskPriceCache.get(spec.symbolId));
 
         final int symbol = cmd.symbol;
 
@@ -89,7 +102,7 @@ public final class RiskEngine {
         for (SymbolPortfolioRecord portfolioRecord : userProfile.portfolio) {
             if (portfolioRecord.symbol != symbol) {
                 final CoreSymbolSpecification spec2 = symbolSpecificationProvider.getSymbolSpecification(portfolioRecord.symbol);
-                profitMinusDepositOtherSymbols += portfolioRecord.estimateProfit(spec2);
+                profitMinusDepositOtherSymbols += portfolioRecord.estimateProfit(spec2, lastAskPriceCache.get(spec2.symbolId));
                 profitMinusDepositOtherSymbols -= portfolioRecord.calculateRequiredDepositForFutures(spec2);
             }
         }

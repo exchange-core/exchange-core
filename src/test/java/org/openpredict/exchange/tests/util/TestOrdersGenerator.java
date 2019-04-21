@@ -75,7 +75,7 @@ public class TestOrdersGenerator {
             cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
             cmd.symbol = session.symbol;
             //log.debug("{}. {}",i, cmd);
-            orderBook.processCommand(cmd);
+            IOrderBook.processCommand(orderBook, cmd);
 
             if (cmd.resultCode == CommandResultCode.SUCCESS) {
                 successfulCommands++;
@@ -253,7 +253,7 @@ public class TestOrdersGenerator {
             return null;
         }
 
-        Long uid = session.orderUids.get(orderId);
+        long uid = session.orderUids.get(orderId);
         if (uid == 0) {
             return null;
         }
@@ -265,7 +265,7 @@ public class TestOrdersGenerator {
 
         } else {
 
-            Integer prevPrice = session.orderPrices.get(orderId);
+            int prevPrice = session.orderPrices.get(orderId);
             if (prevPrice == 0) {
                 return null;
             }
