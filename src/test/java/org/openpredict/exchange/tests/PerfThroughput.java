@@ -60,7 +60,7 @@ public final class PerfThroughput extends IntegrationTestBase {
 
                 // compare orderBook final state just to make sure all commands executed same way
                 // TODO compare events, balances, portfolios
-                assertEquals(genResult.getFinalOrderBookSnapshot(), requestCurrentOrderBook());
+                assertEquals(genResult.getFinalOrderBookSnapshot(), requestCurrentOrderBook(SYMBOL_MARGIN));
 
                 resetExchangeCore();
 

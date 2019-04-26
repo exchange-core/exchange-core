@@ -17,7 +17,6 @@ public final class UserProfile {
     public LongHashSet externalTransactions = new LongHashSet();
 
     // collected from accounts
-    public long futuresBalance = 0L;
 
     // currency accounts
     // currency -> balance
@@ -35,19 +34,27 @@ public final class UserProfile {
         this.uid = uid;
     }
 
-    public SymbolPortfolioRecord getOrCreatePortfolioRecord(int symbol) {
+    public SymbolPortfolioRecord getOrCreatePortfolioRecord(CoreSymbolSpecification spec) {
+        final int symbol = spec.symbolId;
         SymbolPortfolioRecord record = portfolio.get(symbol);
         if (record == null) {
-            record = new SymbolPortfolioRecord(symbol, uid);
+            record = new SymbolPortfolioRecord(symbol, uid, spec.quoteCurrency);
             portfolio.put(symbol, record);
         }
         return record;
     }
 
+    public SymbolPortfolioRecord getPortfolioRecordOrThrowEx(int symbol) {
+        final SymbolPortfolioRecord record = portfolio.get(symbol);
+        if (record == null) {
+            throw new IllegalStateException("not found portfolio for symbol " + symbol);
+        }
+        return record;
+    }
 
     public void removeRecordIfEmpty(SymbolPortfolioRecord record) {
         if (record.isEmpty()) {
-            futuresBalance += record.profit;
+            accounts.addToValue(record.currency, record.profit);
             portfolio.removeKey(record.symbol);
         }
     }
@@ -57,7 +64,6 @@ public final class UserProfile {
         return "UserProfile{" +
                 "uid=" + uid +
                 ", portfolios=" + portfolio.size() +
-                ", futuresBalance=" + futuresBalance +
                 ", accounts=" + accounts +
                 ", commandsCounter=" + commandsCounter +
                 '}';

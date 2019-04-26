@@ -36,7 +36,7 @@ public final class RiskEngine {
     }
 
 
-    public CommandResultCode placeOrderRiskCheck(OrderCommand cmd) {
+    public CommandResultCode placeOrderRiskCheck(final OrderCommand cmd) {
 
         final UserProfile userProfile = userProfileService.getUserProfile(cmd.uid);
         if (userProfile == null) {
@@ -54,6 +54,7 @@ public final class RiskEngine {
         // check if account has enough funds
         if (!placeOrder(cmd, userProfile, spec)) {
             log.warn("NSF uid={}: Can not place {}", userProfile.uid, cmd);
+            log.warn("accounts:{}", userProfile.accounts);
             return CommandResultCode.RISK_NSF;
         }
 
@@ -62,9 +63,11 @@ public final class RiskEngine {
     }
 
 
-    private boolean placeOrder(OrderCommand cmd, UserProfile userProfile, final CoreSymbolSpecification spec) {
+    private boolean placeOrder(final OrderCommand cmd,
+                               final UserProfile userProfile,
+                               final CoreSymbolSpecification spec) {
 
-        final SymbolPortfolioRecord portfolio = userProfile.getOrCreatePortfolioRecord(cmd.symbol);
+        final SymbolPortfolioRecord portfolio = userProfile.getOrCreatePortfolioRecord(spec);
 
         final boolean canPlaceOrder;
         if (spec.type == SymbolType.CURRENCY_EXCHANGE_PAIR) {
@@ -86,7 +89,9 @@ public final class RiskEngine {
         return canPlaceOrder;
     }
 
-    private boolean placeExchangeOrder(OrderCommand cmd, UserProfile userProfile, CoreSymbolSpecification spec) {
+    private boolean placeExchangeOrder(final OrderCommand cmd,
+                                       final UserProfile userProfile,
+                                       final CoreSymbolSpecification spec) {
 
         final int currency = (cmd.action == OrderAction.BID) ? spec.quoteCurrency : spec.baseCurrency;
 
@@ -114,15 +119,21 @@ public final class RiskEngine {
     }
 
     /**
+     * Checks:
      * 1. Users account balance
      * 2. Margin
      * 3. Current limit orders
+     * <p>
+     * NOTE: Current implementation does not care about accounts and positions quoted in different currencies
      */
-    private boolean placeMarginTradeOrder(OrderCommand cmd, UserProfile userProfile, CoreSymbolSpecification spec, final SymbolPortfolioRecord portfolio) {
+    private boolean placeMarginTradeOrder(final OrderCommand cmd,
+                                          final UserProfile userProfile,
+                                          final CoreSymbolSpecification spec,
+                                          final SymbolPortfolioRecord portfolio) {
 
-        final long newRequiredDeposit = portfolio.calculateRequiredDepositForOrder(spec, cmd.action, cmd.size);
-        if (newRequiredDeposit == -1) {
-            // always allow to place an order that would not increase trader's risk
+        final long newRequiredDepositForSymbol = portfolio.calculateRequiredDepositForOrder(spec, cmd.action, cmd.size);
+        if (newRequiredDepositForSymbol == -1) {
+            // always allow placing a new order if it would not increase exposure
             return true;
         }
 
@@ -130,26 +141,33 @@ public final class RiskEngine {
 
         final int symbol = cmd.symbol;
 
-        long profitMinusDepositOtherSymbols = 0L;
-        for (SymbolPortfolioRecord portfolioRecord : userProfile.portfolio) {
+        // if there are other positions same currency - calculating free margin for them
+        long freeMarginOtherSymbols = 0L;
+        for (final SymbolPortfolioRecord portfolioRecord : userProfile.portfolio) {
             if (portfolioRecord.symbol != symbol) {
                 final CoreSymbolSpecification spec2 = symbolSpecificationProvider.getSymbolSpecification(portfolioRecord.symbol);
-                profitMinusDepositOtherSymbols += portfolioRecord.estimateProfit(spec2, lastAskPriceCache.get(spec2.symbolId));
-                profitMinusDepositOtherSymbols -= portfolioRecord.calculateRequiredDepositForFutures(spec2);
+
+                if (spec2.quoteCurrency == spec.quoteCurrency) {
+                    // add P&L subtract margin
+                    freeMarginOtherSymbols += portfolioRecord.estimateProfit(spec2, lastAskPriceCache.get(spec2.symbolId));
+                    freeMarginOtherSymbols -= portfolioRecord.calculateRequiredDepositForFutures(spec2);
+                }
             }
         }
 
         // extra deposit is required
         // check if current balance and margin can cover new deposit
-        final long availableFunds = userProfile.futuresBalance
+        final long availableFunds = userProfile.accounts.get(portfolio.currency)
                 + estimatedSymbolProfit
-                + profitMinusDepositOtherSymbols;
+                + freeMarginOtherSymbols;
 
-        return newRequiredDeposit <= availableFunds;
+        return newRequiredDepositForSymbol <= availableFunds;
     }
 
 
-    public void handlerRiskRelease(final int symbol, final L2MarketData marketData, MatcherTradeEvent mte) {
+    public void handlerRiskRelease(final int symbol,
+                                   final L2MarketData marketData,
+                                   MatcherTradeEvent mte) {
 
         if (marketData == null && mte == null) {
             return;
@@ -189,20 +207,20 @@ public final class RiskEngine {
             // TODO group by user profile ??
             // update taker's portfolio
             final UserProfile taker = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
-            final SymbolPortfolioRecord takerSpr = taker.getOrCreatePortfolioRecord(ev.symbol);
+            final SymbolPortfolioRecord takerSpr = taker.getPortfolioRecordOrThrowEx(ev.symbol);
             takerSpr.updatePortfolioForMarginTrade(ev.activeOrderAction, size, ev.price, spec.takerFee);
             taker.removeRecordIfEmpty(takerSpr);
 
             // update maker's portfolio
             final UserProfile maker = userProfileService.getUserProfileOrThrowEx(ev.matchedOrderUid);
-            final SymbolPortfolioRecord makerSpr = maker.getOrCreatePortfolioRecord(ev.symbol);
+            final SymbolPortfolioRecord makerSpr = maker.getPortfolioRecordOrThrowEx(ev.symbol);
             makerSpr.updatePortfolioForMarginTrade(ev.activeOrderAction.opposite(), size, ev.price, spec.makerFee);
             maker.removeRecordIfEmpty(makerSpr);
 
         } else if (ev.eventType == REJECTION || ev.eventType == REDUCE) {
             // for reduce/rejection only one party is involved
             final UserProfile up = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
-            final SymbolPortfolioRecord spr = up.getOrCreatePortfolioRecord(ev.symbol);
+            final SymbolPortfolioRecord spr = up.getPortfolioRecordOrThrowEx(ev.symbol);
             spr.pendingRelease(ev.activeOrderAction, size);
             up.removeRecordIfEmpty(spr);
 
@@ -221,12 +239,12 @@ public final class RiskEngine {
 
             // release taker's portfolio
             final UserProfile taker = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
-            final SymbolPortfolioRecord takerSpr = taker.getOrCreatePortfolioRecord(ev.symbol);
+            final SymbolPortfolioRecord takerSpr = taker.getPortfolioRecordOrThrowEx(ev.symbol);
             takerSpr.pendingRelease(ev.activeOrderAction, size);
 
             // release maker's portfolio
             final UserProfile maker = userProfileService.getUserProfileOrThrowEx(ev.matchedOrderUid);
-            final SymbolPortfolioRecord makerSpr = maker.getOrCreatePortfolioRecord(ev.symbol);
+            final SymbolPortfolioRecord makerSpr = maker.getPortfolioRecordOrThrowEx(ev.symbol);
             makerSpr.pendingRelease(ev.activeOrderAction.opposite(), size);
 
             // perform account-to-account transfers
@@ -258,7 +276,7 @@ public final class RiskEngine {
         } else if (ev.eventType == REJECTION || ev.eventType == REDUCE) {
             // for reduce/rejection only one party is involved
             final UserProfile up = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
-            final SymbolPortfolioRecord spr = up.getOrCreatePortfolioRecord(ev.symbol);
+            final SymbolPortfolioRecord spr = up.getPortfolioRecordOrThrowEx(ev.symbol);
             spr.pendingRelease(ev.activeOrderAction, size);
             up.removeRecordIfEmpty(spr);
 

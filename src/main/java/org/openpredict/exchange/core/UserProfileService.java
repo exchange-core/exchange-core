@@ -67,26 +67,16 @@ public final class UserProfileService {
             return CommandResultCode.USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_ALREADY_APPLIED;
         }
 
-        if (currency == 0) {
-            if (userProfile.futuresBalance + amount < 0) {
-                return CommandResultCode.USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_NSF;
-            } else {
-
-                userProfile.externalTransactions.add(fundingTransactionId);
-                userProfile.futuresBalance += amount;
-                return CommandResultCode.SUCCESS;
-            }
-
-        } else {
-            if (amount < 0 && userProfile.accounts.get(currency) + amount < 0) {
-                return CommandResultCode.USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_NSF;
-            } else {
-
-                userProfile.externalTransactions.add(fundingTransactionId);
-                userProfile.accounts.addToValue(currency, amount);
-                return CommandResultCode.SUCCESS;
-            }
+        // validate balance for withdrowals
+        if (amount < 0 && (userProfile.accounts.get(currency) + amount < 0)) {
+            return CommandResultCode.USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_NSF;
         }
+
+        userProfile.externalTransactions.add(fundingTransactionId);
+        userProfile.accounts.addToValue(currency, amount);
+
+        //log.debug("FUND: {}", userProfile);
+        return CommandResultCode.SUCCESS;
     }
 
     /**

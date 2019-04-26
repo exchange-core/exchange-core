@@ -1,20 +1,17 @@
 package org.openpredict.exchange.beans;
 
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.core.RiskEngine;
 
-@Builder
 @ToString
-@AllArgsConstructor
 @Slf4j
 public final class SymbolPortfolioRecord {
 
     public final int symbol;
     public final long uid;
+    public final int currency;
 
     // open positions state (for margin trades only)
     public PortfolioPosition position = PortfolioPosition.EMPTY;
@@ -28,9 +25,10 @@ public final class SymbolPortfolioRecord {
     public long pendingSellSize = 0;
     public long pendingBuySize = 0;
 
-    public SymbolPortfolioRecord(int symbol, long uid) {
+    public SymbolPortfolioRecord(int symbol, long uid, int currency) {
         this.symbol = symbol;
         this.uid = uid;
+        this.currency = currency;
     }
 
     /**
@@ -105,8 +103,10 @@ public final class SymbolPortfolioRecord {
      * Calculate required deposit based on specification and current position/orders
      * considering extra size added to current position (or outstanding orders)
      *
-     * @param spec
-     * @return -1 if no extra deposit will be required (order will reduce current exposure)
+     * @param spec   symbols specification
+     * @param action order action
+     * @param size   order size
+     * @return -1 if order will reduce current exposure (no additional margin required), otherwise full deposit for symbol position if order placed/executed
      */
     public long calculateRequiredDepositForOrder(final CoreSymbolSpecification spec, final OrderAction action, final long size) {
         final long specDepositBuy = spec.depositBuy;

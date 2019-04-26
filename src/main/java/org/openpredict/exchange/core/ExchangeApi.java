@@ -137,6 +137,8 @@ public final class ExchangeApi {
     private static final EventTranslatorOneArg<OrderCommand, ApiCancelOrder> CANCEL_ORDER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.CANCEL_ORDER;
         cmd.orderId = api.id;
+        cmd.price = -1;
+        cmd.size = -1;
         cmd.symbol = api.symbol;
         cmd.uid = api.uid;
         cmd.timestamp = api.timestamp;
@@ -147,6 +149,7 @@ public final class ExchangeApi {
         cmd.command = OrderCommandType.ORDER_BOOK_REQUEST;
         cmd.orderId = -1;
         cmd.symbol = api.symbol;
+        cmd.price = -1;
         cmd.size = api.size;
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
@@ -163,7 +166,7 @@ public final class ExchangeApi {
 
     private static final EventTranslatorOneArg<OrderCommand, ApiAdjustUserBalance> ADJUST_USER_BALANCE_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.BALANCE_ADJUSTMENT;
-        cmd.orderId = -1;
+        cmd.orderId = api.transactionId;
         cmd.symbol = api.currency;
         cmd.uid = api.uid;
         cmd.price = api.amount;

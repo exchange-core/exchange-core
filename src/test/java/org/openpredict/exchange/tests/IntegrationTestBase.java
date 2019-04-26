@@ -13,6 +13,8 @@ import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.core.ExchangeApi;
 import org.openpredict.exchange.core.ExchangeCore;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
@@ -27,10 +29,15 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 @Slf4j
-public class IntegrationTestBase {
+public abstract class IntegrationTestBase {
 
     static final int SYMBOL_MARGIN = 5991;
     static final int SYMBOL_EXCHANGE = 9269;
+
+    static final int CURRENECY_USD = 840;
+    static final int CURRENECY_EUR = 978;
+    static final int CURRENECY_XBT = 3762;
+    static final int CURRENECY_ETH = 3928;
 
     ExchangeCore exchangeCore;
     ExchangeApi api;
@@ -54,20 +61,36 @@ public class IntegrationTestBase {
 
     void initSymbol() throws InterruptedException {
 
-        final CoreSymbolSpecification symbol = CoreSymbolSpecification.builder()
+        final CoreSymbolSpecification symbol1 = CoreSymbolSpecification.builder()
                 .symbolId(SYMBOL_MARGIN)
                 .type(SymbolType.FUTURES_CONTRACT)
-                .baseCurrency(978)
-                .quoteCurrency(840)
+                .baseCurrency(CURRENECY_EUR)
+                .quoteCurrency(CURRENECY_USD)
                 .baseScaleK(1)
                 .quoteScaleK(1)
                 .depositBuy(22000)
                 .depositSell(32100)
                 .takerFee(0)
                 .makerFee(0)
-                .stepSize(1)
                 .build();
 
+        addSymbol(symbol1);
+
+        final CoreSymbolSpecification symbol2 = CoreSymbolSpecification.builder()
+                .symbolId(SYMBOL_EXCHANGE)
+                .type(SymbolType.CURRENCY_EXCHANGE_PAIR)
+                .baseCurrency(CURRENECY_ETH)
+                .quoteCurrency(CURRENECY_XBT)
+                .baseScaleK(1)
+                .quoteScaleK(1)
+                .takerFee(0)
+                .makerFee(0)
+                .build();
+
+        addSymbol(symbol2);
+    }
+
+    private void addSymbol(CoreSymbolSpecification symbol) throws InterruptedException {
         final FSTConfiguration minBin = FSTConfiguration.createMinBinConfiguration();
         minBin.registerCrossPlatformClassMappingUseSimpleName(CoreSymbolSpecification.class);
         //new MBPrinter().printMessage(minBin.asByteArray(symbol));
@@ -77,12 +100,21 @@ public class IntegrationTestBase {
     }
 
     void usersInit(int numUsers) throws InterruptedException {
-        final CountDownLatch usersLatch = new CountDownLatch(numUsers * 2);
+        List<ApiCommand> commands = LongStream.rangeClosed(1, numUsers)
+                .mapToObj(uid -> {
+                    List<ApiCommand> userCmds = new ArrayList<>();
+                    userCmds.add(ApiAddUser.builder().uid(uid).build());
+                    userCmds.add(ApiAdjustUserBalance.builder().uid(uid).transactionId(1243).amount(20_000_000_00L).currency(CURRENECY_USD).build());
+                    userCmds.add(ApiAdjustUserBalance.builder().uid(uid).transactionId(1256).amount(10_0000_0000L).currency(CURRENECY_XBT).build());
+                    userCmds.add(ApiAdjustUserBalance.builder().uid(uid).transactionId(1277).amount(10_0000_0000L).currency(CURRENECY_ETH).build());
+                    return userCmds;
+                })
+                .flatMap(Collection::stream)
+                .collect(Collectors.toList());
+
+        final CountDownLatch usersLatch = new CountDownLatch(commands.size());
         consumer = cmd -> usersLatch.countDown();
-        LongStream.rangeClosed(1, numUsers).forEach(uid -> {
-            api.submitCommand(ApiAddUser.builder().uid(uid).build());
-            api.submitCommand(ApiAdjustUserBalance.builder().uid(uid).amount(2_000_000_000L).build());
-        });
+        commands.forEach(api::submitCommand);
         usersLatch.await();
     }
 
@@ -133,9 +165,9 @@ public class IntegrationTestBase {
     }
 
 
-    L2MarketData requestCurrentOrderBook() {
+    L2MarketData requestCurrentOrderBook(final int symbol) {
         BlockingQueue<OrderCommand> queue = attachNewConsumerQueue();
-        api.submitCommand(ApiOrderBookRequest.builder().symbol(SYMBOL_MARGIN).size(-1).build());
+        api.submitCommand(ApiOrderBookRequest.builder().symbol(symbol).size(-1).build());
         OrderCommand orderBookCmd = waitForOrderCommands(queue, 1).get(0);
         L2MarketData actualState = orderBookCmd.marketData;
         assertNotNull(actualState);
