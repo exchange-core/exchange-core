@@ -61,7 +61,7 @@ public class ITExchangeCoreIntegration extends IntegrationTestBase {
     public void basicFullCycleTest(final int symbol) throws Exception {
 
         // ### 1. first user places limit orders
-        ApiPlaceOrder order101 = ApiPlaceOrder.builder().uid(UID_1).id(101).price(1600).size(7).action(OrderAction.ASK).orderType(OrderType.LIMIT).symbol(symbol).build();
+        final ApiPlaceOrder order101 = ApiPlaceOrder.builder().uid(UID_1).id(101).price(1600).size(7).action(OrderAction.ASK).orderType(OrderType.LIMIT).symbol(symbol).build();
         log.debug("PLACE: {}", order101);
         submitCommandSync(order101, cmd -> {
             assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
@@ -75,7 +75,7 @@ public class ITExchangeCoreIntegration extends IntegrationTestBase {
             assertNull(cmd.matcherEvent);
         });
 
-        ApiPlaceOrder order102 = ApiPlaceOrder.builder().uid(UID_1).id(102).price(1550).size(4).action(OrderAction.BID).orderType(OrderType.LIMIT).symbol(symbol).build();
+        final ApiPlaceOrder order102 = ApiPlaceOrder.builder().uid(UID_1).id(102).price(1550).size(4).action(OrderAction.BID).orderType(OrderType.LIMIT).symbol(symbol).build();
         log.debug("PLACE: {}", order102);
         submitCommandSync(order102, cmd -> {
             assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
@@ -87,7 +87,7 @@ public class ITExchangeCoreIntegration extends IntegrationTestBase {
 
 
         // ### 2. second user sends market order, first order partially matched
-        ApiPlaceOrder order201 = ApiPlaceOrder.builder().uid(UID_2).id(201).size(2).action(OrderAction.BID).orderType(OrderType.MARKET).symbol(symbol).build();
+        final ApiPlaceOrder order201 = ApiPlaceOrder.builder().uid(UID_2).id(201).size(2).action(OrderAction.BID).orderType(OrderType.MARKET).symbol(symbol).build();
         log.debug("PLACE: {}", order201);
         submitCommandSync(order201, cmd -> {
             assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
@@ -114,7 +114,7 @@ public class ITExchangeCoreIntegration extends IntegrationTestBase {
 
 
         // ### 3. second user places limit order
-        ApiPlaceOrder order202 = ApiPlaceOrder.builder().uid(UID_2).id(202).price(1583).size(4).action(OrderAction.BID).orderType(OrderType.LIMIT).symbol(symbol).build();
+        final ApiPlaceOrder order202 = ApiPlaceOrder.builder().uid(UID_2).id(202).price(1583).size(4).action(OrderAction.BID).orderType(OrderType.LIMIT).symbol(symbol).build();
         log.debug("PLACE: {}", order202);
         submitCommandSync(order202, cmd -> {
             assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
@@ -128,7 +128,7 @@ public class ITExchangeCoreIntegration extends IntegrationTestBase {
 
 
         // ### 4. first trader moves his order - it will match existing order (202) but not entirely
-        ApiMoveOrder moveOrder = ApiMoveOrder.builder().symbol(symbol).uid(UID_1).id(101).newPrice(1580).build();
+        final ApiMoveOrder moveOrder = ApiMoveOrder.builder().symbol(symbol).uid(UID_1).id(101).newPrice(1580).build();
         log.debug("MOVE: {}", moveOrder);
         submitCommandSync(moveOrder, cmd -> {
             assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));

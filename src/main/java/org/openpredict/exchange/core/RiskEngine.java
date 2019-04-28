@@ -9,7 +9,7 @@ import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
 import static org.openpredict.exchange.beans.MatcherEventType.*;
-
+import static org.openpredict.exchange.beans.cmd.OrderCommandType.*;
 
 /**
  * Stateful risk engine
@@ -30,13 +30,71 @@ public final class RiskEngine {
 
     private final IntObjectHashMap<LastPriceCacheRecord> lastAskPriceCache = new IntObjectHashMap<>();
 
+    private final int shardId;
+    private final long shardMask;
+
     public static class LastPriceCacheRecord {
         public long askPrice = Long.MAX_VALUE;
         public long bidPrice = 0L;
     }
 
 
-    public CommandResultCode placeOrderRiskCheck(final OrderCommand cmd) {
+    /**
+     * Pre-process command handler
+     * 1. MOVE/CANCEL commands ignored, for specific uid marked as valid for matching engine
+     * 2. PLACE ORDER checked with risk ending for specific uid
+     * 3. ADD USER, BALANCE_ADJUSTMENT processed for specific uid, not valid for matching engine
+     * 4. BINARY_DATA commands processed for ANY uid and marked as valid for matching engine TODO which handler marks?
+     * 5. RESET commands processed for any uid
+     *
+     * @param cmd - command
+     */
+    public void preProcessCommand(OrderCommand cmd) {
+
+        if (cmd.command == MOVE_ORDER || cmd.command == CANCEL_ORDER || cmd.command == ORDER_BOOK_REQUEST) {
+            return;
+        }
+
+        if (cmd.command == PLACE_ORDER) {
+            if (uidForThisHandler(cmd.uid)) {
+                cmd.resultCode = placeOrderRiskCheck(cmd);
+            }
+        } else if (cmd.command == ADD_USER) {
+            if (uidForThisHandler(cmd.uid)) {
+                cmd.resultCode = userProfileService.addEmptyUserProfile(cmd.uid);
+            }
+        } else if (cmd.command == BALANCE_ADJUSTMENT) {
+            if (uidForThisHandler(cmd.uid)) {
+                cmd.resultCode = userProfileService.balanceAdjustment(cmd.uid, cmd.symbol, cmd.price, cmd.orderId);
+            }
+        } else if (cmd.command == BINARY_DATA) {
+            binaryCommandsProcessor.binaryData(cmd);
+        } else if (cmd.command == RESET) {
+            reset();
+            if (shardId == 0) {
+                cmd.resultCode = CommandResultCode.SUCCESS;
+            }
+        } else if (cmd.command == NOP) {
+            if (shardId == 0) {
+                cmd.resultCode = CommandResultCode.SUCCESS;
+            }
+        }
+    }
+
+    /**
+     * Post process command
+     *
+     * @param cmd
+     */
+    public void handlerRiskRelease(final OrderCommand cmd) {
+        handlerRiskRelease(cmd.symbol, cmd.marketData, cmd.matcherEvent);
+    }
+
+    private boolean uidForThisHandler(final long uid) {
+        return (shardMask == 0) || ((uid & shardMask) == shardId);
+    }
+
+    private CommandResultCode placeOrderRiskCheck(final OrderCommand cmd) {
 
         final UserProfile userProfile = userProfileService.getUserProfile(cmd.uid);
         if (userProfile == null) {
@@ -164,7 +222,6 @@ public final class RiskEngine {
         return newRequiredDepositForSymbol <= availableFunds;
     }
 
-
     public void handlerRiskRelease(final int symbol,
                                    final L2MarketData marketData,
                                    MatcherTradeEvent mte) {
@@ -192,37 +249,43 @@ public final class RiskEngine {
 
         // Process marked data
         if (marketData != null) {
-            final LastPriceCacheRecord record = lastAskPriceCache.getIfAbsentPut(symbol, LastPriceCacheRecord::new);
+            final RiskEngine.LastPriceCacheRecord record = lastAskPriceCache.getIfAbsentPut(symbol, RiskEngine.LastPriceCacheRecord::new);
             record.askPrice = (marketData.askSize != 0) ? marketData.askPrices[0] : Long.MAX_VALUE;
             record.bidPrice = (marketData.bidSize != 0) ? marketData.bidPrices[0] : 0;
         }
     }
 
-    // TODO process uid only for designated shard
     private void handleMatcherEventMargin(final MatcherTradeEvent ev, final CoreSymbolSpecification spec) {
 
         final long size = ev.size;
 
         if (ev.eventType == TRADE) {
             // TODO group by user profile ??
-            // update taker's portfolio
-            final UserProfile taker = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
-            final SymbolPortfolioRecord takerSpr = taker.getPortfolioRecordOrThrowEx(ev.symbol);
-            takerSpr.updatePortfolioForMarginTrade(ev.activeOrderAction, size, ev.price, spec.takerFee);
-            taker.removeRecordIfEmpty(takerSpr);
+            if (uidForThisHandler(ev.activeOrderUid)) {
+                // update taker's portfolio
+                final UserProfile taker = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
+                final SymbolPortfolioRecord takerSpr = taker.getPortfolioRecordOrThrowEx(ev.symbol);
+                takerSpr.updatePortfolioForMarginTrade(ev.activeOrderAction, size, ev.price, spec.takerFee);
+                taker.removeRecordIfEmpty(takerSpr);
+            }
 
-            // update maker's portfolio
-            final UserProfile maker = userProfileService.getUserProfileOrThrowEx(ev.matchedOrderUid);
-            final SymbolPortfolioRecord makerSpr = maker.getPortfolioRecordOrThrowEx(ev.symbol);
-            makerSpr.updatePortfolioForMarginTrade(ev.activeOrderAction.opposite(), size, ev.price, spec.makerFee);
-            maker.removeRecordIfEmpty(makerSpr);
+            if (uidForThisHandler(ev.matchedOrderUid)) {
+                // update maker's portfolio
+                final UserProfile maker = userProfileService.getUserProfileOrThrowEx(ev.matchedOrderUid);
+                final SymbolPortfolioRecord makerSpr = maker.getPortfolioRecordOrThrowEx(ev.symbol);
+                makerSpr.updatePortfolioForMarginTrade(ev.activeOrderAction.opposite(), size, ev.price, spec.makerFee);
+                maker.removeRecordIfEmpty(makerSpr);
+            }
 
         } else if (ev.eventType == REJECTION || ev.eventType == REDUCE) {
-            // for reduce/rejection only one party is involved
-            final UserProfile up = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
-            final SymbolPortfolioRecord spr = up.getPortfolioRecordOrThrowEx(ev.symbol);
-            spr.pendingRelease(ev.activeOrderAction, size);
-            up.removeRecordIfEmpty(spr);
+
+            if (uidForThisHandler(ev.activeOrderUid)) {
+                // for reduce/rejection only one party is involved
+                final UserProfile up = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
+                final SymbolPortfolioRecord spr = up.getPortfolioRecordOrThrowEx(ev.symbol);
+                spr.pendingRelease(ev.activeOrderAction, size);
+                up.removeRecordIfEmpty(spr);
+            }
 
         } else {
             log.error("unsupported eventType: {}", ev.eventType);
@@ -237,53 +300,71 @@ public final class RiskEngine {
         if (ev.eventType == TRADE) {
             // TODO group by user profile ??
 
-            // release taker's portfolio
-            final UserProfile taker = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
-            final SymbolPortfolioRecord takerSpr = taker.getPortfolioRecordOrThrowEx(ev.symbol);
-            takerSpr.pendingRelease(ev.activeOrderAction, size);
+            boolean processTaker = uidForThisHandler(ev.activeOrderUid);
+            boolean processMaker = uidForThisHandler(ev.matchedOrderUid);
 
-            // release maker's portfolio
-            final UserProfile maker = userProfileService.getUserProfileOrThrowEx(ev.matchedOrderUid);
-            final SymbolPortfolioRecord makerSpr = maker.getPortfolioRecordOrThrowEx(ev.symbol);
-            makerSpr.pendingRelease(ev.activeOrderAction.opposite(), size);
+            if (processTaker || processMaker) {
+                // perform account-to-account transfers
+                // TODO multiplier ???
+                final long amountInCounterCurrency = ev.price * size * spec.quoteScaleK;
+                final long amountInBaseCurrency = size * spec.baseScaleK;
 
-            // perform account-to-account transfers
-            // TODO multiplier ???
-            final long amountInCounterCurrency = ev.price * size * spec.quoteScaleK;
-            final long amountInBaseCurrency = size * spec.baseScaleK;
-            // TODO add commission
+                // TODO add commission
+                final long takerFee = spec.takerFee * size;
+                final long makerFee = spec.makerFee * size;
 
-            final long takerFee = spec.takerFee * size;
-            final long makerFee = spec.makerFee * size;
+                if (processTaker) {
+                    // release taker's portfolio
+                    final UserProfile taker = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
+                    final SymbolPortfolioRecord takerSpr = taker.getPortfolioRecordOrThrowEx(ev.symbol);
+                    takerSpr.pendingRelease(ev.activeOrderAction, size);
 
-            if (ev.activeOrderAction == OrderAction.ASK) {
-                // taker is selling, maker is buying
-                taker.accounts.addToValue(spec.quoteCurrency, amountInCounterCurrency);
-                taker.accounts.addToValue(spec.baseCurrency, -amountInBaseCurrency - takerFee);
-                maker.accounts.addToValue(spec.baseCurrency, amountInBaseCurrency - makerFee);
-                maker.accounts.addToValue(spec.quoteCurrency, -amountInCounterCurrency);
-            } else {
-                // taker is buying, maker is selling
-                taker.accounts.addToValue(spec.quoteCurrency, -amountInCounterCurrency);
-                taker.accounts.addToValue(spec.baseCurrency, amountInBaseCurrency - takerFee);
-                maker.accounts.addToValue(spec.baseCurrency, -amountInBaseCurrency - makerFee);
-                maker.accounts.addToValue(spec.quoteCurrency, amountInCounterCurrency);
+                    if (ev.activeOrderAction == OrderAction.ASK) {
+                        // taker is selling
+                        taker.accounts.addToValue(spec.quoteCurrency, amountInCounterCurrency);
+                        taker.accounts.addToValue(spec.baseCurrency, -amountInBaseCurrency - takerFee);
+                    } else {
+                        // taker is buying
+                        taker.accounts.addToValue(spec.quoteCurrency, -amountInCounterCurrency);
+                        taker.accounts.addToValue(spec.baseCurrency, amountInBaseCurrency - takerFee);
+                    }
+
+                    taker.removeRecordIfEmpty(takerSpr);
+                }
+
+                if (processMaker) {
+                    // release maker's portfolio
+                    final UserProfile maker = userProfileService.getUserProfileOrThrowEx(ev.matchedOrderUid);
+                    final SymbolPortfolioRecord makerSpr = maker.getPortfolioRecordOrThrowEx(ev.symbol);
+                    makerSpr.pendingRelease(ev.activeOrderAction.opposite(), size);
+
+                    if (ev.activeOrderAction == OrderAction.ASK) {
+                        // maker is buying
+                        maker.accounts.addToValue(spec.baseCurrency, amountInBaseCurrency - makerFee);
+                        maker.accounts.addToValue(spec.quoteCurrency, -amountInCounterCurrency);
+                    } else {
+                        // maker is selling
+                        maker.accounts.addToValue(spec.baseCurrency, -amountInBaseCurrency - makerFee);
+                        maker.accounts.addToValue(spec.quoteCurrency, amountInCounterCurrency);
+                    }
+
+                    maker.removeRecordIfEmpty(makerSpr);
+                }
             }
 
-            taker.removeRecordIfEmpty(takerSpr);
-            maker.removeRecordIfEmpty(makerSpr);
-
         } else if (ev.eventType == REJECTION || ev.eventType == REDUCE) {
-            // for reduce/rejection only one party is involved
-            final UserProfile up = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
-            final SymbolPortfolioRecord spr = up.getPortfolioRecordOrThrowEx(ev.symbol);
-            spr.pendingRelease(ev.activeOrderAction, size);
-            up.removeRecordIfEmpty(spr);
-
+            if (uidForThisHandler(ev.activeOrderUid)) {
+                // for reduce/rejection only one party is involved
+                final UserProfile up = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
+                final SymbolPortfolioRecord spr = up.getPortfolioRecordOrThrowEx(ev.symbol);
+                spr.pendingRelease(ev.activeOrderAction, size);
+                up.removeRecordIfEmpty(spr);
+            }
         } else {
             log.error("unsupported eventType: {}", ev.eventType);
         }
     }
+
 
     public void reset() {
         userProfileService.reset();
@@ -291,5 +372,4 @@ public final class RiskEngine {
         binaryCommandsProcessor.reset();
         lastAskPriceCache.clear();
     }
-
 }
