@@ -4,7 +4,7 @@
 
 **Ultra-fast market exchange core matching engine** based on LMAX Disruptor and Eclipse Collections (ex. Goldman Sachs GS Collections).
 
-Capable to process 5M order book operations per second on 7-years old hardware (Intel® Xeon® X5690) with moderate latency degradation:
+Capable to process 5M order book operations per second on 8-years old hardware (Intel® Xeon® X5690) with moderate latency degradation:
 
 |rate|50.0%|90.0%|95.0%|99.0%|99.9%|99.99%|worst|
 |----|-----|-----|-----|-----|-----|------|-----|
@@ -37,11 +37,13 @@ Benchmark configuration:
 - HFT optimized. Priority is a limit-order-move operation mean latency (currently ~0.5µs). Cancel operation takes ~0.7µs, placing new order ~1.0µs;
 - In-memory working state.
 - Lock-free and contention-free orders matching and risk control algorithms.
+- No floating-point operations, no accuracy loss.
 - Matching engine and risk control operations are atomic and deterministic.
-- Pipelined processing (based on LMAX Disruptor): each CPU core is responsible for different processing stage, user accounts shard, or symbol order books set.
+- Pipelined multi-core processing (based on LMAX Disruptor): each CPU core is responsible for certain processing stage, user accounts shard, or symbol order books shard.
 - Low GC pressure, objects pooling.
+- Two different risk processing modes (per symbol): direct-exchange and margin-trade.
 - Supports crossing Ask-Bid orders for market makers.
-- Two implementations of matching engine: reference (simplified) and performance-optimized.
+- Two implementations of matching engine: reference (naive) and performance-optimized.
 - Testing - unit-tests, integration tests, stress tests, integrity tests.
 - Automatic threads affinity (requires JNA).
 
