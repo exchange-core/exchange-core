@@ -1,6 +1,5 @@
 package org.openpredict.exchange.core;
 
-import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
@@ -15,7 +14,6 @@ import static org.openpredict.exchange.beans.cmd.OrderCommandType.*;
  * Stateful risk engine
  */
 @Slf4j
-@AllArgsConstructor
 public final class RiskEngine {
 
     // state
@@ -32,6 +30,11 @@ public final class RiskEngine {
 
     private final int shardId;
     private final long shardMask;
+
+    public RiskEngine(final int shardId, final long numShards) {
+        this.shardId = shardId;
+        this.shardMask = numShards - 1;
+    }
 
     public static class LastPriceCacheRecord {
         public long askPrice = Long.MAX_VALUE;

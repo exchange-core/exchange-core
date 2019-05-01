@@ -10,6 +10,7 @@ import com.lmax.disruptor.dsl.ProducerType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
+import org.apache.commons.lang3.ArrayUtils;
 import org.openpredict.exchange.beans.CfgWaitStrategyType;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
@@ -36,6 +37,7 @@ public final class ExchangeCore {
 
     private static final int RING_BUFFER_SIZE = 64 * 1024;
     private static final int RISK_ENGINES_NUM = 2;
+    private static final int MATCHING_ENGINES_NUM = 1;
 
     private final Disruptor<OrderCommand> disruptor;
 
@@ -63,6 +65,7 @@ public final class ExchangeCore {
 
         this.cmdRingBuffer = disruptor.getRingBuffer();
 
+        // creating and attaching exceptions handler
         final DisruptorExceptionHandler<OrderCommand> exceptionHandler = new DisruptorExceptionHandler<>("main", (ex, seq) -> {
             log.error("Exception thrown on sequence={}", seq, ex);
             // TODO re-throw exception on publishing
@@ -72,12 +75,17 @@ public final class ExchangeCore {
 
         disruptor.setDefaultExceptionHandler(exceptionHandler);
 
-        final MatchingEngineRouter matchingEngineRouter = new MatchingEngineRouter();
+        // creating matching engine event handlers array
+        EventHandler<OrderCommand>[] matchingEngineHandlers = IntStream.range(0, MATCHING_ENGINES_NUM)
+                .mapToObj(shardId -> {
+                    final MatchingEngineRouter router = new MatchingEngineRouter(shardId, MATCHING_ENGINES_NUM);
+                    return (EventHandler<OrderCommand>) (cmd, seq, eob) -> router.processOrder(cmd);
+                })
+                .toArray(ExchangeCore::newEventHandlersArray);
 
-        final EventHandler<OrderCommand> matchingEngineHandler = (cmd, seq, eob) -> matchingEngineRouter.processOrder(cmd);
-
+        // creating risk engines array
         final List<RiskEngine> riskEngines = IntStream.range(0, RISK_ENGINES_NUM)
-                .mapToObj(i -> new RiskEngine(i, RISK_ENGINES_NUM - 1))
+                .mapToObj(shardId -> new RiskEngine(shardId, RISK_ENGINES_NUM))
                 .collect(Collectors.toList());
 
         final List<MasterProcessor> procR1 = new ArrayList<>();
@@ -99,11 +107,10 @@ public final class ExchangeCore {
                     return r1;
                 }));
 
-        disruptor.after(procR1.toArray(new MasterProcessor[0])).handleEventsWith(matchingEngineHandler);
+        disruptor.after(procR1.toArray(new MasterProcessor[0])).handleEventsWith(matchingEngineHandlers);
 
-        // 3. results handler (E) after matching engine (ME) + [journalling (J)]
-        // 4. risk release (R2) after matching engine (ME)
-        EventHandlerGroup<OrderCommand> afterMatchingEngine = disruptor.after(matchingEngineHandler);
+        // 3. risk release (R2) after matching engine (ME)
+        EventHandlerGroup<OrderCommand> afterMatchingEngine = disruptor.after(matchingEngineHandlers);
 
         riskEngines.forEach(riskEngine -> afterMatchingEngine.handleEventsWith(
                 (rb, bs) -> {
@@ -112,10 +119,12 @@ public final class ExchangeCore {
                     return r2;
                 }));
 
-        Streams.forEachPair(procR1.stream(), procR2.stream(), MasterProcessor::setSlaveProcessor);
-
-        (journallingHandler != null ? disruptor.after(matchingEngineHandler, journallingHandler) : afterMatchingEngine)
+        // 4. results handler (E) after matching engine (ME) + [journalling (J)]
+        (journallingHandler != null ? disruptor.after(ArrayUtils.add(matchingEngineHandlers, journallingHandler)) : afterMatchingEngine)
                 .handleEventsWith((cmd, seq, eob) -> resultsConsumer.accept(cmd));
+
+        // attach slave processors to master processor
+        Streams.forEachPair(procR1.stream(), procR2.stream(), MasterProcessor::setSlaveProcessor);
 
     }
 
@@ -143,5 +152,10 @@ public final class ExchangeCore {
         cmdRingBuffer.publishEvent(SHUTDOWN_SIGNAL_TRANSLATOR);
         disruptor.shutdown();
         log.info("Disruptor stopped");
+    }
+
+    @SuppressWarnings(value = {"unchecked"})
+    private static EventHandler<OrderCommand>[] newEventHandlersArray(int size) {
+        return new EventHandler[size];
     }
 }
