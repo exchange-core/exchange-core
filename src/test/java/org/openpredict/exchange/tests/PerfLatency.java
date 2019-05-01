@@ -5,15 +5,20 @@ import net.openhft.affinity.AffinityLock;
 import org.HdrHistogram.Histogram;
 import org.HdrHistogram.SingleWriterRecorder;
 import org.junit.Test;
+import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.api.ApiCommand;
+import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.PrintStream;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.function.IntConsumer;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static org.junit.Assert.assertEquals;
@@ -29,7 +34,10 @@ public final class PerfLatency extends IntegrationTestBase {
         latencyTestImpl(
                 3_000_000,
                 1_000,
-                1_000);
+                1_000,
+                CURRENCIES_FUTURES,
+                1,
+                AllowedSymbolTypes.FUTURES_CONTRACT);
     }
 
     @Test
@@ -37,10 +45,30 @@ public final class PerfLatency extends IntegrationTestBase {
         latencyTestImpl(
                 8_000_000,
                 1_075_000,
-                1_000_000);
+                1_000_000,
+                CURRENCIES_FUTURES,
+                1,
+                AllowedSymbolTypes.FUTURES_CONTRACT);
     }
 
-    private void latencyTestImpl(final int numOrders, final int targetOrderBookOrders, final int numUsers) {
+    @Test
+    public void latencyMultiSymbol() {
+        latencyTestImpl(
+                10_000_000,
+                50_000,
+                100_000,
+                ALL_CURRENCIES,
+                23,
+                AllowedSymbolTypes.BOTH);
+    }
+
+
+    private void latencyTestImpl(final int totalTransactionsNumber,
+                                 final int targetOrderBookOrders,
+                                 final int numUsers,
+                                 final Set<Integer> currenciesAllowed,
+                                 final int numSymbols,
+                                 final AllowedSymbolTypes allowedSymbolTypes) {
 
 //        int targetTps = 1000000; // transactions per second
         final int targetTps = 100_000; // transactions per second
@@ -53,8 +81,17 @@ public final class PerfLatency extends IntegrationTestBase {
 
         try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
 
-            TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, SYMBOL_MARGIN, false);
-            List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
+            final List<CoreSymbolSpecification> coreSymbolSpecifications = generateAndAddSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
+
+            final Set<Integer> symbols = coreSymbolSpecifications.stream().map(spec -> spec.symbolId).collect(Collectors.toSet());
+            final Map<Integer, TestOrdersGenerator.GenResult> genResults = TestOrdersGenerator.generateMultipleSymbols(
+                    totalTransactionsNumber,
+                    targetOrderBookOrders,
+                    numUsers,
+                    symbols);
+
+            final List<OrderCommand> commands = TestOrdersGenerator.mergeCommands(genResults.values());
+            final List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(commands);
 
             SingleWriterRecorder hdrRecorder = new SingleWriterRecorder(10_000_000_000L, 3);
 
@@ -64,7 +101,8 @@ public final class PerfLatency extends IntegrationTestBase {
                 try {
 
                     initSymbol();
-                    usersInit(numUsers, CURRENCIES_FUTURES);
+                    coreSymbolSpecifications.forEach(super::addSymbol);
+                    usersInit(numUsers, currenciesAllowed);
 
                     hdrRecorder.reset();
 
@@ -98,7 +136,7 @@ public final class PerfLatency extends IntegrationTestBase {
 
                     // compare orderBook final state just to make sure all commands executed same way
                     // TODO compare events, balances, portfolios
-                    assertEquals(genResult.getFinalOrderBookSnapshot(), requestCurrentOrderBook(SYMBOL_MARGIN));
+                    symbols.forEach(symbol -> assertEquals(genResults.get(symbol).getFinalOrderBookSnapshot(), requestCurrentOrderBook(symbol)));
 
                     if (WRITE_HDR_HISTOGRAMS) {
                         PrintStream printStream = new PrintStream(new File(System.currentTimeMillis() + "-" + perfMt + ".perc"));

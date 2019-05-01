@@ -32,6 +32,9 @@ public final class RiskEngine {
     private final long shardMask;
 
     public RiskEngine(final int shardId, final long numShards) {
+        if (Long.bitCount(numShards) != 1) {
+            throw new IllegalArgumentException("Invalid number of shards " + numShards + " - must be power of 2");
+        }
         this.shardId = shardId;
         this.shardMask = numShards - 1;
     }

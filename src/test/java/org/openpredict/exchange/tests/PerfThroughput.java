@@ -46,7 +46,7 @@ public final class PerfThroughput extends IntegrationTestBase {
     }
 
     @Test
-    public void multiSymbol() throws Exception {
+    public void throughputMultiSymbol() throws Exception {
 
         throughputTestImpl(
                 10_000_000,
@@ -80,7 +80,6 @@ public final class PerfThroughput extends IntegrationTestBase {
                     symbols);
 
             final List<OrderCommand> commands = TestOrdersGenerator.mergeCommands(genResults.values());
-
             final List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(commands);
 
             List<Float> perfResults = new ArrayList<>();
