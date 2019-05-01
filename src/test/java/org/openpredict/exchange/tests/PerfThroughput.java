@@ -3,12 +3,17 @@ package org.openpredict.exchange.tests;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
 import org.junit.Test;
+import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.api.ApiCommand;
+import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.stream.Collectors;
 
 import static org.junit.Assert.assertEquals;
 
@@ -22,7 +27,10 @@ public final class PerfThroughput extends IntegrationTestBase {
                 3_000_000,
                 1_000,
                 1_000,
-                50);
+                50,
+                CURRENCIES_FUTURES,
+                1,
+                AllowedSymbolTypes.FUTURES_CONTRACT);
     }
 
     @Test
@@ -31,20 +39,56 @@ public final class PerfThroughput extends IntegrationTestBase {
                 8_000_000,
                 1_075_000,
                 1_000_000,
-                20);
+                20,
+                CURRENCIES_FUTURES,
+                1,
+                AllowedSymbolTypes.FUTURES_CONTRACT);
     }
 
-    private void throughputTestImpl(final int numOrders, final int targetOrderBookOrders, final int numUsers, int iterations) throws InterruptedException {
+    @Test
+    public void multiSymbol() throws Exception {
+
+        throughputTestImpl(
+                10_000_000,
+                50_000,
+                100_000,
+                50,
+                ALL_CURRENCIES,
+                23,
+                AllowedSymbolTypes.BOTH);
+
+    }
+
+
+    private void throughputTestImpl(final int totalTransactionsNumber,
+                                    final int targetOrderBookOrders,
+                                    final int numUsers,
+                                    final int iterations,
+                                    final Set<Integer> currenciesAllowed,
+                                    final int numSymbols,
+                                    final AllowedSymbolTypes allowedSymbolTypes) throws InterruptedException {
 
         try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
-            TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, SYMBOL_MARGIN, false);
-            List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
+
+            final List<CoreSymbolSpecification> coreSymbolSpecifications = generateAndAddSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
+
+            final Set<Integer> symbols = coreSymbolSpecifications.stream().map(spec -> spec.symbolId).collect(Collectors.toSet());
+            final Map<Integer, TestOrdersGenerator.GenResult> genResults = TestOrdersGenerator.generateMultipleSymbols(
+                    totalTransactionsNumber,
+                    targetOrderBookOrders,
+                    numUsers,
+                    symbols);
+
+            final List<OrderCommand> commands = TestOrdersGenerator.mergeCommands(genResults.values());
+
+            final List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(commands);
 
             List<Float> perfResults = new ArrayList<>();
             for (int j = 0; j < iterations; j++) {
 
                 initSymbol();
-                usersInit(numUsers);
+                coreSymbolSpecifications.forEach(super::addSymbol);
+                usersInit(numUsers, currenciesAllowed);
 
                 final CountDownLatch latch = new CountDownLatch(apiCommands.size());
                 consumer = cmd -> latch.countDown();
@@ -55,12 +99,12 @@ public final class PerfThroughput extends IntegrationTestBase {
                 latch.await();
                 t = System.currentTimeMillis() - t;
                 float perfMt = (float) apiCommands.size() / (float) t / 1000.0f;
-                log.info("{}. {} MT/s", j, String.format("%.3f",perfMt));
+                log.info("{}. {} MT/s", j, String.format("%.3f", perfMt));
                 perfResults.add(perfMt);
 
                 // compare orderBook final state just to make sure all commands executed same way
                 // TODO compare events, balances, portfolios
-                assertEquals(genResult.getFinalOrderBookSnapshot(), requestCurrentOrderBook(SYMBOL_MARGIN));
+                symbols.forEach(symbol -> assertEquals(genResults.get(symbol).getFinalOrderBookSnapshot(), requestCurrentOrderBook(symbol)));
 
                 resetExchangeCore();
 
@@ -72,5 +116,4 @@ public final class PerfThroughput extends IntegrationTestBase {
             log.info("Average: {} MT/s", avg);
         }
     }
-
 }

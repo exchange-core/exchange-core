@@ -1,7 +1,6 @@
 package org.openpredict.exchange.tests.util;
 
 import lombok.NonNull;
-import lombok.RequiredArgsConstructor;
 import org.eclipse.collections.impl.map.mutable.primitive.IntIntHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.openpredict.exchange.core.orderbook.IOrderBook;
@@ -11,7 +10,6 @@ import java.util.BitSet;
 import java.util.List;
 import java.util.Random;
 
-@RequiredArgsConstructor()
 public class TestOrdersGeneratorSession {
 
     public final IOrderBook orderBook;
@@ -24,7 +22,7 @@ public class TestOrdersGeneratorSession {
 
     public final int symbol;
 
-    public final Random rand = new Random(1L);
+    public final Random rand;
 
     //    public ConcurrentBitSet actualOrders;
     public final BitSet actualOrders = new BitSet();
@@ -57,4 +55,15 @@ public class TestOrdersGeneratorSession {
 
     public int lastOrderBookOrdersSize = 0;
 
+    public TestOrdersGeneratorSession(IOrderBook orderBook, int targetOrderBookOrders, long priceDeviation, int numUsers, int symbol, long centralPrice, boolean enableSlidingPrice) {
+        this.orderBook = orderBook;
+        this.targetOrderBookOrders = targetOrderBookOrders;
+        this.priceDeviation = priceDeviation;
+        this.numUsers = numUsers;
+        this.symbol = symbol;
+        this.rand = new Random(symbol);
+
+        this.lastTradePrice = centralPrice;
+        this.priceDirection = enableSlidingPrice ? 1 : 0;
+    }
 }

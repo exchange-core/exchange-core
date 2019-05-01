@@ -1,15 +1,13 @@
 package org.openpredict.exchange.beans;
 
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.NonNull;
-import lombok.ToString;
+import lombok.*;
 
 import java.io.Serializable;
 
 @Builder
 @AllArgsConstructor
+@Getter
 @ToString
 public final class CoreSymbolSpecification implements Serializable {
 

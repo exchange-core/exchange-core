@@ -12,6 +12,7 @@ import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 
 import static org.hamcrest.core.Is.is;
@@ -156,15 +157,15 @@ public class ITExchangeCoreIntegration extends IntegrationTestBase {
 
     @Test(timeout = 30_000)
     public void manyOperationsMargin() throws Exception {
-        manyOperations(SYMBOL_MARGIN);
+        manyOperations(SYMBOL_MARGIN, CURRENCIES_FUTURES);
     }
 
     @Test(timeout = 30_000)
     public void manyOperationsExchange() throws Exception {
-        manyOperations(SYMBOL_EXCHANGE);
+        manyOperations(SYMBOL_EXCHANGE, CURRENCIES_EXCHANGE);
     }
 
-    public void manyOperations(final int symbol) throws Exception {
+    public void manyOperations(final int symbol, final Set<Integer> currenciesAllowed) throws Exception {
 
         int numOrders = 1_000_000;
         int targetOrderBookOrders = 1000;
@@ -173,7 +174,7 @@ public class ITExchangeCoreIntegration extends IntegrationTestBase {
         TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, symbol, false);
         List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
 
-        usersInit(numUsers);
+        usersInit(numUsers, currenciesAllowed);
 
         final CountDownLatch ordersLatch = new CountDownLatch(apiCommands.size());
         consumer = cmd -> ordersLatch.countDown();

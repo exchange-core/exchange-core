@@ -37,7 +37,7 @@ public final class ExchangeCore {
 
     private static final int RING_BUFFER_SIZE = 64 * 1024;
     private static final int RISK_ENGINES_NUM = 2;
-    private static final int MATCHING_ENGINES_NUM = 1;
+    private static final int MATCHING_ENGINES_NUM = 2;
 
     private final Disruptor<OrderCommand> disruptor;
 

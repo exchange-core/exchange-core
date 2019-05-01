@@ -64,7 +64,7 @@ public final class PerfLatency extends IntegrationTestBase {
                 try {
 
                     initSymbol();
-                    usersInit(numUsers);
+                    usersInit(numUsers, CURRENCIES_FUTURES);
 
                     hdrRecorder.reset();
 
