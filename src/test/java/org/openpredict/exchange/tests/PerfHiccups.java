@@ -43,7 +43,7 @@ public final class PerfHiccups extends IntegrationTestBase {
                     Thread.sleep(300);
 
                     initSymbol();
-                    usersInit(numUsers);
+                    usersInit(numUsers, CURRENCIES_FUTURES);
 
                     LongLongHashMap hiccupTimestampsNs = new LongLongHashMap(10000);
 

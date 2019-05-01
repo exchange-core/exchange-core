@@ -15,9 +15,9 @@ import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.orderbook.IOrderBook;
 import org.openpredict.exchange.core.orderbook.OrderBookNaiveImpl;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 
 import static org.hamcrest.Matchers.greaterThan;
@@ -37,6 +37,40 @@ public class TestOrdersGenerator {
 
     // TODO allow limiting max volume
 
+    public static Map<Integer, GenResult> generateMultipleSymbols(
+            int totalTransactionsNumber,
+            int targetOrderBookOrders,
+            int numUsers,
+            Set<Integer> symbols) {
+
+        int numSymbols = symbols.size();
+
+        int quotaLeft = totalTransactionsNumber;
+        int c = 1;
+        final Map<Integer, CompletableFuture<GenResult>> futures = new HashMap<>();
+
+        for (int symbol : symbols) {
+            final int commandsNum = (c < numSymbols) ? totalTransactionsNumber / numSymbols : quotaLeft;
+
+            log.debug("Generating symbol {} : commands={}", symbol, commandsNum);
+            futures.put(symbol, CompletableFuture.supplyAsync(() -> generateCommands(commandsNum, targetOrderBookOrders, numUsers, symbol, false)));
+            quotaLeft -= commandsNum;
+            c++;
+        }
+
+        final Map<Integer, GenResult> results = new HashMap<>();
+        futures.forEach((symbol, future) -> {
+            try {
+                results.put(symbol, future.get());
+            } catch (InterruptedException | ExecutionException ex) {
+                throw new IllegalStateException(ex);
+            }
+        });
+
+        return results;
+    }
+
+
     public static GenResult generateCommands(
             int transactionsNumber,
             int targetOrderBookOrders,
@@ -53,7 +87,7 @@ public class TestOrdersGenerator {
                 numUsers,
                 symbol,
                 CENTRAL_PRICE,
-                enableSlidingPrice ? 1 : 0);
+                enableSlidingPrice);
 
         List<OrderCommand> commands = new ArrayList<>();
 
@@ -311,6 +345,57 @@ public class TestOrdersGenerator {
         private L2MarketData finalOrderBookSnapshot;
         private int finalOrderbookHash;
         private List<OrderCommand> commands;
+    }
+
+
+    public static List<OrderCommand> mergeCommands(final Collection<GenResult> genResultsCollection) {
+
+        if (genResultsCollection.size() == 1) {
+            return genResultsCollection.stream().findFirst().get().commands;
+        }
+
+        Random rand = new Random(1L);
+
+        List<GenResult> genResults = new ArrayList<>(genResultsCollection);
+
+        List<Integer> probabilityRanges = new ArrayList<>();
+        List<Integer> leftCounters = new ArrayList<>();
+        int totalCommands = 0;
+        for (final GenResult genResult : genResults) {
+            final int size = genResult.getCommands().size();
+            leftCounters.add(size);
+            totalCommands += size;
+            probabilityRanges.add(totalCommands);
+        }
+
+        log.debug("Merging {} commands for {} different symbols: probabilityRanges: {}", totalCommands, genResults.size(), probabilityRanges);
+
+        List<OrderCommand> res = new ArrayList<>(totalCommands);
+
+        while (true) {
+
+            int r = rand.nextInt(totalCommands);
+
+            int pos = Collections.binarySearch(probabilityRanges, r);
+            if (pos < 0) {
+                pos = -1 - pos;
+            }
+
+            int left = leftCounters.get(pos);
+
+            if (left > 0) {
+                List<OrderCommand> commands = genResults.get(pos).getCommands();
+                res.add(commands.get(commands.size() - left));
+                leftCounters.set(pos, left - 1);
+            } else {
+                // todo remove/optimize
+                if (res.size() == totalCommands) {
+                    return res;
+                }
+            }
+
+        }
+
     }
 
 }

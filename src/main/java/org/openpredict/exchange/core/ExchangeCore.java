@@ -1,5 +1,6 @@
 package org.openpredict.exchange.core;
 
+import com.google.common.collect.Streams;
 import com.lmax.disruptor.EventHandler;
 import com.lmax.disruptor.EventTranslator;
 import com.lmax.disruptor.RingBuffer;
@@ -9,6 +10,7 @@ import com.lmax.disruptor.dsl.ProducerType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
+import org.apache.commons.lang3.ArrayUtils;
 import org.openpredict.exchange.beans.CfgWaitStrategyType;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
@@ -18,9 +20,13 @@ import org.openpredict.exchange.core.biprocessor.MasterProcessor;
 import org.openpredict.exchange.core.biprocessor.SlaveProcessor;
 import org.openpredict.exchange.core.journalling.JournallingProcessor;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 @RequiredArgsConstructor
 @Slf4j
@@ -30,16 +36,12 @@ public final class ExchangeCore {
     private static final boolean THREAD_AFFINITY_PER_CORE = false;
 
     private static final int RING_BUFFER_SIZE = 64 * 1024;
-
-    private final MatchingEngineRouter matchingEngineRouter = new MatchingEngineRouter();
-
-    private final RiskEngine riskEngine = new RiskEngine();
+    private static final int RISK_ENGINES_NUM = 2;
+    private static final int MATCHING_ENGINES_NUM = 2;
 
     private final Disruptor<OrderCommand> disruptor;
 
     private final RingBuffer<OrderCommand> cmdRingBuffer;
-
-    private MasterProcessor procR1;
 
     public ExchangeCore(Consumer<OrderCommand> resultsConsumer) {
         this(resultsConsumer, null);
@@ -63,6 +65,7 @@ public final class ExchangeCore {
 
         this.cmdRingBuffer = disruptor.getRingBuffer();
 
+        // creating and attaching exceptions handler
         final DisruptorExceptionHandler<OrderCommand> exceptionHandler = new DisruptorExceptionHandler<>("main", (ex, seq) -> {
             log.error("Exception thrown on sequence={}", seq, ex);
             // TODO re-throw exception on publishing
@@ -72,33 +75,56 @@ public final class ExchangeCore {
 
         disruptor.setDefaultExceptionHandler(exceptionHandler);
 
-        final EventHandler<OrderCommand> matchingEngineHandler = (cmd, seq, eob) -> matchingEngineRouter.processOrder(cmd);
+        // creating matching engine event handlers array
+        EventHandler<OrderCommand>[] matchingEngineHandlers = IntStream.range(0, MATCHING_ENGINES_NUM)
+                .mapToObj(shardId -> {
+                    final MatchingEngineRouter router = new MatchingEngineRouter(shardId, MATCHING_ENGINES_NUM);
+                    return (EventHandler<OrderCommand>) (cmd, seq, eob) -> router.processOrder(cmd);
+                })
+                .toArray(ExchangeCore::newEventHandlersArray);
 
-//         1. grouping processor (G)
-        EventHandlerGroup<OrderCommand> afterGrouping =
+        // creating risk engines array
+        final List<RiskEngine> riskEngines = IntStream.range(0, RISK_ENGINES_NUM)
+                .mapToObj(shardId -> new RiskEngine(shardId, RISK_ENGINES_NUM))
+                .collect(Collectors.toList());
+
+        final List<MasterProcessor> procR1 = new ArrayList<>();
+        final List<SlaveProcessor> procR2 = new ArrayList<>();
+
+        // 1. grouping processor (G)
+        final EventHandlerGroup<OrderCommand> afterGrouping =
                 disruptor.handleEventsWith((rb, bs) -> new GroupingProcessor(rb, rb.newBarrier(bs)));
 
-        // 2. journalling (J) in parallel with risk hold (R1) + matching engine (ME)
+        // 2. [journalling (J)] in parallel with risk hold (R1) + matching engine (ME)
         if (journallingHandler != null) {
             afterGrouping.handleEventsWith(journallingHandler);
         }
 
-        afterGrouping.handleEventsWith((rb, bs) -> {
-            procR1 = new MasterProcessor(rb, rb.newBarrier(bs), this::riskPreProcess, exceptionHandler);
-            return procR1;
-        }).then(matchingEngineHandler);
+        riskEngines.forEach(riskEngine -> afterGrouping.handleEventsWith(
+                (rb, bs) -> {
+                    final MasterProcessor r1 = new MasterProcessor(rb, rb.newBarrier(bs), riskEngine::preProcessCommand, exceptionHandler);
+                    procR1.add(r1);
+                    return r1;
+                }));
 
-        // 3. results handler (E) after matching engine (ME) + [journalling (J)]
-        // 4. risk release (R2) after matching engine (ME)
-        EventHandlerGroup<OrderCommand> afterMatchingEngine = disruptor.after(matchingEngineHandler);
-        afterMatchingEngine.then((rb, bs) -> {
-            final SlaveProcessor procR2 = new SlaveProcessor(rb, rb.newBarrier(bs), this::handlerRiskRelease, exceptionHandler);
-            procR1.setSlaveProcessor(procR2);
-            return procR2;
-        });
+        disruptor.after(procR1.toArray(new MasterProcessor[0])).handleEventsWith(matchingEngineHandlers);
 
-        (journallingHandler != null ? disruptor.after(matchingEngineHandler, journallingHandler) : afterMatchingEngine)
-                .then((cmd, seq, eob) -> resultsConsumer.accept(cmd));
+        // 3. risk release (R2) after matching engine (ME)
+        EventHandlerGroup<OrderCommand> afterMatchingEngine = disruptor.after(matchingEngineHandlers);
+
+        riskEngines.forEach(riskEngine -> afterMatchingEngine.handleEventsWith(
+                (rb, bs) -> {
+                    final SlaveProcessor r2 = new SlaveProcessor(rb, rb.newBarrier(bs), riskEngine::handlerRiskRelease, exceptionHandler);
+                    procR2.add(r2);
+                    return r2;
+                }));
+
+        // 4. results handler (E) after matching engine (ME) + [journalling (J)]
+        (journallingHandler != null ? disruptor.after(ArrayUtils.add(matchingEngineHandlers, journallingHandler)) : afterMatchingEngine)
+                .handleEventsWith((cmd, seq, eob) -> resultsConsumer.accept(cmd));
+
+        // attach slave processors to master processor
+        Streams.forEachPair(procR1.stream(), procR2.stream(), MasterProcessor::setSlaveProcessor);
 
     }
 
@@ -128,56 +154,8 @@ public final class ExchangeCore {
         log.info("Disruptor stopped");
     }
 
-    /**
-     * Pre-process command handler
-     * 1. MOVE/CANCEL commands ignored, for specific uid marked as valid for matching engine
-     * 2. PLACE ORDER checked with risk ending for specific uid
-     * 3. ADD USER, BALANCE_ADJUSTMENT processed for specific uid, not valid for matching engine
-     * 4. BINARY_DATA commands processed for ANY uid and marked as valid for matching engine TODO which handler marks?
-     * 5. RESET commands processed for any uid
-     * @param cmd - command
-     */
-    private void riskPreProcess(OrderCommand cmd) {
-
-        switch (cmd.command) {
-            case MOVE_ORDER:
-            case CANCEL_ORDER:
-            case ORDER_BOOK_REQUEST:
-                // NO checks for UPDATE or CANCEL
-                break;
-
-            case PLACE_ORDER:
-                cmd.resultCode = riskEngine.placeOrderRiskCheck(cmd);
-                break;
-
-            case ADD_USER:
-                cmd.resultCode = riskEngine.getUserProfileService().addEmptyUserProfile(cmd.uid);
-                break;
-
-            case BALANCE_ADJUSTMENT:
-                cmd.resultCode = riskEngine.getUserProfileService().balanceAdjustment(cmd.uid, cmd.symbol, cmd.price, cmd.orderId);
-                break;
-
-            case BINARY_DATA:
-                riskEngine.getBinaryCommandsProcessor().binaryData(cmd);
-                break;
-
-            case RESET:
-                resetState();
-                break;
-
-            case NOP:
-                // TODO set only by processor 0
-                cmd.resultCode = CommandResultCode.SUCCESS;
-                break;
-        }
-    }
-
-    private void handlerRiskRelease(final OrderCommand cmd) {
-        riskEngine.handlerRiskRelease(cmd.symbol, cmd.marketData, cmd.matcherEvent);
-    }
-
-    private void resetState() {
-        riskEngine.reset();
+    @SuppressWarnings(value = {"unchecked"})
+    private static EventHandler<OrderCommand>[] newEventHandlersArray(int size) {
+        return new EventHandler[size];
     }
 }
