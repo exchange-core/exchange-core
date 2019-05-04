@@ -31,6 +31,7 @@ public final class PerfLatency extends IntegrationTestBase {
 
     @Test
     public void latencyTest() {
+        initExchange();
         latencyTestImpl(
                 3_000_000,
                 1_000,
@@ -42,6 +43,7 @@ public final class PerfLatency extends IntegrationTestBase {
 
     @Test
     public void latencyTestTripleMillion() {
+        initExchange(128 * 1024, 1, 2);
         latencyTestImpl(
                 8_000_000,
                 1_075_000,
@@ -53,6 +55,7 @@ public final class PerfLatency extends IntegrationTestBase {
 
     @Test
     public void latencyMultiSymbol() {
+        initExchange(128 * 1024, 2, 2);
         latencyTestImpl(
                 10_000_000,
                 50_000,
@@ -93,14 +96,14 @@ public final class PerfLatency extends IntegrationTestBase {
             final List<OrderCommand> commands = TestOrdersGenerator.mergeCommands(genResults.values());
             final List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(commands);
 
-            SingleWriterRecorder hdrRecorder = new SingleWriterRecorder(10_000_000_000L, 3);
+            SingleWriterRecorder hdrRecorder = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
 
             // TODO - first run should validate the output (orders are accepted and processed properly)
 
             IntConsumer testIteration = tps -> {
                 try {
 
-                    initSymbol();
+                    initBasicSymbols();
                     coreSymbolSpecifications.forEach(super::addSymbol);
                     usersInit(numUsers, currenciesAllowed);
 
@@ -108,9 +111,9 @@ public final class PerfLatency extends IntegrationTestBase {
 
                     final CountDownLatch latch = new CountDownLatch(apiCommands.size());
                     consumer = cmd -> {
-                        hdrRecorder.recordValue((System.nanoTime() - cmd.timestamp));
+                        final long latency = System.nanoTime() - cmd.timestamp;
+                        hdrRecorder.recordValue(Math.min(latency, Integer.MAX_VALUE));
                         latch.countDown();
-                        //receiveCounter.lazySet(cmd.timestamp);
                     };
 
                     final int nanosPerCmd = (1_000_000_000 / tps);

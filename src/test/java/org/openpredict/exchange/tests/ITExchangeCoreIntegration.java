@@ -10,7 +10,6 @@ import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.tests.util.L2MarketDataHelper;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -21,28 +20,6 @@ import static org.junit.Assert.*;
 @Slf4j
 public class ITExchangeCoreIntegration extends IntegrationTestBase {
 
-    private static final int UID_1 = 1442412;
-    private static final int UID_2 = 1442413;
-
-    @Before
-    public void before() throws InterruptedException {
-        initSymbol();
-
-        List<ApiCommand> cmds = new ArrayList<>();
-
-        cmds.add(ApiAddUser.builder().uid(UID_1).build());
-        cmds.add(ApiAdjustUserBalance.builder().uid(UID_1).transactionId(1L).amount(10_000_00L).currency(CURRENECY_USD).build());
-        cmds.add(ApiAdjustUserBalance.builder().uid(UID_1).transactionId(2L).amount(1_0000_0000L).currency(CURRENECY_XBT).build());
-        cmds.add(ApiAdjustUserBalance.builder().uid(UID_1).transactionId(3L).amount(1_0000_0000L).currency(CURRENECY_ETH).build());
-
-        cmds.add(ApiAddUser.builder().uid(UID_2).build());
-        cmds.add(ApiAdjustUserBalance.builder().uid(UID_2).transactionId(1L).amount(20_000_00L).currency(CURRENECY_USD).build());
-        cmds.add(ApiAdjustUserBalance.builder().uid(UID_2).transactionId(2L).amount(1_0000_0000L).currency(CURRENECY_XBT).build());
-        cmds.add(ApiAdjustUserBalance.builder().uid(UID_2).transactionId(3L).amount(1_0000_0000L).currency(CURRENECY_ETH).build());
-
-        submitCommandsSync(cmds);
-    }
-
     @After
     public void after() throws InterruptedException {
         resetExchangeCore();
@@ -50,11 +27,19 @@ public class ITExchangeCoreIntegration extends IntegrationTestBase {
 
     @Test(timeout = 3_000)
     public void basicFullCycleTestMargin() throws Exception {
+        initExchange();
+        initBasicSymbols();
+        initBasicUsers();
+
         basicFullCycleTest(SYMBOL_MARGIN);
     }
 
     @Test(timeout = 3_000)
     public void basicFullCycleTestExchange() throws Exception {
+        initExchange();
+        initBasicSymbols();
+        initBasicUsers();
+
         basicFullCycleTest(SYMBOL_EXCHANGE);
     }
 
@@ -157,11 +142,19 @@ public class ITExchangeCoreIntegration extends IntegrationTestBase {
 
     @Test(timeout = 30_000)
     public void manyOperationsMargin() throws Exception {
+        initExchange();
+        initBasicSymbols();
+        initBasicUsers();
+
         manyOperations(SYMBOL_MARGIN, CURRENCIES_FUTURES);
     }
 
     @Test(timeout = 30_000)
     public void manyOperationsExchange() throws Exception {
+        initExchange();
+        initBasicSymbols();
+        initBasicUsers();
+
         manyOperations(SYMBOL_EXCHANGE, CURRENCIES_EXCHANGE);
     }
 

@@ -23,6 +23,7 @@ public final class PerfThroughput extends IntegrationTestBase {
     // TODO shutdown disruptor if test fails
     @Test
     public void throughputTest() throws Exception {
+        initExchange();
         throughputTestImpl(
                 3_000_000,
                 1_000,
@@ -35,6 +36,7 @@ public final class PerfThroughput extends IntegrationTestBase {
 
     @Test
     public void throughputTestTripleMillion() throws Exception {
+        initExchange(128 * 1024, 1, 2);
         throughputTestImpl(
                 8_000_000,
                 1_075_000,
@@ -47,7 +49,7 @@ public final class PerfThroughput extends IntegrationTestBase {
 
     @Test
     public void throughputMultiSymbol() throws Exception {
-
+        initExchange(128 * 1024, 2, 2);
         throughputTestImpl(
                 10_000_000,
                 50_000,
@@ -85,7 +87,7 @@ public final class PerfThroughput extends IntegrationTestBase {
             List<Float> perfResults = new ArrayList<>();
             for (int j = 0; j < iterations; j++) {
 
-                initSymbol();
+                initBasicSymbols();
                 coreSymbolSpecifications.forEach(super::addSymbol);
                 usersInit(numUsers, currenciesAllowed);
 

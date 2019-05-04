@@ -22,6 +22,8 @@ public final class PerfHiccups extends IntegrationTestBase {
     @Test
     public void hiccupsTest() {
 
+        initExchange();
+
         final int numOrders = 3_000_000;
         final int targetOrderBookOrders = 1000;
         final int numUsers = 1000;
@@ -42,7 +44,7 @@ public final class PerfHiccups extends IntegrationTestBase {
                     System.gc();
                     Thread.sleep(300);
 
-                    initSymbol();
+                    initBasicSymbols();
                     usersInit(numUsers, CURRENCIES_FUTURES);
 
                     LongLongHashMap hiccupTimestampsNs = new LongLongHashMap(10000);

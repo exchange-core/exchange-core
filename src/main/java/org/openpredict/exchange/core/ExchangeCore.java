@@ -35,19 +35,15 @@ public final class ExchangeCore {
     private static final boolean THREAD_AFFINITY_ENABLE = true;
     private static final boolean THREAD_AFFINITY_PER_CORE = false;
 
-    private static final int RING_BUFFER_SIZE = 64 * 1024;
-    private static final int RISK_ENGINES_NUM = 2;
-    private static final int MATCHING_ENGINES_NUM = 2;
-
     private final Disruptor<OrderCommand> disruptor;
 
     private final RingBuffer<OrderCommand> cmdRingBuffer;
 
-    public ExchangeCore(Consumer<OrderCommand> resultsConsumer) {
-        this(resultsConsumer, null);
-    }
-
-    public ExchangeCore(Consumer<OrderCommand> resultsConsumer, JournallingProcessor journallingHandler) {
+    public ExchangeCore(final Consumer<OrderCommand> resultsConsumer,
+                        final JournallingProcessor journallingHandler,
+                        final int ringBufferSize,
+                        final int matchingEnginesNum,
+                        final int riskEnginesNum) {
 
         ThreadFactory threadFactory = eventProcessor -> new Thread(() -> {
             try (AffinityLock lock = THREAD_AFFINITY_PER_CORE ? AffinityLock.acquireCore() : AffinityLock.acquireLock()) {
@@ -58,7 +54,7 @@ public final class ExchangeCore {
 
         this.disruptor = new Disruptor<>(
                 OrderCommand::new,
-                RING_BUFFER_SIZE,
+                ringBufferSize,
                 THREAD_AFFINITY_ENABLE ? threadFactory : Executors.defaultThreadFactory(),
                 ProducerType.MULTI, // multiple gateway threads are writing
                 CfgWaitStrategyType.BUSY_SPIN.create());
@@ -76,16 +72,16 @@ public final class ExchangeCore {
         disruptor.setDefaultExceptionHandler(exceptionHandler);
 
         // creating matching engine event handlers array
-        EventHandler<OrderCommand>[] matchingEngineHandlers = IntStream.range(0, MATCHING_ENGINES_NUM)
+        EventHandler<OrderCommand>[] matchingEngineHandlers = IntStream.range(0, matchingEnginesNum)
                 .mapToObj(shardId -> {
-                    final MatchingEngineRouter router = new MatchingEngineRouter(shardId, MATCHING_ENGINES_NUM);
+                    final MatchingEngineRouter router = new MatchingEngineRouter(shardId, matchingEnginesNum);
                     return (EventHandler<OrderCommand>) (cmd, seq, eob) -> router.processOrder(cmd);
                 })
                 .toArray(ExchangeCore::newEventHandlersArray);
 
         // creating risk engines array
-        final List<RiskEngine> riskEngines = IntStream.range(0, RISK_ENGINES_NUM)
-                .mapToObj(shardId -> new RiskEngine(shardId, RISK_ENGINES_NUM))
+        final List<RiskEngine> riskEngines = IntStream.range(0, riskEnginesNum)
+                .mapToObj(shardId -> new RiskEngine(shardId, riskEnginesNum))
                 .collect(Collectors.toList());
 
         final List<MasterProcessor> procR1 = new ArrayList<>();
