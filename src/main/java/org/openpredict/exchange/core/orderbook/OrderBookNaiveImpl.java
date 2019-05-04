@@ -1,6 +1,5 @@
 package org.openpredict.exchange.core.orderbook;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.beans.L2MarketData;
@@ -11,7 +10,6 @@ import org.openpredict.exchange.beans.cmd.OrderCommand;
 import java.util.*;
 
 @Slf4j
-@RequiredArgsConstructor
 public final class OrderBookNaiveImpl implements IOrderBook {
 
     private final NavigableMap<Long, IOrdersBucket> askBuckets = new TreeMap<>();
@@ -19,13 +17,23 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
     private final LongObjectHashMap<Order> idMap = new LongObjectHashMap<>();
 
+    private final OrderBookEventsHelper orderBookEventsHelper;
+
+    public OrderBookNaiveImpl(OrderBookEventsHelper orderBookEventsHelper) {
+        this.orderBookEventsHelper = orderBookEventsHelper;
+    }
+
+    public OrderBookNaiveImpl() {
+        this.orderBookEventsHelper = new OrderBookEventsHelper();
+    }
+
     public void matchMarketOrder(OrderCommand cmd) {
         final NavigableMap<Long, IOrdersBucket> matchingBuckets = cmd.action == OrderAction.ASK ? bidBuckets : askBuckets;
         long filledSize = tryMatchInstantly(cmd, matchingBuckets, 0, cmd);
 
         // partially filled due no liquidity - should report PARTIAL order execution
         if (filledSize < cmd.size) {
-            OrderBookEventsHelper.attachRejectEvent(cmd, filledSize);
+            orderBookEventsHelper.attachRejectEvent(cmd, filledSize);
         }
     }
 
@@ -176,7 +184,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
             buckets.remove(price);
         }
 
-        OrderBookEventsHelper.sendReduceEvent(cmd, order, order.size - order.filled);
+        orderBookEventsHelper.sendReduceEvent(cmd, order, order.size - order.filled);
 
         return true;
     }

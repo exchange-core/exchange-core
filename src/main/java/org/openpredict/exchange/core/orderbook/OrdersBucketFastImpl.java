@@ -1,7 +1,6 @@
 package org.openpredict.exchange.core.orderbook;
 
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
@@ -24,10 +23,11 @@ import java.util.function.Consumer;
  * Orders are stored in resizable queue array.<br/>
  * Queue is indexed by hashmap for fast cancel/update operations.<br/>
  */
-@NoArgsConstructor
 @Slf4j
 @ToString
 public final class OrdersBucketFastImpl implements IOrdersBucket {
+
+    private final OrderBookEventsHelper orderBookEventsHelper;
 
     @Getter
     @Setter
@@ -44,6 +44,15 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
 
     @Getter
     private long totalVolume = 0;
+
+    public OrdersBucketFastImpl(OrderBookEventsHelper orderBookEventsHelper) {
+        this.orderBookEventsHelper = orderBookEventsHelper;
+    }
+
+    public OrdersBucketFastImpl() {
+        this.orderBookEventsHelper = new OrderBookEventsHelper();
+    }
+
 
     @Override
     public void add(Order order) {
@@ -195,7 +204,7 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
             // remove from order book filled orders
             boolean fullMatch = order.size == order.filled;
 
-            OrderBookEventsHelper.sendTradeEvent(triggerCmd, activeOrder, order, fullMatch, volumeToCollect == 0, price, v);
+            orderBookEventsHelper.sendTradeEvent(triggerCmd, activeOrder, order, fullMatch, volumeToCollect == 0, price, v);
 
             if (fullMatch) {
 
@@ -250,7 +259,7 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
         if (reduceBy > 0) {
             order.size -= reduceBy;
             totalVolume -= reduceBy;
-            OrderBookEventsHelper.sendReduceEvent(cmd, order, reduceBy);
+            orderBookEventsHelper.sendReduceEvent(cmd, order, reduceBy);
         }
 
         //validate();

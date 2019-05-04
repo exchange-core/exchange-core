@@ -17,9 +17,11 @@ package org.openpredict.exchange.core.biprocessor;
 
 import com.lmax.disruptor.*;
 import lombok.extern.slf4j.Slf4j;
+import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
 
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
@@ -29,16 +31,21 @@ public final class GroupingProcessor implements EventProcessor {
     private static final int RUNNING = HALTED + 1;
 
     private static final int GROUP_SPIN_LIMIT = 1000;
+    private static final int EVENTS_BUCKET_SIZE = 512;
 
     private final AtomicInteger running = new AtomicInteger(IDLE);
     private final RingBuffer<OrderCommand> ringBuffer;
     private final SequenceBarrier sequenceBarrier;
     private final WaitSpinningHelper waitSpinningHelper;
     private final Sequence sequence = new Sequence(Sequencer.INITIAL_CURSOR_VALUE);
+    private final BlockingQueue<MatcherTradeEvent[]> matcherTradeEventsPool;
 
-    public GroupingProcessor(final RingBuffer<OrderCommand> ringBuffer, final SequenceBarrier sequenceBarrier) {
+    public GroupingProcessor(final RingBuffer<OrderCommand> ringBuffer,
+                             final SequenceBarrier sequenceBarrier,
+                             final BlockingQueue<MatcherTradeEvent[]> matcherTradeEventsPool) {
         this.ringBuffer = ringBuffer;
         this.sequenceBarrier = sequenceBarrier;
+        this.matcherTradeEventsPool = matcherTradeEventsPool;
         this.waitSpinningHelper = new WaitSpinningHelper(ringBuffer, sequenceBarrier, GROUP_SPIN_LIMIT);
     }
 
@@ -96,6 +103,9 @@ public final class GroupingProcessor implements EventProcessor {
         long l2dataLastNs = 0;
         boolean triggerL2DataRequest = false;
 
+        int tradeEventsCounter = 0;
+        MatcherTradeEvent[] tradeEventsBucket = new MatcherTradeEvent[EVENTS_BUCKET_SIZE];
+
         while (true) {
             try {
 
@@ -118,7 +128,18 @@ public final class GroupingProcessor implements EventProcessor {
 
                         // cleaning attached objects
                         cmd.marketData = null;
+
+                        MatcherTradeEvent matcherEvent = cmd.matcherEvent;
                         cmd.matcherEvent = null;
+                        while (matcherEvent != null) {
+                            tradeEventsBucket[tradeEventsCounter++] = matcherEvent;
+                            if (tradeEventsCounter == EVENTS_BUCKET_SIZE) {
+                                tradeEventsCounter = 0;
+                                matcherTradeEventsPool.offer(tradeEventsBucket);
+                                tradeEventsBucket = new MatcherTradeEvent[EVENTS_BUCKET_SIZE];
+                            }
+                            matcherEvent = matcherEvent.nextEvent;
+                        }
 
                         if (cmd.command == OrderCommandType.NOP) {
                             // just set next group and pass

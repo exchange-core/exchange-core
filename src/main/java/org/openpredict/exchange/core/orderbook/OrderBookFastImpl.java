@@ -23,6 +23,8 @@ public final class OrderBookFastImpl implements IOrderBook {
 
     private final int hotPricesRange; // TODO must be aligned by 64 bit, can not be lower than 1024
 
+    private final OrderBookEventsHelper orderBookEventsHelper;
+
     private BitSet hotAskBitSet;
     private BitSet hotBidBitSet;
     private final LongObjectHashMap<IOrdersBucket> hotAskBuckets = new LongObjectHashMap<>();
@@ -55,9 +57,14 @@ public final class OrderBookFastImpl implements IOrderBook {
     private final ArrayDeque<IOrdersBucket> bucketsPool = new ArrayDeque<>(65536);
 
     public OrderBookFastImpl(int hotPricesRange) {
+        this(hotPricesRange, new OrderBookEventsHelper());
+    }
+
+    public OrderBookFastImpl(int hotPricesRange, final OrderBookEventsHelper orderBookEventsHelper) {
         this.hotPricesRange = hotPricesRange;
         this.hotAskBitSet = new BitSet(hotPricesRange);
         this.hotBidBitSet = new BitSet(hotPricesRange);
+        this.orderBookEventsHelper = orderBookEventsHelper;
     }
 
     private int priceToIndex(long price) {
@@ -79,7 +86,7 @@ public final class OrderBookFastImpl implements IOrderBook {
 
         // partially filled due no liquidity - should report PARTIAL order execution
         if (filledSize < cmd.size) {
-            OrderBookEventsHelper.attachRejectEvent(cmd, filledSize);
+            orderBookEventsHelper.attachRejectEvent(cmd, filledSize);
         }
     }
 
@@ -179,7 +186,7 @@ public final class OrderBookFastImpl implements IOrderBook {
 
         ordersBucket = bucketsPool.pollLast();
         if (ordersBucket == null) {
-            ordersBucket = new OrdersBucketFastImpl();
+            ordersBucket = new OrdersBucketFastImpl(orderBookEventsHelper);
         }
 
         ordersBucket.setPrice(price);
@@ -214,7 +221,7 @@ public final class OrderBookFastImpl implements IOrderBook {
 
         ordersBucket = bucketsPool.pollLast();
         if (ordersBucket == null) {
-            ordersBucket = new OrdersBucketFastImpl();
+            ordersBucket = new OrdersBucketFastImpl(orderBookEventsHelper);
         }
 
         ordersBucket.setPrice(price);
@@ -388,7 +395,7 @@ public final class OrderBookFastImpl implements IOrderBook {
 
         // send reduce event
         long reducedBy = removedOrder.size - removedOrder.filled;
-        OrderBookEventsHelper.sendReduceEvent(cmd, removedOrder, reducedBy);
+        orderBookEventsHelper.sendReduceEvent(cmd, removedOrder, reducedBy);
 
         // saving free object back to the pool
         ordersPool.addLast(removedOrder);

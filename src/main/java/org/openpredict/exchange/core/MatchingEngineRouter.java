@@ -3,10 +3,14 @@ package org.openpredict.exchange.core;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
+import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.core.orderbook.IOrderBook;
+import org.openpredict.exchange.core.orderbook.OrderBookEventsHelper;
 import org.openpredict.exchange.core.orderbook.OrderBookFastImpl;
+
+import java.util.concurrent.BlockingQueue;
 
 import static org.openpredict.exchange.beans.cmd.OrderCommandType.*;
 
@@ -19,15 +23,18 @@ public final class MatchingEngineRouter {
     // symbol->OB
     private final IntObjectHashMap<IOrderBook> orderBooks = new IntObjectHashMap<>();
 
+    private final OrderBookEventsHelper orderBookEventsHelper;
+
     private final int shardId;
     private final long shardMask;
 
-    public MatchingEngineRouter(final int shardId, final long numShards) {
+    public MatchingEngineRouter(final int shardId, final long numShards, final BlockingQueue<MatcherTradeEvent[]> matcherTradeEventsPool) {
         if (Long.bitCount(numShards) != 1) {
             throw new IllegalArgumentException("Invalid number of shards " + numShards + " - must be power of 2");
         }
         this.shardId = shardId;
         this.shardMask = numShards - 1;
+        this.orderBookEventsHelper = new OrderBookEventsHelper(matcherTradeEventsPool);
     }
 
     public void processOrder(OrderCommand cmd) {
@@ -68,7 +75,7 @@ public final class MatchingEngineRouter {
         if (orderBooks.get(symbolId) != null) {
             return CommandResultCode.MATCHING_ORDER_BOOK_ALREADY_EXISTS;
         } else {
-            IOrderBook orderBook = new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH);
+            IOrderBook orderBook = new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH, orderBookEventsHelper);
             orderBooks.put(symbolId, orderBook);
             return CommandResultCode.SUCCESS;
         }

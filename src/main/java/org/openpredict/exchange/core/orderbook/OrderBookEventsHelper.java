@@ -6,12 +6,25 @@ import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
+import java.util.concurrent.BlockingQueue;
+
 @Slf4j
 public final class OrderBookEventsHelper {
 
-    //private OrderCommand currentCmd;
+    private final BlockingQueue<MatcherTradeEvent[]> matcherTradeEventsPool;
+    private MatcherTradeEvent[] eventsBucket = null;
+    private int eventsBucketCounter = 0;
 
-    public static void sendTradeEvent(OrderCommand cmd, OrderCommand activeOrder, Order matchingOrder, boolean fm, boolean fma, long price, long v) {
+    public OrderBookEventsHelper(BlockingQueue<MatcherTradeEvent[]> matcherTradeEventsPool) {
+        this.matcherTradeEventsPool = matcherTradeEventsPool;
+    }
+
+    public OrderBookEventsHelper() {
+        this.matcherTradeEventsPool = null;
+    }
+
+
+    public void sendTradeEvent(OrderCommand cmd, OrderCommand activeOrder, Order matchingOrder, boolean fm, boolean fma, long price, long v) {
 
 //        log.debug("** sendTradeEvent: active id:{} matched id:{}", activeOrder.orderId, matchingOrder.orderId);
 //        log.debug("** sendTradeEvent: price:{} v:{}", price, v);
@@ -42,7 +55,7 @@ public final class OrderBookEventsHelper {
     }
 
 
-    public static void sendReduceEvent(OrderCommand cmd, Order order, long reducedBy) {
+    public void sendReduceEvent(OrderCommand cmd, Order order, long reducedBy) {
 //        log.debug("Reduce ");
         final MatcherTradeEvent event = newMatcherEvent();
         event.eventType = MatcherEventType.REDUCE;
@@ -63,7 +76,7 @@ public final class OrderBookEventsHelper {
     }
 
 
-    public static void attachRejectEvent(OrderCommand cmd, long filledSize) {
+    public void attachRejectEvent(OrderCommand cmd, long filledSize) {
 
 //        log.debug("Rejected {}", cmd.orderId);
 //        log.debug("\n{}", getL2MarketDataSnapshot(10).dumpOrderBook());
@@ -91,8 +104,24 @@ public final class OrderBookEventsHelper {
         cmd.matcherEvent = event;
     }
 
-    private static MatcherTradeEvent newMatcherEvent() {
-        return new MatcherTradeEvent();
+    private MatcherTradeEvent newMatcherEvent() {
+
+        if (matcherTradeEventsPool == null) {
+            return new MatcherTradeEvent();
+        }
+
+        if (eventsBucket == null || eventsBucketCounter == eventsBucket.length) {
+            eventsBucketCounter = 0;
+            eventsBucket = matcherTradeEventsPool.poll();
+            if (eventsBucket == null) {
+                eventsBucket = new MatcherTradeEvent[64];
+                for (int i = 0; i < 64; i++) {
+                    eventsBucket[i] = new MatcherTradeEvent();
+                }
+            }
+        }
+
+        return eventsBucket[eventsBucketCounter++];
     }
 
 }

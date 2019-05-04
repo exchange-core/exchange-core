@@ -1,7 +1,6 @@
 package org.openpredict.exchange.core.orderbook;
 
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
@@ -12,10 +11,11 @@ import org.openpredict.exchange.beans.cmd.OrderCommand;
 import java.util.*;
 import java.util.function.Consumer;
 
-@NoArgsConstructor
 @Slf4j
 @ToString
 public final class OrdersBucketNaiveImpl implements IOrdersBucket {
+
+    private final OrderBookEventsHelper orderBookEventsHelper;
 
     @Getter
     @Setter
@@ -25,6 +25,10 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
 
     @Getter
     private long totalVolume = 0;
+
+    public OrdersBucketNaiveImpl() {
+        this.orderBookEventsHelper = new OrderBookEventsHelper();
+    }
 
     /**
      * Place order into end of bucket
@@ -98,7 +102,7 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
             // remove from order book filled orders
             boolean fullMatch = order.size == order.filled;
 
-            OrderBookEventsHelper.sendTradeEvent(triggerCmd, activeOrder, order, fullMatch, volumeToCollect == 0, price, v);
+            orderBookEventsHelper.sendTradeEvent(triggerCmd, activeOrder, order, fullMatch, volumeToCollect == 0, price, v);
 
             if (fullMatch) {
                 removeOrderCallback.accept(order);
@@ -128,7 +132,7 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
         if (reduceBy > 0) {
             order.size -= reduceBy;
             totalVolume -= reduceBy;
-            OrderBookEventsHelper.sendReduceEvent(cmd, order, reduceBy);
+            orderBookEventsHelper.sendReduceEvent(cmd, order, reduceBy);
         }
 
         return true;

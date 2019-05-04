@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
 import org.apache.commons.lang3.ArrayUtils;
 import org.openpredict.exchange.beans.CfgWaitStrategyType;
+import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
@@ -22,7 +23,9 @@ import org.openpredict.exchange.core.journalling.JournallingProcessor;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -38,6 +41,8 @@ public final class ExchangeCore {
     private final Disruptor<OrderCommand> disruptor;
 
     private final RingBuffer<OrderCommand> cmdRingBuffer;
+
+    private final BlockingQueue<MatcherTradeEvent[]> matcherTradeEventsPool = new LinkedBlockingQueue<>();
 
     public ExchangeCore(final Consumer<OrderCommand> resultsConsumer,
                         final JournallingProcessor journallingHandler,
@@ -74,7 +79,7 @@ public final class ExchangeCore {
         // creating matching engine event handlers array
         EventHandler<OrderCommand>[] matchingEngineHandlers = IntStream.range(0, matchingEnginesNum)
                 .mapToObj(shardId -> {
-                    final MatchingEngineRouter router = new MatchingEngineRouter(shardId, matchingEnginesNum);
+                    final MatchingEngineRouter router = new MatchingEngineRouter(shardId, matchingEnginesNum, matcherTradeEventsPool);
                     return (EventHandler<OrderCommand>) (cmd, seq, eob) -> router.processOrder(cmd);
                 })
                 .toArray(ExchangeCore::newEventHandlersArray);
@@ -89,7 +94,7 @@ public final class ExchangeCore {
 
         // 1. grouping processor (G)
         final EventHandlerGroup<OrderCommand> afterGrouping =
-                disruptor.handleEventsWith((rb, bs) -> new GroupingProcessor(rb, rb.newBarrier(bs)));
+                disruptor.handleEventsWith((rb, bs) -> new GroupingProcessor(rb, rb.newBarrier(bs), matcherTradeEventsPool));
 
         // 2. [journalling (J)] in parallel with risk hold (R1) + matching engine (ME)
         if (journallingHandler != null) {
