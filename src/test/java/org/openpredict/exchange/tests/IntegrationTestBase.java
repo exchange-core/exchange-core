@@ -33,6 +33,7 @@ public abstract class IntegrationTestBase {
     static final int RING_BUFFER_SIZE_DEFAULT = 64 * 1024;
     static final int RISK_ENGINES_ONE = 1;
     static final int MATCHING_ENGINES_ONE = 1;
+    static final int MGS_IN_GROUP_LIMIT_DEFAULT = 128;
 
     static final int SYMBOL_MARGIN = 5991;
     static final int SYMBOL_EXCHANGE = 9269;
@@ -93,18 +94,20 @@ public abstract class IntegrationTestBase {
     static final Consumer<OrderCommand> CHECK_SUCCESS = cmd -> assertEquals(CommandResultCode.SUCCESS, cmd.resultCode);
 
     protected void initExchange() {
-        initExchange(RING_BUFFER_SIZE_DEFAULT, MATCHING_ENGINES_ONE, RISK_ENGINES_ONE);
+        initExchange(RING_BUFFER_SIZE_DEFAULT, MATCHING_ENGINES_ONE, RISK_ENGINES_ONE, MGS_IN_GROUP_LIMIT_DEFAULT);
     }
 
     protected void initExchange(final int bufferSize,
                                 final int matchingEnginesNum,
-                                final int riskEnginesNum) {
+                                final int riskEnginesNum,
+                                final int msgsInGroupLimit) {
 
         exchangeCore = new ExchangeCore(cmd -> consumer.accept(cmd),
                 null,
                 bufferSize,
                 matchingEnginesNum,
-                riskEnginesNum);
+                riskEnginesNum,
+                msgsInGroupLimit);
 
         exchangeCore.startup();
         api = exchangeCore.getApi();

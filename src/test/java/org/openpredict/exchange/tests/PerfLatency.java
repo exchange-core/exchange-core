@@ -7,18 +7,15 @@ import org.HdrHistogram.SingleWriterRecorder;
 import org.junit.Test;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.api.ApiCommand;
-import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.PrintStream;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.function.IntConsumer;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static org.junit.Assert.assertEquals;
@@ -29,6 +26,14 @@ public final class PerfLatency extends IntegrationTestBase {
 
     private static final boolean WRITE_HDR_HISTOGRAMS = false;
 
+    /**
+     * This is latency test for simplified conditions
+     * - one symbol
+     * - 1K active users (~2K currency accounts)
+     * - 1K pending limit-orders (in one order book)
+     * 6-threads processor can run this test
+     */
+
     @Test
     public void latencyTest() {
         initExchange();
@@ -38,45 +43,42 @@ public final class PerfLatency extends IntegrationTestBase {
                 1_000,
                 CURRENCIES_FUTURES,
                 1,
-                AllowedSymbolTypes.FUTURES_CONTRACT);
+                AllowedSymbolTypes.FUTURES_CONTRACT,
+                7_000_000);
     }
 
-    @Test
-    public void latencyTestTripleMillion() {
-        initExchange(128 * 1024, 1, 2);
-        latencyTestImpl(
-                8_000_000,
-                1_075_000,
-                1_000_000,
-                CURRENCIES_FUTURES,
-                1,
-                AllowedSymbolTypes.FUTURES_CONTRACT);
-    }
-
+    /**
+     * This is high load latency test for verifying "triple million" capability:
+     * - 1M active users (~5M currency accounts)
+     * - 1M pending limit-orders (in 384 order books)
+     * - at least 1M messages per second throughput
+     * 12-threads processor is required for running this test in 4+4 configuration.
+     */
     @Test
     public void latencyMultiSymbol() {
-        initExchange(128 * 1024, 2, 2);
+        initExchange(128 * 1024, 4, 4, 1024);
         latencyTestImpl(
-                10_000_000,
-                50_000,
-                100_000,
+                5_000_000,
+                1_000_000,
+                1_000_000,
                 ALL_CURRENCIES,
-                23,
-                AllowedSymbolTypes.BOTH);
+                384,
+                AllowedSymbolTypes.BOTH,
+                4_000_000);
     }
 
 
     private void latencyTestImpl(final int totalTransactionsNumber,
-                                 final int targetOrderBookOrders,
+                                 final int targetOrderBookOrdersTotal,
                                  final int numUsers,
                                  final Set<Integer> currenciesAllowed,
                                  final int numSymbols,
-                                 final AllowedSymbolTypes allowedSymbolTypes) {
+                                 final AllowedSymbolTypes allowedSymbolTypes,
+                                 final int targetTpsEnd) {
 
 //        int targetTps = 1000000; // transactions per second
-        final int targetTps = 100_000; // transactions per second
-        final int targetTpsEnd = 8_000_000;
-        final int targetTpsStep = 25_000;
+        final int targetTps = 200_000; // transactions per second
+        final int targetTpsStep = 50_000;
 
         final int warmupTps = 1_000_000;
         final int warmupCycles = 20;
@@ -86,17 +88,13 @@ public final class PerfLatency extends IntegrationTestBase {
 
             final List<CoreSymbolSpecification> coreSymbolSpecifications = generateAndAddSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
 
-            final Set<Integer> symbols = coreSymbolSpecifications.stream().map(spec -> spec.symbolId).collect(Collectors.toSet());
-            final Map<Integer, TestOrdersGenerator.GenResult> genResults = TestOrdersGenerator.generateMultipleSymbols(
+            TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(coreSymbolSpecifications,
                     totalTransactionsNumber,
-                    targetOrderBookOrders,
                     numUsers,
-                    symbols);
+                    targetOrderBookOrdersTotal);
 
-            final List<OrderCommand> commands = TestOrdersGenerator.mergeCommands(genResults.values());
-            final List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(commands);
 
-            SingleWriterRecorder hdrRecorder = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
+            final SingleWriterRecorder hdrRecorder = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
 
             // TODO - first run should validate the output (orders are accepted and processed properly)
 
@@ -108,20 +106,25 @@ public final class PerfLatency extends IntegrationTestBase {
                     usersInit(numUsers, currenciesAllowed);
 
                     hdrRecorder.reset();
+                    final CountDownLatch latchFill = new CountDownLatch(genResult.getApiCommandsFill().size());
+                    consumer = cmd -> latchFill.countDown();
+                    genResult.getApiCommandsFill().forEach(api::submitCommand);
+                    latchFill.await();
 
-                    final CountDownLatch latch = new CountDownLatch(apiCommands.size());
+                    final CountDownLatch latchBenchmark = new CountDownLatch(genResult.getApiCommandsBenchmark().size());
+
                     consumer = cmd -> {
                         final long latency = System.nanoTime() - cmd.timestamp;
                         hdrRecorder.recordValue(Math.min(latency, Integer.MAX_VALUE));
-                        latch.countDown();
+                        latchBenchmark.countDown();
                     };
 
-                    final int nanosPerCmd = (1_000_000_000 / tps);
+                    final int nanosPerCmd = 1_000_000_000 / tps;
                     final long startTimeMs = System.currentTimeMillis();
 
                     long plannedTimestamp = System.nanoTime();
 
-                    for (ApiCommand cmd : apiCommands) {
+                    for (ApiCommand cmd : genResult.getApiCommandsBenchmark()) {
                         while (System.nanoTime() < plannedTimestamp) {
                             // spin while too early for sending next message
                         }
@@ -130,16 +133,17 @@ public final class PerfLatency extends IntegrationTestBase {
                         plannedTimestamp += nanosPerCmd;
                     }
 
-                    latch.await();
+                    latchBenchmark.await();
                     final long processingTimeMs = System.currentTimeMillis() - startTimeMs;
-                    float perfMt = (float) apiCommands.size() / (float) processingTimeMs / 1000.0f;
+                    final float perfMt = (float) genResult.getApiCommandsBenchmark().size() / (float) processingTimeMs / 1000.0f;
                     String tag = String.format("%.3f MT/s", perfMt);
-                    Histogram histogram = hdrRecorder.getIntervalHistogram();
+                    final Histogram histogram = hdrRecorder.getIntervalHistogram();
                     log.info("{} {}", tag, createLatencyReportFast(histogram));
 
                     // compare orderBook final state just to make sure all commands executed same way
                     // TODO compare events, balances, portfolios
-                    symbols.forEach(symbol -> assertEquals(genResults.get(symbol).getFinalOrderBookSnapshot(), requestCurrentOrderBook(symbol)));
+                    coreSymbolSpecifications.forEach(
+                            symbol -> assertEquals(genResult.getGenResults().get(symbol.symbolId).getFinalOrderBookSnapshot(), requestCurrentOrderBook(symbol.symbolId)));
 
                     if (WRITE_HDR_HISTOGRAMS) {
                         PrintStream printStream = new PrintStream(new File(System.currentTimeMillis() + "-" + perfMt + ".perc"));

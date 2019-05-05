@@ -36,10 +36,13 @@ public final class GroupingProcessor implements EventProcessor {
     private final WaitSpinningHelper waitSpinningHelper;
     private final Sequence sequence = new Sequence(Sequencer.INITIAL_CURSOR_VALUE);
 
-    public GroupingProcessor(final RingBuffer<OrderCommand> ringBuffer, final SequenceBarrier sequenceBarrier) {
+    private final long msgsInGroupLimit;
+
+    public GroupingProcessor(final RingBuffer<OrderCommand> ringBuffer, final SequenceBarrier sequenceBarrier, final long msgsInGroupLimit) {
         this.ringBuffer = ringBuffer;
         this.sequenceBarrier = sequenceBarrier;
         this.waitSpinningHelper = new WaitSpinningHelper(ringBuffer, sequenceBarrier, GROUP_SPIN_LIMIT);
+        this.msgsInGroupLimit = msgsInGroupLimit;
     }
 
     @Override
@@ -108,6 +111,11 @@ public final class GroupingProcessor implements EventProcessor {
                         OrderCommand cmd = ringBuffer.get(nextSequence);
                         nextSequence++;
 
+                        if (cmd.command == OrderCommandType.RESET) {
+                            groupCounter++;
+                            msgsInGroup = 0;
+                        }
+
                         cmd.eventsGroup = groupCounter;
 
                         cmd.serviceFlags = 0;
@@ -128,17 +136,17 @@ public final class GroupingProcessor implements EventProcessor {
                         msgsInGroup++;
 
                         // switch group after each N messages
-                        if (msgsInGroup >= 192) {
+                        if (msgsInGroup >= msgsInGroupLimit) {
                             groupCounter++;
                             msgsInGroup = 0;
                         }
 
                     }
                     sequence.set(availableSequence);
-                    groupLastNs = System.nanoTime() + 1000;
+                    groupLastNs = System.nanoTime() + 10_000;
 
                 } else {
-                    long t = System.nanoTime();
+                    final long t = System.nanoTime();
                     if (msgsInGroup > 0 && t > groupLastNs) {
                         // switch group after T microseconds elapsed, if group is non empty
                         groupCounter++;

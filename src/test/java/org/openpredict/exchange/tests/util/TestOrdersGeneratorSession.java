@@ -42,6 +42,8 @@ public class TestOrdersGeneratorSession {
     // set to 1 to make price move up and down
     public int priceDirection;
 
+    public long orderbooksFilledAtSequence = 0;
+
     public long numCompleted = 0;
     public long numRejected = 0;
     public long numReduced = 0;

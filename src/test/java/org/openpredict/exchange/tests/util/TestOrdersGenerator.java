@@ -2,7 +2,6 @@ package org.openpredict.exchange.tests.util;
 
 import lombok.Builder;
 import lombok.Getter;
-import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.api.ApiCancelOrder;
@@ -33,15 +32,17 @@ public class TestOrdersGenerator {
 
     public static final double CENTRAL_MOVE_ALPHA = 0.01;
 
-    public static final int CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND = 1024;
+    public static final int CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND = 512;
 
     // TODO allow limiting max volume
 
-    public static Map<Integer, GenResult> generateMultipleSymbols(
-            int totalTransactionsNumber,
-            int targetOrderBookOrders,
-            int numUsers,
-            Set<Integer> symbols) {
+
+    public static MultiSymbolGenResult generateMultipleSymbols(final List<CoreSymbolSpecification> coreSymbolSpecifications,
+                                                     final int totalTransactionsNumber,
+                                                     final int numUsers,
+                                                     final int targetOrderBookOrdersTotal) {
+
+        Set<Integer> symbols = coreSymbolSpecifications.stream().map(spec -> spec.symbolId).collect(Collectors.toSet());
 
         int numSymbols = symbols.size();
 
@@ -53,23 +54,33 @@ public class TestOrdersGenerator {
             final int commandsNum = (c < numSymbols) ? totalTransactionsNumber / numSymbols : quotaLeft;
 
             log.debug("Generating symbol {} : commands={}", symbol, commandsNum);
-            futures.put(symbol, CompletableFuture.supplyAsync(() -> generateCommands(commandsNum, targetOrderBookOrders, numUsers, symbol, false)));
+            futures.put(symbol, CompletableFuture.supplyAsync(() -> generateCommands(commandsNum, targetOrderBookOrdersTotal / numSymbols, numUsers, symbol, false)));
             quotaLeft -= commandsNum;
             c++;
         }
 
-        final Map<Integer, GenResult> results = new HashMap<>();
+        final Map<Integer, GenResult> genResults = new HashMap<>();
         futures.forEach((symbol, future) -> {
             try {
-                results.put(symbol, future.get());
+                genResults.put(symbol, future.get());
             } catch (InterruptedException | ExecutionException ex) {
                 throw new IllegalStateException(ex);
             }
         });
 
-        return results;
-    }
+        int readyAtSequenceApproximate = genResults.values().stream().mapToInt(TestOrdersGenerator.GenResult::getOrderbooksFilledAtSequence).sum();
+        log.debug("readyAtSequenceApproximate={}", readyAtSequenceApproximate);
 
+        final List<OrderCommand> commands = TestOrdersGenerator.mergeCommands(genResults.values());
+        final List<ApiCommand> apiCommandsFill = TestOrdersGenerator.convertToApiCommand(commands, 0, readyAtSequenceApproximate);
+        final List<ApiCommand> apiCommandsBenchmark = TestOrdersGenerator.convertToApiCommand(commands, readyAtSequenceApproximate, commands.size());
+
+        return MultiSymbolGenResult.builder()
+                .genResults(genResults)
+                .apiCommandsBenchmark(apiCommandsBenchmark)
+                .apiCommandsFill(apiCommandsFill)
+                .build();
+    }
 
     public static GenResult generateCommands(
             int transactionsNumber,
@@ -136,8 +147,9 @@ public class TestOrdersGenerator {
             }
         }
 
-        int commandsListSize = commands.size();
-        log.debug("total commands: {}", commandsListSize);
+        assertThat(session.orderbooksFilledAtSequence, greaterThan(0L)); // check targetOrdersFilled
+        int commandsListSize = commands.size() - (int) session.orderbooksFilledAtSequence;
+        log.debug("total commands: {}, post-fill commands: {}", commands.size(), commandsListSize);
 
         log.debug("completed:{} rejected:{} reduce:{}", session.numCompleted, session.numRejected, session.numReduced);
 
@@ -168,20 +180,23 @@ public class TestOrdersGenerator {
         return GenResult.builder().commands(commands)
                 .finalOrderbookHash(orderBook.hashCode())
                 .finalOrderBookSnapshot(l2MarketData)
+                .orderbooksFilledAtSequence((int) session.orderbooksFilledAtSequence)
                 .build();
     }
 
     private static void updateOrderBookSizeStat(TestOrdersGeneratorSession session) {
         L2MarketData l2MarketDataSnapshot = session.orderBook.getL2MarketDataSnapshot(-1);
 //                log.debug("{}", dumpOrderBook(l2MarketDataSnapshot));
-        session.orderBookSizeAskStat.add(l2MarketDataSnapshot.askSize);
-        session.orderBookSizeBidStat.add(l2MarketDataSnapshot.bidSize);
 
         int ordersNum = session.orderBook.getOrdersNum();
         // regulating OB size
         session.lastOrderBookOrdersSize = ordersNum;
 
-        session.orderBookNumOrdersStat.add(ordersNum);
+        if (session.orderbooksFilledAtSequence > 0) {
+            session.orderBookSizeAskStat.add(l2MarketDataSnapshot.askSize);
+            session.orderBookSizeBidStat.add(l2MarketDataSnapshot.bidSize);
+            session.orderBookNumOrdersStat.add(ordersNum);
+        }
     }
 
     private static void matcherTradeEventEventHandler(TestOrdersGeneratorSession session, MatcherTradeEvent ev) {
@@ -232,6 +247,15 @@ public class TestOrdersGenerator {
 
         int lackOfOrders = session.targetOrderBookOrders - session.lastOrderBookOrdersSize;
         boolean growOrders = lackOfOrders > 0;
+        if (session.orderbooksFilledAtSequence == 0 && lackOfOrders <= 0) {
+            session.orderbooksFilledAtSequence = session.seq;
+
+            session.counterPlaceMarket = 0;
+            session.counterPlaceLimit = 0;
+            session.counterCancel = 0;
+            session.counterMove = 0;
+        }
+
         int cmd = rand.nextInt(growOrders ? (lackOfOrders > 1000 ? 2 : 10) : 40);
 
         if (cmd < 2) {
@@ -322,7 +346,13 @@ public class TestOrdersGenerator {
 
 
     public static List<ApiCommand> convertToApiCommand(List<OrderCommand> commands) {
+        return convertToApiCommand(commands, 0, commands.size());
+    }
+
+    public static List<ApiCommand> convertToApiCommand(List<OrderCommand> commands, int from, int to) {
         return commands.stream()
+                .skip(from)
+                .limit(to - from)
                 .map(cmd -> {
                     switch (cmd.command) {
                         case PLACE_ORDER:
@@ -340,11 +370,19 @@ public class TestOrdersGenerator {
 
     @Builder
     @Getter
-    @Setter
     public static class GenResult {
-        private L2MarketData finalOrderBookSnapshot;
-        private int finalOrderbookHash;
-        private List<OrderCommand> commands;
+        final private L2MarketData finalOrderBookSnapshot;
+        final private int finalOrderbookHash;
+        final private List<OrderCommand> commands;
+        final private int orderbooksFilledAtSequence;
+    }
+
+    @Builder
+    @Getter
+    public static class MultiSymbolGenResult {
+        final Map<Integer, TestOrdersGenerator.GenResult> genResults;
+        final List<ApiCommand> apiCommandsFill;
+        final List<ApiCommand> apiCommandsBenchmark;
     }
 
 

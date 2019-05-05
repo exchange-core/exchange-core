@@ -43,7 +43,8 @@ public final class ExchangeCore {
                         final JournallingProcessor journallingHandler,
                         final int ringBufferSize,
                         final int matchingEnginesNum,
-                        final int riskEnginesNum) {
+                        final int riskEnginesNum,
+                        final int msgsInGroupLimit) {
 
         ThreadFactory threadFactory = eventProcessor -> new Thread(() -> {
             try (AffinityLock lock = THREAD_AFFINITY_PER_CORE ? AffinityLock.acquireCore() : AffinityLock.acquireLock()) {
@@ -89,7 +90,7 @@ public final class ExchangeCore {
 
         // 1. grouping processor (G)
         final EventHandlerGroup<OrderCommand> afterGrouping =
-                disruptor.handleEventsWith((rb, bs) -> new GroupingProcessor(rb, rb.newBarrier(bs)));
+                disruptor.handleEventsWith((rb, bs) -> new GroupingProcessor(rb, rb.newBarrier(bs), msgsInGroupLimit));
 
         // 2. [journalling (J)] in parallel with risk hold (R1) + matching engine (ME)
         if (journallingHandler != null) {
