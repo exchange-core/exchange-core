@@ -100,7 +100,7 @@ public final class BinaryCommandsProcessor {
     private static class TransferRecord {
         public TransferRecord(int dataSizeBytes) {
 
-            int longArraySize = BinaryUtils.requiredLongArraySize(dataSizeBytes);
+            int longArraySize = Utils.requiredLongArraySize(dataSizeBytes);
 
             this.dataArray = new long[longArraySize];
             this.framesReceived = new BitSet(longArraySize);

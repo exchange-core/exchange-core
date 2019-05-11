@@ -17,6 +17,8 @@ public enum OrderCommandType {
 
     BINARY_DATA(90),
 
+    DUMP_STATE(100),
+
     NOP(120),
     RESET(124),
     SHUTDOWN_SIGNAL(127);

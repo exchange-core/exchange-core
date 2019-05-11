@@ -2,6 +2,7 @@ package org.openpredict.exchange.tests.performance;
 
 import com.lmax.disruptor.EventTranslator;
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.affinity.AffinityLock;
 import org.junit.After;
 import org.junit.Ignore;
 import org.junit.Test;
@@ -58,44 +59,59 @@ public abstract class ITOrderBookBase {
 
 
     @Test
-    public void performanceTest() {
+    public void performanceTest1K() {
 
         int numOrders = 3_000_000;
         int targetOrderBookOrders = 1000;
 
-        TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, 1000, 0, false);
-        List<OrderCommand> orderCommands = genResult.getCommands();
-        log.debug("orderCommands size: {}", orderCommands.size());
+        performanceTest(numOrders, targetOrderBookOrders);
 
-        List<Float> perfResults = new ArrayList<>();
-        for (int j = 0; j < 32; j++) {
-            orderBook = createNewOrderBook();
+    }
 
-            long t = System.currentTimeMillis();
-            OrderCommand workCmd = new OrderCommand();
-            for (OrderCommand cmd : orderCommands) {
-                cmd.writeTo(workCmd);
-                workCmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
-                IOrderBook.processCommand(orderBook, workCmd);
+    @Test
+    public void performanceTest1M() {
+
+        int numOrders = 5_000_000;
+        int targetOrderBookOrders = 1_000_000;
+
+        performanceTest(numOrders, targetOrderBookOrders);
+
+    }
+
+    private void performanceTest(int numOrders, int targetOrderBookOrders) {
+
+        try (AffinityLock cpuLock = AffinityLock.acquireLock()) {
+
+            TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, 1000, 0, false);
+            List<OrderCommand> orderCommands = genResult.getCommands();
+            log.debug("orderCommands size: {}", orderCommands.size());
+
+            List<Float> perfResults = new ArrayList<>();
+            for (int j = 0; j < 32; j++) {
+                orderBook = createNewOrderBook();
+
+                long t = System.currentTimeMillis();
+                OrderCommand workCmd = new OrderCommand();
+                for (OrderCommand cmd : orderCommands) {
+                    cmd.writeTo(workCmd);
+                    workCmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
+                    IOrderBook.processCommand(orderBook, workCmd);
+                }
+                t = System.currentTimeMillis() - t;
+
+                // weak compare orderBook final state just to make sure all commands executed same way
+                // TODO compare events
+                assertThat(orderBook.hashCode(), is(genResult.getFinalOrderbookHash()));
+
+                float perfMt = (float) orderCommands.size() / (float) t / 1000.0f;
+                perfResults.add(perfMt);
+                float averageMt = (float) perfResults.stream().mapToDouble(x -> x).average().orElse(0);
+                log.info("{}. {} MT/s ({} ms) average: {} MT/s", j, perfMt, t, averageMt);
             }
-            t = System.currentTimeMillis() - t;
 
-            // weak compare orderBook final state just to make sure all commands executed same way
-            // TODO compare events
-            assertThat(orderBook.hashCode(), is(genResult.getFinalOrderbookHash()));
-
-            float perfMt = (float) orderCommands.size() / (float) t / 1000.0f;
-            perfResults.add(perfMt);
-            float averageMt = (float) perfResults.stream().mapToDouble(x -> x).average().orElse(0);
-            log.info("{}. {} MT/s ({} ms) average: {} MT/s", j, perfMt, t, averageMt);
+            double avg = (float) perfResults.stream().mapToDouble(x -> x).average().orElse(0);
+            log.info("Average: {} MT/s", avg);
         }
-
-        double avg = (float) perfResults.stream().mapToDouble(x -> x).average().orElse(0);
-        log.info("Average: {} MT/s", avg);
-
-//        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(50);
-//        log.debug("{}", dumpOrderBook(snapshot));
-
     }
 
 

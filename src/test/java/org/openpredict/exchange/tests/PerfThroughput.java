@@ -27,8 +27,7 @@ public final class PerfThroughput extends IntegrationTestBase {
      */
     @Test
     public void throughputTest() throws Exception {
-        //initExchange();
-        initExchange(128 * 1024, 1, 1, 512);
+        initExchange(2 * 1024, 1, 1, 1536);
         throughputTestImpl(
                 3_000_000,
                 1000,
@@ -42,20 +41,20 @@ public final class PerfThroughput extends IntegrationTestBase {
     /**
      * This is high load throughput test for verifying "triple million" capability:
      * - 1M active users (~5M currency accounts)
-     * - 1M pending limit-orders (in 384 order books)
+     * - 1M pending limit-orders (in 1K order books)
      * - at least 1M messages per second throughput
      * 12-threads processor is required for running this test in 4+4 configuration.
      */
     @Test
     public void throughputMultiSymbol() throws Exception {
-        initExchange(128 * 1024, 4, 4, 1024);
+        initExchange(64 * 1024, 4, 4, 2048);
         throughputTestImpl(
                 5_000_000,
                 1_000_000,
                 1_000_000,
-                50,
+                25,
                 ALL_CURRENCIES,
-                384,
+                1_000,
                 AllowedSymbolTypes.BOTH);
     }
 

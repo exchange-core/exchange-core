@@ -26,6 +26,8 @@ import java.util.stream.Stream;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.openpredict.exchange.core.ExchangeCore.DisruptorWaitStrategy.BUSY_SPIN;
+import static org.openpredict.exchange.core.Utils.ThreadAffityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CODE;
 
 @Slf4j
 public abstract class IntegrationTestBase {
@@ -102,12 +104,15 @@ public abstract class IntegrationTestBase {
                                 final int riskEnginesNum,
                                 final int msgsInGroupLimit) {
 
-        exchangeCore = new ExchangeCore(cmd -> consumer.accept(cmd),
-                null,
-                bufferSize,
-                matchingEnginesNum,
-                riskEnginesNum,
-                msgsInGroupLimit);
+        exchangeCore = ExchangeCore.builder()
+                .resultsConsumer(cmd -> consumer.accept(cmd))
+                .ringBufferSize(bufferSize)
+                .matchingEnginesNum(matchingEnginesNum)
+                .riskEnginesNum(riskEnginesNum)
+                .msgsInGroupLimit(msgsInGroupLimit)
+                .threadAffityMode(THREAD_AFFINITY_ENABLE_PER_LOGICAL_CODE)
+                .waitStrategy(BUSY_SPIN)
+                .build();
 
         exchangeCore.startup();
         api = exchangeCore.getApi();

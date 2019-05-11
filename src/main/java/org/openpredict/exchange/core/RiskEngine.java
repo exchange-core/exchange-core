@@ -7,6 +7,8 @@ import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
+import java.nio.ByteBuffer;
+
 import static org.openpredict.exchange.beans.MatcherEventType.*;
 import static org.openpredict.exchange.beans.cmd.OrderCommandType.*;
 
@@ -84,6 +86,9 @@ public final class RiskEngine {
             if (shardId == 0) {
                 cmd.resultCode = CommandResultCode.SUCCESS;
             }
+        } else if (cmd.command == DUMP_STATE) {
+            // final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer();
+            log.error("DUMP_STATE not implemented");
         }
     }
 
@@ -370,7 +375,6 @@ public final class RiskEngine {
             log.error("unsupported eventType: {}", ev.eventType);
         }
     }
-
 
     public void reset() {
         userProfileService.reset();

@@ -68,7 +68,7 @@ public final class ExchangeApi {
 
         // TODO optimize
 
-        final int longLength = BinaryUtils.requiredLongArraySize(bytes.length);
+        final int longLength = Utils.requiredLongArraySize(bytes.length);
         long[] longArray = new long[longLength];
         //log.debug("byte[{}]={}", bytes.length, bytes);
 

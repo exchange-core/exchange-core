@@ -15,7 +15,7 @@ import java.io.PrintStream;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
-import java.util.function.IntConsumer;
+import java.util.function.BiFunction;
 import java.util.stream.IntStream;
 
 import static org.junit.Assert.assertEquals;
@@ -36,35 +36,33 @@ public final class PerfLatency extends IntegrationTestBase {
 
     @Test
     public void latencyTest() {
-        initExchange();
+        initExchange(16 * 1024, 1, 1, 512);
         latencyTestImpl(
                 3_000_000,
                 1_000,
                 1_000,
                 CURRENCIES_FUTURES,
                 1,
-                AllowedSymbolTypes.FUTURES_CONTRACT,
-                7_000_000);
+                AllowedSymbolTypes.FUTURES_CONTRACT);
     }
 
     /**
      * This is high load latency test for verifying "triple million" capability:
      * - 1M active users (~5M currency accounts)
-     * - 1M pending limit-orders (in 384 order books)
+     * - 1M pending limit-orders (in 1K order books)
      * - at least 1M messages per second throughput
      * 12-threads processor is required for running this test in 4+4 configuration.
      */
     @Test
     public void latencyMultiSymbol() {
-        initExchange(128 * 1024, 4, 4, 1024);
+        initExchange(64 * 1024, 4, 4, 2048);
         latencyTestImpl(
                 5_000_000,
                 1_000_000,
                 1_000_000,
                 ALL_CURRENCIES,
-                384,
-                AllowedSymbolTypes.BOTH,
-                4_000_000);
+                1_000,
+                AllowedSymbolTypes.BOTH);
     }
 
 
@@ -73,16 +71,13 @@ public final class PerfLatency extends IntegrationTestBase {
                                  final int numUsers,
                                  final Set<Integer> currenciesAllowed,
                                  final int numSymbols,
-                                 final AllowedSymbolTypes allowedSymbolTypes,
-                                 final int targetTpsEnd) {
+                                 final AllowedSymbolTypes allowedSymbolTypes) {
 
-//        int targetTps = 1000000; // transactions per second
         final int targetTps = 200_000; // transactions per second
-        final int targetTpsStep = 50_000;
+        final int targetTpsStep = 100_000;
 
         final int warmupTps = 1_000_000;
         final int warmupCycles = 20;
-//        int targetTps = 4_000_000; // transactions per second
 
         try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
 
@@ -98,7 +93,7 @@ public final class PerfLatency extends IntegrationTestBase {
 
             // TODO - first run should validate the output (orders are accepted and processed properly)
 
-            IntConsumer testIteration = tps -> {
+            BiFunction<Integer, Boolean, Boolean> testIteration = (tps, warmup) -> {
                 try {
 
                     initBasicSymbols();
@@ -156,20 +151,23 @@ public final class PerfLatency extends IntegrationTestBase {
                     System.gc();
                     Thread.sleep(300);
 
+                    // stop testing if latency above 1 millisecond
+                    return warmup || histogram.getValueAtPercentile(50.0) < 1_000_000;
+
                 } catch (InterruptedException | FileNotFoundException ex) {
-                    ex.printStackTrace();
+                    throw new IllegalStateException(ex);
                 }
             };
 
             log.debug("Warming up {} cycles...", warmupCycles);
             IntStream.range(0, warmupCycles)
-                    .forEach(i -> testIteration.accept(warmupTps));
+                    .forEach(i -> testIteration.apply(warmupTps, true));
             log.debug("Warmup done, starting tests");
 
-            IntStream.range(0, 10000)
+            boolean ignore = IntStream.range(0, 10000)
                     .map(i -> targetTps + targetTpsStep * i)
-                    .filter(tps -> tps <= targetTpsEnd)
-                    .forEach(testIteration);
+                    .mapToObj(tps -> testIteration.apply(tps, false))
+                    .allMatch(x -> x);
         }
     }
 }

@@ -1,17 +1,14 @@
 package org.openpredict.exchange.core;
 
 import com.google.common.collect.Streams;
-import com.lmax.disruptor.EventHandler;
-import com.lmax.disruptor.EventTranslator;
-import com.lmax.disruptor.RingBuffer;
+import com.lmax.disruptor.*;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.EventHandlerGroup;
 import com.lmax.disruptor.dsl.ProducerType;
+import lombok.Builder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import net.openhft.affinity.AffinityLock;
 import org.apache.commons.lang3.ArrayUtils;
-import org.openpredict.exchange.beans.CfgWaitStrategyType;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
@@ -22,43 +19,34 @@ import org.openpredict.exchange.core.journalling.JournallingProcessor;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-@RequiredArgsConstructor
 @Slf4j
 public final class ExchangeCore {
-
-    private static final boolean THREAD_AFFINITY_ENABLE = true;
-    private static final boolean THREAD_AFFINITY_PER_CORE = false;
 
     private final Disruptor<OrderCommand> disruptor;
 
     private final RingBuffer<OrderCommand> cmdRingBuffer;
 
+    @Builder
     public ExchangeCore(final Consumer<OrderCommand> resultsConsumer,
                         final JournallingProcessor journallingHandler,
                         final int ringBufferSize,
                         final int matchingEnginesNum,
                         final int riskEnginesNum,
-                        final int msgsInGroupLimit) {
-
-        ThreadFactory threadFactory = eventProcessor -> new Thread(() -> {
-            try (AffinityLock lock = THREAD_AFFINITY_PER_CORE ? AffinityLock.acquireCore() : AffinityLock.acquireLock()) {
-                log.debug("{} pinned to {}", Thread.currentThread(), lock.cpuId());
-                eventProcessor.run();
-            }
-        });
+                        final int msgsInGroupLimit,
+                        final Utils.ThreadAffityMode threadAffityMode,
+                        final DisruptorWaitStrategy waitStrategy) {
 
         this.disruptor = new Disruptor<>(
                 OrderCommand::new,
                 ringBufferSize,
-                THREAD_AFFINITY_ENABLE ? threadFactory : Executors.defaultThreadFactory(),
+                Utils.affinedThreadFactory(threadAffityMode),
                 ProducerType.MULTI, // multiple gateway threads are writing
-                CfgWaitStrategyType.BUSY_SPIN.create());
+                waitStrategy.create());
 
         this.cmdRingBuffer = disruptor.getRingBuffer();
 
@@ -73,7 +61,7 @@ public final class ExchangeCore {
         disruptor.setDefaultExceptionHandler(exceptionHandler);
 
         // creating matching engine event handlers array
-        EventHandler<OrderCommand>[] matchingEngineHandlers = IntStream.range(0, matchingEnginesNum)
+        final EventHandler<OrderCommand>[] matchingEngineHandlers = IntStream.range(0, matchingEnginesNum)
                 .mapToObj(shardId -> {
                     final MatchingEngineRouter router = new MatchingEngineRouter(shardId, matchingEnginesNum);
                     return (EventHandler<OrderCommand>) (cmd, seq, eob) -> router.processOrder(cmd);
@@ -85,8 +73,8 @@ public final class ExchangeCore {
                 .mapToObj(shardId -> new RiskEngine(shardId, riskEnginesNum))
                 .collect(Collectors.toList());
 
-        final List<MasterProcessor> procR1 = new ArrayList<>();
-        final List<SlaveProcessor> procR2 = new ArrayList<>();
+        final List<MasterProcessor> procR1 = new ArrayList<>(riskEnginesNum);
+        final List<SlaveProcessor> procR2 = new ArrayList<>(riskEnginesNum);
 
         // 1. grouping processor (G)
         final EventHandlerGroup<OrderCommand> afterGrouping =
@@ -107,7 +95,7 @@ public final class ExchangeCore {
         disruptor.after(procR1.toArray(new MasterProcessor[0])).handleEventsWith(matchingEngineHandlers);
 
         // 3. risk release (R2) after matching engine (ME)
-        EventHandlerGroup<OrderCommand> afterMatchingEngine = disruptor.after(matchingEngineHandlers);
+        final EventHandlerGroup<OrderCommand> afterMatchingEngine = disruptor.after(matchingEngineHandlers);
 
         riskEngines.forEach(riskEngine -> afterMatchingEngine.handleEventsWith(
                 (rb, bs) -> {
@@ -155,4 +143,18 @@ public final class ExchangeCore {
     private static EventHandler<OrderCommand>[] newEventHandlersArray(int size) {
         return new EventHandler[size];
     }
+
+    @RequiredArgsConstructor
+    public enum DisruptorWaitStrategy {
+        BUSY_SPIN(BusySpinWaitStrategy::new),
+        YIELDING(YieldingWaitStrategy::new),
+        SLEEPING(SleepingWaitStrategy::new);
+
+        private final Supplier<WaitStrategy> supplier;
+
+        public WaitStrategy create() {
+            return supplier.get();
+        }
+    }
+
 }

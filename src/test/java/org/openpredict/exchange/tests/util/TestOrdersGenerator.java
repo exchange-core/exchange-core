@@ -3,6 +3,10 @@ package org.openpredict.exchange.tests.util;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.ArrayUtils;
+import org.apache.commons.math3.distribution.ParetoDistribution;
+import org.apache.commons.math3.distribution.RealDistribution;
+import org.apache.commons.math3.random.JDKRandomGenerator;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.api.ApiCancelOrder;
 import org.openpredict.exchange.beans.api.ApiCommand;
@@ -11,13 +15,17 @@ import org.openpredict.exchange.beans.api.ApiPlaceOrder;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
+import org.openpredict.exchange.core.Utils;
 import org.openpredict.exchange.core.orderbook.IOrderBook;
 import org.openpredict.exchange.core.orderbook.OrderBookNaiveImpl;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
+import java.util.stream.DoubleStream;
 
 import static org.hamcrest.Matchers.greaterThan;
 import static org.junit.Assert.assertThat;
@@ -25,6 +33,8 @@ import static org.junit.Assert.assertThat;
 @Slf4j
 public class TestOrdersGenerator {
 
+
+    // TODO randomize scales
     public static final int CENTRAL_PRICE = 100_000;
     public static final int MIN_PRICE = 50_000;
     public static final int MAX_PRICE = 150_000;
@@ -38,25 +48,33 @@ public class TestOrdersGenerator {
 
 
     public static MultiSymbolGenResult generateMultipleSymbols(final List<CoreSymbolSpecification> coreSymbolSpecifications,
-                                                     final int totalTransactionsNumber,
-                                                     final int numUsers,
-                                                     final int targetOrderBookOrdersTotal) {
+                                                               final int totalTransactionsNumber,
+                                                               final int numUsers,
+                                                               final int targetOrderBookOrdersTotal) {
 
-        Set<Integer> symbols = coreSymbolSpecifications.stream().map(spec -> spec.symbolId).collect(Collectors.toSet());
+        int[] symbols = coreSymbolSpecifications.stream().mapToInt(spec -> spec.symbolId).toArray();
 
-        int numSymbols = symbols.size();
+        final RealDistribution paretoDistribution = new ParetoDistribution(new JDKRandomGenerator(0), 0.001, 1.5);
+        final double[] paretoRaw = DoubleStream.generate(paretoDistribution::sample).limit(symbols.length).toArray();
+        Arrays.sort(paretoRaw);
+        ArrayUtils.reverse(paretoRaw);
+        final double sum = Arrays.stream(paretoRaw).sum();
+        final double[] distribution = Arrays.stream(paretoRaw).map(x -> x / sum).toArray();
 
         int quotaLeft = totalTransactionsNumber;
-        int c = 1;
         final Map<Integer, CompletableFuture<GenResult>> futures = new HashMap<>();
 
-        for (int symbol : symbols) {
-            final int commandsNum = (c < numSymbols) ? totalTransactionsNumber / numSymbols : quotaLeft;
+        final ExecutorService executor = Executors.newCachedThreadPool(
+                Utils.affinedThreadFactory(Utils.ThreadAffityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CODE));
 
-            log.debug("Generating symbol {} : commands={}", symbol, commandsNum);
-            futures.put(symbol, CompletableFuture.supplyAsync(() -> generateCommands(commandsNum, targetOrderBookOrdersTotal / numSymbols, numUsers, symbol, false)));
+        for (int i = 0; i < symbols.length; i++) {
+            final int symbol = symbols[i];
+            final int numOrdersTarget = (int) (targetOrderBookOrdersTotal * distribution[i]);
+            final int commandsNum = (i != symbols.length - 1) ? (int) (totalTransactionsNumber * distribution[i]) : quotaLeft;
             quotaLeft -= commandsNum;
-            c++;
+
+            //log.debug("{}. Generating symbol {} : commands={} numOrdersTarget={}", i, symbol, commandsNum, numOrdersTarget);
+            futures.put(symbol, CompletableFuture.supplyAsync(() -> generateCommands(commandsNum, numOrdersTarget, numUsers, symbol, false), executor));
         }
 
         final Map<Integer, GenResult> genResults = new HashMap<>();
@@ -64,17 +82,19 @@ public class TestOrdersGenerator {
             try {
                 genResults.put(symbol, future.get());
             } catch (InterruptedException | ExecutionException ex) {
-                throw new IllegalStateException(ex);
+                throw new IllegalStateException("Exception while generating commands for symbol " + symbol, ex);
             }
         });
 
-        int readyAtSequenceApproximate = genResults.values().stream().mapToInt(TestOrdersGenerator.GenResult::getOrderbooksFilledAtSequence).sum();
+        final int readyAtSequenceApproximate = genResults.values().stream().mapToInt(TestOrdersGenerator.GenResult::getOrderbooksFilledAtSequence).sum();
         log.debug("readyAtSequenceApproximate={}", readyAtSequenceApproximate);
 
-        final List<OrderCommand> commands = TestOrdersGenerator.mergeCommands(genResults.values());
-        final List<ApiCommand> apiCommandsFill = TestOrdersGenerator.convertToApiCommand(commands, 0, readyAtSequenceApproximate);
-        final List<ApiCommand> apiCommandsBenchmark = TestOrdersGenerator.convertToApiCommand(commands, readyAtSequenceApproximate, commands.size());
+        final List<OrderCommand> allCommands = TestOrdersGenerator.mergeCommands(genResults.values());
 
+        printStatistics(readyAtSequenceApproximate, allCommands);
+
+        final List<ApiCommand> apiCommandsFill = TestOrdersGenerator.convertToApiCommand(allCommands, 0, readyAtSequenceApproximate);
+        final List<ApiCommand> apiCommandsBenchmark = TestOrdersGenerator.convertToApiCommand(allCommands, readyAtSequenceApproximate, allCommands.size());
         return MultiSymbolGenResult.builder()
                 .genResults(genResults)
                 .apiCommandsBenchmark(apiCommandsBenchmark)
@@ -83,15 +103,15 @@ public class TestOrdersGenerator {
     }
 
     public static GenResult generateCommands(
-            int transactionsNumber,
-            int targetOrderBookOrders,
-            int numUsers,
-            int symbol,
-            boolean enableSlidingPrice) {
+            final int transactionsNumber,
+            final int targetOrderBookOrders,
+            final int numUsers,
+            final int symbol,
+            final boolean enableSlidingPrice) {
 
-        IOrderBook orderBook = new OrderBookNaiveImpl();
+        final IOrderBook orderBook = new OrderBookNaiveImpl();
 
-        TestOrdersGeneratorSession session = new TestOrdersGeneratorSession(
+        final TestOrdersGeneratorSession session = new TestOrdersGeneratorSession(
                 orderBook,
                 targetOrderBookOrders,
                 PRICE_DEVIATION_DEFAULT,
@@ -100,12 +120,9 @@ public class TestOrdersGenerator {
                 CENTRAL_PRICE,
                 enableSlidingPrice);
 
-        List<OrderCommand> commands = new ArrayList<>();
+        final List<OrderCommand> commands = new ArrayList<>();
 
         int successfulCommands = 0;
-
-        //int checkOrderBookStatEveryNthCommand = transactionsNumber / 1000;
-        //checkOrderBookStatEveryNthCommand = 1 << (32 - Integer.numberOfLeadingZeros(checkOrderBookStatEveryNthCommand - 1));
 
         int nextSizeCheck = CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND;
 
@@ -147,35 +164,40 @@ public class TestOrdersGenerator {
             }
         }
 
-        assertThat(session.orderbooksFilledAtSequence, greaterThan(0L)); // check targetOrdersFilled
-        int commandsListSize = commands.size() - (int) session.orderbooksFilledAtSequence;
-        log.debug("total commands: {}, post-fill commands: {}", commands.size(), commandsListSize);
-
-        log.debug("completed:{} rejected:{} reduce:{}", session.numCompleted, session.numRejected, session.numReduced);
-
-        log.debug("place limit: {} ({}%)", session.counterPlaceLimit, (float) session.counterPlaceLimit / (float) commandsListSize * 100.0f);
-        log.debug("place market: {} ({}%)", session.counterPlaceMarket, (float) session.counterPlaceMarket / (float) commandsListSize * 100.0f);
-        log.debug("cancel: {} ({}%)", session.counterCancel, (float) session.counterCancel / (float) commandsListSize * 100.0f);
-        log.debug("move: {} ({}%)", session.counterMove, (float) session.counterMove / (float) commandsListSize * 100.0f);
-
-
-        float succPerc = (float) successfulCommands / (float) commands.size() * 100.0f;
-        float avgOrderBookSizeAsk = (float) session.orderBookSizeAskStat.stream().mapToInt(x -> x).average().orElse(0);
-        float avgOrderBookSizeBid = (float) session.orderBookSizeBidStat.stream().mapToInt(x -> x).average().orElse(0);
-        float avgOrdersNumInOrderBook = (float) session.orderBookNumOrdersStat.stream().mapToInt(x -> x).average().orElse(0);
-
-        assertThat(succPerc, greaterThan(85.0f));
-        if (transactionsNumber > CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND) {
-            assertThat(avgOrderBookSizeAsk, greaterThan(10.0f));
-            assertThat(avgOrderBookSizeBid, greaterThan(10.0f));
-            assertThat(avgOrdersNumInOrderBook, greaterThan(50.0f));
+        // if transactionsNumber is too small - assume order books filled
+        if (session.orderbooksFilledAtSequence == 0 && transactionsNumber < 10000) {
+            session.orderbooksFilledAtSequence = 1;
         }
 
-        log.debug("Average order book size: ASK={} BID={} ({} samples)", avgOrderBookSizeAsk, avgOrderBookSizeBid, session.orderBookSizeBidStat.size());
-        log.debug("Average limit orders number in the order book:{} (target:{})", avgOrdersNumInOrderBook, targetOrderBookOrders);
-        log.debug("Commands success={}%", succPerc);
+        updateOrderBookSizeStat(session);
 
-        L2MarketData l2MarketData = orderBook.getL2MarketDataSnapshot(-1);
+        assertThat("Orderbook was not filled for target rate " + session.targetOrderBookOrders, session.orderbooksFilledAtSequence, greaterThan(0L)); // check targetOrdersFilled
+        final int commandsListSize = commands.size() - (int) session.orderbooksFilledAtSequence;
+//        log.debug("total commands: {}, post-fill commands: {}", commands.size(), commandsListSize);
+
+//        log.debug("completed:{} rejected:{} reduce:{}", session.numCompleted, session.numRejected, session.numReduced);
+//
+//        log.debug("place limit: {} ({}%)", session.counterPlaceLimit, (float) session.counterPlaceLimit / (float) commandsListSize * 100.0f);
+//        log.debug("place market: {} ({}%)", session.counterPlaceMarket, (float) session.counterPlaceMarket / (float) commandsListSize * 100.0f);
+//        log.debug("cancel: {} ({}%)", session.counterCancel, (float) session.counterCancel / (float) commandsListSize * 100.0f);
+//        log.debug("move: {} ({}%)", session.counterMove, (float) session.counterMove / (float) commandsListSize * 100.0f);
+
+
+        final float succPerc = (float) successfulCommands / (float) commands.size() * 100.0f;
+        final float avgOrderBookSizeAsk = (float) session.orderBookSizeAskStat.stream().mapToInt(x -> x).average().orElse(0);
+        final float avgOrderBookSizeBid = (float) session.orderBookSizeBidStat.stream().mapToInt(x -> x).average().orElse(0);
+        final float avgOrdersNumInOrderBook = (float) session.orderBookNumOrdersStat.stream().mapToInt(x -> x).average().orElse(0);
+
+//        assertThat(succPerc, greaterThan(85.0f));
+//        assertThat(avgOrderBookSizeAsk, greaterThan(Math.min(100, session.targetOrderBookOrders / 20f - 1)));
+//        assertThat(avgOrderBookSizeBid, greaterThan(Math.min(100, session.targetOrderBookOrders / 20f - 1)));
+//        assertThat(avgOrdersNumInOrderBook, greaterThan(session.targetOrderBookOrders / 2f - 1));
+
+//        log.debug("Average order book size: ASK={} BID={} ({} samples)", avgOrderBookSizeAsk, avgOrderBookSizeBid, session.orderBookSizeBidStat.size());
+//        log.debug("Average limit orders number in the order book:{} (target:{})", avgOrdersNumInOrderBook, targetOrderBookOrders);
+//        log.debug("Commands success={}%", succPerc);
+
+        final L2MarketData l2MarketData = orderBook.getL2MarketDataSnapshot(-1);
 
         return GenResult.builder().commands(commands)
                 .finalOrderbookHash(orderBook.hashCode())
@@ -192,6 +214,8 @@ public class TestOrdersGenerator {
         // regulating OB size
         session.lastOrderBookOrdersSize = ordersNum;
 
+//        log.debug("ordersNum:{}", ordersNum);
+
         if (session.orderbooksFilledAtSequence > 0) {
             session.orderBookSizeAskStat.add(l2MarketDataSnapshot.askSize);
             session.orderBookSizeBidStat.add(l2MarketDataSnapshot.bidSize);
@@ -202,39 +226,31 @@ public class TestOrdersGenerator {
     private static void matcherTradeEventEventHandler(TestOrdersGeneratorSession session, MatcherTradeEvent ev) {
         if (ev.eventType == MatcherEventType.TRADE) {
             if (ev.activeOrderCompleted) {
-//                log.debug("Complete active: {}", ev.activeOrderId);
                 session.actualOrders.clear((int) ev.activeOrderId);
                 session.numCompleted++;
             }
             if (ev.matchedOrderCompleted) {
-//                log.debug("Complete matched: {}", ev.matchedOrderId);
                 session.actualOrders.clear((int) ev.matchedOrderId);
                 session.numCompleted++;
             }
 
             session.lastTradePrice = Math.min(MAX_PRICE, Math.max(MIN_PRICE, ev.price));
 
-//            log.debug("       {}", ev.price);
             if (ev.price <= MIN_PRICE) {
-//                log.debug("P>>>: {}", ev.price);
                 session.priceDirection = 1;
             } else if (ev.price >= MAX_PRICE) {
-//                log.debug("P<<<: {}", ev.price);
                 session.priceDirection = -1;
             }
 
         } else if (ev.eventType == MatcherEventType.REJECTION) {
-//            log.debug("Rejection: {}", ev.activeOrderId);
             session.actualOrders.clear((int) ev.activeOrderId);
             session.numRejected++;
 
             // update order book stat if order get rejected
             // that will trigger generator to issue more limit orders
             updateOrderBookSizeStat(session);
-            //log.debug("Rejected {}", ev.activeOrderId);
 
         } else if (ev.eventType == MatcherEventType.REDUCE) {
-//            log.debug("Reduce: {}", ev.activeOrderId);
             session.actualOrders.clear((int) ev.activeOrderId);
             session.numReduced++;
         }
@@ -256,7 +272,7 @@ public class TestOrdersGenerator {
             session.counterMove = 0;
         }
 
-        int cmd = rand.nextInt(growOrders ? (lackOfOrders > 1000 ? 2 : 10) : 40);
+        int cmd = rand.nextInt(growOrders ? (lackOfOrders > (CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND / 2) ? 2 : 10) : 40);
 
         if (cmd < 2) {
 
@@ -368,6 +384,27 @@ public class TestOrdersGenerator {
                 .collect(Collectors.toList());
     }
 
+    private static void printStatistics(final int readyAtSequenceApproximate, final List<OrderCommand> allCommands) {
+        final int commandsListSize = allCommands.size() - readyAtSequenceApproximate;
+        final Map<OrderCommandType, List<OrderCommand>> commandsByType = allCommands.stream().skip(readyAtSequenceApproximate).collect(Collectors.groupingBy(r -> r.command));
+        final Map<OrderType, List<OrderCommand>> ordersByType = commandsByType.get(OrderCommandType.PLACE_ORDER).stream().collect(Collectors.groupingBy(cmd -> cmd.orderType));
+        final int counterPlaceLimit = ordersByType.get(OrderType.LIMIT).size();
+        final int counterPlaceMarket = ordersByType.get(OrderType.MARKET).size();
+        final int counterCancel = commandsByType.get(OrderCommandType.CANCEL_ORDER).size();
+        final int counterMove = commandsByType.get(OrderCommandType.MOVE_ORDER).size();
+
+        log.debug("place limit: {} ({}%)", counterPlaceLimit, (float) counterPlaceLimit / (float) commandsListSize * 100.0f);
+        log.debug("place market: {} ({}%)", counterPlaceMarket, (float) counterPlaceMarket / (float) commandsListSize * 100.0f);
+        log.debug("cancel: {} ({}%)", counterCancel, (float) counterCancel / (float) commandsListSize * 100.0f);
+        log.debug("move: {} ({}%)", counterMove, (float) counterMove / (float) commandsListSize * 100.0f);
+
+        final Map<Integer, Long> perSymbols = allCommands.stream().skip(readyAtSequenceApproximate).collect(Collectors.groupingBy(cmd -> cmd.symbol, Collectors.counting()));
+        final LongSummaryStatistics symbolStat = perSymbols.values().stream().collect(Collectors.summarizingLong(n -> n));
+        log.debug("max commands per symbol: {} ({}%)", symbolStat.getMax(), (float) symbolStat.getMax() / (float) commandsListSize * 100.0f);
+        log.debug("avg commands per symbol: {} ({}%)", symbolStat.getAverage(), (float) symbolStat.getAverage() / (float) commandsListSize * 100.0f);
+        log.debug("min commands per symbol: {} ({}%)", symbolStat.getMin(), (float) symbolStat.getMin() / (float) commandsListSize * 100.0f);
+    }
+
     @Builder
     @Getter
     public static class GenResult {
@@ -406,7 +443,8 @@ public class TestOrdersGenerator {
             probabilityRanges.add(totalCommands);
         }
 
-        log.debug("Merging {} commands for {} different symbols: probabilityRanges: {}", totalCommands, genResults.size(), probabilityRanges);
+        //log.debug("Merging {} commands for {} different symbols: probabilityRanges: {}", totalCommands, genResults.size(), probabilityRanges);
+        log.debug("Merging {} commands for {} different symbols...", totalCommands, genResults.size());
 
         List<OrderCommand> res = new ArrayList<>(totalCommands);
 
@@ -428,6 +466,7 @@ public class TestOrdersGenerator {
             } else {
                 // todo remove/optimize
                 if (res.size() == totalCommands) {
+                    log.debug("Done merging");
                     return res;
                 }
             }
