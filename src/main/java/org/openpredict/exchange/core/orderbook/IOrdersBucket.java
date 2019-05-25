@@ -1,5 +1,6 @@
 package org.openpredict.exchange.core.orderbook;
 
+import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
@@ -9,7 +10,7 @@ import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
-public interface IOrdersBucket extends Comparable<IOrdersBucket> {
+public interface IOrdersBucket extends Comparable<IOrdersBucket>, WriteBytesMarshallable {
 
     /**
      * Add order into bucket

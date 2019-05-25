@@ -3,11 +3,13 @@ package org.openpredict.exchange.beans;
 
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.BytesOut;
+import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.openpredict.exchange.core.RiskEngine;
 
 @ToString
 @Slf4j
-public final class SymbolPortfolioRecord {
+public final class SymbolPortfolioRecord implements WriteBytesMarshallable {
 
     public final int symbol;
     public final long uid;
@@ -191,6 +193,19 @@ public final class SymbolPortfolioRecord {
         profit -= commission * sizeToOpen;
 
         // validateInternalState();
+    }
+
+    @Override
+    public void writeMarshallable(BytesOut bytes) {
+        bytes.writeInt(symbol);
+        bytes.writeLong(uid);
+        bytes.writeInt(currency);
+        bytes.writeByte((byte) position.getMultiplier());
+        bytes.writeLong(openVolume);
+        bytes.writeLong(openPriceSum);
+        bytes.writeLong(profit);
+        bytes.writeLong(pendingSellSize);
+        bytes.writeLong(pendingBuySize);
     }
 
     public void reset() {

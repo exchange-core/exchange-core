@@ -2,6 +2,11 @@ package org.openpredict.exchange.core;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.BytesIn;
+import net.openhft.chronicle.bytes.BytesMarshallable;
+import net.openhft.chronicle.bytes.BytesOut;
+import net.openhft.chronicle.bytes.WriteBytesMarshallable;
+import net.openhft.chronicle.core.io.IORuntimeException;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.nustaq.serialization.FSTConfiguration;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
@@ -20,7 +25,7 @@ import java.util.function.Function;
  */
 @Slf4j
 @RequiredArgsConstructor
-public final class BinaryCommandsProcessor {
+public final class BinaryCommandsProcessor implements WriteBytesMarshallable {
 
     // transactionId -> TransferRecord (long array + bitset)
     private final LongObjectHashMap<TransferRecord> incomingData = new LongObjectHashMap<>();
@@ -97,7 +102,19 @@ public final class BinaryCommandsProcessor {
         incomingData.clear();
     }
 
-    private static class TransferRecord {
+    @Override
+    public void writeMarshallable(BytesOut bytes) {
+
+        // write symbolSpecs
+        bytes.writeInt(incomingData.size());
+        incomingData.forEachKeyValue((k, v) -> {
+            bytes.writeLong(k);
+            v.writeMarshallable(bytes);
+        });
+    }
+
+
+    private static class TransferRecord implements BytesMarshallable {
         public TransferRecord(int dataSizeBytes) {
 
             int longArraySize = Utils.requiredLongArraySize(dataSizeBytes);

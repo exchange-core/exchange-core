@@ -12,6 +12,7 @@ import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.core.ExchangeApi;
 import org.openpredict.exchange.core.ExchangeCore;
+import org.openpredict.exchange.core.journalling.DiskSerializationProcessor;
 
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
@@ -106,6 +107,7 @@ public abstract class IntegrationTestBase {
 
         exchangeCore = ExchangeCore.builder()
                 .resultsConsumer(cmd -> consumer.accept(cmd))
+                .serializationProcessor(new DiskSerializationProcessor())
                 .ringBufferSize(bufferSize)
                 .matchingEnginesNum(matchingEnginesNum)
                 .riskEnginesNum(riskEnginesNum)

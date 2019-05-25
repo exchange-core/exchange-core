@@ -2,6 +2,8 @@ package org.openpredict.exchange.beans;
 
 
 import lombok.*;
+import net.openhft.chronicle.bytes.BytesOut;
+import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 
 import java.io.Serializable;
 
@@ -9,7 +11,7 @@ import java.io.Serializable;
 @AllArgsConstructor
 @Getter
 @ToString
-public final class CoreSymbolSpecification implements Serializable {
+public final class CoreSymbolSpecification implements Serializable, WriteBytesMarshallable {
 
     public final int symbolId;
 
@@ -50,5 +52,17 @@ public final class CoreSymbolSpecification implements Serializable {
 
   */
 
+    @Override
+    public void writeMarshallable(BytesOut bytes) {
+        bytes.writeByte(type.getCode());
+        bytes.writeInt(baseCurrency);
+        bytes.writeInt(quoteCurrency);
+        bytes.writeLong(baseScaleK);
+        bytes.writeLong(quoteScaleK);
+        bytes.writeLong(depositBuy);
+        bytes.writeLong(depositSell);
+        bytes.writeLong(takerFee);
+        bytes.writeLong(makerFee);
+    }
 
 }

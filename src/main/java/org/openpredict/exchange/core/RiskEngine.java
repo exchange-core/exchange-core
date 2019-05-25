@@ -1,13 +1,14 @@
 package org.openpredict.exchange.core;
 
-import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.BytesMarshallable;
+import net.openhft.chronicle.bytes.BytesOut;
+import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
-
-import java.nio.ByteBuffer;
+import org.openpredict.exchange.core.journalling.ISerializationProcessor;
 
 import static org.openpredict.exchange.beans.MatcherEventType.*;
 import static org.openpredict.exchange.beans.cmd.OrderCommandType.*;
@@ -16,14 +17,13 @@ import static org.openpredict.exchange.beans.cmd.OrderCommandType.*;
  * Stateful risk engine
  */
 @Slf4j
-public final class RiskEngine {
+public final class RiskEngine implements WriteBytesMarshallable {
 
     // state
-    @Getter
     private final SymbolSpecificationProvider symbolSpecificationProvider = new SymbolSpecificationProvider();
-    @Getter
+
     private final UserProfileService userProfileService = new UserProfileService();
-    @Getter
+
     private final BinaryCommandsProcessor binaryCommandsProcessor = new BinaryCommandsProcessor(
             symbolSpecificationProvider::addSymbol,
             CommandResultCode.VALID_FOR_MATCHING_ENGINE);
@@ -33,15 +33,18 @@ public final class RiskEngine {
     private final int shardId;
     private final long shardMask;
 
-    public RiskEngine(final int shardId, final long numShards) {
+    private final ISerializationProcessor serializationProcessor;
+
+    public RiskEngine(final int shardId, final long numShards, final ISerializationProcessor serializationProcessor) {
         if (Long.bitCount(numShards) != 1) {
             throw new IllegalArgumentException("Invalid number of shards " + numShards + " - must be power of 2");
         }
         this.shardId = shardId;
         this.shardMask = numShards - 1;
+        this.serializationProcessor = serializationProcessor;
     }
 
-    public static class LastPriceCacheRecord {
+    public static class LastPriceCacheRecord implements BytesMarshallable {
         public long askPrice = Long.MAX_VALUE;
         public long bidPrice = 0L;
     }
@@ -86,9 +89,15 @@ public final class RiskEngine {
             if (shardId == 0) {
                 cmd.resultCode = CommandResultCode.SUCCESS;
             }
-        } else if (cmd.command == DUMP_STATE) {
-            // final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer();
-            log.error("DUMP_STATE not implemented");
+        } else if (cmd.command == PERSIST_STATE) {
+            serializationProcessor.storeData(cmd.orderId,
+                    ISerializationProcessor.SerializedModuleType.RISK_ENGINE,
+                    shardId,
+                    this);
+
+            if (shardId == 0) {
+                cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
+            }
         }
     }
 
@@ -374,6 +383,23 @@ public final class RiskEngine {
         } else {
             log.error("unsupported eventType: {}", ev.eventType);
         }
+    }
+
+    @Override
+    public void writeMarshallable(BytesOut bytes) {
+
+        bytes.writeInt(shardId).writeLong(shardMask);
+
+        symbolSpecificationProvider.writeMarshallable(bytes);
+        userProfileService.writeMarshallable(bytes);
+        binaryCommandsProcessor.writeMarshallable(bytes);
+
+        // write lastAskPriceCache
+        bytes.writeInt(lastAskPriceCache.size());
+        lastAskPriceCache.forEachKeyValue((k, v) -> {
+            bytes.writeInt(k);
+            v.writeMarshallable(bytes);
+        });
     }
 
     public void reset() {

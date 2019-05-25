@@ -1,17 +1,22 @@
 package org.openpredict.exchange.core;
 
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.BytesIn;
+import net.openhft.chronicle.bytes.BytesOut;
+import net.openhft.chronicle.bytes.WriteBytesMarshallable;
+import net.openhft.chronicle.core.io.IORuntimeException;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.core.journalling.ISerializationProcessor;
 import org.openpredict.exchange.core.orderbook.IOrderBook;
 import org.openpredict.exchange.core.orderbook.OrderBookFastImpl;
 
 import static org.openpredict.exchange.beans.cmd.OrderCommandType.*;
 
 @Slf4j
-public final class MatchingEngineRouter {
+public final class MatchingEngineRouter implements WriteBytesMarshallable {
 
     // state
     private final BinaryCommandsProcessor binaryCommandsProcessor = new BinaryCommandsProcessor(this::addSymbol, CommandResultCode.ACCEPTED);
@@ -22,12 +27,15 @@ public final class MatchingEngineRouter {
     private final int shardId;
     private final long shardMask;
 
-    public MatchingEngineRouter(final int shardId, final long numShards) {
+    private final ISerializationProcessor serializationProcessor;
+
+    public MatchingEngineRouter(final int shardId, final long numShards, final ISerializationProcessor serializationProcessor) {
         if (Long.bitCount(numShards) != 1) {
             throw new IllegalArgumentException("Invalid number of shards " + numShards + " - must be power of 2");
         }
         this.shardId = shardId;
         this.shardMask = numShards - 1;
+        this.serializationProcessor = serializationProcessor;
     }
 
     public void processOrder(OrderCommand cmd) {
@@ -52,6 +60,15 @@ public final class MatchingEngineRouter {
             if (shardId == 0) {
                 cmd.resultCode = CommandResultCode.SUCCESS;
             }
+
+        } else if (cmd.command == PERSIST_STATE) {
+            // TODO somehow merge result code from each instance
+
+            log.debug("DUMP MATCHING_ENGINE_ROUTER");
+            serializationProcessor.storeData(cmd.orderId, ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER, shardId, this);
+            if (shardId == 0) {
+                cmd.resultCode = CommandResultCode.SUCCESS;
+            }
         }
     }
 
@@ -69,6 +86,7 @@ public final class MatchingEngineRouter {
             return CommandResultCode.MATCHING_ORDER_BOOK_ALREADY_EXISTS;
         } else {
             IOrderBook orderBook = new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH);
+//            IOrderBook orderBook = new OrderBookNaiveImpl();
             orderBooks.put(symbolId, orderBook);
             return CommandResultCode.SUCCESS;
         }
@@ -87,6 +105,15 @@ public final class MatchingEngineRouter {
                 cmd.marketData = orderBook.getL2MarketDataSnapshot(8);
             }
         }
+    }
+
+    @Override
+    public void writeMarshallable(BytesOut bytes) {
+        bytes.writeInt(shardId).writeLong(shardMask);
+        binaryCommandsProcessor.writeMarshallable(bytes);
+
+        // write orderBooks
+        Utils.marshallIntHashMap(orderBooks, bytes);
     }
 
 }

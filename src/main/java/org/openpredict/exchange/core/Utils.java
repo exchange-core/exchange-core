@@ -2,7 +2,14 @@ package org.openpredict.exchange.core;
 
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
+import net.openhft.chronicle.bytes.BytesOut;
+import net.openhft.chronicle.bytes.WriteBytesMarshallable;
+import org.eclipse.collections.api.map.primitive.MutableLongIntMap;
+import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
+import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 
+import java.util.BitSet;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.function.Supplier;
@@ -40,5 +47,56 @@ public final class Utils {
         }
     }
 
+    public static void marshallBitSet(final BitSet bitSet, final BytesOut bytes) {
+
+        long[] longs = bitSet.toLongArray();
+
+        bytes.writeInt(longs.length);
+
+        for (long word : longs) {
+            bytes.writeLong(word);
+        }
+    }
+
+
+    public static void marshallMutableLongIntMap(final MutableLongIntMap hashMap, final BytesOut bytes) {
+
+        bytes.writeInt(hashMap.size());
+
+        hashMap.forEachKeyValue((k, v) -> {
+            bytes.writeLong(k);
+            bytes.writeInt(v);
+        });
+    }
+
+    public static <T extends WriteBytesMarshallable> void marshallLongHashMap(final LongObjectHashMap<T> hashMap, final BytesOut bytes) {
+
+        bytes.writeInt(hashMap.size());
+
+        hashMap.forEachKeyValue((k, v) -> {
+            bytes.writeLong(k);
+            v.writeMarshallable(bytes);
+        });
+
+    }
+
+    public static <T extends WriteBytesMarshallable> void marshallIntHashMap(final IntObjectHashMap<T> hashMap, final BytesOut bytes) {
+
+        bytes.writeInt(hashMap.size());
+
+        hashMap.forEachKeyValue((k, v) -> {
+            bytes.writeInt(k);
+            v.writeMarshallable(bytes);
+        });
+    }
+
+    public static <T extends WriteBytesMarshallable> void marshallLongMap(final Map<Long, T> map, final BytesOut bytes) {
+        bytes.writeInt(map.size());
+
+        map.forEach((k, v) -> {
+            bytes.writeLong(k);
+            v.writeMarshallable(bytes);
+        });
+    }
 
 }

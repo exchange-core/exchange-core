@@ -111,7 +111,7 @@ public final class GroupingProcessor implements EventProcessor {
                         OrderCommand cmd = ringBuffer.get(nextSequence);
                         nextSequence++;
 
-                        if (cmd.command == OrderCommandType.RESET) {
+                        if (cmd.command == OrderCommandType.RESET || cmd.command == OrderCommandType.PERSIST_STATE) {
                             groupCounter++;
                             msgsInGroup = 0;
                         }

@@ -2,16 +2,17 @@ package org.openpredict.exchange.core;
 
 
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.BytesOut;
+import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 
 @Slf4j
-public final class SymbolSpecificationProvider {
+public final class SymbolSpecificationProvider implements WriteBytesMarshallable {
 
     // symbol->specs
     private final IntObjectHashMap<CoreSymbolSpecification> symbolSpecs = new IntObjectHashMap<>();
-
 
     public CommandResultCode addSymbol(final CoreSymbolSpecification symbolSpecification) {
         if (getSymbolSpecification(symbolSpecification.symbolId) != null) {
@@ -48,4 +49,16 @@ public final class SymbolSpecificationProvider {
     public void reset() {
         symbolSpecs.clear();
     }
+
+    @Override
+    public void writeMarshallable(BytesOut bytes) {
+
+        // write symbolSpecs
+        bytes.writeInt(symbolSpecs.size());
+        symbolSpecs.forEachKeyValue((k, v) -> {
+            bytes.writeInt(k);
+            v.writeMarshallable(bytes);
+        });
+    }
+
 }

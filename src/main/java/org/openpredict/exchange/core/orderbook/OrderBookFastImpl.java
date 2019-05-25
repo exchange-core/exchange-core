@@ -2,6 +2,9 @@ package org.openpredict.exchange.core.orderbook;
 
 import com.google.common.collect.ObjectArrays;
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.BytesIn;
+import net.openhft.chronicle.bytes.BytesOut;
+import net.openhft.chronicle.core.io.IORuntimeException;
 import org.apache.commons.lang3.ArrayUtils;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.beans.L2MarketData;
@@ -9,6 +12,7 @@ import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.OrderType;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.core.Utils;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -44,7 +48,7 @@ public final class OrderBookFastImpl implements IOrderBook {
 
     //    private LongObjectHashMap<Order> idMap = new LongObjectHashMap<>();
     /**
-     * Hashtable for fast resolving OrderId -> Bucket
+     * Hashtable for fast (cached) resolving OrderId -> Bucket
      */
     private final LongObjectHashMap<IOrdersBucket> idMapToBucket = new LongObjectHashMap<>();
 
@@ -179,7 +183,8 @@ public final class OrderBookFastImpl implements IOrderBook {
 
         ordersBucket = bucketsPool.pollLast();
         if (ordersBucket == null) {
-            ordersBucket = new OrdersBucketFastImpl();
+//            ordersBucket = new OrdersBucketFastImpl();
+            ordersBucket = new OrdersBucketNaiveImpl();
         }
 
         ordersBucket.setPrice(price);
@@ -214,7 +219,8 @@ public final class OrderBookFastImpl implements IOrderBook {
 
         ordersBucket = bucketsPool.pollLast();
         if (ordersBucket == null) {
-            ordersBucket = new OrdersBucketFastImpl();
+//            ordersBucket = new OrdersBucketFastImpl();
+            ordersBucket = new OrdersBucketNaiveImpl();
         }
 
         ordersBucket.setPrice(price);
@@ -960,6 +966,33 @@ public final class OrderBookFastImpl implements IOrderBook {
         final IOrdersBucket[] farAsks = farAskBuckets.values().toArray(new IOrdersBucket[0]);
         final IOrdersBucket[] hotAsks = hotAskBuckets.toSortedMap(k -> k, v -> v).values().toArray(new IOrdersBucket[hotAskBuckets.size()]);
         return ObjectArrays.concat(hotAsks, farAsks, IOrdersBucket.class);
+    }
+
+    @Override
+    public void writeMarshallable(BytesOut bytes) {
+        bytes.writeInt(hotPricesRange);
+
+        Utils.marshallBitSet(hotAskBitSet, bytes);
+        Utils.marshallBitSet(hotBidBitSet, bytes);
+
+        Utils.marshallLongHashMap(hotAskBuckets, bytes);
+        Utils.marshallLongHashMap(hotBidBuckets, bytes);
+
+        bytes.writeLong(minAskPrice);
+        bytes.writeLong(maxBidPrice);
+
+        bytes.writeLong(basePrice);
+        bytes.writeLong(rebalanceThresholdLow);
+        bytes.writeLong(rebalanceThresholdHigh);
+
+        Utils.marshallLongMap(farAskBuckets, bytes);
+        Utils.marshallLongMap(farBidBuckets, bytes);
+
+        bytes.writeInt(idMapToBucket.size());
+        idMapToBucket.forEachKeyValue((k, v) -> {
+            bytes.writeLong(k);
+            bytes.writeLong(v.getPrice());
+        });
     }
 
     @Override

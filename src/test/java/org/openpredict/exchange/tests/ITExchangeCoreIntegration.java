@@ -2,7 +2,6 @@ package org.openpredict.exchange.tests;
 
 import lombok.extern.slf4j.Slf4j;
 import org.junit.After;
-import org.junit.Before;
 import org.junit.Test;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.api.*;
@@ -137,6 +136,13 @@ public class ITExchangeCoreIntegration extends IntegrationTestBase {
 
         l2helper.setAskPriceVolume(0, 1580, 1).removeBid(0);
         assertEquals(l2helper.build(), requestCurrentOrderBook(symbol));
+
+
+        final ApiPersistState dumpCommand = ApiPersistState.builder().dumpId(System.currentTimeMillis()).build();
+        submitCommandSync(dumpCommand, cmd -> {
+            assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
+        });
+
     }
 
 

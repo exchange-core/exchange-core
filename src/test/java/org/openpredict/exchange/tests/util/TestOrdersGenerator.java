@@ -44,6 +44,9 @@ public class TestOrdersGenerator {
 
     public static final int CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND = 512;
 
+    public static final int GENERATION_THREADS = 6;
+
+
     // TODO allow limiting max volume
 
 
@@ -54,28 +57,34 @@ public class TestOrdersGenerator {
 
         int[] symbols = coreSymbolSpecifications.stream().mapToInt(spec -> spec.symbolId).toArray();
 
-        final RealDistribution paretoDistribution = new ParetoDistribution(new JDKRandomGenerator(0), 0.001, 1.5);
+        final RealDistribution paretoDistribution = new ParetoDistribution(new JDKRandomGenerator(0), 0.001, 1.6);
         final double[] paretoRaw = DoubleStream.generate(paretoDistribution::sample).limit(symbols.length).toArray();
-        Arrays.sort(paretoRaw);
-        ArrayUtils.reverse(paretoRaw);
+        //Arrays.sort(paretoRaw);
+        //ArrayUtils.reverse(paretoRaw);
         final double sum = Arrays.stream(paretoRaw).sum();
         final double[] distribution = Arrays.stream(paretoRaw).map(x -> x / sum).toArray();
 
         int quotaLeft = totalTransactionsNumber;
         final Map<Integer, CompletableFuture<GenResult>> futures = new HashMap<>();
 
-        final ExecutorService executor = Executors.newCachedThreadPool(
+        final ExecutorService executor = Executors.newFixedThreadPool(
+                GENERATION_THREADS,
                 Utils.affinedThreadFactory(Utils.ThreadAffityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CODE));
 
+        //int[] stat = new int[4];
         for (int i = 0; i < symbols.length; i++) {
-            final int symbol = symbols[i];
+            final int symbolId = symbols[i];
             final int numOrdersTarget = (int) (targetOrderBookOrdersTotal * distribution[i]);
             final int commandsNum = (i != symbols.length - 1) ? (int) (totalTransactionsNumber * distribution[i]) : quotaLeft;
             quotaLeft -= commandsNum;
 
-            //log.debug("{}. Generating symbol {} : commands={} numOrdersTarget={}", i, symbol, commandsNum, numOrdersTarget);
-            futures.put(symbol, CompletableFuture.supplyAsync(() -> generateCommands(commandsNum, numOrdersTarget, numUsers, symbol, false), executor));
+            //log.debug("{}. Generating symbol {} : commands={} numOrdersTarget={}", i, symbolId, commandsNum, numOrdersTarget);
+            futures.put(symbolId, CompletableFuture.supplyAsync(() -> generateCommands(commandsNum, numOrdersTarget, numUsers, symbolId, false), executor));
+
+            //stat[symbolId%4] += numOrdersTarget;
         }
+
+        //log.debug("stat: {}", stat);
 
         final Map<Integer, GenResult> genResults = new HashMap<>();
         futures.forEach((symbol, future) -> {
@@ -85,6 +94,8 @@ public class TestOrdersGenerator {
                 throw new IllegalStateException("Exception while generating commands for symbol " + symbol, ex);
             }
         });
+
+        executor.shutdown();
 
         final int readyAtSequenceApproximate = genResults.values().stream().mapToInt(TestOrdersGenerator.GenResult::getOrderbooksFilledAtSequence).sum();
         log.debug("readyAtSequenceApproximate={}", readyAtSequenceApproximate);

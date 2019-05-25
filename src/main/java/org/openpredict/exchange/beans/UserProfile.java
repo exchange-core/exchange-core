@@ -1,12 +1,17 @@
 package org.openpredict.exchange.beans;
 
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.BytesIn;
+import net.openhft.chronicle.bytes.BytesMarshallable;
+import net.openhft.chronicle.bytes.BytesOut;
+import net.openhft.chronicle.bytes.WriteBytesMarshallable;
+import net.openhft.chronicle.core.io.IORuntimeException;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.eclipse.collections.impl.set.mutable.primitive.LongHashSet;
 
 @Slf4j
-public final class UserProfile {
+public final class UserProfile implements WriteBytesMarshallable {
 
     public final long uid;
 
@@ -58,6 +63,31 @@ public final class UserProfile {
             portfolio.removeKey(record.symbol);
         }
     }
+
+    @Override
+    public void writeMarshallable(BytesOut bytes) {
+
+        bytes.writeLong(uid);
+
+        // positions
+        bytes.writeInt(portfolio.size());
+        portfolio.forEachKeyValue((k, v) -> {
+            bytes.writeInt(k);
+            v.writeMarshallable(bytes);
+        });
+
+        // externalTransactions
+        bytes.writeInt(externalTransactions.size());
+        externalTransactions.forEach(bytes::writeLong);
+
+        bytes.writeInt(accounts.size());
+        accounts.forEachKeyValue((currency, balance) -> {
+            bytes.writeInt(currency);
+            bytes.writeLong(balance);
+        });
+
+    }
+
 
     @Override
     public String toString() {

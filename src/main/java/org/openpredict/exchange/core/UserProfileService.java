@@ -1,6 +1,8 @@
 package org.openpredict.exchange.core;
 
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.BytesOut;
+import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.api.map.primitive.MutableLongObjectMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.beans.UserProfile;
@@ -12,7 +14,7 @@ import org.openpredict.exchange.beans.cmd.CommandResultCode;
  * TODO make multi instance
  */
 @Slf4j
-public final class UserProfileService {
+public final class UserProfileService implements WriteBytesMarshallable {
 
     /**
      * State: uid -> user profile
@@ -97,5 +99,19 @@ public final class UserProfileService {
     public void reset() {
         userProfiles.clear();
     }
+
+    @Override
+    public void writeMarshallable(BytesOut bytes) {
+
+        // write symbolSpecs
+        bytes.writeInt(userProfiles.size());
+        userProfiles.forEachKeyValue((k, v) -> {
+            bytes.writeLong(k);
+            v.writeMarshallable(bytes);
+        });
+
+
+    }
+
 
 }

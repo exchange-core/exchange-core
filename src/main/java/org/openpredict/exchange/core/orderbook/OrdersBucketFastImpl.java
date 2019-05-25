@@ -5,15 +5,18 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.BytesOut;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.eclipse.collections.api.map.primitive.MutableLongIntMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongIntHashMap;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.core.Utils;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Consumer;
 
 /**
@@ -327,6 +330,29 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
     @Override
     public int getNumOrders() {
         return realSize;
+    }
+
+    @Override
+    public void writeMarshallable(BytesOut bytes) {
+        bytes.writeLong(price);
+        Utils.marshallMutableLongIntMap(positions, bytes);
+
+        bytes.writeInt(queue.length);
+        bytes.writeInt((int) Arrays.stream(queue).filter(Objects::nonNull).count());
+        for (int i = 0; i < queue.length; i++) {
+            Order order = queue[i];
+            if (order != null) {
+                bytes.writeInt(i);
+                bytes.writeObject(Order.class, order);
+            }
+        }
+
+        bytes.writeInt(tail);
+        bytes.writeInt(head);
+        bytes.writeInt(queueSize);
+        bytes.writeInt(realSize);
+
+        bytes.writeLong(totalVolume);
     }
 
     @Override

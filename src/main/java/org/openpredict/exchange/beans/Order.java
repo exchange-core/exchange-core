@@ -4,6 +4,8 @@ package org.openpredict.exchange.beans;
 import com.google.common.base.Objects;
 import lombok.Builder;
 import lombok.NoArgsConstructor;
+import net.openhft.chronicle.bytes.BytesOut;
+import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
@@ -16,7 +18,7 @@ import org.openpredict.exchange.beans.cmd.OrderCommandType;
  * No external references allowed to such object - order objects only live inside OrderBook.
  */
 @NoArgsConstructor
-public final class Order extends OrderCommand {
+public final class Order extends OrderCommand implements WriteBytesMarshallable {
 
     public long filled;
 
@@ -26,6 +28,21 @@ public final class Order extends OrderCommand {
         //super(command, orderId, symbol, price, size, action, orderType, uid, timestamp, 0, null, null);
         super(command, orderId, symbol, price, size, action, orderType, uid, timestamp, userCookie, 0, 0, null, null, null);
         this.filled = filled;
+    }
+
+    @Override
+    public void writeMarshallable(BytesOut bytes) {
+        bytes.writeByte(command.getCode());
+        bytes.writeLong(orderId);
+        bytes.writeInt(symbol);
+        bytes.writeLong(price);
+        bytes.writeLong(size);
+        bytes.writeByte(action.getCode());
+        bytes.writeByte(orderType.getCode());
+        bytes.writeLong(uid);
+        bytes.writeLong(timestamp);
+        bytes.writeInt(userCookie);
+        bytes.writeLong(filled);
     }
 
     @Override

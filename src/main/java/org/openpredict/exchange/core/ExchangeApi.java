@@ -46,6 +46,8 @@ public final class ExchangeApi {
             ringBuffer.publishEvent(ADJUST_USER_BALANCE_TRANSLATOR, (ApiAdjustUserBalance) cmd);
         } else if (cmd instanceof ApiBinaryDataCommand) {
             publishBinaryData(ringBuffer, (ApiBinaryDataCommand) cmd);
+        } else if (cmd instanceof ApiPersistState) {
+            ringBuffer.publishEvent(PERSIST_STATE_TRANSLATOR, (ApiPersistState) cmd);
         } else if (cmd instanceof ApiReset) {
             ringBuffer.publishEvent(RESET_TRANSLATOR, (ApiReset) cmd);
         } else if (cmd instanceof ApiNoOp) {
@@ -101,7 +103,7 @@ public final class ExchangeApi {
                 i++;
             }
         } catch (Exception ex) {
-            log.error("Ex: ", ex);
+            log.error("Binary commands processing exception: ", ex);
 
         } finally {
             //System.out.println("publish " + lowSeq + "-" + highSeq);
@@ -177,6 +179,16 @@ public final class ExchangeApi {
     private static final EventTranslatorOneArg<OrderCommand, ApiReset> RESET_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.RESET;
         cmd.orderId = -1;
+        cmd.symbol = -1;
+        cmd.uid = -1;
+        cmd.price = -1;
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+    };
+
+    private static final EventTranslatorOneArg<OrderCommand, ApiPersistState> PERSIST_STATE_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.PERSIST_STATE;
+        cmd.orderId = api.dumpId;
         cmd.symbol = -1;
         cmd.uid = -1;
         cmd.price = -1;

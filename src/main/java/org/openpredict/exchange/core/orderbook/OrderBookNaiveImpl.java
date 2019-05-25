@@ -2,11 +2,13 @@ package org.openpredict.exchange.core.orderbook;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.BytesOut;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.core.Utils;
 
 import java.util.*;
 
@@ -281,6 +283,11 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
     @Override
     public void fillAsks(final int size, L2MarketData data) {
+        if (size == 0) {
+            data.askSize = 0;
+            return;
+        }
+
         int i = 0;
         for (IOrdersBucket bucket : askBuckets.values()) {
             data.askPrices[i] = bucket.getPrice();
@@ -294,11 +301,16 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
     @Override
     public void fillBids(final int size, L2MarketData data) {
+        if (size == 0) {
+            data.bidSize = 0;
+            return;
+        }
+
         int i = 0;
         for (IOrdersBucket bucket : bidBuckets.values()) {
             data.bidPrices[i] = bucket.getPrice();
             data.bidVolumes[i] = bucket.getTotalVolume();
-            if (i++ == size) {
+            if (++i == size) {
                 break;
             }
         }
@@ -359,12 +371,22 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     }
 
     @Override
+    public void writeMarshallable(BytesOut bytes) {
+        Utils.marshallLongMap(askBuckets, bytes);
+        Utils.marshallLongMap(bidBuckets, bytes);
+
+        bytes.writeInt(idMap.size());
+        idMap.forEachKeyValue((k, v) -> {
+            bytes.writeLong(k);
+            bytes.writeLong(v.orderId);
+            v.writeMarshallable(bytes);
+        });
+    }
+
+    @Override
     public int hashCode() {
-        IOrdersBucket[] a = this.askBuckets.values().toArray(new IOrdersBucket[this.askBuckets.size()]);
-        IOrdersBucket[] b = this.bidBuckets.values().toArray(new IOrdersBucket[this.bidBuckets.size()]);
-
-        //log.debug("SLOW A:{} B:{}", a, b);
-
+        IOrdersBucket[] a = this.askBuckets.values().toArray(new IOrdersBucket[0]);
+        IOrdersBucket[] b = this.bidBuckets.values().toArray(new IOrdersBucket[0]);
         return IOrderBook.hash(a, b);
     }
 

@@ -11,7 +11,7 @@ import java.util.Arrays;
  * NOTE: Can have dirty data, askSize and bidSize are important!
  */
 @ToString
-public class L2MarketData {
+public final class L2MarketData {
 
     public static final int L2_SIZE = 32;
 

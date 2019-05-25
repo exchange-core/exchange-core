@@ -18,7 +18,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.function.BiFunction;
 import java.util.stream.IntStream;
 
+import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
 import static org.openpredict.exchange.tests.util.LatencyTools.createLatencyReportFast;
 
 @Slf4j
@@ -43,7 +45,8 @@ public final class PerfLatency extends IntegrationTestBase {
                 1_000,
                 CURRENCIES_FUTURES,
                 1,
-                AllowedSymbolTypes.FUTURES_CONTRACT);
+                AllowedSymbolTypes.FUTURES_CONTRACT,
+                20);
     }
 
     /**
@@ -62,7 +65,8 @@ public final class PerfLatency extends IntegrationTestBase {
                 1_000_000,
                 ALL_CURRENCIES,
                 1_000,
-                AllowedSymbolTypes.BOTH);
+                AllowedSymbolTypes.BOTH,
+                10);
     }
 
 
@@ -71,13 +75,13 @@ public final class PerfLatency extends IntegrationTestBase {
                                  final int numUsers,
                                  final Set<Integer> currenciesAllowed,
                                  final int numSymbols,
-                                 final AllowedSymbolTypes allowedSymbolTypes) {
+                                 final AllowedSymbolTypes allowedSymbolTypes,
+                                 final int warmupCycles) {
 
         final int targetTps = 200_000; // transactions per second
         final int targetTpsStep = 100_000;
 
         final int warmupTps = 1_000_000;
-        final int warmupCycles = 20;
 
         try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
 
@@ -141,7 +145,7 @@ public final class PerfLatency extends IntegrationTestBase {
                             symbol -> assertEquals(genResult.getGenResults().get(symbol.symbolId).getFinalOrderBookSnapshot(), requestCurrentOrderBook(symbol.symbolId)));
 
                     if (WRITE_HDR_HISTOGRAMS) {
-                        PrintStream printStream = new PrintStream(new File(System.currentTimeMillis() + "-" + perfMt + ".perc"));
+                        final PrintStream printStream = new PrintStream(new File(System.currentTimeMillis() + "-" + perfMt + ".perc"));
                         //log.info("HDR 50%:{}", hdr.getValueAtPercentile(50));
                         histogram.outputPercentileDistribution(printStream, 1000.0);
                     }
@@ -151,7 +155,7 @@ public final class PerfLatency extends IntegrationTestBase {
                     System.gc();
                     Thread.sleep(300);
 
-                    // stop testing if latency above 1 millisecond
+                    // stop testing if median latency above 1 millisecond
                     return warmup || histogram.getValueAtPercentile(50.0) < 1_000_000;
 
                 } catch (InterruptedException | FileNotFoundException ex) {

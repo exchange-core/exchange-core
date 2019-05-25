@@ -5,9 +5,11 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.BytesOut;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.core.Utils;
 
 import java.util.*;
 import java.util.function.Consumer;
@@ -157,6 +159,13 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
     @Override
     public List<Order> getAllOrders() {
         return new ArrayList<>(entries.values());
+    }
+
+    @Override
+    public void writeMarshallable(BytesOut bytes) {
+        bytes.writeLong(price);
+        Utils.marshallLongMap(entries, bytes);
+        bytes.writeLong(totalVolume);
     }
 
     @Override

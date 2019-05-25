@@ -1,5 +1,6 @@
 package org.openpredict.exchange.core.orderbook;
 
+import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.Order;
@@ -11,7 +12,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
-public interface IOrderBook {
+public interface IOrderBook extends WriteBytesMarshallable {
 
     /**
      * Process new MARKET order
