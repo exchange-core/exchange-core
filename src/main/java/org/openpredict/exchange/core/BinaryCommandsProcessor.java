@@ -1,12 +1,9 @@
 package org.openpredict.exchange.core;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
-import net.openhft.chronicle.bytes.BytesMarshallable;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
-import net.openhft.chronicle.core.io.IORuntimeException;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.nustaq.serialization.FSTConfiguration;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
@@ -24,11 +21,10 @@ import java.util.function.Function;
  * Can receive events in arbitrary order and duplicates - at-least-once-delivery compatible.
  */
 @Slf4j
-@RequiredArgsConstructor
 public final class BinaryCommandsProcessor implements WriteBytesMarshallable {
 
     // transactionId -> TransferRecord (long array + bitset)
-    private final LongObjectHashMap<TransferRecord> incomingData = new LongObjectHashMap<>();
+    private final LongObjectHashMap<TransferRecord> incomingData;
 
     private final Function<CoreSymbolSpecification, CommandResultCode> symbolsConsumer;
 
@@ -40,6 +36,19 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable {
         minBin.registerCrossPlatformClassMappingUseSimpleName(CoreSymbolSpecification.class);
     }
 
+    public BinaryCommandsProcessor(Function<CoreSymbolSpecification, CommandResultCode> symbolsConsumer, CommandResultCode acceptedResultCode) {
+        this.symbolsConsumer = symbolsConsumer;
+        this.acceptedResultCode = acceptedResultCode;
+        this.incomingData = new LongObjectHashMap<>();
+    }
+
+    public BinaryCommandsProcessor(Function<CoreSymbolSpecification, CommandResultCode> symbolsConsumer,
+                                   CommandResultCode acceptedResultCode,
+                                   BytesIn bytesIn) {
+        this.symbolsConsumer = symbolsConsumer;
+        this.acceptedResultCode = acceptedResultCode;
+        this.incomingData = Utils.readLongHashMap(bytesIn, b -> new TransferRecord(bytesIn));
+    }
 
     public CommandResultCode binaryData(OrderCommand cmd) {
 
@@ -106,15 +115,15 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable {
     public void writeMarshallable(BytesOut bytes) {
 
         // write symbolSpecs
-        bytes.writeInt(incomingData.size());
-        incomingData.forEachKeyValue((k, v) -> {
-            bytes.writeLong(k);
-            v.writeMarshallable(bytes);
-        });
+        Utils.marshallLongHashMap(incomingData, bytes);
     }
 
 
-    private static class TransferRecord implements BytesMarshallable {
+    private static class TransferRecord implements WriteBytesMarshallable {
+
+        private final long[] dataArray;
+        private final BitSet framesReceived;
+
         public TransferRecord(int dataSizeBytes) {
 
             int longArraySize = Utils.requiredLongArraySize(dataSizeBytes);
@@ -123,8 +132,16 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable {
             this.framesReceived = new BitSet(longArraySize);
         }
 
-        private final long[] dataArray;
-        private final BitSet framesReceived;
+        public TransferRecord(BytesIn bytes) {
+            this.dataArray = Utils.readLongArray(bytes);
+            this.framesReceived = Utils.readBitSet(bytes);
+        }
+
+        @Override
+        public void writeMarshallable(BytesOut bytes) {
+            Utils.marshallLongArray(dataArray, bytes);
+            Utils.marshallBitSet(framesReceived, bytes);
+        }
     }
 
 }

@@ -1,9 +1,9 @@
 package org.openpredict.exchange.core;
 
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
-import org.eclipse.collections.api.map.primitive.MutableLongObjectMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.beans.UserProfile;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
@@ -19,7 +19,15 @@ public final class UserProfileService implements WriteBytesMarshallable {
     /**
      * State: uid -> user profile
      */
-    private final MutableLongObjectMap<UserProfile> userProfiles = new LongObjectHashMap<>();
+    private final LongObjectHashMap<UserProfile> userProfiles;
+
+    public UserProfileService() {
+        this.userProfiles = new LongObjectHashMap<>();
+    }
+
+    public UserProfileService(BytesIn bytes) {
+        this.userProfiles = Utils.readLongHashMap(bytes, UserProfile::new);
+    }
 
     /**
      * Find user profile
@@ -104,13 +112,7 @@ public final class UserProfileService implements WriteBytesMarshallable {
     public void writeMarshallable(BytesOut bytes) {
 
         // write symbolSpecs
-        bytes.writeInt(userProfiles.size());
-        userProfiles.forEachKeyValue((k, v) -> {
-            bytes.writeLong(k);
-            v.writeMarshallable(bytes);
-        });
-
-
+        Utils.marshallLongHashMap(userProfiles, bytes);
     }
 
 

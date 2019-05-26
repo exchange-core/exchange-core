@@ -1,7 +1,7 @@
 package org.openpredict.exchange.core.orderbook;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.beans.L2MarketData;
@@ -13,13 +13,32 @@ import org.openpredict.exchange.core.Utils;
 import java.util.*;
 
 @Slf4j
-@RequiredArgsConstructor
 public final class OrderBookNaiveImpl implements IOrderBook {
 
-    private final NavigableMap<Long, IOrdersBucket> askBuckets = new TreeMap<>();
-    private final NavigableMap<Long, IOrdersBucket> bidBuckets = new TreeMap<>(Collections.reverseOrder());
+    private final NavigableMap<Long, IOrdersBucket> askBuckets;
+    private final NavigableMap<Long, IOrdersBucket> bidBuckets;
 
     private final LongObjectHashMap<Order> idMap = new LongObjectHashMap<>();
+
+    public OrderBookNaiveImpl() {
+
+        this.askBuckets = new TreeMap<>();
+        this.bidBuckets = new TreeMap<>(Collections.reverseOrder());
+    }
+
+    public OrderBookNaiveImpl(BytesIn bytes) {
+
+        this.askBuckets = Utils.readLongMap(bytes, TreeMap::new, IOrdersBucket::create);
+        this.bidBuckets = Utils.readLongMap(bytes, () -> new TreeMap<>(Collections.reverseOrder()), IOrdersBucket::create);
+
+        // reconstruct ordersId-> Order cache
+        // TODO check resulting performance
+        askBuckets.values().forEach(bucket -> bucket.forEachOrder(order -> idMap.put(order.orderId, order)));
+        bidBuckets.values().forEach(bucket -> bucket.forEachOrder(order -> idMap.put(order.orderId, order)));
+
+        //validateInternalState();
+    }
+
 
     public void matchMarketOrder(OrderCommand cmd) {
         final NavigableMap<Long, IOrdersBucket> matchingBuckets = cmd.action == OrderAction.ASK ? bidBuckets : askBuckets;
@@ -356,6 +375,11 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         bidBuckets.values().forEach(IOrdersBucket::validate);
     }
 
+    @Override
+    public OrderBookImplType getImplementationType() {
+        return OrderBookImplType.NAIVE;
+    }
+
     // for testing only
     @Override
     public int getOrdersNum() {
@@ -374,13 +398,6 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     public void writeMarshallable(BytesOut bytes) {
         Utils.marshallLongMap(askBuckets, bytes);
         Utils.marshallLongMap(bidBuckets, bytes);
-
-        bytes.writeInt(idMap.size());
-        idMap.forEachKeyValue((k, v) -> {
-            bytes.writeLong(k);
-            bytes.writeLong(v.orderId);
-            v.writeMarshallable(bytes);
-        });
     }
 
     @Override

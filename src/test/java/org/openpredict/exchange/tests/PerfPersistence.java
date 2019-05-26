@@ -6,6 +6,8 @@ import org.junit.Test;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.api.ApiPersistState;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
+import org.openpredict.exchange.core.ExchangeCore;
+import org.openpredict.exchange.core.journalling.DiskSerializationProcessor;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 
 import java.util.List;
@@ -15,6 +17,8 @@ import java.util.concurrent.CountDownLatch;
 import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
+import static org.openpredict.exchange.core.ExchangeCore.DisruptorWaitStrategy.BUSY_SPIN;
+import static org.openpredict.exchange.core.Utils.ThreadAffityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE;
 
 @Slf4j
 public final class PerfPersistence extends IntegrationTestBase {
@@ -22,7 +26,6 @@ public final class PerfPersistence extends IntegrationTestBase {
 
     @Test
     public void persistenceTest() throws Exception {
-        initExchange(2 * 1024, 1, 1, 1536);
         persistenceTestImpl(
                 3_000_000,
                 1000,
@@ -30,12 +33,13 @@ public final class PerfPersistence extends IntegrationTestBase {
                 50,
                 CURRENCIES_FUTURES,
                 1,
-                AllowedSymbolTypes.FUTURES_CONTRACT);
+                AllowedSymbolTypes.FUTURES_CONTRACT,
+                1,
+                1);
     }
 
     @Test
     public void persistenceMultiSymbol() throws Exception {
-        initExchange(64 * 1024, 4, 4, 2048);
         persistenceTestImpl(
                 5_000_000, //12
                 1_000_000, // 8
@@ -43,7 +47,9 @@ public final class PerfPersistence extends IntegrationTestBase {
                 25,
                 ALL_CURRENCIES,
                 1_000,
-                AllowedSymbolTypes.BOTH);
+                AllowedSymbolTypes.BOTH,
+                4,
+                4);
     }
 
     private void persistenceTestImpl(final int totalTransactionsNumber,
@@ -52,7 +58,9 @@ public final class PerfPersistence extends IntegrationTestBase {
                                      final int iterations,
                                      final Set<Integer> currenciesAllowed,
                                      final int numSymbols,
-                                     final AllowedSymbolTypes allowedSymbolTypes) throws InterruptedException {
+                                     final AllowedSymbolTypes allowedSymbolTypes,
+                                     final int matchingEngines,
+                                     final int riskEngines) throws InterruptedException {
 
         try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
 
@@ -64,6 +72,11 @@ public final class PerfPersistence extends IntegrationTestBase {
                     targetOrderBookOrdersTotal);
 
             for (int j = 0; j < iterations; j++) {
+
+                final int bufferSize = 2 * 1024;
+                final int msgsInGroupLimit = 1536;
+
+                initExchange(bufferSize, matchingEngines, riskEngines, msgsInGroupLimit);
 
                 initBasicSymbols();
                 coreSymbolSpecifications.forEach(super::addSymbol);
@@ -89,17 +102,48 @@ public final class PerfPersistence extends IntegrationTestBase {
                 coreSymbolSpecifications.forEach(
                         symbol -> assertEquals(genResult.getGenResults().get(symbol.symbolId).getFinalOrderBookSnapshot(), requestCurrentOrderBook(symbol.symbolId)));
 
-                long tc = System.currentTimeMillis();
-                final ApiPersistState dumpCommand = ApiPersistState.builder().dumpId(tc).build();
+                final long tc = System.currentTimeMillis();
+                final long stateId = tc;
+                final ApiPersistState dumpCommand = ApiPersistState.builder().dumpId(stateId).build();
                 submitCommandSync(dumpCommand, cmd -> assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS)));
 
-                float inSeconds = (float) (System.currentTimeMillis() - tc) / 1000.0f;
-                log.debug("PERSISTING TIME: {}s", String.format("%.3f", inSeconds));
+                float persistTimeSec = (float) (System.currentTimeMillis() - tc) / 1000.0f;
+                log.debug("PERSISTING TIME: {}s", String.format("%.3f", persistTimeSec));
+
+                shutdownExchange();
+
+                final long tLoad = System.currentTimeMillis();
+                log.debug("Creating new exchange...");
+                exchangeCore = ExchangeCore.builder()
+                        .resultsConsumer(consumer)
+                        .serializationProcessor(new DiskSerializationProcessor())
+                        .ringBufferSize(bufferSize)
+                        .matchingEnginesNum(matchingEngines)
+                        .riskEnginesNum(riskEngines)
+                        .msgsInGroupLimit(msgsInGroupLimit)
+                        .threadAffityMode(THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE)
+                        .waitStrategy(BUSY_SPIN)
+                        .loadStateId(stateId) // Loading from persisted state
+                        .build();
+
+                float loadTimeSec = (float) (System.currentTimeMillis() - tLoad) / 1000.0f;
+                log.debug("LOAD TIME: {}s", String.format("%.3f", loadTimeSec));
+
+                exchangeCore.startup();
+                api = exchangeCore.getApi();
+
+                // validate order books have restored correctly:
+                log.debug("Validate restored snapshot...");
+                coreSymbolSpecifications.forEach(
+                        symbol -> assertEquals(genResult.getGenResults().get(symbol.symbolId).getFinalOrderBookSnapshot(), requestCurrentOrderBook(symbol.symbolId)));
+                // TODO validate accounts
+
+                log.debug("Validated");
 
                 resetExchangeCore();
 
                 System.gc();
-                Thread.sleep(2000);
+                Thread.sleep(200);
             }
         }
     }

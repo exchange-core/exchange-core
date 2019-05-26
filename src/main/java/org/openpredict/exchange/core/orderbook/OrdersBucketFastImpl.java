@@ -1,10 +1,10 @@
 package org.openpredict.exchange.core.orderbook;
 
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.builder.EqualsBuilder;
@@ -27,18 +27,19 @@ import java.util.function.Consumer;
  * Orders are stored in resizable queue array.<br/>
  * Queue is indexed by hashmap for fast cancel/update operations.<br/>
  */
-@NoArgsConstructor
 @Slf4j
 @ToString
 public final class OrdersBucketFastImpl implements IOrdersBucket {
+
+    private static final int INITIAL_QUEUE_SIZE = 4;
 
     @Getter
     @Setter
     private long price;
 
-    private final MutableLongIntMap positions = new LongIntHashMap();
+    private final MutableLongIntMap positions;
 
-    private Order[] queue = new Order[4];
+    private Order[] queue;
 
     public int tail = 0;
     public int head = 0;
@@ -47,6 +48,32 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
 
     @Getter
     private long totalVolume = 0;
+
+    public OrdersBucketFastImpl() {
+        this.positions = new LongIntHashMap();
+        this.queue = new Order[INITIAL_QUEUE_SIZE];
+    }
+
+    public OrdersBucketFastImpl(BytesIn bytes) {
+
+        this.price = bytes.readLong();
+        this.positions = Utils.readLongIntHashMap(bytes);
+
+        int length = bytes.readInt();
+        int count = bytes.readInt();
+
+        this.queue = new Order[length];
+        for (int i = 0; i < count; i++) {
+            int pos = bytes.readInt();
+            this.queue[pos] = new Order(bytes);
+        }
+
+        this.tail = bytes.readInt();
+        this.head = bytes.readInt();
+        this.queueSize = bytes.readInt();
+        this.realSize = bytes.readInt();
+        this.totalVolume = bytes.readLong();
+    }
 
     @Override
     public void add(Order order) {
@@ -316,6 +343,25 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
         return Arrays.asList(asOrdersArray());
     }
 
+    @Override
+    public void forEachOrder(Consumer<Order> consumer) {
+        int ptr = head;
+        for (int i = 0; i < realSize; i++) {
+            // fast-forward head pointer until non-empty element found
+            // (assume if realSize>0 then at least one order can be found)
+            while (queue[ptr] == null) {
+                ptr = inc(ptr);
+            }
+            consumer.accept(queue[ptr]);
+            ptr = inc(ptr);
+        }
+    }
+
+    @Override
+    public OrderBucketImplType getImplementationType() {
+        return OrderBucketImplType.FAST;
+    }
+
     private void printSchema() {
         StringBuilder s = new StringBuilder();
         for (Order order : queue) {
@@ -334,16 +380,18 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
 
     @Override
     public void writeMarshallable(BytesOut bytes) {
+        bytes.writeByte(getImplementationType().getCode());
         bytes.writeLong(price);
-        Utils.marshallMutableLongIntMap(positions, bytes);
+        Utils.marshallLongIntHashMap(positions, bytes);
 
+        // NOTE: orders saved not in execution order, just dumping buffer as-is
         bytes.writeInt(queue.length);
         bytes.writeInt((int) Arrays.stream(queue).filter(Objects::nonNull).count());
         for (int i = 0; i < queue.length; i++) {
             Order order = queue[i];
             if (order != null) {
                 bytes.writeInt(i);
-                bytes.writeObject(Order.class, order);
+                order.writeMarshallable(bytes);
             }
         }
 

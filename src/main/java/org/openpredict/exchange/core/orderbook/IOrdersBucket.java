@@ -1,5 +1,7 @@
 package org.openpredict.exchange.core.orderbook;
 
+import lombok.Getter;
+import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
@@ -82,7 +84,71 @@ public interface IOrdersBucket extends Comparable<IOrdersBucket>, WriteBytesMars
 
     Order findOrder(long orderId);
 
+    /**
+     * Inefficient method - for testing only
+     *
+     * @return new array with references to orders, preserving execution queue order
+     */
     List<Order> getAllOrders();
+
+
+    /**
+     * execute some action for each order (preserving execution queue order)
+     *
+     * @param consumer action consumer function
+     */
+    void forEachOrder(Consumer<Order> consumer);
+
+
+    /**
+     * @return actual implementation
+     */
+    OrderBucketImplType getImplementationType();
+
+    static IOrdersBucket create(OrderBucketImplType type) {
+        switch (type) {
+            case NAIVE:
+                return new OrdersBucketNaiveImpl();
+            case FAST:
+                return new OrdersBucketFastImpl();
+            default:
+                throw new IllegalArgumentException();
+        }
+    }
+
+    static IOrdersBucket create(BytesIn bytes) {
+        switch (OrderBucketImplType.of(bytes.readByte())) {
+            case NAIVE:
+                return new OrdersBucketNaiveImpl(bytes);
+            case FAST:
+                return new OrdersBucketFastImpl(bytes);
+            default:
+                throw new IllegalArgumentException();
+        }
+    }
+
+    @Getter
+    enum OrderBucketImplType {
+        NAIVE(0),
+        FAST(1);
+
+        private byte code;
+
+        OrderBucketImplType(int code) {
+            this.code = (byte) code;
+        }
+
+        public static OrderBucketImplType of(byte code) {
+            switch (code) {
+                case 0:
+                    return NAIVE;
+                case 1:
+                    return FAST;
+                default:
+                    throw new IllegalArgumentException("unknown OrderBucketImplType:" + code);
+            }
+        }
+    }
 
     // testing only
     void validate();

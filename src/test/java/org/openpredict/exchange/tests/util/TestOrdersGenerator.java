@@ -3,7 +3,6 @@ package org.openpredict.exchange.tests.util;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.math3.distribution.ParetoDistribution;
 import org.apache.commons.math3.distribution.RealDistribution;
 import org.apache.commons.math3.random.JDKRandomGenerator;
@@ -69,7 +68,7 @@ public class TestOrdersGenerator {
 
         final ExecutorService executor = Executors.newFixedThreadPool(
                 GENERATION_THREADS,
-                Utils.affinedThreadFactory(Utils.ThreadAffityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CODE));
+                Utils.affinedThreadFactory(Utils.ThreadAffityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE));
 
         //int[] stat = new int[4];
         for (int i = 0; i < symbols.length; i++) {

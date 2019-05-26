@@ -1,6 +1,9 @@
 package org.openpredict.exchange.core;
 
+import lombok.AllArgsConstructor;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesMarshallable;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
@@ -20,33 +23,76 @@ import static org.openpredict.exchange.beans.cmd.OrderCommandType.*;
 public final class RiskEngine implements WriteBytesMarshallable {
 
     // state
-    private final SymbolSpecificationProvider symbolSpecificationProvider = new SymbolSpecificationProvider();
+    private final SymbolSpecificationProvider symbolSpecificationProvider;
+    private final UserProfileService userProfileService;
+    private final BinaryCommandsProcessor binaryCommandsProcessor;
+    private final IntObjectHashMap<LastPriceCacheRecord> lastPriceCache;
 
-    private final UserProfileService userProfileService = new UserProfileService();
-
-    private final BinaryCommandsProcessor binaryCommandsProcessor = new BinaryCommandsProcessor(
-            symbolSpecificationProvider::addSymbol,
-            CommandResultCode.VALID_FOR_MATCHING_ENGINE);
-
-    private final IntObjectHashMap<LastPriceCacheRecord> lastAskPriceCache = new IntObjectHashMap<>();
-
+    // configuration
     private final int shardId;
     private final long shardMask;
 
     private final ISerializationProcessor serializationProcessor;
 
-    public RiskEngine(final int shardId, final long numShards, final ISerializationProcessor serializationProcessor) {
+    public RiskEngine(final int shardId, final long numShards, final ISerializationProcessor serializationProcessor, final Long loadStateId) {
         if (Long.bitCount(numShards) != 1) {
             throw new IllegalArgumentException("Invalid number of shards " + numShards + " - must be power of 2");
         }
         this.shardId = shardId;
         this.shardMask = numShards - 1;
         this.serializationProcessor = serializationProcessor;
+
+        if (loadStateId == null) {
+            this.symbolSpecificationProvider = new SymbolSpecificationProvider();
+            this.userProfileService = new UserProfileService();
+            this.binaryCommandsProcessor = new BinaryCommandsProcessor(symbolSpecificationProvider::addSymbol, CommandResultCode.VALID_FOR_MATCHING_ENGINE);
+            this.lastPriceCache = new IntObjectHashMap<>();
+
+        } else {
+            // TODO change to creator (simpler init)
+            final State state = serializationProcessor.loadData(
+                    loadStateId,
+                    ISerializationProcessor.SerializedModuleType.RISK_ENGINE,
+                    shardId,
+                    bytesIn -> {
+                        if (shardId != bytesIn.readInt()) {
+                            throw new IllegalStateException("wrong shardId");
+                        }
+                        if (shardMask != bytesIn.readLong()) {
+                            throw new IllegalStateException("wrong shardMask");
+                        }
+                        final SymbolSpecificationProvider symbolSpecificationProvider = new SymbolSpecificationProvider(bytesIn);
+                        final UserProfileService userProfileService = new UserProfileService(bytesIn);
+                        final BinaryCommandsProcessor binaryCommandsProcessor = new BinaryCommandsProcessor(symbolSpecificationProvider::addSymbol, CommandResultCode.VALID_FOR_MATCHING_ENGINE, bytesIn);
+                        final IntObjectHashMap<LastPriceCacheRecord> lastPriceCache = Utils.readIntHashMap(bytesIn, LastPriceCacheRecord::new);
+                        return new State(symbolSpecificationProvider, userProfileService, binaryCommandsProcessor, lastPriceCache);
+                    });
+
+            this.symbolSpecificationProvider = state.symbolSpecificationProvider;
+            this.userProfileService = state.userProfileService;
+            this.binaryCommandsProcessor = state.binaryCommandsProcessor;
+            this.lastPriceCache = state.lastPriceCache;
+        }
     }
 
     public static class LastPriceCacheRecord implements BytesMarshallable {
         public long askPrice = Long.MAX_VALUE;
         public long bidPrice = 0L;
+
+        public LastPriceCacheRecord() {
+        }
+
+        public LastPriceCacheRecord(BytesIn bytes) {
+            this.askPrice = bytes.readLong();
+            this.bidPrice = bytes.readLong();
+        }
+
+        @Override
+        public void writeMarshallable(BytesOut bytes) {
+            bytes.writeLong(askPrice);
+            bytes.writeLong(bidPrice);
+
+        }
     }
 
 
@@ -215,7 +261,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
             return true;
         }
 
-        long estimatedSymbolProfit = portfolio.estimateProfit(spec, lastAskPriceCache.get(spec.symbolId));
+        long estimatedSymbolProfit = portfolio.estimateProfit(spec, lastPriceCache.get(spec.symbolId));
 
         final int symbol = cmd.symbol;
 
@@ -227,7 +273,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
 
                 if (spec2.quoteCurrency == spec.quoteCurrency) {
                     // add P&L subtract margin
-                    freeMarginOtherSymbols += portfolioRecord.estimateProfit(spec2, lastAskPriceCache.get(spec2.symbolId));
+                    freeMarginOtherSymbols += portfolioRecord.estimateProfit(spec2, lastPriceCache.get(spec2.symbolId));
                     freeMarginOtherSymbols -= portfolioRecord.calculateRequiredDepositForFutures(spec2);
                 }
             }
@@ -269,7 +315,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
 
         // Process marked data
         if (marketData != null) {
-            final RiskEngine.LastPriceCacheRecord record = lastAskPriceCache.getIfAbsentPut(symbol, RiskEngine.LastPriceCacheRecord::new);
+            final RiskEngine.LastPriceCacheRecord record = lastPriceCache.getIfAbsentPut(symbol, RiskEngine.LastPriceCacheRecord::new);
             record.askPrice = (marketData.askSize != 0) ? marketData.askPrices[0] : Long.MAX_VALUE;
             record.bidPrice = (marketData.bidSize != 0) ? marketData.bidPrices[0] : 0;
         }
@@ -393,19 +439,22 @@ public final class RiskEngine implements WriteBytesMarshallable {
         symbolSpecificationProvider.writeMarshallable(bytes);
         userProfileService.writeMarshallable(bytes);
         binaryCommandsProcessor.writeMarshallable(bytes);
-
-        // write lastAskPriceCache
-        bytes.writeInt(lastAskPriceCache.size());
-        lastAskPriceCache.forEachKeyValue((k, v) -> {
-            bytes.writeInt(k);
-            v.writeMarshallable(bytes);
-        });
+        Utils.marshallIntHashMap(lastPriceCache, bytes);
     }
 
     public void reset() {
         userProfileService.reset();
         symbolSpecificationProvider.reset();
         binaryCommandsProcessor.reset();
-        lastAskPriceCache.clear();
+        lastPriceCache.clear();
+    }
+
+    @AllArgsConstructor
+    @Getter
+    public class State {
+        private final SymbolSpecificationProvider symbolSpecificationProvider;
+        private final UserProfileService userProfileService;
+        private final BinaryCommandsProcessor binaryCommandsProcessor;
+        private final IntObjectHashMap<LastPriceCacheRecord> lastPriceCache;
     }
 }

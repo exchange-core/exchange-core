@@ -4,6 +4,7 @@ package org.openpredict.exchange.beans;
 import com.google.common.base.Objects;
 import lombok.Builder;
 import lombok.NoArgsConstructor;
+import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.apache.commons.lang3.builder.EqualsBuilder;
@@ -30,9 +31,29 @@ public final class Order extends OrderCommand implements WriteBytesMarshallable 
         this.filled = filled;
     }
 
+    public Order(BytesIn bytes) {
+
+        super(OrderCommandType.PLACE_ORDER, // always same type
+                bytes.readLong(), // orderId
+                bytes.readInt(),  // symbol
+                bytes.readLong(),  // price
+                bytes.readLong(), // size
+                OrderAction.of(bytes.readByte()),
+                OrderType.of(bytes.readByte()),
+                bytes.readLong(), // uid
+                bytes.readLong(), // timestamp
+                bytes.readInt(),  // userCookie
+                0,
+                0,
+                null,
+                null,
+                null);
+
+        this.filled = bytes.readLong();
+    }
+
     @Override
     public void writeMarshallable(BytesOut bytes) {
-        bytes.writeByte(command.getCode());
         bytes.writeLong(orderId);
         bytes.writeInt(symbol);
         bytes.writeLong(price);

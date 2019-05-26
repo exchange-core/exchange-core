@@ -1,10 +1,9 @@
 package org.openpredict.exchange.core;
 
 import lombok.extern.slf4j.Slf4j;
-import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
-import net.openhft.chronicle.core.io.IORuntimeException;
+import org.apache.commons.lang3.tuple.Pair;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
@@ -19,23 +18,52 @@ import static org.openpredict.exchange.beans.cmd.OrderCommandType.*;
 public final class MatchingEngineRouter implements WriteBytesMarshallable {
 
     // state
-    private final BinaryCommandsProcessor binaryCommandsProcessor = new BinaryCommandsProcessor(this::addSymbol, CommandResultCode.ACCEPTED);
+    private final BinaryCommandsProcessor binaryCommandsProcessor;
 
     // symbol->OB
-    private final IntObjectHashMap<IOrderBook> orderBooks = new IntObjectHashMap<>();
+    private final IntObjectHashMap<IOrderBook> orderBooks;
 
     private final int shardId;
     private final long shardMask;
 
     private final ISerializationProcessor serializationProcessor;
 
-    public MatchingEngineRouter(final int shardId, final long numShards, final ISerializationProcessor serializationProcessor) {
+    public MatchingEngineRouter(final int shardId,
+                                final long numShards,
+                                final ISerializationProcessor serializationProcessor,
+                                final Long loadStateId) {
+
         if (Long.bitCount(numShards) != 1) {
             throw new IllegalArgumentException("Invalid number of shards " + numShards + " - must be power of 2");
         }
         this.shardId = shardId;
         this.shardMask = numShards - 1;
         this.serializationProcessor = serializationProcessor;
+
+        if (loadStateId != null) {
+            final Pair<BinaryCommandsProcessor, IntObjectHashMap<IOrderBook>> deserialized = serializationProcessor.loadData(
+                    loadStateId,
+                    ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER,
+                    shardId,
+                    bytesIn -> {
+                        if (shardId != bytesIn.readInt()) {
+                            throw new IllegalStateException("wrong shardId");
+                        }
+                        if (shardMask != bytesIn.readLong()) {
+                            throw new IllegalStateException("wrong shardMask");
+                        }
+                        final BinaryCommandsProcessor bcp = new BinaryCommandsProcessor(this::addSymbol, CommandResultCode.ACCEPTED, bytesIn);
+                        final IntObjectHashMap<IOrderBook> ob = Utils.readIntHashMap(bytesIn, IOrderBook::create);
+                        return Pair.of(bcp, ob);
+                    });
+
+            this.binaryCommandsProcessor = deserialized.getLeft();
+            this.orderBooks = deserialized.getRight();
+
+        } else {
+            this.binaryCommandsProcessor = new BinaryCommandsProcessor(this::addSymbol, CommandResultCode.ACCEPTED);
+            this.orderBooks = new IntObjectHashMap<>();
+        }
     }
 
     public void processOrder(OrderCommand cmd) {
@@ -85,6 +113,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
         if (orderBooks.get(symbolId) != null) {
             return CommandResultCode.MATCHING_ORDER_BOOK_ALREADY_EXISTS;
         } else {
+            // TODO configurable creator
             IOrderBook orderBook = new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH);
 //            IOrderBook orderBook = new OrderBookNaiveImpl();
             orderBooks.put(symbolId, orderBook);

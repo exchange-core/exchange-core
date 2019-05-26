@@ -2,6 +2,7 @@ package org.openpredict.exchange.core;
 
 
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
@@ -12,7 +13,16 @@ import org.openpredict.exchange.beans.cmd.CommandResultCode;
 public final class SymbolSpecificationProvider implements WriteBytesMarshallable {
 
     // symbol->specs
-    private final IntObjectHashMap<CoreSymbolSpecification> symbolSpecs = new IntObjectHashMap<>();
+    private final IntObjectHashMap<CoreSymbolSpecification> symbolSpecs;
+
+    public SymbolSpecificationProvider() {
+        this.symbolSpecs = new IntObjectHashMap<>();
+    }
+
+    public SymbolSpecificationProvider(BytesIn bytes) {
+        this.symbolSpecs = Utils.readIntHashMap(bytes, CoreSymbolSpecification::new);
+    }
+
 
     public CommandResultCode addSymbol(final CoreSymbolSpecification symbolSpecification) {
         if (getSymbolSpecification(symbolSpecification.symbolId) != null) {
@@ -52,13 +62,8 @@ public final class SymbolSpecificationProvider implements WriteBytesMarshallable
 
     @Override
     public void writeMarshallable(BytesOut bytes) {
-
         // write symbolSpecs
-        bytes.writeInt(symbolSpecs.size());
-        symbolSpecs.forEachKeyValue((k, v) -> {
-            bytes.writeInt(k);
-            v.writeMarshallable(bytes);
-        });
+        Utils.marshallIntHashMap(symbolSpecs, bytes);
     }
 
 }

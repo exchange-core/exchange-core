@@ -41,7 +41,8 @@ public final class ExchangeCore {
                         final int riskEnginesNum,
                         final int msgsInGroupLimit,
                         final Utils.ThreadAffityMode threadAffityMode,
-                        final DisruptorWaitStrategy waitStrategy) {
+                        final DisruptorWaitStrategy waitStrategy,
+                        final Long loadStateId) {
 
         this.disruptor = new Disruptor<>(
                 OrderCommand::new,
@@ -62,17 +63,17 @@ public final class ExchangeCore {
 
         disruptor.setDefaultExceptionHandler(exceptionHandler);
 
-        // creating matching engine event handlers array
+        // creating matching engine event handlers array // TODO parallel deserialization
         final EventHandler<OrderCommand>[] matchingEngineHandlers = IntStream.range(0, matchingEnginesNum)
                 .mapToObj(shardId -> {
-                    final MatchingEngineRouter router = new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor);
+                    final MatchingEngineRouter router = new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, loadStateId);
                     return (EventHandler<OrderCommand>) (cmd, seq, eob) -> router.processOrder(cmd);
                 })
                 .toArray(ExchangeCore::newEventHandlersArray);
 
-        // creating risk engines array
+        // creating risk engines array // TODO parallel deserialization
         final List<RiskEngine> riskEngines = IntStream.range(0, riskEnginesNum)
-                .mapToObj(shardId -> new RiskEngine(shardId, riskEnginesNum, serializationProcessor))
+                .mapToObj(shardId -> new RiskEngine(shardId, riskEnginesNum, serializationProcessor, loadStateId))
                 .collect(Collectors.toList());
 
         final List<MasterProcessor> procR1 = new ArrayList<>(riskEnginesNum);
