@@ -180,30 +180,26 @@ public abstract class IntegrationTestBase {
         //new MBPrinter().printMessage(minBin.asByteArray(symbol));
 
         final ApiBinaryDataCommand binaryCmd = ApiBinaryDataCommand.builder().transferId(0).data(symbol).build();
-        submitBinaryCommandSync(binaryCmd);
+        submitMultiCommandSync(binaryCmd);
     }
 
     void usersInit(int numUsers, Set<Integer> currencies) throws InterruptedException {
-        List<ApiCommand> commands = LongStream.rangeClosed(1, numUsers)
-                .mapToObj(uid -> {
-                    final List<ApiCommand> userCmds = new ArrayList<>();
-                    userCmds.add(ApiAddUser.builder().uid(uid).build());
+
+        int totalCommands = numUsers * currencies.size();
+        final CountDownLatch usersLatch = new CountDownLatch(totalCommands);
+        consumer = cmd -> usersLatch.countDown();
+
+        LongStream.rangeClosed(1, numUsers)
+                .forEach(uid -> {
+                    api.submitCommand(ApiAddUser.builder().uid(uid).build());
                     currencies.forEach(currency -> {
                         int transactionId = currency;
-                        userCmds.add(ApiAdjustUserBalance.builder().uid(uid).transactionId(transactionId).amount(10_0000_0000L).currency(currency).build());
+                        api.submitCommand(ApiAdjustUserBalance.builder().uid(uid).transactionId(transactionId).amount(10_0000_0000L).currency(currency).build());
                     });
-
-//                    userCmds.add(ApiAdjustUserBalance.builder().uid(uid).transactionId(1243).amount(20_000_000_00L).currency(CURRENECY_USD).build());
-//                    userCmds.add(ApiAdjustUserBalance.builder().uid(uid).transactionId(1256).amount(10_0000_0000L).currency(CURRENECY_XBT).build());
-//                    userCmds.add(ApiAdjustUserBalance.builder().uid(uid).transactionId(1277).amount(10_0000_0000L).currency(CURRENECY_ETH).build());
-                    return userCmds;
-                })
-                .flatMap(Collection::stream)
-                .collect(Collectors.toList());
-
-        final CountDownLatch usersLatch = new CountDownLatch(commands.size());
-        consumer = cmd -> usersLatch.countDown();
-        commands.forEach(api::submitCommand);
+                    if (uid % 1000000 == 0) {
+                        log.debug("uid: {} usersLatch: {}", uid, usersLatch.getCount());
+                    }
+                });
         usersLatch.await();
     }
 
@@ -223,7 +219,7 @@ public abstract class IntegrationTestBase {
         };
     }
 
-    void submitBinaryCommandSync(ApiBinaryDataCommand dataCommand) {
+    void submitMultiCommandSync(ApiCommand dataCommand) {
         final CountDownLatch latch = new CountDownLatch(1);
         consumer = cmd -> {
             if (cmd.resultCode == CommandResultCode.ACCEPTED) {

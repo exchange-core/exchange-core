@@ -106,10 +106,10 @@ public final class RiskEngine implements WriteBytesMarshallable {
      *
      * @param cmd - command
      */
-    public void preProcessCommand(OrderCommand cmd) {
+    public boolean preProcessCommand(OrderCommand cmd) {
 
         if (cmd.command == MOVE_ORDER || cmd.command == CANCEL_ORDER || cmd.command == ORDER_BOOK_REQUEST) {
-            return;
+            return false;
         }
 
         if (cmd.command == PLACE_ORDER) {
@@ -135,16 +135,25 @@ public final class RiskEngine implements WriteBytesMarshallable {
             if (shardId == 0) {
                 cmd.resultCode = CommandResultCode.SUCCESS;
             }
-        } else if (cmd.command == PERSIST_STATE) {
+        } else if (cmd.command == PERSIST_STATE_MATCHING) {
+            if (shardId == 0) {
+                log.debug("pass thru VALID_FOR_MATCHING_ENGINE");
+                cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
+            }
+            return true; // true = publish sequence
+        } else if (cmd.command == PERSIST_STATE_RISK) {
+            log.debug("DUMP RISK_ENGINE");
             serializationProcessor.storeData(cmd.orderId,
                     ISerializationProcessor.SerializedModuleType.RISK_ENGINE,
                     shardId,
                     this);
 
             if (shardId == 0) {
-                cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
+                cmd.resultCode = CommandResultCode.SUCCESS;
             }
         }
+
+        return false;
     }
 
     /**
@@ -152,8 +161,9 @@ public final class RiskEngine implements WriteBytesMarshallable {
      *
      * @param cmd
      */
-    public void handlerRiskRelease(final OrderCommand cmd) {
+    public boolean handlerRiskRelease(final OrderCommand cmd) {
         handlerRiskRelease(cmd.symbol, cmd.marketData, cmd.matcherEvent);
+        return false;
     }
 
     private boolean uidForThisHandler(final long uid) {

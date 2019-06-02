@@ -89,13 +89,12 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
                 cmd.resultCode = CommandResultCode.SUCCESS;
             }
 
-        } else if (cmd.command == PERSIST_STATE) {
+        } else if (cmd.command == PERSIST_STATE_MATCHING) {
             // TODO somehow merge result code from each instance
-
             log.debug("DUMP MATCHING_ENGINE_ROUTER");
             serializationProcessor.storeData(cmd.orderId, ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER, shardId, this);
             if (shardId == 0) {
-                cmd.resultCode = CommandResultCode.SUCCESS;
+                cmd.resultCode = CommandResultCode.ACCEPTED;
             }
         }
     }

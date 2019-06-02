@@ -1,14 +1,15 @@
 package org.openpredict.exchange.core.journalling;
 
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import net.openhft.chronicle.wire.InputStreamToWire;
 import net.openhft.chronicle.wire.Wire;
-import net.openhft.chronicle.wire.WireToOutputStream;
 import net.openhft.chronicle.wire.WireType;
 
 import java.io.*;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -31,7 +32,7 @@ DiskSerializationProcessor implements ISerializationProcessor {
         try (final OutputStream os = Files.newOutputStream(path, StandardOpenOption.CREATE_NEW);
              final OutputStream bos = new BufferedOutputStream(os)) {
 
-            final WireToOutputStream wireToOutputStream = new WireToOutputStream(WireType.RAW, bos);
+            final WireToOutputStream2 wireToOutputStream = new WireToOutputStream2(WireType.RAW, bos);
             final Wire wire = wireToOutputStream.getWire();
 
             wire.writeBytes(obj);
@@ -72,4 +73,34 @@ DiskSerializationProcessor implements ISerializationProcessor {
             throw new IllegalStateException(ex);
         }
     }
+
+    public class WireToOutputStream2 {
+        private final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(128 * 1024 * 1024);
+        private final Wire wire;
+        private final DataOutputStream dos;
+
+        public WireToOutputStream2(WireType wireType, OutputStream os) {
+            wire = wireType.apply(bytes);
+            dos = new DataOutputStream(os);
+        }
+
+        public Wire getWire() {
+            wire.clear();
+            return wire;
+        }
+
+        public void flush() throws IOException {
+            int length = Math.toIntExact(bytes.readRemaining());
+            dos.writeInt(length);
+
+            final byte[] buf = new byte[1024 * 1024];
+
+            while (bytes.readPosition() < bytes.readLimit()) {
+                int read = bytes.read(buf);
+                dos.write(buf, 0, read);
+            }
+            // TODO release buffer?
+        }
+    }
+
 }
