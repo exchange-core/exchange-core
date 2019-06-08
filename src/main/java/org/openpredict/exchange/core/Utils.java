@@ -12,13 +12,17 @@ import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongIntHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.eclipse.collections.impl.set.mutable.primitive.LongHashSet;
+import org.openpredict.exchange.beans.StateHash;
+import org.openpredict.exchange.beans.cmd.CommandResultCode;
+import org.openpredict.exchange.beans.cmd.OrderCommand;
 
-import java.util.BitSet;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.function.Function;
 import java.util.function.Supplier;
+
+import static net.openhft.chronicle.core.UnsafeMemory.UNSAFE;
 
 @Slf4j
 public final class Utils {
@@ -27,6 +31,21 @@ public final class Utils {
         return ((bytesLength - 1) >> 3) + 1;
     }
 
+    final static long OFFSET_ORDER_ID;
+    final static long OFFSET_RESULT_CODE;
+    final static long OFFSET_PRICE;
+    final static long OFFSET_UID;
+
+    static {
+        try {
+            OFFSET_ORDER_ID = UNSAFE.objectFieldOffset(OrderCommand.class.getDeclaredField("orderId"));
+            OFFSET_PRICE = UNSAFE.objectFieldOffset(OrderCommand.class.getDeclaredField("price"));
+            OFFSET_UID = UNSAFE.objectFieldOffset(OrderCommand.class.getDeclaredField("uid"));
+            OFFSET_RESULT_CODE = UNSAFE.objectFieldOffset(OrderCommand.class.getDeclaredField("resultCode"));
+        } catch (NoSuchFieldException ex) {
+            throw new IllegalStateException(ex);
+        }
+    }
 
     public enum ThreadAffityMode {
         THREAD_AFFINITY_ENABLE_PER_PHYSICAL_CORE,
@@ -53,6 +72,29 @@ public final class Utils {
         }
     }
 
+    public static void setResultVolatile(final OrderCommand cmd,
+                                         final boolean result,
+                                         final CommandResultCode successCode,
+                                         final CommandResultCode failureCode) {
+
+        final CommandResultCode codeToSet = result ? successCode : failureCode;
+
+        CommandResultCode currentCode;
+        do {
+            // read current code
+            currentCode = (CommandResultCode) UNSAFE.getObjectVolatile(cmd, OFFSET_RESULT_CODE);
+
+            // finish if desired code was already set
+            // or if someone has set failure
+            if (currentCode == codeToSet || currentCode == failureCode) {
+                break;
+            }
+
+            // do a CAS operation
+        } while (UNSAFE.compareAndSwapObject(cmd, OFFSET_RESULT_CODE, currentCode, codeToSet));
+    }
+
+
     public static void marshallBitSet(final BitSet bitSet, final BytesOut bytes) {
         marshallLongArray(bitSet.toLongArray(), bytes);
     }
@@ -69,6 +111,7 @@ public final class Utils {
             bytes.writeLong(word);
         }
     }
+
 
     public static long[] readLongArray(final BytesIn bytes) {
         final int length = bytes.readInt();
@@ -170,6 +213,7 @@ public final class Utils {
         });
     }
 
+
     public static <T> IntObjectHashMap<T> readIntHashMap(final BytesIn bytes, Function<BytesIn, T> creator) {
         int length = bytes.readInt();
         final IntObjectHashMap<T> hashMap = new IntObjectHashMap<>(length);
@@ -197,5 +241,32 @@ public final class Utils {
         }
         return map;
     }
+
+
+    public static int stateHash(final BitSet bitSet) {
+        return Arrays.hashCode(bitSet.toLongArray());
+    }
+
+
+    public static <T extends StateHash> int stateHash(final LongObjectHashMap<T> hashMap) {
+        final SortedMap<Long, T> sortedMap = new TreeMap<>();
+        hashMap.forEachKeyValue(sortedMap::put);
+        return Arrays.hashCode(sortedMap.entrySet().stream().mapToInt(ent -> Objects.hash(ent.getKey(), ent.getValue().stateHash())).toArray());
+    }
+
+
+    public static <T extends StateHash> int stateHash(final IntObjectHashMap<T> hashMap) {
+        final SortedMap<Integer, T> sortedMap = new TreeMap<>();
+        hashMap.forEachKeyValue(sortedMap::put);
+        return Arrays.hashCode(sortedMap.entrySet().stream().mapToInt(ent -> Objects.hash(ent.getKey(), ent.getValue().stateHash())).toArray());
+    }
+
+
+    public static <T extends StateHash> int stateHash(final Map<Long, T> map) {
+        final SortedMap<Long, T> sortedMap = new TreeMap<>();
+        map.forEach(sortedMap::put);
+        return Arrays.hashCode(sortedMap.entrySet().stream().mapToInt(ent -> Objects.hash(ent.getKey(), ent.getValue().stateHash())).toArray());
+    }
+
 
 }

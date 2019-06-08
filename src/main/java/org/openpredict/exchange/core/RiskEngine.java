@@ -11,16 +11,21 @@ import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.journalling.ISerializationProcessor;
 
+import java.util.Objects;
+
+import static net.openhft.chronicle.core.UnsafeMemory.UNSAFE;
 import static org.openpredict.exchange.beans.MatcherEventType.*;
 import static org.openpredict.exchange.beans.cmd.OrderCommandType.*;
+import static org.openpredict.exchange.core.Utils.OFFSET_ORDER_ID;
 
 /**
  * Stateful risk engine
  */
 @Slf4j
-public final class RiskEngine implements WriteBytesMarshallable {
+public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
     // state
     private final SymbolSpecificationProvider symbolSpecificationProvider;
@@ -75,7 +80,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
         }
     }
 
-    public static class LastPriceCacheRecord implements BytesMarshallable {
+    public static class LastPriceCacheRecord implements BytesMarshallable, StateHash {
         public long askPrice = Long.MAX_VALUE;
         public long bidPrice = 0L;
 
@@ -93,6 +98,11 @@ public final class RiskEngine implements WriteBytesMarshallable {
             bytes.writeLong(bidPrice);
 
         }
+
+        @Override
+        public int stateHash() {
+            return Objects.hash(askPrice, bidPrice);
+        }
     }
 
 
@@ -108,48 +118,50 @@ public final class RiskEngine implements WriteBytesMarshallable {
      */
     public boolean preProcessCommand(OrderCommand cmd) {
 
-        if (cmd.command == MOVE_ORDER || cmd.command == CANCEL_ORDER || cmd.command == ORDER_BOOK_REQUEST) {
+        final OrderCommandType command = cmd.command;
+
+        if (command == MOVE_ORDER || command == CANCEL_ORDER || command == ORDER_BOOK_REQUEST) {
             return false;
         }
 
-        if (cmd.command == PLACE_ORDER) {
+        if (command == PLACE_ORDER) {
             if (uidForThisHandler(cmd.uid)) {
                 cmd.resultCode = placeOrderRiskCheck(cmd);
             }
-        } else if (cmd.command == ADD_USER) {
+        } else if (command == ADD_USER) {
             if (uidForThisHandler(cmd.uid)) {
                 cmd.resultCode = userProfileService.addEmptyUserProfile(cmd.uid);
             }
-        } else if (cmd.command == BALANCE_ADJUSTMENT) {
+        } else if (command == BALANCE_ADJUSTMENT) {
             if (uidForThisHandler(cmd.uid)) {
                 cmd.resultCode = userProfileService.balanceAdjustment(cmd.uid, cmd.symbol, cmd.price, cmd.orderId);
             }
-        } else if (cmd.command == BINARY_DATA) {
+        } else if (command == BINARY_DATA) {
             binaryCommandsProcessor.binaryData(cmd);
-        } else if (cmd.command == RESET) {
+        } else if (command == RESET) {
             reset();
             if (shardId == 0) {
                 cmd.resultCode = CommandResultCode.SUCCESS;
             }
-        } else if (cmd.command == NOP) {
+        } else if (command == NOP) {
             if (shardId == 0) {
                 cmd.resultCode = CommandResultCode.SUCCESS;
             }
-        } else if (cmd.command == PERSIST_STATE_MATCHING) {
+        } else if (command == PERSIST_STATE_MATCHING) {
             if (shardId == 0) {
-                log.debug("pass thru VALID_FOR_MATCHING_ENGINE");
                 cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
             }
-            return true; // true = publish sequence
-        } else if (cmd.command == PERSIST_STATE_RISK) {
-            log.debug("DUMP RISK_ENGINE");
-            serializationProcessor.storeData(cmd.orderId,
-                    ISerializationProcessor.SerializedModuleType.RISK_ENGINE,
-                    shardId,
-                    this);
+            return true; // true = publish sequence before finishing processing whole batch
+        } else if (command == PERSIST_STATE_RISK) {
+            final boolean isSuccess = serializationProcessor.storeData(cmd.orderId, ISerializationProcessor.SerializedModuleType.RISK_ENGINE, shardId, this);
+            Utils.setResultVolatile(cmd, isSuccess, CommandResultCode.SUCCESS, CommandResultCode.STATE_PERSIST_RISK_ENGINE_FAILED);
+
+        } else if (command == STATE_HASH_REQUEST) {
+            // common hash as sum of each module hash (for simplicity)
+            UNSAFE.getAndAddLong(cmd, OFFSET_ORDER_ID, stateHash());
 
             if (shardId == 0) {
-                cmd.resultCode = CommandResultCode.SUCCESS;
+                cmd.resultCode = CommandResultCode.ACCEPTED;
             }
         }
 
@@ -457,6 +469,20 @@ public final class RiskEngine implements WriteBytesMarshallable {
         symbolSpecificationProvider.reset();
         binaryCommandsProcessor.reset();
         lastPriceCache.clear();
+    }
+
+    @Override
+    public int stateHash() {
+
+        return Objects.hash(
+                shardId,
+                shardMask,
+                symbolSpecificationProvider.stateHash(),
+                userProfileService.stateHash(),
+                binaryCommandsProcessor.stateHash(),
+                Utils.stateHash(lastPriceCache));
+
+        //log.debug("HASH RE{}/{} hash={} -- ssp={} ups={} bcp={} lpc={}", shardId, shardMask, hash, symbolSpecificationProvider.stateHash(), userProfileService.stateHash(), binaryCommandsProcessor.stateHash(), lastPriceCache.hashCode());
     }
 
     @AllArgsConstructor

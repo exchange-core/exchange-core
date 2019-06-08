@@ -7,7 +7,7 @@ import java.util.function.Function;
 
 public interface ISerializationProcessor {
 
-    void storeData(long snapshotId, SerializedModuleType type, int instanceId, WriteBytesMarshallable obj);
+    boolean storeData(long snapshotId, SerializedModuleType type, int instanceId, WriteBytesMarshallable obj);
 
     <T> T loadData(long snapshotId, SerializedModuleType type, int instanceId, Function<BytesIn, T> initFunc);
 

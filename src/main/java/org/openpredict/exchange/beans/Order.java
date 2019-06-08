@@ -1,7 +1,5 @@
 package org.openpredict.exchange.beans;
 
-
-import com.google.common.base.Objects;
 import lombok.Builder;
 import lombok.NoArgsConstructor;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -10,6 +8,8 @@ import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
+
+import java.util.Objects;
 
 /**
  * Extending OrderCommand allows to avoid creating new objects
@@ -69,12 +69,12 @@ public final class Order extends OrderCommand implements WriteBytesMarshallable 
     @Override
     public String toString() {
         return "[" + orderId + " " + (action == OrderAction.ASK ? 'A' : 'B') + (orderType == OrderType.MARKET ? 'M' : 'L')
-                + price + ":" + size + "F" + filled + "]";
+                + price + ":" + size + "F" + filled + " S" + symbol + " C" + userCookie + " U" + uid + "]";
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(orderId, action, orderType, price, size, filled, symbol, userCookie, uid);
+        return Objects.hash(orderId, action, orderType, price, size, filled, symbol, userCookie, uid);
     }
 
 

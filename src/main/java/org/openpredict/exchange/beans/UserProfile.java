@@ -9,8 +9,10 @@ import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.eclipse.collections.impl.set.mutable.primitive.LongHashSet;
 import org.openpredict.exchange.core.Utils;
 
+import java.util.Objects;
+
 @Slf4j
-public final class UserProfile implements WriteBytesMarshallable {
+public final class UserProfile implements WriteBytesMarshallable, StateHash {
 
     public final long uid;
 
@@ -104,5 +106,14 @@ public final class UserProfile implements WriteBytesMarshallable {
                 ", accounts=" + accounts +
                 ", commandsCounter=" + commandsCounter +
                 '}';
+    }
+
+    @Override
+    public int stateHash() {
+        return Objects.hash(
+                uid,
+                Utils.stateHash(portfolio),
+                externalTransactions.hashCode(),
+                accounts.hashCode());
     }
 }

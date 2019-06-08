@@ -48,6 +48,8 @@ public final class ExchangeApi {
             publishBinaryData(ringBuffer, (ApiBinaryDataCommand) cmd);
         } else if (cmd instanceof ApiPersistState) {
             publishPersistCmd(ringBuffer, (ApiPersistState) cmd);
+        } else if (cmd instanceof ApiStateHashRequest) {
+            ringBuffer.publishEvent(STATE_HASH_TRANSLATOR, (ApiStateHashRequest) cmd);
         } else if (cmd instanceof ApiReset) {
             ringBuffer.publishEvent(RESET_TRANSLATOR, (ApiReset) cmd);
         } else if (cmd instanceof ApiNoOp) {
@@ -123,8 +125,8 @@ public final class ExchangeApi {
             cmdMatching.command = OrderCommandType.PERSIST_STATE_MATCHING;
             cmdMatching.orderId = api.dumpId;
             cmdMatching.symbol = -1;
-            cmdMatching.uid = -1;
-            cmdMatching.price = -1;
+            cmdMatching.uid = 0;
+            cmdMatching.price = 0;
             cmdMatching.timestamp = api.timestamp;
             cmdMatching.resultCode = CommandResultCode.NEW;
 
@@ -135,8 +137,8 @@ public final class ExchangeApi {
             cmdRisk.command = OrderCommandType.PERSIST_STATE_RISK;
             cmdRisk.orderId = api.dumpId;
             cmdRisk.symbol = -1;
-            cmdRisk.uid = -1;
-            cmdRisk.price = -1;
+            cmdRisk.uid = 0;
+            cmdRisk.price = 0;
             cmdRisk.timestamp = api.timestamp;
             cmdRisk.resultCode = CommandResultCode.NEW;
 
@@ -226,6 +228,16 @@ public final class ExchangeApi {
     private static final EventTranslatorOneArg<OrderCommand, ApiNoOp> NOOP_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.NOP;
         cmd.orderId = -1;
+        cmd.symbol = -1;
+        cmd.uid = -1;
+        cmd.price = -1;
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+    };
+
+    private static final EventTranslatorOneArg<OrderCommand, ApiStateHashRequest> STATE_HASH_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.STATE_HASH_REQUEST;
+        cmd.orderId = 0;
         cmd.symbol = -1;
         cmd.uid = -1;
         cmd.price = -1;

@@ -4,58 +4,71 @@ import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
 import org.junit.Test;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
+import org.openpredict.exchange.beans.api.ApiCommand;
 import org.openpredict.exchange.beans.api.ApiPersistState;
+import org.openpredict.exchange.beans.api.ApiStateHashRequest;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
-import org.openpredict.exchange.core.ExchangeCore;
-import org.openpredict.exchange.core.journalling.DiskSerializationProcessor;
+import org.openpredict.exchange.beans.cmd.OrderCommandType;
+import org.openpredict.exchange.core.ExchangeApi;
+import org.openpredict.exchange.tests.util.ExchangeTestContainer;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 
-import static org.hamcrest.core.Is.is;
-import static org.junit.Assert.assertEquals;
+import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
-import static org.openpredict.exchange.core.ExchangeCore.DisruptorWaitStrategy.BUSY_SPIN;
-import static org.openpredict.exchange.core.Utils.ThreadAffityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE;
+import static org.openpredict.exchange.tests.util.ExchangeTestContainer.ALL_CURRENCIES;
+import static org.openpredict.exchange.tests.util.ExchangeTestContainer.AllowedSymbolTypes.BOTH;
+import static org.openpredict.exchange.tests.util.ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT;
+import static org.openpredict.exchange.tests.util.ExchangeTestContainer.CURRENCIES_FUTURES;
 
 @Slf4j
-public final class PerfPersistence extends IntegrationTestBase {
+public final class PerfPersistence {
 
 
+    /**
+     * This is serialization test for simplified conditions
+     * - one symbol
+     * - 1K active users (~2K currency accounts)
+     * - 1K pending limit-orders (in one order book)
+     * 6-threads CPU can run this test
+     */
     @Test
     public void persistenceTest() throws Exception {
-        final int bufferSize = 2 * 1024;
-        final int msgsInGroupLimit = 1536;
-        initExchange(bufferSize, 1, 1, msgsInGroupLimit);
         persistenceTestImpl(
                 3_000_000,
                 1000,
                 1000,
-                50,
+                10,
                 CURRENCIES_FUTURES,
                 1,
-                AllowedSymbolTypes.FUTURES_CONTRACT,
+                FUTURES_CONTRACT,
                 1,
-                1);
+                1,
+                2 * 1024,
+                1024);
     }
 
+    /**
+     * This is serialization test for verifying "triple million" capability.
+     * This test requires 10+ GiB freee disk space, 16+ GiB of RAM and 12-threads CPU
+     */
     @Test
     public void persistenceMultiSymbol() throws Exception {
-        final int bufferSize = 2 * 1024;
-        final int msgsInGroupLimit = 1536;
-        initExchange(bufferSize, 4, 4, msgsInGroupLimit);
         persistenceTestImpl(
                 5_000_000, //16.5
                 1_000_000, // 10
                 1_000_000, // 10
                 25,
                 ALL_CURRENCIES,
-                1_000,
-                AllowedSymbolTypes.BOTH,
+                1000,
+                BOTH,
                 4,
-                4);
+                4,
+                64 * 1024,
+                1546);
     }
 
     private void persistenceTestImpl(final int totalTransactionsNumber,
@@ -64,96 +77,124 @@ public final class PerfPersistence extends IntegrationTestBase {
                                      final int iterations,
                                      final Set<Integer> currenciesAllowed,
                                      final int numSymbols,
-                                     final AllowedSymbolTypes allowedSymbolTypes,
+                                     final ExchangeTestContainer.AllowedSymbolTypes allowedSymbolTypes,
                                      final int matchingEngines,
-                                     final int riskEngines) throws InterruptedException {
+                                     final int riskEngines,
+                                     final int bufferSize,
+                                     final int msgsInGroupLimit) throws InterruptedException {
 
-        try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
+        for (int iteration = 0; iteration < iterations; iteration++) {
 
-            final List<CoreSymbolSpecification> coreSymbolSpecifications = generateAndAddSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
+            final long stateId;
+            final List<CoreSymbolSpecification> coreSymbolSpecifications;
+            final TestOrdersGenerator.MultiSymbolGenResult genResult;
 
-            TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(coreSymbolSpecifications,
-                    totalTransactionsNumber,
-                    numUsers,
-                    targetOrderBookOrdersTotal);
+            final long originalPrefillStateHash;
 
-            for (int j = 0; j < iterations; j++) {
-
-                final int bufferSize = 2 * 1024;
-                final int msgsInGroupLimit = 1536;
-
-                //initExchange(bufferSize, matchingEngines, riskEngines, msgsInGroupLimit);
+            final float originalPerfMt;
 
 
-                log.info("Load symbols...");
-                initBasicSymbols();
-                coreSymbolSpecifications.forEach(super::addSymbol);
-                log.info("Load users...");
-                usersInit(numUsers, currenciesAllowed);
+            final ExchangeTestContainer container = new ExchangeTestContainer(bufferSize, matchingEngines, riskEngines, msgsInGroupLimit, null);
+            try {
 
-                log.info("Pre-fill...");
-                final CountDownLatch latchFill = new CountDownLatch(genResult.getApiCommandsFill().size());
-                consumer = cmd -> latchFill.countDown();
-                genResult.getApiCommandsFill().forEach(api::submitCommand);
-                latchFill.await();
+                try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
 
-                log.info("Benchmarking...");
-                final CountDownLatch latchBenchmark = new CountDownLatch(genResult.getApiCommandsBenchmark().size());
-                consumer = cmd -> latchBenchmark.countDown();
-                long t = System.currentTimeMillis();
-                genResult.getApiCommandsBenchmark().forEach(api::submitCommand);
-                latchBenchmark.await();
-                t = System.currentTimeMillis() - t;
-                float perfMt = (float) genResult.getApiCommandsBenchmark().size() / (float) t / 1000.0f;
-                log.info("{}. {} MT/s", j, String.format("%.3f", perfMt));
+                    coreSymbolSpecifications = container.generateAndAddSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
 
-                // compare orderBook final state just to make sure all commands executed same way
-                // TODO compare events, balances, portfolios
-//                coreSymbolSpecifications.forEach(
-//                        symbol -> assertEquals(genResult.getGenResults().get(symbol.symbolId).getFinalOrderBookSnapshot(), requestCurrentOrderBook(symbol.symbolId)));
+                    genResult = TestOrdersGenerator.generateMultipleSymbols(coreSymbolSpecifications,
+                            totalTransactionsNumber,
+                            numUsers,
+                            targetOrderBookOrdersTotal);
 
-                final long tc = System.currentTimeMillis();
-                final long stateId = tc;
-                submitMultiCommandSync(ApiPersistState.builder().dumpId(stateId).build());
+                    final ExchangeApi api = container.api;
 
-                float persistTimeSec = (float) (System.currentTimeMillis() - tc) / 1000.0f;
-                log.debug("PERSISTING TIME: {}s", String.format("%.3f", persistTimeSec));
+                    log.info("Load symbols...");
+                    container.initBasicSymbols();
+                    coreSymbolSpecifications.forEach(container::addSymbol);
+                    log.info("Load users...");
+                    container.usersInit(numUsers, currenciesAllowed);
 
-//                shutdownExchange();
-//
-//                final long tLoad = System.currentTimeMillis();
-//                log.debug("Creating new exchange...");
-//                exchangeCore = ExchangeCore.builder()
-//                        .resultsConsumer(consumer)
-//                        .serializationProcessor(new DiskSerializationProcessor())
-//                        .ringBufferSize(bufferSize)
-//                        .matchingEnginesNum(matchingEngines)
-//                        .riskEnginesNum(riskEngines)
-//                        .msgsInGroupLimit(msgsInGroupLimit)
-//                        .threadAffityMode(THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE)
-//                        .waitStrategy(BUSY_SPIN)
-//                        .loadStateId(stateId) // Loading from persisted state
-//                        .build();
-//
-//                float loadTimeSec = (float) (System.currentTimeMillis() - tLoad) / 1000.0f;
-//                log.debug("LOAD TIME: {}s", String.format("%.3f", loadTimeSec));
-//
-//                exchangeCore.startup();
-//                api = exchangeCore.getApi();
-//
-//                // validate order books have restored correctly:
-//                log.debug("Validate restored snapshot...");
-//                coreSymbolSpecifications.forEach(
-//                        symbol -> assertEquals(genResult.getGenResults().get(symbol.symbolId).getFinalOrderBookSnapshot(), requestCurrentOrderBook(symbol.symbolId)));
-//                // TODO validate accounts
-//
-//                log.debug("Validated");
+                    log.info("Pre-fill...");
+                    final List<ApiCommand> apiCommandsFill = genResult.getApiCommandsFill();
+                    final CountDownLatch latchFill = new CountDownLatch(apiCommandsFill.size());
+                    container.setConsumer(cmd -> {
+                        if (cmd.resultCode == CommandResultCode.SUCCESS
+                                && (cmd.command == OrderCommandType.MOVE_ORDER || cmd.command == OrderCommandType.CANCEL_ORDER || cmd.command == OrderCommandType.PLACE_ORDER)) {
+                            latchFill.countDown();
+                        } else {
+                            throw new IllegalStateException("Unexpected command");
+                        }
+                    });
+                    apiCommandsFill.forEach(api::submitCommand);
+                    latchFill.await();
 
-                resetExchangeCore();
+                    log.info("Persisting...");
+                    final long tc = System.currentTimeMillis();
+                    stateId = tc;
+                    container.submitMultiCommandSync(ApiPersistState.builder().dumpId(stateId).build());
+                    final float persistTimeSec = (float) (System.currentTimeMillis() - tc) / 1000.0f;
+                    log.debug("Persisting time: {}s", String.format("%.3f", persistTimeSec));
 
-                System.gc();
-                Thread.sleep(200);
+                    originalPrefillStateHash = container.submitCommandSync(ApiStateHashRequest.builder().build(), res -> {
+                        assertThat(res.command, is(OrderCommandType.STATE_HASH_REQUEST));
+                        assertThat(res.resultCode, is(CommandResultCode.SUCCESS));
+                        return res.orderId;
+                    });
+
+                    log.info("Benchmarking original state...");
+                    List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
+                    final CountDownLatch latchBenchmark = new CountDownLatch(apiCommandsBenchmark.size());
+                    container.setConsumer(cmd -> latchBenchmark.countDown());
+                    long t = System.currentTimeMillis();
+                    apiCommandsBenchmark.forEach(api::submitCommand);
+                    latchBenchmark.await();
+                    t = System.currentTimeMillis() - t;
+                    originalPerfMt = (float) apiCommandsBenchmark.size() / (float) t / 1000.0f;
+                    log.info("{}. original speed: {} MT/s", iteration, String.format("%.3f", originalPerfMt));
+                }
+
+            } finally {
+                container.close();
             }
+
+            System.gc();
+            Thread.sleep(200);
+
+            log.debug("Creating new exchange from persisted state...");
+            final long tLoad = System.currentTimeMillis();
+            final ExchangeTestContainer recreatedContainer = new ExchangeTestContainer(bufferSize, matchingEngines, riskEngines, msgsInGroupLimit, stateId);
+            float loadTimeSec = (float) (System.currentTimeMillis() - tLoad) / 1000.0f;
+            log.debug("Load time: {}s", String.format("%.3f", loadTimeSec));
+            try {
+
+                try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
+
+                    final long restoredPrefillStateHash = recreatedContainer.submitCommandSync(ApiStateHashRequest.builder().build(), res -> {
+                        assertThat(res.command, is(OrderCommandType.STATE_HASH_REQUEST));
+                        assertThat(res.resultCode, is(CommandResultCode.SUCCESS));
+                        return res.orderId;
+                    });
+                    assertThat(restoredPrefillStateHash, is(originalPrefillStateHash));
+                    log.info("Restored snapshot is valid, benchmarking original state...");
+                    final ExchangeApi api = recreatedContainer.api;
+                    List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
+                    final CountDownLatch latchBenchmark = new CountDownLatch(apiCommandsBenchmark.size());
+                    recreatedContainer.setConsumer(cmd -> latchBenchmark.countDown());
+                    long t = System.currentTimeMillis();
+                    apiCommandsBenchmark.forEach(api::submitCommand);
+                    latchBenchmark.await();
+                    t = System.currentTimeMillis() - t;
+                    final float perfMt = (float) apiCommandsBenchmark.size() / (float) t / 1000.0f;
+                    final float perfRatioPerc = perfMt / originalPerfMt * 100f;
+                    log.info("{}. restored speed: {} MT/s ({}%)", iteration, String.format("%.3f", perfMt), String.format("%.1f", perfRatioPerc));
+                }
+            } finally {
+                recreatedContainer.close();
+            }
+
+            System.gc();
+            Thread.sleep(200);
         }
+
     }
 }

@@ -8,9 +8,11 @@ import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.openpredict.exchange.core.RiskEngine;
 
+import java.util.Objects;
+
 @ToString
 @Slf4j
-public final class SymbolPortfolioRecord implements WriteBytesMarshallable {
+public final class SymbolPortfolioRecord implements WriteBytesMarshallable, StateHash {
 
     public final long uid;
 
@@ -252,4 +254,8 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable {
         }
     }
 
+    @Override
+    public int stateHash() {
+        return Objects.hash(symbol, currency, position.getMultiplier(), openVolume, openPriceSum, profit, pendingSellSize, pendingBuySize);
+    }
 }

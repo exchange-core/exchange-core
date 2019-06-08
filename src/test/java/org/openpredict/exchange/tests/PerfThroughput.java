@@ -23,7 +23,7 @@ public final class PerfThroughput extends IntegrationTestBase {
      * - one symbol
      * - 1K active users (~2K currency accounts)
      * - 1K pending limit-orders (in one order book)
-     * 6-threads processor can run this test
+     * 6-threads CPU can run this test
      */
     @Test
     public void throughputTest() throws Exception {
@@ -43,7 +43,7 @@ public final class PerfThroughput extends IntegrationTestBase {
      * - 1M active users (~5M currency accounts)
      * - 1M pending limit-orders (in 1K order books)
      * - at least 1M messages per second throughput
-     * 12-threads processor is required for running this test in 4+4 configuration.
+     * 12-threads CPU is required for running this test in 4+4 configuration.
      */
     @Test
     public void throughputMultiSymbol() throws Exception {

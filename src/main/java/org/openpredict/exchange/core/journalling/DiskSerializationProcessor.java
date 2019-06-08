@@ -19,50 +19,64 @@ import java.util.function.Function;
 
 
 @Slf4j
-public class
-DiskSerializationProcessor implements ISerializationProcessor {
+public class DiskSerializationProcessor implements ISerializationProcessor {
+
+    private final Path dumpsFolder;
+
+    public DiskSerializationProcessor(final Path dumpsFolder) {
+        this.dumpsFolder = dumpsFolder;
+    }
+
+    public DiskSerializationProcessor(final String dumpsFolder) {
+        this.dumpsFolder = Paths.get(dumpsFolder);
+    }
 
     @Override
-    public void storeData(long snapshotId, SerializedModuleType type, int instanceId, WriteBytesMarshallable obj) {
+    public boolean storeData(long snapshotId, SerializedModuleType type, int instanceId, WriteBytesMarshallable obj) {
 
-        final Path path = Paths.get("./dumps/state_" + snapshotId + "_" + type + "_" + instanceId);
+        final Path path = resolvePath(snapshotId, type, instanceId);
 
-        log.debug("Writing state to {}", path);
+        log.debug("Writing state to {} ...", path);
 
         try (final OutputStream os = Files.newOutputStream(path, StandardOpenOption.CREATE_NEW);
-             final OutputStream bos = new BufferedOutputStream(os)) {
+             final OutputStream bos = new BufferedOutputStream(os);
+             final WireToOutputStream2 wireToOutputStream = new WireToOutputStream2(WireType.RAW, bos)) {
 
-            final WireToOutputStream2 wireToOutputStream = new WireToOutputStream2(WireType.RAW, bos);
             final Wire wire = wireToOutputStream.getWire();
 
             wire.writeBytes(obj);
 
-            log.debug("done serializing, flushing {}", path);
+            log.debug("done serializing, flushing {} ...", path);
             wireToOutputStream.flush();
             //bos.flush();
+            log.debug("completed {}", path);
+            return true;
 
         } catch (final IOException ex) {
             log.error("Can not write snapshot file: ", ex);
+            return false;
         }
+    }
 
-        log.debug("completed {}", path);
+    private Path resolvePath(long snapshotId, SerializedModuleType type, int instanceId) {
+        return dumpsFolder.resolve("state_" + snapshotId + "_" + type + "_" + instanceId);
     }
 
     @Override
     public <T> T loadData(long snapshotId, SerializedModuleType type, int instanceId, Function<BytesIn, T> initFunc) {
 
-        final Path path = Paths.get("./dumps/state_" + snapshotId + "_" + type + "_" + instanceId);
+        final Path path = resolvePath(snapshotId, type, instanceId);
 
         log.debug("Loading state from {}", path);
         try (final InputStream is = Files.newInputStream(path, StandardOpenOption.READ);
              final InputStream bis = new BufferedInputStream(is)) {
 
+            // TODO improve reading algorithm
             final InputStreamToWire inputStreamToWire = new InputStreamToWire(WireType.RAW, bis);
             final Wire wire = inputStreamToWire.readOne();
 
-            log.debug("start deserializing...");
+            log.debug("start de-serializing...");
 
-//            Bytes<?> bytes = wire.bytes();
             AtomicReference<T> ref = new AtomicReference<>();
             wire.readBytes(bytes -> ref.set(initFunc.apply(bytes)));
 
@@ -74,7 +88,7 @@ DiskSerializationProcessor implements ISerializationProcessor {
         }
     }
 
-    public class WireToOutputStream2 {
+    public class WireToOutputStream2 implements AutoCloseable {
         private final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(128 * 1024 * 1024);
         private final Wire wire;
         private final DataOutputStream dos;
@@ -99,7 +113,11 @@ DiskSerializationProcessor implements ISerializationProcessor {
                 int read = bytes.read(buf);
                 dos.write(buf, 0, read);
             }
-            // TODO release buffer?
+        }
+
+        @Override
+        public void close() {
+            bytes.release();
         }
     }
 

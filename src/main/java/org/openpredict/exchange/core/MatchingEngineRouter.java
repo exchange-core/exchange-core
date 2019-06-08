@@ -6,16 +6,22 @@ import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.apache.commons.lang3.tuple.Pair;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
+import org.openpredict.exchange.beans.StateHash;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.journalling.ISerializationProcessor;
 import org.openpredict.exchange.core.orderbook.IOrderBook;
 import org.openpredict.exchange.core.orderbook.OrderBookFastImpl;
 
+import java.util.Objects;
+
+import static net.openhft.chronicle.core.UnsafeMemory.UNSAFE;
 import static org.openpredict.exchange.beans.cmd.OrderCommandType.*;
+import static org.openpredict.exchange.core.Utils.OFFSET_ORDER_ID;
 
 @Slf4j
-public final class MatchingEngineRouter implements WriteBytesMarshallable {
+public final class MatchingEngineRouter implements WriteBytesMarshallable, StateHash {
 
     // state
     private final BinaryCommandsProcessor binaryCommandsProcessor;
@@ -68,20 +74,22 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
 
     public void processOrder(OrderCommand cmd) {
 
-        if (cmd.command == MOVE_ORDER || cmd.command == CANCEL_ORDER || cmd.command == ORDER_BOOK_REQUEST || cmd.command == PLACE_ORDER) {
+        final OrderCommandType command = cmd.command;
+
+        if (command == MOVE_ORDER || command == CANCEL_ORDER || command == ORDER_BOOK_REQUEST || command == PLACE_ORDER) {
             // process specific symbol group only
             if (symbolForThisHandler(cmd.symbol)) {
-                processCommand(cmd);
+                processMathingCommand(cmd);
             }
 
-        } else if (cmd.command == BINARY_DATA) {
+        } else if (command == BINARY_DATA) {
             // process all symbols groups, only processor 0 writes result
             final CommandResultCode resultCode = binaryCommandsProcessor.binaryData(cmd);
             if (shardId == 0) {
                 cmd.resultCode = resultCode;
             }
 
-        } else if (cmd.command == RESET) {
+        } else if (command == RESET) {
             // process all symbols groups, only processor 0 writes result
             orderBooks.clear();
             binaryCommandsProcessor.reset();
@@ -89,14 +97,20 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
                 cmd.resultCode = CommandResultCode.SUCCESS;
             }
 
-        } else if (cmd.command == PERSIST_STATE_MATCHING) {
-            // TODO somehow merge result code from each instance
+        } else if (command == PERSIST_STATE_MATCHING) {
             log.debug("DUMP MATCHING_ENGINE_ROUTER");
-            serializationProcessor.storeData(cmd.orderId, ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER, shardId, this);
+            final boolean isSuccess = serializationProcessor.storeData(cmd.orderId, ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER, shardId, this);
+            // Send ACCEPTED because this is a first command in series. Risk engine is second - so it will return SUCCESS
+            Utils.setResultVolatile(cmd, isSuccess, CommandResultCode.ACCEPTED, CommandResultCode.STATE_PERSIST_MATCHING_ENGINE_FAILED);
+
+        } else if (command == STATE_HASH_REQUEST) {
+            // common hash as sum of each module hash (for simplicity)
+            UNSAFE.getAndAddLong(cmd, OFFSET_ORDER_ID, stateHash());
             if (shardId == 0) {
-                cmd.resultCode = CommandResultCode.ACCEPTED;
+                cmd.resultCode = CommandResultCode.SUCCESS;
             }
         }
+
     }
 
     private boolean symbolForThisHandler(final long symbol) {
@@ -120,7 +134,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
         }
     }
 
-    private void processCommand(final OrderCommand cmd) {
+    private void processMathingCommand(final OrderCommand cmd) {
 
         final IOrderBook orderBook = orderBooks.get(cmd.symbol);
         if (orderBook == null) {
@@ -144,4 +158,14 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
         Utils.marshallIntHashMap(orderBooks, bytes);
     }
 
+    @Override
+    public int stateHash() {
+        return Objects.hash(
+                shardId,
+                shardMask,
+                binaryCommandsProcessor.stateHash(),
+                Utils.stateHash(orderBooks));
+
+        //log.debug("HASH ME{} : hash={} a={} b={}", shardId, hash, a, b);
+    }
 }

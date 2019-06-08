@@ -5,8 +5,11 @@ import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
+import org.openpredict.exchange.beans.StateHash;
 import org.openpredict.exchange.beans.UserProfile;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
+
+import java.util.Objects;
 
 /**
  * Stateful (!) User profile service
@@ -14,7 +17,7 @@ import org.openpredict.exchange.beans.cmd.CommandResultCode;
  * TODO make multi instance
  */
 @Slf4j
-public final class UserProfileService implements WriteBytesMarshallable {
+public final class UserProfileService implements WriteBytesMarshallable, StateHash {
 
     /**
      * State: uid -> user profile
@@ -115,5 +118,9 @@ public final class UserProfileService implements WriteBytesMarshallable {
         Utils.marshallLongHashMap(userProfiles, bytes);
     }
 
+    @Override
+    public int stateHash() {
+        return Objects.hash(Utils.stateHash(userProfiles));
+    }
 
 }

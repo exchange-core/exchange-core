@@ -7,10 +7,13 @@ import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
+import org.openpredict.exchange.beans.StateHash;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 
+import java.util.Objects;
+
 @Slf4j
-public final class SymbolSpecificationProvider implements WriteBytesMarshallable {
+public final class SymbolSpecificationProvider implements WriteBytesMarshallable, StateHash {
 
     // symbol->specs
     private final IntObjectHashMap<CoreSymbolSpecification> symbolSpecs;
@@ -64,6 +67,11 @@ public final class SymbolSpecificationProvider implements WriteBytesMarshallable
     public void writeMarshallable(BytesOut bytes) {
         // write symbolSpecs
         Utils.marshallIntHashMap(symbolSpecs, bytes);
+    }
+
+    @Override
+    public int stateHash() {
+        return Objects.hash(Utils.stateHash(symbolSpecs));
     }
 
 }

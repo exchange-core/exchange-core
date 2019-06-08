@@ -7,6 +7,7 @@ import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.OrderType;
+import org.openpredict.exchange.beans.StateHash;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
@@ -14,7 +15,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
-public interface IOrderBook extends WriteBytesMarshallable {
+public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
     /**
      * Process new MARKET order
@@ -85,6 +86,15 @@ public interface IOrderBook extends WriteBytesMarshallable {
      * @return actual implementation
      */
     OrderBookImplType getImplementationType();
+
+    /**
+     * State hash for order books is implementation-agnostic
+     * Look {@link org.openpredict.exchange.core.orderbook.IOrderBook#validateInternalState} for complete state validation for de-serialized objects
+     */
+    @Override
+    default int stateHash() {
+        return hashCode();
+    }
 
     // TODO to default?
     static int hash(IOrdersBucket[] askBuckets, IOrdersBucket[] bidBuckets) {
