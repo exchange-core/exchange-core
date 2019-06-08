@@ -32,7 +32,7 @@ Benchmark configuration:
 - No coordinated omission effect for latency benchmark. Any processing delay affects measurements for next following messages.
 - GC is triggered prior/after running every benchmark cycle (3,000,000 messages).
 - RHEL 7.5, network-latency tuned profile, dual X5690 6 cores 3.47GHz, one socket isolated and tickless, spectre/meltdown protection disabled.
-- JVM 8u192 (newer versions have a [performance bug](https://bugs.java.com/bugdatabase/view_bug.do?bug_id=JDK-8221355)
+- Java version 8u192, newer Java 8 versions can have a [performance bug](https://bugs.java.com/bugdatabase/view_bug.do?bug_id=JDK-8221355)
 
 ### Main features
 - HFT optimized. Priority is a limit-order-move operation mean latency (currently ~0.5µs). Cancel operation takes ~0.7µs, placing new order ~1.0µs;
@@ -47,9 +47,10 @@ Benchmark configuration:
 - Two implementations of matching engine: reference (naive) and performance-optimized.
 - Testing - unit-tests, integration tests, stress tests, integrity tests.
 - Automatic threads affinity (requires JNA).
+- State snapshot (serialization) and reconstruct operations.
 
 ### TODOs
-- Journalling support, event-sourcing - snapshot and replay operations support.
+- Journalling and journal replay support (Event-sourcing)
 - Market data feeds (full order log, L2 market data, BBO, trades).
 - Clearing and settlement.
 - FIX and REST API gateways.

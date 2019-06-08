@@ -2,6 +2,8 @@ package org.openpredict.exchange.core.orderbook;
 
 import com.google.common.collect.ObjectArrays;
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.BytesIn;
+import net.openhft.chronicle.bytes.BytesOut;
 import org.apache.commons.lang3.ArrayUtils;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.beans.L2MarketData;
@@ -9,6 +11,7 @@ import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.OrderType;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.core.Utils;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -21,43 +24,75 @@ public final class OrderBookFastImpl implements IOrderBook {
 
     public static final int DEFAULT_HOT_WIDTH = 32768;
 
-    private final int hotPricesRange; // TODO must be aligned by 64 bit, can not be lower than 1024
+    private final int hotPricesRange;
 
     private BitSet hotAskBitSet;
     private BitSet hotBidBitSet;
-    private final LongObjectHashMap<IOrdersBucket> hotAskBuckets = new LongObjectHashMap<>();
-    private final LongObjectHashMap<IOrdersBucket> hotBidBuckets = new LongObjectHashMap<>();
+    private final LongObjectHashMap<IOrdersBucket> hotAskBuckets;
+    private final LongObjectHashMap<IOrdersBucket> hotBidBuckets;
     private long minAskPrice = Long.MAX_VALUE;
     private long maxBidPrice = 0;
 
-    /**
-     * Bucket within FAR section: (price < basePrice) OR (price >= basePrice + hotPricesRange)
-     * Bucket within HOT section: (price >= basePrice) AND (price < basePrice + hotPricesRange)
-     */
+    // Bucket within FAR section: (price < basePrice) OR (price >= basePrice + hotPricesRange)
+    // Bucket within HOT section: (price >= basePrice) AND (price < basePrice + hotPricesRange)
     private long basePrice = -1;
     private long rebalanceThresholdLow = -1;
     private long rebalanceThresholdHigh = -1;
 
     // TODO garbage-free navigable map implementation
-    private final NavigableMap<Long, IOrdersBucket> farAskBuckets = new TreeMap<>();
-    private final NavigableMap<Long, IOrdersBucket> farBidBuckets = new TreeMap<>(Collections.reverseOrder());
+    private final NavigableMap<Long, IOrdersBucket> farAskBuckets;
+    private final NavigableMap<Long, IOrdersBucket> farBidBuckets;
 
-    //    private LongObjectHashMap<Order> idMap = new LongObjectHashMap<>();
-    /**
-     * Hashtable for fast resolving OrderId -> Bucket
-     */
+    // Hashtable for fast (cached) resolving OrderId -> Bucket
     private final LongObjectHashMap<IOrdersBucket> idMapToBucket = new LongObjectHashMap<>();
 
-    /**
-     * Object pools
-     */
+    // Object pools
     private final ArrayDeque<Order> ordersPool = new ArrayDeque<>(65536);
     private final ArrayDeque<IOrdersBucket> bucketsPool = new ArrayDeque<>(65536);
 
     public OrderBookFastImpl(int hotPricesRange) {
+        // must be aligned by 64 bit, can not be lower than 1024
+        if ((hotPricesRange & 63) != 0 || hotPricesRange < 1024) {
+            throw new IllegalArgumentException("invalid hotPricesRange=" + hotPricesRange);
+        }
+
         this.hotPricesRange = hotPricesRange;
         this.hotAskBitSet = new BitSet(hotPricesRange);
         this.hotBidBitSet = new BitSet(hotPricesRange);
+        this.hotAskBuckets = new LongObjectHashMap<>();
+        this.hotBidBuckets = new LongObjectHashMap<>();
+        this.farAskBuckets = new TreeMap<>();
+        this.farBidBuckets = new TreeMap<>(Collections.reverseOrder());
+    }
+
+    public OrderBookFastImpl(BytesIn bytes) {
+
+        hotPricesRange = bytes.readInt();
+
+        this.hotAskBitSet = Utils.readBitSet(bytes);
+        this.hotBidBitSet = Utils.readBitSet(bytes);
+
+        this.hotAskBuckets = Utils.readLongHashMap(bytes, IOrdersBucket::create);
+        this.hotBidBuckets = Utils.readLongHashMap(bytes, IOrdersBucket::create);
+
+        this.minAskPrice = bytes.readLong();
+        this.maxBidPrice = bytes.readLong();
+
+        this.basePrice = bytes.readLong();
+        this.rebalanceThresholdLow = bytes.readLong();
+        this.rebalanceThresholdHigh = bytes.readLong();
+
+        this.farAskBuckets = Utils.readLongMap(bytes, TreeMap::new, IOrdersBucket::create);
+        this.farBidBuckets = Utils.readLongMap(bytes, () -> new TreeMap<>(Collections.reverseOrder()), IOrdersBucket::create);
+
+        // reconstruct ordersId-> Bucket cache
+        // TODO check resulting performance
+        hotAskBuckets.forEach(bucket -> bucket.forEachOrder(order -> idMapToBucket.put(order.orderId, bucket)));
+        hotBidBuckets.forEach(bucket -> bucket.forEachOrder(order -> idMapToBucket.put(order.orderId, bucket)));
+        farAskBuckets.values().forEach(bucket -> bucket.forEachOrder(order -> idMapToBucket.put(order.orderId, bucket)));
+        farBidBuckets.values().forEach(bucket -> bucket.forEachOrder(order -> idMapToBucket.put(order.orderId, bucket)));
+
+        //validateInternalState();
     }
 
     private int priceToIndex(long price) {
@@ -180,6 +215,7 @@ public final class OrderBookFastImpl implements IOrderBook {
         ordersBucket = bucketsPool.pollLast();
         if (ordersBucket == null) {
             ordersBucket = new OrdersBucketFastImpl();
+//            ordersBucket = new OrdersBucketNaiveImpl();
         }
 
         ordersBucket.setPrice(price);
@@ -215,6 +251,7 @@ public final class OrderBookFastImpl implements IOrderBook {
         ordersBucket = bucketsPool.pollLast();
         if (ordersBucket == null) {
             ordersBucket = new OrdersBucketFastImpl();
+//            ordersBucket = new OrdersBucketNaiveImpl();
         }
 
         ordersBucket.setPrice(price);
@@ -896,6 +933,11 @@ public final class OrderBookFastImpl implements IOrderBook {
         // TODO validateInternalState - orderid maps
     }
 
+    @Override
+    public OrderBookImplType getImplementationType() {
+        return OrderBookImplType.FAST;
+    }
+
     private void checkNoSameOrdersInHotAndFar(Set<Long> hot, Set<Long> far) {
         Set<Long> intersection = new HashSet<>(hot);
         intersection.retainAll(far);
@@ -960,6 +1002,28 @@ public final class OrderBookFastImpl implements IOrderBook {
         final IOrdersBucket[] farAsks = farAskBuckets.values().toArray(new IOrdersBucket[0]);
         final IOrdersBucket[] hotAsks = hotAskBuckets.toSortedMap(k -> k, v -> v).values().toArray(new IOrdersBucket[hotAskBuckets.size()]);
         return ObjectArrays.concat(hotAsks, farAsks, IOrdersBucket.class);
+    }
+
+    @Override
+    public void writeMarshallable(BytesOut bytes) {
+        bytes.writeByte(getImplementationType().getCode());
+        bytes.writeInt(hotPricesRange);
+
+        Utils.marshallBitSet(hotAskBitSet, bytes);
+        Utils.marshallBitSet(hotBidBitSet, bytes);
+
+        Utils.marshallLongHashMap(hotAskBuckets, bytes);
+        Utils.marshallLongHashMap(hotBidBuckets, bytes);
+
+        bytes.writeLong(minAskPrice);
+        bytes.writeLong(maxBidPrice);
+
+        bytes.writeLong(basePrice);
+        bytes.writeLong(rebalanceThresholdLow);
+        bytes.writeLong(rebalanceThresholdHigh);
+
+        Utils.marshallLongMap(farAskBuckets, bytes);
+        Utils.marshallLongMap(farBidBuckets, bytes);
     }
 
     @Override

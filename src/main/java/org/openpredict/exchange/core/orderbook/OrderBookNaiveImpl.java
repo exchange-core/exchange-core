@@ -1,23 +1,44 @@
 package org.openpredict.exchange.core.orderbook;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.BytesIn;
+import net.openhft.chronicle.bytes.BytesOut;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.core.Utils;
 
 import java.util.*;
 
 @Slf4j
-@RequiredArgsConstructor
 public final class OrderBookNaiveImpl implements IOrderBook {
 
-    private final NavigableMap<Long, IOrdersBucket> askBuckets = new TreeMap<>();
-    private final NavigableMap<Long, IOrdersBucket> bidBuckets = new TreeMap<>(Collections.reverseOrder());
+    private final NavigableMap<Long, IOrdersBucket> askBuckets;
+    private final NavigableMap<Long, IOrdersBucket> bidBuckets;
 
     private final LongObjectHashMap<Order> idMap = new LongObjectHashMap<>();
+
+    public OrderBookNaiveImpl() {
+
+        this.askBuckets = new TreeMap<>();
+        this.bidBuckets = new TreeMap<>(Collections.reverseOrder());
+    }
+
+    public OrderBookNaiveImpl(BytesIn bytes) {
+
+        this.askBuckets = Utils.readLongMap(bytes, TreeMap::new, IOrdersBucket::create);
+        this.bidBuckets = Utils.readLongMap(bytes, () -> new TreeMap<>(Collections.reverseOrder()), IOrdersBucket::create);
+
+        // reconstruct ordersId-> Order cache
+        // TODO check resulting performance
+        askBuckets.values().forEach(bucket -> bucket.forEachOrder(order -> idMap.put(order.orderId, order)));
+        bidBuckets.values().forEach(bucket -> bucket.forEachOrder(order -> idMap.put(order.orderId, order)));
+
+        //validateInternalState();
+    }
+
 
     public void matchMarketOrder(OrderCommand cmd) {
         final NavigableMap<Long, IOrdersBucket> matchingBuckets = cmd.action == OrderAction.ASK ? bidBuckets : askBuckets;
@@ -281,6 +302,11 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
     @Override
     public void fillAsks(final int size, L2MarketData data) {
+        if (size == 0) {
+            data.askSize = 0;
+            return;
+        }
+
         int i = 0;
         for (IOrdersBucket bucket : askBuckets.values()) {
             data.askPrices[i] = bucket.getPrice();
@@ -294,11 +320,16 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
     @Override
     public void fillBids(final int size, L2MarketData data) {
+        if (size == 0) {
+            data.bidSize = 0;
+            return;
+        }
+
         int i = 0;
         for (IOrdersBucket bucket : bidBuckets.values()) {
             data.bidPrices[i] = bucket.getPrice();
             data.bidVolumes[i] = bucket.getTotalVolume();
-            if (i++ == size) {
+            if (++i == size) {
                 break;
             }
         }
@@ -344,6 +375,11 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         bidBuckets.values().forEach(IOrdersBucket::validate);
     }
 
+    @Override
+    public OrderBookImplType getImplementationType() {
+        return OrderBookImplType.NAIVE;
+    }
+
     // for testing only
     @Override
     public int getOrdersNum() {
@@ -359,12 +395,15 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     }
 
     @Override
+    public void writeMarshallable(BytesOut bytes) {
+        Utils.marshallLongMap(askBuckets, bytes);
+        Utils.marshallLongMap(bidBuckets, bytes);
+    }
+
+    @Override
     public int hashCode() {
-        IOrdersBucket[] a = this.askBuckets.values().toArray(new IOrdersBucket[this.askBuckets.size()]);
-        IOrdersBucket[] b = this.bidBuckets.values().toArray(new IOrdersBucket[this.bidBuckets.size()]);
-
-        //log.debug("SLOW A:{} B:{}", a, b);
-
+        IOrdersBucket[] a = this.askBuckets.values().toArray(new IOrdersBucket[0]);
+        IOrdersBucket[] b = this.bidBuckets.values().toArray(new IOrdersBucket[0]);
         return IOrderBook.hash(a, b);
     }
 

@@ -3,14 +3,20 @@ package org.openpredict.exchange.beans;
 
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.BytesIn;
+import net.openhft.chronicle.bytes.BytesOut;
+import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.openpredict.exchange.core.RiskEngine;
+
+import java.util.Objects;
 
 @ToString
 @Slf4j
-public final class SymbolPortfolioRecord {
+public final class SymbolPortfolioRecord implements WriteBytesMarshallable, StateHash {
+
+    public final long uid;
 
     public final int symbol;
-    public final long uid;
     public final int currency;
 
     // open positions state (for margin trades only)
@@ -25,11 +31,26 @@ public final class SymbolPortfolioRecord {
     public long pendingSellSize = 0;
     public long pendingBuySize = 0;
 
-    public SymbolPortfolioRecord(int symbol, long uid, int currency) {
-        this.symbol = symbol;
+    public SymbolPortfolioRecord(long uid, int symbol, int currency) {
         this.uid = uid;
+
+        this.symbol = symbol;
         this.currency = currency;
     }
+
+    public SymbolPortfolioRecord(long uid, BytesIn bytes) {
+        this.uid = uid;
+
+        this.symbol = bytes.readInt();
+        this.currency = bytes.readInt();
+        this.position = PortfolioPosition.of(bytes.readByte());
+        this.openVolume = bytes.readLong();
+        this.openPriceSum = bytes.readLong();
+        this.profit = bytes.readLong();
+        this.pendingSellSize = bytes.readLong();
+        this.pendingBuySize = bytes.readLong();
+    }
+
 
     /**
      * Check if portfolio is empty (no pending orders, no open trades) - can remove it from hashmap
@@ -193,6 +214,18 @@ public final class SymbolPortfolioRecord {
         // validateInternalState();
     }
 
+    @Override
+    public void writeMarshallable(BytesOut bytes) {
+        bytes.writeInt(symbol);
+        bytes.writeInt(currency);
+        bytes.writeByte((byte) position.getMultiplier());
+        bytes.writeLong(openVolume);
+        bytes.writeLong(openPriceSum);
+        bytes.writeLong(profit);
+        bytes.writeLong(pendingSellSize);
+        bytes.writeLong(pendingBuySize);
+    }
+
     public void reset() {
 
         // log.debug("records: {}, Pending B{} S{} total size: {}", records.size(), pendingBuySize, pendingSellSize, totalSize);
@@ -221,4 +254,8 @@ public final class SymbolPortfolioRecord {
         }
     }
 
+    @Override
+    public int stateHash() {
+        return Objects.hash(symbol, currency, position.getMultiplier(), openVolume, openPriceSum, profit, pendingSellSize, pendingBuySize);
+    }
 }

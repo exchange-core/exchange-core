@@ -1,10 +1,15 @@
 package org.openpredict.exchange.core;
 
 import lombok.extern.slf4j.Slf4j;
-import org.eclipse.collections.api.map.primitive.MutableLongObjectMap;
+import net.openhft.chronicle.bytes.BytesIn;
+import net.openhft.chronicle.bytes.BytesOut;
+import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
+import org.openpredict.exchange.beans.StateHash;
 import org.openpredict.exchange.beans.UserProfile;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
+
+import java.util.Objects;
 
 /**
  * Stateful (!) User profile service
@@ -12,12 +17,20 @@ import org.openpredict.exchange.beans.cmd.CommandResultCode;
  * TODO make multi instance
  */
 @Slf4j
-public final class UserProfileService {
+public final class UserProfileService implements WriteBytesMarshallable, StateHash {
 
     /**
      * State: uid -> user profile
      */
-    private final MutableLongObjectMap<UserProfile> userProfiles = new LongObjectHashMap<>();
+    private final LongObjectHashMap<UserProfile> userProfiles;
+
+    public UserProfileService() {
+        this.userProfiles = new LongObjectHashMap<>();
+    }
+
+    public UserProfileService(BytesIn bytes) {
+        this.userProfiles = Utils.readLongHashMap(bytes, UserProfile::new);
+    }
 
     /**
      * Find user profile
@@ -96,6 +109,18 @@ public final class UserProfileService {
 
     public void reset() {
         userProfiles.clear();
+    }
+
+    @Override
+    public void writeMarshallable(BytesOut bytes) {
+
+        // write symbolSpecs
+        Utils.marshallLongHashMap(userProfiles, bytes);
+    }
+
+    @Override
+    public int stateHash() {
+        return Objects.hash(Utils.stateHash(userProfiles));
     }
 
 }

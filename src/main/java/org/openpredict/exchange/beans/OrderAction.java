@@ -13,6 +13,18 @@ public enum OrderAction {
         this.code = (byte) code;
     }
 
+    public static OrderAction of(byte code) {
+        switch (code) {
+            case 0:
+                return ASK;
+            case 1:
+                return BID;
+            default:
+                throw new IllegalArgumentException("unknown OrderAction:" + code);
+        }
+    }
+
+
     public OrderAction opposite() {
         return this == ASK ? BID : ASK;
     }

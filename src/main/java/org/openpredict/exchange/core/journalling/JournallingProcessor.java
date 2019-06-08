@@ -1,6 +1,5 @@
 package org.openpredict.exchange.core.journalling;
 
-import com.lmax.disruptor.EventHandler;
 import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
@@ -18,7 +17,7 @@ import java.time.format.DateTimeFormatter;
  * - not thread safe!
  */
 @Slf4j
-public class JournallingProcessor implements EventHandler<OrderCommand> {
+public class JournallingProcessor {
 
     private static final int MB = 1024 * 1024;
     private static final int FILE_SIZE_TRIGGER = 1024 * MB; // split files by size
@@ -38,8 +37,7 @@ public class JournallingProcessor implements EventHandler<OrderCommand> {
 
     // TODO asynchronously create new file and then switch reference
 
-    @Override
-    public void onEvent(OrderCommand cmd, long seq, boolean eob) throws Exception {
+    public void onEvent(OrderCommand cmd, long seq, boolean eob) throws IOException {
 
 //        log.debug("Writing {}", cmd);
 

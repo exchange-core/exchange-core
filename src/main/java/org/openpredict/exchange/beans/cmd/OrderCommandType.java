@@ -17,7 +17,10 @@ public enum OrderCommandType {
 
     BINARY_DATA(90),
 
-    DUMP_STATE(100),
+    PERSIST_STATE_MATCHING(110),
+    PERSIST_STATE_RISK(111),
+
+    STATE_HASH_REQUEST(118),
 
     NOP(120),
     RESET(124),

@@ -1,18 +1,19 @@
 package org.openpredict.exchange.core.orderbook;
 
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.BytesIn;
+import net.openhft.chronicle.bytes.BytesOut;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.core.Utils;
 
 import java.util.*;
 import java.util.function.Consumer;
 
-@NoArgsConstructor
 @Slf4j
 @ToString
 public final class OrdersBucketNaiveImpl implements IOrdersBucket {
@@ -21,10 +22,21 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
     @Setter
     private long price;
 
-    private final LinkedHashMap<Long, Order> entries = new LinkedHashMap<>();
+    private final LinkedHashMap<Long, Order> entries;
 
     @Getter
     private long totalVolume = 0;
+
+
+    public OrdersBucketNaiveImpl() {
+        this.entries = new LinkedHashMap<>();
+    }
+
+    public OrdersBucketNaiveImpl(BytesIn bytes) {
+        this.price = bytes.readLong();
+        this.entries = Utils.readLongMap(bytes, LinkedHashMap::new, Order::new);
+        this.totalVolume = bytes.readLong();
+    }
 
     /**
      * Place order into end of bucket
@@ -160,10 +172,28 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
     }
 
     @Override
+    public void forEachOrder(Consumer<Order> consumer) {
+        entries.values().forEach(consumer);
+    }
+
+    @Override
+    public OrderBucketImplType getImplementationType() {
+        return OrderBucketImplType.NAIVE;
+    }
+
+    @Override
+    public void writeMarshallable(BytesOut bytes) {
+        bytes.writeByte(getImplementationType().getCode());
+        bytes.writeLong(price);
+        Utils.marshallLongMap(entries, bytes);
+        bytes.writeLong(totalVolume);
+    }
+
+    @Override
     public int hashCode() {
         return IOrdersBucket.hash(
                 price,
-                entries.values().toArray(new Order[entries.size()]));
+                entries.values().toArray(new Order[0]));
     }
 
     @Override

@@ -15,6 +15,7 @@ import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.biprocessor.GroupingProcessor;
 import org.openpredict.exchange.core.biprocessor.MasterProcessor;
 import org.openpredict.exchange.core.biprocessor.SlaveProcessor;
+import org.openpredict.exchange.core.journalling.ISerializationProcessor;
 import org.openpredict.exchange.core.journalling.JournallingProcessor;
 
 import java.util.ArrayList;
@@ -34,12 +35,14 @@ public final class ExchangeCore {
     @Builder
     public ExchangeCore(final Consumer<OrderCommand> resultsConsumer,
                         final JournallingProcessor journallingHandler,
+                        final ISerializationProcessor serializationProcessor,
                         final int ringBufferSize,
                         final int matchingEnginesNum,
                         final int riskEnginesNum,
                         final int msgsInGroupLimit,
                         final Utils.ThreadAffityMode threadAffityMode,
-                        final DisruptorWaitStrategy waitStrategy) {
+                        final DisruptorWaitStrategy waitStrategy,
+                        final Long loadStateId) {
 
         this.disruptor = new Disruptor<>(
                 OrderCommand::new,
@@ -60,17 +63,17 @@ public final class ExchangeCore {
 
         disruptor.setDefaultExceptionHandler(exceptionHandler);
 
-        // creating matching engine event handlers array
+        // creating matching engine event handlers array // TODO parallel deserialization
         final EventHandler<OrderCommand>[] matchingEngineHandlers = IntStream.range(0, matchingEnginesNum)
                 .mapToObj(shardId -> {
-                    final MatchingEngineRouter router = new MatchingEngineRouter(shardId, matchingEnginesNum);
+                    final MatchingEngineRouter router = new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, loadStateId);
                     return (EventHandler<OrderCommand>) (cmd, seq, eob) -> router.processOrder(cmd);
                 })
                 .toArray(ExchangeCore::newEventHandlersArray);
 
-        // creating risk engines array
+        // creating risk engines array // TODO parallel deserialization
         final List<RiskEngine> riskEngines = IntStream.range(0, riskEnginesNum)
-                .mapToObj(shardId -> new RiskEngine(shardId, riskEnginesNum))
+                .mapToObj(shardId -> new RiskEngine(shardId, riskEnginesNum, serializationProcessor, loadStateId))
                 .collect(Collectors.toList());
 
         final List<MasterProcessor> procR1 = new ArrayList<>(riskEnginesNum);
@@ -82,7 +85,7 @@ public final class ExchangeCore {
 
         // 2. [journalling (J)] in parallel with risk hold (R1) + matching engine (ME)
         if (journallingHandler != null) {
-            afterGrouping.handleEventsWith(journallingHandler);
+            afterGrouping.handleEventsWith(journallingHandler::onEvent);
         }
 
         riskEngines.forEach(riskEngine -> afterGrouping.handleEventsWith(
@@ -105,7 +108,7 @@ public final class ExchangeCore {
                 }));
 
         // 4. results handler (E) after matching engine (ME) + [journalling (J)]
-        (journallingHandler != null ? disruptor.after(ArrayUtils.add(matchingEngineHandlers, journallingHandler)) : afterMatchingEngine)
+        (journallingHandler != null ? disruptor.after(ArrayUtils.add(matchingEngineHandlers, journallingHandler::onEvent)) : afterMatchingEngine)
                 .handleEventsWith((cmd, seq, eob) -> resultsConsumer.accept(cmd));
 
         // attach slave processors to master processor

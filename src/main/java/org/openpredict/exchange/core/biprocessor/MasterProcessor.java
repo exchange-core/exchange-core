@@ -125,14 +125,18 @@ public final class MasterProcessor implements EventProcessor {
                             currentSequenceGroup = cmd.eventsGroup;
                         }
 
-                        eventHandler.onEvent(cmd);
+                        boolean forcedPublish = eventHandler.onEvent(cmd);
                         nextSequence++;
+
+                        if (forcedPublish) {
+                            sequence.set(nextSequence - 1);
+                        }
 
                         if (cmd.command == OrderCommandType.SHUTDOWN_SIGNAL) {
                             // having all sequences aligned with the ringbuffer cursor is a requirement for proper shutdown
 
                             // let following processors to catch up
-                            sequence.set(availableSequence);
+                            sequence.set(nextSequence - 1);
 
                             // trigger slave processor
                             slaveProcessor.handlingCycle(nextSequence);

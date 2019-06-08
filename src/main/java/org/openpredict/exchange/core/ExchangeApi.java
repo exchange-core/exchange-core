@@ -46,6 +46,10 @@ public final class ExchangeApi {
             ringBuffer.publishEvent(ADJUST_USER_BALANCE_TRANSLATOR, (ApiAdjustUserBalance) cmd);
         } else if (cmd instanceof ApiBinaryDataCommand) {
             publishBinaryData(ringBuffer, (ApiBinaryDataCommand) cmd);
+        } else if (cmd instanceof ApiPersistState) {
+            publishPersistCmd(ringBuffer, (ApiPersistState) cmd);
+        } else if (cmd instanceof ApiStateHashRequest) {
+            ringBuffer.publishEvent(STATE_HASH_TRANSLATOR, (ApiStateHashRequest) cmd);
         } else if (cmd instanceof ApiReset) {
             ringBuffer.publishEvent(RESET_TRANSLATOR, (ApiReset) cmd);
         } else if (cmd instanceof ApiNoOp) {
@@ -101,7 +105,7 @@ public final class ExchangeApi {
                 i++;
             }
         } catch (Exception ex) {
-            log.error("Ex: ", ex);
+            log.error("Binary commands processing exception: ", ex);
 
         } finally {
             //System.out.println("publish " + lowSeq + "-" + highSeq);
@@ -109,6 +113,43 @@ public final class ExchangeApi {
             ringBuffer.publish(lowSeq, highSeq);
         }
     }
+
+    private void publishPersistCmd(final RingBuffer<OrderCommand> ringBuffer, final ApiPersistState api) {
+
+        long secondSeq = ringBuffer.next(2);
+        long firstSeq = secondSeq - 1;
+
+        try {
+            // will be ignored by risk handlers, but processed by matching engine
+            final OrderCommand cmdMatching = ringBuffer.get(firstSeq);
+            cmdMatching.command = OrderCommandType.PERSIST_STATE_MATCHING;
+            cmdMatching.orderId = api.dumpId;
+            cmdMatching.symbol = -1;
+            cmdMatching.uid = 0;
+            cmdMatching.price = 0;
+            cmdMatching.timestamp = api.timestamp;
+            cmdMatching.resultCode = CommandResultCode.NEW;
+
+            //log.debug("seq={} cmd.command={} data={}", firstSeq, cmdMatching.command, cmdMatching.price);
+
+            // sequential command will make risk handler to create snapshot
+            final OrderCommand cmdRisk = ringBuffer.get(secondSeq);
+            cmdRisk.command = OrderCommandType.PERSIST_STATE_RISK;
+            cmdRisk.orderId = api.dumpId;
+            cmdRisk.symbol = -1;
+            cmdRisk.uid = 0;
+            cmdRisk.price = 0;
+            cmdRisk.timestamp = api.timestamp;
+            cmdRisk.resultCode = CommandResultCode.NEW;
+
+            //log.debug("seq={} cmd.command={} data={}", firstSeq, cmdMatching.command, cmdMatching.price);
+
+            // short delay to reduce probability of batching both commands together in R1
+        } finally {
+            ringBuffer.publish(firstSeq, secondSeq);
+        }
+    }
+
 
     private static final EventTranslatorOneArg<OrderCommand, ApiPlaceOrder> NEW_ORDER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.PLACE_ORDER;
@@ -187,6 +228,16 @@ public final class ExchangeApi {
     private static final EventTranslatorOneArg<OrderCommand, ApiNoOp> NOOP_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.NOP;
         cmd.orderId = -1;
+        cmd.symbol = -1;
+        cmd.uid = -1;
+        cmd.price = -1;
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+    };
+
+    private static final EventTranslatorOneArg<OrderCommand, ApiStateHashRequest> STATE_HASH_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.STATE_HASH_REQUEST;
+        cmd.orderId = 0;
         cmd.symbol = -1;
         cmd.uid = -1;
         cmd.price = -1;

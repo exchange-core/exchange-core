@@ -1,26 +1,32 @@
 package org.openpredict.exchange.beans;
 
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.BytesIn;
+import net.openhft.chronicle.bytes.BytesOut;
+import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.eclipse.collections.impl.set.mutable.primitive.LongHashSet;
+import org.openpredict.exchange.core.Utils;
+
+import java.util.Objects;
 
 @Slf4j
-public final class UserProfile {
+public final class UserProfile implements WriteBytesMarshallable, StateHash {
 
     public final long uid;
 
     // symbol -> portfolio records
-    public IntObjectHashMap<SymbolPortfolioRecord> portfolio = new IntObjectHashMap<>();
+    public final IntObjectHashMap<SymbolPortfolioRecord> portfolio;
 
     // set of applied transactionId
-    public LongHashSet externalTransactions = new LongHashSet();
+    public final LongHashSet externalTransactions;
 
     // collected from accounts
 
     // currency accounts
     // currency -> balance
-    public IntLongHashMap accounts = new IntLongHashMap();
+    public final IntLongHashMap accounts;
 
 
     // collected from portfolio
@@ -32,13 +38,30 @@ public final class UserProfile {
     public UserProfile(long uid) {
         //log.debug("New {}", uid);
         this.uid = uid;
+        this.portfolio = new IntObjectHashMap<>();
+        this.externalTransactions = new LongHashSet();
+        this.accounts = new IntLongHashMap();
+    }
+
+    public UserProfile(BytesIn bytesIn) {
+
+        this.uid = bytesIn.readLong();
+
+        // positions
+        this.portfolio = Utils.readIntHashMap(bytesIn, b -> new SymbolPortfolioRecord(uid, b));
+
+        // externalTransactions
+        this.externalTransactions = Utils.readLongHashSet(bytesIn);
+
+        // account balances
+        this.accounts = Utils.readIntLongHashMap(bytesIn);
     }
 
     public SymbolPortfolioRecord getOrCreatePortfolioRecord(CoreSymbolSpecification spec) {
         final int symbol = spec.symbolId;
         SymbolPortfolioRecord record = portfolio.get(symbol);
         if (record == null) {
-            record = new SymbolPortfolioRecord(symbol, uid, spec.quoteCurrency);
+            record = new SymbolPortfolioRecord(uid, symbol, spec.quoteCurrency);
             portfolio.put(symbol, record);
         }
         return record;
@@ -60,6 +83,22 @@ public final class UserProfile {
     }
 
     @Override
+    public void writeMarshallable(BytesOut bytes) {
+
+        bytes.writeLong(uid);
+
+        // positions
+        Utils.marshallIntHashMap(portfolio, bytes);
+
+        // externalTransactions
+        Utils.marshallLongHashSet(externalTransactions, bytes);
+
+        // account balances
+        Utils.marshallIntLongHashMap(accounts, bytes);
+    }
+
+
+    @Override
     public String toString() {
         return "UserProfile{" +
                 "uid=" + uid +
@@ -67,5 +106,14 @@ public final class UserProfile {
                 ", accounts=" + accounts +
                 ", commandsCounter=" + commandsCounter +
                 '}';
+    }
+
+    @Override
+    public int stateHash() {
+        return Objects.hash(
+                uid,
+                Utils.stateHash(portfolio),
+                externalTransactions.hashCode(),
+                accounts.hashCode());
     }
 }

@@ -2,6 +2,10 @@ package org.openpredict.exchange.core.biprocessor;
 
 public interface SimpleEventHandler<T> {
 
-    void onEvent(T event);
+    /**
+     * @param event - event
+     * @return true to forcibly publish sequence (batches)
+     */
+    boolean onEvent(T event);
 
 }

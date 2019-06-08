@@ -1,8 +1,8 @@
-package org.openpredict.exchange.tests;
+package org.openpredict.exchange.tests.util;
 
 import com.google.common.collect.Sets;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.junit.After;
 import org.nustaq.serialization.FSTConfiguration;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.L2MarketData;
@@ -10,6 +10,7 @@ import org.openpredict.exchange.beans.SymbolType;
 import org.openpredict.exchange.beans.api.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.ExchangeApi;
 import org.openpredict.exchange.core.ExchangeCore;
 import org.openpredict.exchange.core.journalling.DiskSerializationProcessor;
@@ -18,11 +19,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import java.util.Set;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
@@ -34,7 +34,7 @@ import static org.openpredict.exchange.core.ExchangeCore.DisruptorWaitStrategy.B
 import static org.openpredict.exchange.core.Utils.ThreadAffityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE;
 
 @Slf4j
-public abstract class IntegrationTestBase {
+public class ExchangeTestContainer {
 
     static final int RING_BUFFER_SIZE_DEFAULT = 64 * 1024;
     static final int RISK_ENGINES_ONE = 1;
@@ -66,16 +66,16 @@ public abstract class IntegrationTestBase {
     static final int CURRENECY_ZEC = 4150;
 
 
-    static final Set<Integer> CURRENCIES_FUTURES = Sets.newHashSet(
+    public static final Set<Integer> CURRENCIES_FUTURES = Sets.newHashSet(
             CURRENECY_USD,
             CURRENECY_EUR);
 
-    static final Set<Integer> CURRENCIES_EXCHANGE = Sets.newHashSet(
+    public static final Set<Integer> CURRENCIES_EXCHANGE = Sets.newHashSet(
             CURRENECY_ETH,
             CURRENECY_XBT);
 
 
-    static final Set<Integer> ALL_CURRENCIES = Sets.newHashSet(
+    public static final Set<Integer> ALL_CURRENCIES = Sets.newHashSet(
             CURRENECY_USD,
             CURRENECY_EUR,
             CURRENECY_XBT,
@@ -91,44 +91,50 @@ public abstract class IntegrationTestBase {
             CURRENECY_ZEC);
 
 
-    ExchangeCore exchangeCore;
-    ExchangeApi api;
+    public final ExchangeCore exchangeCore;
+    public final ExchangeApi api;
 
-    Consumer<OrderCommand> consumer = cmd -> {
+    @Setter
+    private Consumer<OrderCommand> consumer = cmd -> {
     };
 
     static final Consumer<OrderCommand> CHECK_SUCCESS = cmd -> assertEquals(CommandResultCode.SUCCESS, cmd.resultCode);
 
-    protected void initExchange() {
-        initExchange(RING_BUFFER_SIZE_DEFAULT, MATCHING_ENGINES_ONE, RISK_ENGINES_ONE, MGS_IN_GROUP_LIMIT_DEFAULT);
+    public ExchangeTestContainer() {
+        this(RING_BUFFER_SIZE_DEFAULT, MATCHING_ENGINES_ONE, RISK_ENGINES_ONE, MGS_IN_GROUP_LIMIT_DEFAULT, null);
     }
 
-    protected void initExchange(final int bufferSize,
-                                final int matchingEnginesNum,
-                                final int riskEnginesNum,
-                                final int msgsInGroupLimit) {
+    public ExchangeTestContainer(final int bufferSize,
+                                 final int matchingEnginesNum,
+                                 final int riskEnginesNum,
+                                 final int msgsInGroupLimit,
+                                 final Long stateId) {
 
-        exchangeCore = ExchangeCore.builder()
+        this.exchangeCore = ExchangeCore.builder()
                 .resultsConsumer(cmd -> consumer.accept(cmd))
-                .serializationProcessor(new DiskSerializationProcessor("./dump"))
+                .serializationProcessor(new DiskSerializationProcessor("./dumps"))
                 .ringBufferSize(bufferSize)
                 .matchingEnginesNum(matchingEnginesNum)
                 .riskEnginesNum(riskEnginesNum)
                 .msgsInGroupLimit(msgsInGroupLimit)
                 .threadAffityMode(THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE)
                 .waitStrategy(BUSY_SPIN)
+                .loadStateId(stateId) // Loading from persisted state
                 .build();
 
-        exchangeCore.startup();
-        api = exchangeCore.getApi();
+        this.exchangeCore.startup();
+        api = this.exchangeCore.getApi();
     }
 
-    @After
-    public void shutdownExchange() {
-        exchangeCore.shutdown();
-    }
+//    public ExchangeTestContainer(final ExchangeCore exchangeCore) {
+//
+//        this.exchangeCore = exchangeCore;
+//        this.exchangeCore.startup();
+//        api = this.exchangeCore.getApi();
+//    }
 
-    void initBasicSymbols() {
+
+    public void initBasicSymbols() {
 
         final CoreSymbolSpecification symbol1 = CoreSymbolSpecification.builder()
                 .symbolId(SYMBOL_MARGIN)
@@ -177,7 +183,7 @@ public abstract class IntegrationTestBase {
     }
 
 
-    void addSymbol(CoreSymbolSpecification symbol) {
+    public void addSymbol(CoreSymbolSpecification symbol) {
         final FSTConfiguration minBin = FSTConfiguration.createMinBinConfiguration();
         minBin.registerCrossPlatformClassMappingUseSimpleName(CoreSymbolSpecification.class);
         //new MBPrinter().printMessage(minBin.asByteArray(symbol));
@@ -186,31 +192,46 @@ public abstract class IntegrationTestBase {
         submitMultiCommandSync(binaryCmd);
     }
 
-    void usersInit(int numUsers, Set<Integer> currencies) throws InterruptedException {
+    public void usersInit(int numUsers, Set<Integer> currencies) throws InterruptedException {
 
         int totalCommands = numUsers * (1 + currencies.size());
         final CountDownLatch usersLatch = new CountDownLatch(totalCommands);
-        consumer = cmd -> usersLatch.countDown();
+        consumer = cmd -> {
+            if (cmd.resultCode == CommandResultCode.SUCCESS
+                    && (cmd.command == OrderCommandType.ADD_USER || cmd.command == OrderCommandType.BALANCE_ADJUSTMENT)) {
+                usersLatch.countDown();
+            } else {
+                throw new IllegalStateException("Unexpected command");
+            }
+
+        };
+
+        LongAdder c = new LongAdder();
 
         LongStream.rangeClosed(1, numUsers)
                 .forEach(uid -> {
                     api.submitCommand(ApiAddUser.builder().uid(uid).build());
+                    c.increment();
                     currencies.forEach(currency -> {
                         int transactionId = currency;
                         api.submitCommand(ApiAdjustUserBalance.builder().uid(uid).transactionId(transactionId).amount(10_0000_0000L).currency(currency).build());
+                        c.increment();
                     });
-                    if (uid > 1000000 && uid % 1000000 == 0) {
+                    if (uid % 1000000 == 0) {
                         log.debug("uid: {} usersLatch: {}", uid, usersLatch.getCount());
                     }
                 });
         usersLatch.await();
+
+        log.debug("commands sent: {} totalCommands:{}", c, totalCommands);
+
     }
 
-    void resetExchangeCore() throws InterruptedException {
+    public void resetExchangeCore() throws InterruptedException {
         submitCommandSync(ApiReset.builder().build(), CHECK_SUCCESS);
     }
 
-    void submitCommandSync(ApiCommand apiCommand, Consumer<OrderCommand> validator) throws InterruptedException {
+    public void submitCommandSync(ApiCommand apiCommand, Consumer<OrderCommand> validator) throws InterruptedException {
         final CountDownLatch latch = new CountDownLatch(1);
         consumer = cmd -> {
             validator.accept(cmd);
@@ -222,15 +243,32 @@ public abstract class IntegrationTestBase {
         };
     }
 
-    void submitMultiCommandSync(ApiCommand dataCommand) {
+    public <T> T submitCommandSync(ApiCommand apiCommand, Function<OrderCommand, T> resultBuilder) throws InterruptedException {
+        final CompletableFuture<T> future = new CompletableFuture<>();
+        consumer = cmd -> future.complete(resultBuilder.apply(cmd));
+        api.submitCommand(apiCommand);
+        try {
+            return future.get();
+        } catch (ExecutionException ex) {
+            throw new IllegalStateException(ex);
+        } finally {
+            consumer = cmd -> {
+            };
+        }
+    }
+
+    public void submitMultiCommandSync(ApiCommand dataCommand) {
         final CountDownLatch latch = new CountDownLatch(1);
         consumer = cmd -> {
-            if (cmd.resultCode == CommandResultCode.ACCEPTED) {
-                //
-            } else if (cmd.resultCode == CommandResultCode.SUCCESS) {
+            if (cmd.command != OrderCommandType.BINARY_DATA
+                    && cmd.command != OrderCommandType.PERSIST_STATE_RISK
+                    && cmd.command != OrderCommandType.PERSIST_STATE_MATCHING) {
+                throw new IllegalStateException("Unexpected command");
+            }
+            if (cmd.resultCode == CommandResultCode.SUCCESS) {
                 latch.countDown();
-            } else {
-                throw new IllegalStateException("Expected ACCEPTED or SUCCESS only, but received " + cmd.resultCode);
+            } else if (cmd.resultCode != CommandResultCode.ACCEPTED) {
+                throw new IllegalStateException("Unexpected result code");
             }
         };
         api.submitCommand(dataCommand);
@@ -257,7 +295,7 @@ public abstract class IntegrationTestBase {
     }
 
 
-    L2MarketData requestCurrentOrderBook(final int symbol) {
+    public L2MarketData requestCurrentOrderBook(final int symbol) {
         BlockingQueue<OrderCommand> queue = attachNewConsumerQueue();
         api.submitCommand(ApiOrderBookRequest.builder().symbol(symbol).size(-1).build());
         OrderCommand orderBookCmd = waitForOrderCommands(queue, 1).get(0);
@@ -285,9 +323,9 @@ public abstract class IntegrationTestBase {
     }
 
 
-    List<CoreSymbolSpecification> generateAndAddSymbols(final int num,
-                                                        final Set<Integer> currenciesAllowed,
-                                                        final AllowedSymbolTypes allowedSymbolTypes) {
+    public List<CoreSymbolSpecification> generateAndAddSymbols(final int num,
+                                                               final Set<Integer> currenciesAllowed,
+                                                               final AllowedSymbolTypes allowedSymbolTypes) {
         final Random random = new Random(1L);
 
         final Supplier<SymbolType> symbolTypeSupplier;
@@ -326,14 +364,18 @@ public abstract class IntegrationTestBase {
 
                 result.add(symbol);
 
-                log.debug("{}", symbol);
+                //log.debug("{}", symbol);
                 i++;
             }
         }
         return result;
     }
 
-    enum AllowedSymbolTypes {
+    public void close() {
+        exchangeCore.shutdown();
+    }
+
+    public enum AllowedSymbolTypes {
         FUTURES_CONTRACT,
         CURRENCY_EXCHANGE_PAIR,
         BOTH

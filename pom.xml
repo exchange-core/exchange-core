@@ -214,10 +214,10 @@
             <artifactId>affinity</artifactId>
         </dependency>
 
-        <!--<dependency>-->
-            <!--<groupId>net.openhft</groupId>-->
-            <!--<artifactId>chronicle-wire</artifactId>-->
-        <!--</dependency>-->
+        <dependency>
+            <groupId>net.openhft</groupId>
+            <artifactId>chronicle-wire</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.eclipse.collections</groupId>

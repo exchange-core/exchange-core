@@ -1,9 +1,13 @@
 package org.openpredict.exchange.core.orderbook;
 
+import lombok.Getter;
+import net.openhft.chronicle.bytes.BytesIn;
+import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.OrderType;
+import org.openpredict.exchange.beans.StateHash;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
@@ -11,7 +15,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
-public interface IOrderBook {
+public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
     /**
      * Process new MARKET order
@@ -77,6 +81,20 @@ public interface IOrderBook {
 
     // testing only - validateInternalState without changing state
     void validateInternalState();
+
+    /**
+     * @return actual implementation
+     */
+    OrderBookImplType getImplementationType();
+
+    /**
+     * State hash for order books is implementation-agnostic
+     * Look {@link org.openpredict.exchange.core.orderbook.IOrderBook#validateInternalState} for complete state validation for de-serialized objects
+     */
+    @Override
+    default int stateHash() {
+        return hashCode();
+    }
 
     // TODO to default?
     static int hash(IOrdersBucket[] askBuckets, IOrdersBucket[] bidBuckets) {
@@ -198,4 +216,53 @@ public interface IOrderBook {
         }
 
     }
+
+
+    static IOrderBook create(OrderBookImplType type) {
+        switch (type) {
+            case NAIVE:
+                return new OrderBookNaiveImpl();
+            case FAST:
+                return new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH);
+            default:
+                throw new IllegalArgumentException();
+        }
+    }
+
+    static IOrderBook create(BytesIn bytes) {
+        switch (OrderBookImplType.of(bytes.readByte())) {
+            case NAIVE:
+                return new OrderBookNaiveImpl(bytes);
+            case FAST:
+                return new OrderBookFastImpl(bytes);
+            default:
+                throw new IllegalArgumentException();
+        }
+    }
+
+
+    @Getter
+    enum OrderBookImplType {
+        NAIVE(0),
+        FAST(1);
+
+        private byte code;
+
+        OrderBookImplType(int code) {
+            this.code = (byte) code;
+        }
+
+        public static OrderBookImplType of(byte code) {
+            switch (code) {
+                case 0:
+                    return NAIVE;
+                case 1:
+                    return FAST;
+                default:
+                    throw new IllegalArgumentException("unknown OrderBookImplType:" + code);
+            }
+        }
+    }
+
+
 }

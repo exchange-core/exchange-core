@@ -1,12 +1,15 @@
 package org.openpredict.exchange.beans;
 
-
-import com.google.common.base.Objects;
 import lombok.Builder;
 import lombok.NoArgsConstructor;
+import net.openhft.chronicle.bytes.BytesIn;
+import net.openhft.chronicle.bytes.BytesOut;
+import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
+
+import java.util.Objects;
 
 /**
  * Extending OrderCommand allows to avoid creating new objects
@@ -16,7 +19,7 @@ import org.openpredict.exchange.beans.cmd.OrderCommandType;
  * No external references allowed to such object - order objects only live inside OrderBook.
  */
 @NoArgsConstructor
-public final class Order extends OrderCommand {
+public final class Order extends OrderCommand implements WriteBytesMarshallable {
 
     public long filled;
 
@@ -28,15 +31,50 @@ public final class Order extends OrderCommand {
         this.filled = filled;
     }
 
+    public Order(BytesIn bytes) {
+
+        super(OrderCommandType.PLACE_ORDER, // always same type
+                bytes.readLong(), // orderId
+                bytes.readInt(),  // symbol
+                bytes.readLong(),  // price
+                bytes.readLong(), // size
+                OrderAction.of(bytes.readByte()),
+                OrderType.of(bytes.readByte()),
+                bytes.readLong(), // uid
+                bytes.readLong(), // timestamp
+                bytes.readInt(),  // userCookie
+                0,
+                0,
+                null,
+                null,
+                null);
+
+        this.filled = bytes.readLong();
+    }
+
+    @Override
+    public void writeMarshallable(BytesOut bytes) {
+        bytes.writeLong(orderId);
+        bytes.writeInt(symbol);
+        bytes.writeLong(price);
+        bytes.writeLong(size);
+        bytes.writeByte(action.getCode());
+        bytes.writeByte(orderType.getCode());
+        bytes.writeLong(uid);
+        bytes.writeLong(timestamp);
+        bytes.writeInt(userCookie);
+        bytes.writeLong(filled);
+    }
+
     @Override
     public String toString() {
         return "[" + orderId + " " + (action == OrderAction.ASK ? 'A' : 'B') + (orderType == OrderType.MARKET ? 'M' : 'L')
-                + price + ":" + size + "F" + filled + "]";
+                + price + ":" + size + "F" + filled + " S" + symbol + " C" + userCookie + " U" + uid + "]";
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(orderId, action, orderType, price, size, filled, symbol, userCookie, uid);
+        return Objects.hash(orderId, action, orderType, price, size, filled, symbol, userCookie, uid);
     }
 
 

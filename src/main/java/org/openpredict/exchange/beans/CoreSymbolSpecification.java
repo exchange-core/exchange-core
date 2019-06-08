@@ -2,14 +2,18 @@ package org.openpredict.exchange.beans;
 
 
 import lombok.*;
+import net.openhft.chronicle.bytes.BytesIn;
+import net.openhft.chronicle.bytes.BytesOut;
+import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 
 import java.io.Serializable;
+import java.util.Objects;
 
 @Builder
 @AllArgsConstructor
 @Getter
 @ToString
-public final class CoreSymbolSpecification implements Serializable {
+public final class CoreSymbolSpecification implements Serializable, WriteBytesMarshallable, StateHash {
 
     public final int symbolId;
 
@@ -31,6 +35,18 @@ public final class CoreSymbolSpecification implements Serializable {
     public final long makerFee;
     // TODO public final int feeCurrency; //  if type=CURRENCY_EXCHANGE_PAIR - should be the same as quoteCurrency
 
+    public CoreSymbolSpecification(BytesIn bytes) {
+        this.symbolId = bytes.readInt();
+        this.type = SymbolType.of(bytes.readByte());
+        this.baseCurrency = bytes.readInt();
+        this.quoteCurrency = bytes.readInt();
+        this.baseScaleK = bytes.readLong();
+        this.quoteScaleK = bytes.readLong();
+        this.depositBuy = bytes.readLong();
+        this.depositSell = bytes.readLong();
+        this.takerFee = bytes.readLong();
+        this.makerFee = bytes.readLong();
+    }
 
 /* NOT SUPPORTED YET:
 
@@ -50,5 +66,32 @@ public final class CoreSymbolSpecification implements Serializable {
 
   */
 
+    @Override
+    public void writeMarshallable(BytesOut bytes) {
+        bytes.writeInt(symbolId);
+        bytes.writeByte(type.getCode());
+        bytes.writeInt(baseCurrency);
+        bytes.writeInt(quoteCurrency);
+        bytes.writeLong(baseScaleK);
+        bytes.writeLong(quoteScaleK);
+        bytes.writeLong(depositBuy);
+        bytes.writeLong(depositSell);
+        bytes.writeLong(takerFee);
+        bytes.writeLong(makerFee);
+    }
 
+    @Override
+    public int stateHash() {
+        return Objects.hash(
+                symbolId,
+                type.getCode(),
+                baseCurrency,
+                quoteCurrency,
+                baseScaleK,
+                quoteScaleK,
+                depositBuy,
+                depositSell,
+                takerFee,
+                makerFee);
+    }
 }
