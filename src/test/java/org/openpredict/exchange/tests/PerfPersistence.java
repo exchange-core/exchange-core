@@ -94,8 +94,7 @@ public final class PerfPersistence {
             final float originalPerfMt;
 
 
-            final ExchangeTestContainer container = new ExchangeTestContainer(bufferSize, matchingEngines, riskEngines, msgsInGroupLimit, null);
-            try {
+            try (final ExchangeTestContainer container = new ExchangeTestContainer(bufferSize, matchingEngines, riskEngines, msgsInGroupLimit, null)) {
 
                 try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
 
@@ -153,8 +152,6 @@ public final class PerfPersistence {
                     log.info("{}. original speed: {} MT/s", iteration, String.format("%.3f", originalPerfMt));
                 }
 
-            } finally {
-                container.close();
             }
 
             System.gc();
@@ -162,10 +159,9 @@ public final class PerfPersistence {
 
             log.debug("Creating new exchange from persisted state...");
             final long tLoad = System.currentTimeMillis();
-            final ExchangeTestContainer recreatedContainer = new ExchangeTestContainer(bufferSize, matchingEngines, riskEngines, msgsInGroupLimit, stateId);
-            float loadTimeSec = (float) (System.currentTimeMillis() - tLoad) / 1000.0f;
-            log.debug("Load time: {}s", String.format("%.3f", loadTimeSec));
-            try {
+            try (final ExchangeTestContainer recreatedContainer = new ExchangeTestContainer(bufferSize, matchingEngines, riskEngines, msgsInGroupLimit, stateId)) {
+                float loadTimeSec = (float) (System.currentTimeMillis() - tLoad) / 1000.0f;
+                log.debug("Load time: {}s", String.format("%.3f", loadTimeSec));
 
                 try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
 
@@ -188,8 +184,6 @@ public final class PerfPersistence {
                     final float perfRatioPerc = perfMt / originalPerfMt * 100f;
                     log.info("{}. restored speed: {} MT/s ({}%)", iteration, String.format("%.3f", perfMt), String.format("%.1f", perfRatioPerc));
                 }
-            } finally {
-                recreatedContainer.close();
             }
 
             System.gc();

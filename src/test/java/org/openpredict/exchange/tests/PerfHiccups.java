@@ -5,6 +5,7 @@ import net.openhft.affinity.AffinityLock;
 import org.eclipse.collections.impl.map.mutable.primitive.LongLongHashMap;
 import org.junit.Test;
 import org.openpredict.exchange.beans.api.ApiCommand;
+import org.openpredict.exchange.tests.util.ExchangeTestContainer;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 
 import java.time.Instant;
@@ -14,15 +15,17 @@ import java.util.concurrent.CountDownLatch;
 import java.util.function.IntFunction;
 import java.util.stream.IntStream;
 
+import static org.openpredict.exchange.tests.util.ExchangeTestContainer.CURRENCIES_FUTURES;
+import static org.openpredict.exchange.tests.util.ExchangeTestContainer.SYMBOL_MARGIN;
+
 @Slf4j
-public final class PerfHiccups extends IntegrationTestBase {
+public final class PerfHiccups {
 
     private long nextHiccupAcceptTimestampNs = 0;
 
     @Test
     public void hiccupsTest() {
 
-        initExchange();
 
         final int numOrders = 3_000_000;
         final int targetOrderBookOrders = 1000;
@@ -33,7 +36,8 @@ public final class PerfHiccups extends IntegrationTestBase {
 
         final int targetTps = 500_000; // transactions per second
 
-        try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
+        try (final ExchangeTestContainer container = new ExchangeTestContainer(16 * 1024, 1, 1, 512, null);
+             final AffinityLock cpuLock = AffinityLock.acquireCore()) {
 
             TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, SYMBOL_MARGIN, false);
             List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
@@ -44,13 +48,13 @@ public final class PerfHiccups extends IntegrationTestBase {
                     System.gc();
                     Thread.sleep(300);
 
-                    initBasicSymbols();
-                    usersInit(numUsers, CURRENCIES_FUTURES);
+                    container.initBasicSymbols();
+                    container.usersInit(numUsers, CURRENCIES_FUTURES);
 
                     LongLongHashMap hiccupTimestampsNs = new LongLongHashMap(10000);
 
                     final CountDownLatch latch = new CountDownLatch(apiCommands.size());
-                    consumer = cmd -> {
+                    container.setConsumer(cmd -> {
                         long now = System.nanoTime();
                         // skip other messages in delayed group
                         if (now < nextHiccupAcceptTimestampNs) {
@@ -63,7 +67,7 @@ public final class PerfHiccups extends IntegrationTestBase {
                             nextHiccupAcceptTimestampNs = cmd.timestamp + diffNs;
                         }
                         latch.countDown();
-                    };
+                    });
 
                     nextHiccupAcceptTimestampNs = Long.MIN_VALUE;
 
@@ -80,7 +84,7 @@ public final class PerfHiccups extends IntegrationTestBase {
                         }
                         // setting current timestamp (not planned) for catching original hiccups only (this is different from latency test)
                         cmd.timestamp = currentTimeNs;
-                        api.submitCommand(cmd);
+                        container.api.submitCommand(cmd);
                         plannedTimestamp += nanosPerCmd;
                     }
 
@@ -92,7 +96,7 @@ public final class PerfHiccups extends IntegrationTestBase {
                             Instant.ofEpochMilli(startTimeMs + (eventTimestampNs - startTimeNs) / 1_000_000),
                             (k, d) -> d == null ? delay : Math.max(d, delay)));
 
-                    resetExchangeCore();
+                    container.resetExchangeCore();
 
                     return sorted;
 

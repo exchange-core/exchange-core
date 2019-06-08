@@ -7,6 +7,10 @@ import org.HdrHistogram.SingleWriterRecorder;
 import org.junit.Test;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.api.ApiCommand;
+import org.openpredict.exchange.core.ExchangeApi;
+import org.openpredict.exchange.tests.util.ExchangeTestContainer;
+import org.openpredict.exchange.tests.util.ExchangeTestContainer.AllowedSymbolTypes;
+import org.openpredict.exchange.tests.util.LatencyTools;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 
 import java.io.File;
@@ -18,13 +22,12 @@ import java.util.concurrent.CountDownLatch;
 import java.util.function.BiFunction;
 import java.util.stream.IntStream;
 
-import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThat;
-import static org.openpredict.exchange.tests.util.LatencyTools.createLatencyReportFast;
+import static org.openpredict.exchange.tests.util.ExchangeTestContainer.ALL_CURRENCIES;
+import static org.openpredict.exchange.tests.util.ExchangeTestContainer.CURRENCIES_FUTURES;
 
 @Slf4j
-public final class PerfLatency extends IntegrationTestBase {
+public final class PerfLatency {
 
     private static final boolean WRITE_HDR_HISTOGRAMS = false;
 
@@ -38,15 +41,18 @@ public final class PerfLatency extends IntegrationTestBase {
 
     @Test
     public void latencyTest() {
-        initExchange(2 * 1024, 1, 1, 512);
-        latencyTestImpl(
-                3_000_000,
-                1_000,
-                1_000,
-                CURRENCIES_FUTURES,
-                1,
-                AllowedSymbolTypes.FUTURES_CONTRACT,
-                20);
+
+        try (final ExchangeTestContainer container = new ExchangeTestContainer(2 * 1024, 1, 1, 512, null)) {
+            latencyTestImpl(
+                    container,
+                    3_000_000,
+                    1_000,
+                    1_000,
+                    CURRENCIES_FUTURES,
+                    1,
+                    AllowedSymbolTypes.FUTURES_CONTRACT,
+                    20);
+        }
     }
 
     /**
@@ -58,19 +64,22 @@ public final class PerfLatency extends IntegrationTestBase {
      */
     @Test
     public void latencyMultiSymbol() {
-        initExchange(64 * 1024, 4, 4, 2048);
-        latencyTestImpl(
-                5_000_000,
-                1_000_000,
-                1_000_000,
-                ALL_CURRENCIES,
-                1_000,
-                AllowedSymbolTypes.BOTH,
-                10);
+        try (final ExchangeTestContainer container = new ExchangeTestContainer(64 * 1024, 4, 4, 2048, null)) {
+            latencyTestImpl(
+                    container,
+                    5_000_000,
+                    1_000_000,
+                    1_000_000,
+                    ALL_CURRENCIES,
+                    1_000,
+                    AllowedSymbolTypes.BOTH,
+                    10);
+        }
     }
 
 
-    private void latencyTestImpl(final int totalTransactionsNumber,
+    private void latencyTestImpl(final ExchangeTestContainer container,
+                                 final int totalTransactionsNumber,
                                  final int targetOrderBookOrdersTotal,
                                  final int numUsers,
                                  final Set<Integer> currenciesAllowed,
@@ -83,11 +92,13 @@ public final class PerfLatency extends IntegrationTestBase {
 
         final int warmupTps = 1_000_000;
 
-        try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
+        try (final AffinityLock cpuLock = AffinityLock.acquireCore()) {
 
-            final List<CoreSymbolSpecification> coreSymbolSpecifications = generateAndAddSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
+            final ExchangeApi api = container.api;
 
-            TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(coreSymbolSpecifications,
+            final List<CoreSymbolSpecification> coreSymbolSpecifications = container.generateAndAddSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
+
+            final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(coreSymbolSpecifications,
                     totalTransactionsNumber,
                     numUsers,
                     targetOrderBookOrdersTotal);
@@ -97,26 +108,26 @@ public final class PerfLatency extends IntegrationTestBase {
 
             // TODO - first run should validate the output (orders are accepted and processed properly)
 
-            BiFunction<Integer, Boolean, Boolean> testIteration = (tps, warmup) -> {
+            final BiFunction<Integer, Boolean, Boolean> testIteration = (tps, warmup) -> {
                 try {
 
-                    initBasicSymbols();
-                    coreSymbolSpecifications.forEach(super::addSymbol);
-                    usersInit(numUsers, currenciesAllowed);
+                    container.initBasicSymbols();
+                    coreSymbolSpecifications.forEach(container::addSymbol);
+                    container.usersInit(numUsers, currenciesAllowed);
 
                     hdrRecorder.reset();
                     final CountDownLatch latchFill = new CountDownLatch(genResult.getApiCommandsFill().size());
-                    consumer = cmd -> latchFill.countDown();
+                    container.setConsumer(cmd -> latchFill.countDown());
                     genResult.getApiCommandsFill().forEach(api::submitCommand);
                     latchFill.await();
 
                     final CountDownLatch latchBenchmark = new CountDownLatch(genResult.getApiCommandsBenchmark().size());
 
-                    consumer = cmd -> {
+                    container.setConsumer(cmd -> {
                         final long latency = System.nanoTime() - cmd.timestamp;
                         hdrRecorder.recordValue(Math.min(latency, Integer.MAX_VALUE));
                         latchBenchmark.countDown();
-                    };
+                    });
 
                     final int nanosPerCmd = 1_000_000_000 / tps;
                     final long startTimeMs = System.currentTimeMillis();
@@ -137,12 +148,12 @@ public final class PerfLatency extends IntegrationTestBase {
                     final float perfMt = (float) genResult.getApiCommandsBenchmark().size() / (float) processingTimeMs / 1000.0f;
                     String tag = String.format("%.3f MT/s", perfMt);
                     final Histogram histogram = hdrRecorder.getIntervalHistogram();
-                    log.info("{} {}", tag, createLatencyReportFast(histogram));
+                    log.info("{} {}", tag, LatencyTools.createLatencyReportFast(histogram));
 
                     // compare orderBook final state just to make sure all commands executed same way
                     // TODO compare events, balances, portfolios
                     coreSymbolSpecifications.forEach(
-                            symbol -> assertEquals(genResult.getGenResults().get(symbol.symbolId).getFinalOrderBookSnapshot(), requestCurrentOrderBook(symbol.symbolId)));
+                            symbol -> assertEquals(genResult.getGenResults().get(symbol.symbolId).getFinalOrderBookSnapshot(), container.requestCurrentOrderBook(symbol.symbolId)));
 
                     if (WRITE_HDR_HISTOGRAMS) {
                         final PrintStream printStream = new PrintStream(new File(System.currentTimeMillis() + "-" + perfMt + ".perc"));
@@ -150,7 +161,7 @@ public final class PerfLatency extends IntegrationTestBase {
                         histogram.outputPercentileDistribution(printStream, 1000.0);
                     }
 
-                    resetExchangeCore();
+                    container.resetExchangeCore();
 
                     System.gc();
                     Thread.sleep(300);
@@ -168,7 +179,7 @@ public final class PerfLatency extends IntegrationTestBase {
                     .forEach(i -> testIteration.apply(warmupTps, true));
             log.debug("Warmup done, starting tests");
 
-            boolean ignore = IntStream.range(0, 10000)
+            final boolean ignore = IntStream.range(0, 10000)
                     .map(i -> targetTps + targetTpsStep * i)
                     .mapToObj(tps -> testIteration.apply(tps, false))
                     .allMatch(x -> x);

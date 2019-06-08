@@ -30,7 +30,7 @@ import static org.hamcrest.Matchers.greaterThan;
 import static org.junit.Assert.assertThat;
 
 @Slf4j
-public class TestOrdersGenerator {
+public final class TestOrdersGenerator {
 
 
     // TODO randomize scales

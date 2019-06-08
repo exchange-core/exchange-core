@@ -6,12 +6,12 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-public class LatencyTools {
+public final class LatencyTools {
 
     private static final double[] PERCENTILES = new double[]{50, 90, 95, 99, 99.9, 99.99};
 
     public static Map<String, String> createLatencyReportFast(Histogram histogram) {
-        Map<String, String> fmt = new LinkedHashMap<>();
+        final Map<String, String> fmt = new LinkedHashMap<>();
         Arrays.stream(PERCENTILES).forEach(p -> fmt.put(p + "%", formatLatencyValueAsTime((int) histogram.getValueAtPercentile(p))));
         fmt.put("W", formatLatencyValueAsTime((int) histogram.getMaxValue()));
         return fmt;

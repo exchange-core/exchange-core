@@ -10,7 +10,7 @@ import java.util.BitSet;
 import java.util.List;
 import java.util.Random;
 
-public class TestOrdersGeneratorSession {
+public final class TestOrdersGeneratorSession {
 
     public final IOrderBook orderBook;
 
