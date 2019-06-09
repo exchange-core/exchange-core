@@ -76,7 +76,8 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
     }
 
     @Override
-    public void add(Order order) {
+
+    public void put(Order order) {
 
         //validate();
 
@@ -170,7 +171,6 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
      * Completely matching orders will be removed, partially matched order kept in the bucked.
      */
     @Override
-
     public long match(long volumeToCollect, OrderCommand activeOrder, OrderCommand triggerCmd, Consumer<Order> removeOrderCallback) {
 
         //validate();
@@ -250,42 +250,6 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
         //validate();
 
         return totalMatchingVolume;
-    }
-
-    /**
-     * Reduce order volume if possible
-     * <p>
-     * orderId
-     * newSize
-     *
-     * @return
-     */
-    @Override
-    public boolean tryReduceSize(OrderCommand cmd) {
-
-        //validate();
-
-        int pos = positions.get(cmd.orderId);
-        if (pos == 0) {
-            return false;
-        }
-
-        Order order = queue[pos - 1];
-
-        if (order.uid != cmd.uid) {
-            return false;
-        }
-
-        long reduceBy = order.size - order.filled - cmd.size;
-        if (reduceBy > 0) {
-            order.size -= reduceBy;
-            totalVolume -= reduceBy;
-            OrderBookEventsHelper.sendReduceEvent(cmd, order, reduceBy);
-        }
-
-        //validate();
-
-        return true;
     }
 
     @Override

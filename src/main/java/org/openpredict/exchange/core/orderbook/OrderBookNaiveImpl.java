@@ -4,10 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
-import org.openpredict.exchange.beans.L2MarketData;
-import org.openpredict.exchange.beans.Order;
-import org.openpredict.exchange.beans.OrderAction;
-import org.openpredict.exchange.beans.OrderType;
+import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
@@ -15,11 +12,15 @@ import org.openpredict.exchange.core.Utils;
 
 import java.util.*;
 
+import static org.openpredict.exchange.beans.OrderAction.BID;
+
 @Slf4j
 public final class OrderBookNaiveImpl implements IOrderBook {
 
     private final NavigableMap<Long, IOrdersBucket> askBuckets;
     private final NavigableMap<Long, IOrdersBucket> bidBuckets;
+
+    private final SymbolType symbolType = SymbolType.FUTURES_CONTRACT;
 
     private final LongObjectHashMap<Order> idMap = new LongObjectHashMap<>();
 
@@ -79,6 +80,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
                 cmd.symbol,
                 price,
                 size,
+                cmd.price2,
                 action,
                 orderType,
                 cmd.uid,
@@ -92,7 +94,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
                     b.setPrice(p);
                     return b;
                 });
-        bucket.add(orderRecord);
+        bucket.put(orderRecord);
 
         idMap.put(newOrderId, orderRecord);
 
@@ -209,80 +211,60 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         return true;
     }
 
-
-    /**
-     * Reduce volume or/and move an order
-     * <p>
-     * orderId  - order id
-     * newPrice - new price (0 - don't move the order)
-     * newSize  - new size (0 - don't reduce size of the order)
-     *
-     * @return - false if order not found (can be matched or removed), true otherwise
-     */
     @Override
-    public boolean updateOrder(OrderCommand cmd) {
+    public CommandResultCode moveOrder(OrderCommand cmd) {
 
-        long orderId = cmd.orderId;
-        long newSize = cmd.size;
-        long newPrice = cmd.price;
+        final long orderId = cmd.orderId;
+        final long newPrice = cmd.price;
 
-        Order order = idMap.get(orderId);
+        final Order order = idMap.get(orderId);
         if (order == null) {
             // already matched, moved or cancelled
-            return false;
+            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
 
         if (order.uid != cmd.uid) {
-            return false;
+            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
 
-        long price = order.price;
-        NavigableMap<Long, IOrdersBucket> buckets = getBucketsByAction(order.action);
-        IOrdersBucket ordersBucket = buckets.get(price);
+        final long price = order.price;
+        final NavigableMap<Long, IOrdersBucket> buckets = getBucketsByAction(order.action);
+        final IOrdersBucket bucket = buckets.get(price);
 
-        // if change volume operation - use bucket implementation
-        // not very efficient if moving and reducing volume
-        if (newSize > 0) {
-            if (!ordersBucket.tryReduceSize(cmd)) {
-                return false;
-            }
-        }
-
-        // return if there is no move operation (downsize only)
-        if (newPrice <= 0 || newPrice == price) {
-            return true;
+        // optimistic risk check mode for exchange bids
+        if (symbolType == SymbolType.CURRENCY_EXCHANGE_PAIR && order.action == BID && cmd.price > order.price2) {
+            // put order back (yes it will be in the end of queue)
+            bucket.put(order);
+            return CommandResultCode.MATCHING_MOVE_FAILED_PRICE_ABOVE_RISK_LIMIT;
         }
 
         // take order out of the original bucket and clean bucket if its empty
-        if (ordersBucket.remove(orderId, cmd.uid) == null) {
-            return false;
-        }
-
-        if (ordersBucket.getTotalVolume() == 0) {
+        bucket.remove(orderId, cmd.uid);
+        if (bucket.getTotalVolume() == 0) {
             buckets.remove(price);
         }
 
         order.price = newPrice;
 
         // try match with new price
-        SortedMap<Long, IOrdersBucket> matchingArea = subtreeForMatching(order.action, newPrice);
+        final SortedMap<Long, IOrdersBucket> matchingArea = subtreeForMatching(order.action, newPrice);
         long filled = tryMatchInstantly(order, matchingArea, order.filled, cmd);
         if (filled == order.size) {
             // order was fully matched (100% marketable) - removing from order book
             idMap.remove(orderId);
-            return true;
+            return CommandResultCode.SUCCESS;
         }
         order.filled = filled;
 
         // if not filled completely - put it into corresponding bucket
-        ordersBucket = buckets.computeIfAbsent(newPrice, p -> {
+        final IOrdersBucket anotherBucket = buckets.computeIfAbsent(newPrice, p -> {
             IOrdersBucket b = new OrdersBucketNaiveImpl();
             b.setPrice(p);
             return b;
         });
-        ordersBucket.add(order);
+        anotherBucket.put(order);
 
-        return true;
+        return CommandResultCode.SUCCESS;
     }
 
     /**

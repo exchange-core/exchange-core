@@ -40,19 +40,19 @@ public abstract class OrdersBucketBaseTest {
 
         bucket = createNewBucket();
 
-        bucket.add(Order.orderBuilder().orderId(1).uid(UID_1).size(100).build());
+        bucket.put(Order.orderBuilder().orderId(1).uid(UID_1).size(100).build());
         assertThat(bucket.getNumOrders(), is(1));
         assertThat(bucket.getTotalVolume(), is(100L));
 
         bucket.validate();
 
-        bucket.add(Order.orderBuilder().orderId(2).uid(UID_2).size(40).build());
+        bucket.put(Order.orderBuilder().orderId(2).uid(UID_2).size(40).build());
         assertThat(bucket.getNumOrders(), is(2));
         assertThat(bucket.getTotalVolume(), is(140L));
 
         bucket.validate();
 
-        bucket.add(Order.orderBuilder().orderId(3).uid(UID_1).size(1).build());
+        bucket.put(Order.orderBuilder().orderId(3).uid(UID_1).size(1).build());
         assertThat(bucket.getNumOrders(), is(3));
         assertThat(bucket.getTotalVolume(), is(141L));
 
@@ -64,14 +64,14 @@ public abstract class OrdersBucketBaseTest {
 
         bucket.validate();
 
-        bucket.add(Order.orderBuilder().orderId(4).uid(UID_1).size(200).build());
+        bucket.put(Order.orderBuilder().orderId(4).uid(UID_1).size(200).build());
         assertThat(bucket.getNumOrders(), is(3));
         assertThat(bucket.getTotalVolume(), is(301L));
     }
 
     @Test
     public void shouldAddOrder() {
-        bucket.add(Order.orderBuilder().orderId(5).uid(UID_2).size(240).build());
+        bucket.put(Order.orderBuilder().orderId(5).uid(UID_2).size(240).build());
 
         assertThat(bucket.getNumOrders(), is(4));
         assertThat(bucket.getTotalVolume(), is(541L));
@@ -110,7 +110,7 @@ public abstract class OrdersBucketBaseTest {
         long expectedVolume = bucket.getTotalVolume();
         int expectedNumOrders = bucket.getNumOrders() + numOrdersToAdd;
         for (int i = 0; i < numOrdersToAdd; i++) {
-            bucket.add(Order.orderBuilder().orderId(i + 5).uid(UID_2).size(i).build());
+            bucket.put(Order.orderBuilder().orderId(i + 5).uid(UID_2).size(i).build());
             expectedVolume += i;
         }
 
@@ -128,7 +128,7 @@ public abstract class OrdersBucketBaseTest {
         for (int i = 0; i < numOrdersToAdd; i++) {
             Order order = Order.orderBuilder().orderId(i + 5).uid(UID_2).size(i).build();
             orders.add(order);
-            bucket.add(order);
+            bucket.put(order);
             expectedVolume += i;
         }
 
@@ -160,7 +160,7 @@ public abstract class OrdersBucketBaseTest {
         for (int i = 0; i < numOrdersToAdd; i++) {
             Order order = Order.orderBuilder().orderId(orderId++).uid(UID_2).size(i).build();
             orders.add(order);
-            bucket.add(order);
+            bucket.put(order);
             expectedVolume += i;
         }
 
@@ -179,7 +179,7 @@ public abstract class OrdersBucketBaseTest {
             assertThat(bucket.getTotalVolume(), is(expectedVolume));
         }
 
-        OrderCommand triggerOrd = OrderCommand.update(8182, UID_9, 1000, expectedVolume);
+        OrderCommand triggerOrd = OrderCommand.update(8182, UID_9, 1000);
         bucket.match(expectedVolume, triggerOrd, triggerOrd, IGNORE_CMD_CONSUMER);
         assertThat(triggerOrd.extractEvents().size(), is(expectedNumOrders));
 
@@ -205,7 +205,7 @@ public abstract class OrdersBucketBaseTest {
                 Order order = Order.orderBuilder().orderId(orderId++).uid(UID_2).size(i).build();
                 orders.add(order);
 
-                bucket.add(order);
+                bucket.put(order);
                 expectedNumOrders++;
                 expectedVolume += i;
 
@@ -233,7 +233,7 @@ public abstract class OrdersBucketBaseTest {
 
             long toMatch = expectedVolume / 2;
 
-            OrderCommand triggerOrd = OrderCommand.update(119283900, UID_9, 1000, toMatch);
+            OrderCommand triggerOrd = OrderCommand.update(119283900, UID_9, 1000);
             long totalVolume = bucket.match(toMatch, triggerOrd, triggerOrd, IGNORE_CMD_CONSUMER);
             assertThat(totalVolume, is(toMatch));
             expectedVolume -= totalVolume;
@@ -243,7 +243,7 @@ public abstract class OrdersBucketBaseTest {
             bucket.validate();
         }
 
-        OrderCommand triggerOrd = OrderCommand.update(1238729387, UID_9, 1000, expectedVolume);
+        OrderCommand triggerOrd = OrderCommand.update(1238729387, UID_9, 1000);
         bucket.match(expectedVolume, triggerOrd, triggerOrd, IGNORE_CMD_CONSUMER);
         assertThat(triggerOrd.extractEvents().size(), is(expectedNumOrders));
 

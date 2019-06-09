@@ -22,7 +22,6 @@ public final class MatcherTradeEvent {
     public long activeOrderUid;
     public boolean activeOrderCompleted; // false, except when activeOrder is completely filled
     public OrderAction activeOrderAction; // assume matched order has opposite action
-    public long takerHoldPrice; // price from taker order (or move command)
 //    public long activeOrderSeq;
 
     // maker (for TRADE)
@@ -33,6 +32,8 @@ public final class MatcherTradeEvent {
     public long price; // actual price of the deal (from maker order), 0 for rejection
     public long size;  // ? unmatched size for rejection
     public long timestamp; // same as activeOrder related event timestamp
+
+    public long holdPrice2; // frozen price from BID order owner
 
     // reference to next event in chain
     public MatcherTradeEvent nextEvent;
@@ -46,7 +47,7 @@ public final class MatcherTradeEvent {
         evt.activeOrderUid = this.activeOrderUid;
         evt.activeOrderCompleted = this.activeOrderCompleted;
         evt.activeOrderAction = this.activeOrderAction;
-        evt.takerHoldPrice = this.takerHoldPrice;
+        evt.holdPrice2 = this.holdPrice2;
         evt.matchedOrderId = this.matchedOrderId;
         evt.matchedOrderUid = this.matchedOrderUid;
         evt.matchedOrderCompleted = this.matchedOrderCompleted;
@@ -71,7 +72,7 @@ public final class MatcherTradeEvent {
                 .append(activeOrderUid, other.activeOrderUid)
                 .append(activeOrderCompleted, other.activeOrderCompleted)
                 .append(activeOrderAction, other.activeOrderAction)
-                .append(takerHoldPrice, other.takerHoldPrice)
+                .append(holdPrice2, other.holdPrice2)
                 .append(matchedOrderId, other.matchedOrderId)
                 .append(matchedOrderUid, other.matchedOrderUid)
                 .append(matchedOrderCompleted, other.matchedOrderCompleted)
@@ -93,7 +94,7 @@ public final class MatcherTradeEvent {
                 activeOrderUid,
                 activeOrderCompleted,
                 activeOrderAction,
-                takerHoldPrice,
+                holdPrice2,
                 matchedOrderId,
                 matchedOrderUid,
                 matchedOrderCompleted,

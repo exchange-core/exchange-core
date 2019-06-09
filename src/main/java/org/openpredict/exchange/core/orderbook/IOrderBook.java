@@ -9,6 +9,7 @@ import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.StateHash;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.beans.cmd.OrderCommandType;
 
 import java.util.Arrays;
 import java.util.List;
@@ -47,7 +48,7 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
      *
      * @return false if order was not found, otherwise always true
      */
-    boolean updateOrder(OrderCommand cmd);
+    CommandResultCode moveOrder(OrderCommand cmd);
 
 
     int getOrdersNum();
@@ -163,28 +164,32 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
     static CommandResultCode processCommand(final IOrderBook orderBook, final OrderCommand cmd) {
 
-        switch (cmd.command) {
-            case MOVE_ORDER:
-                boolean isUpdated = orderBook.updateOrder(cmd);
-                return isUpdated ? CommandResultCode.SUCCESS : CommandResultCode.MATCHING_INVALID_ORDER_ID;
+        final OrderCommandType commandType = cmd.command;
 
-            case CANCEL_ORDER:
-                boolean isCancelled = orderBook.cancelOrder(cmd);
-                return isCancelled ? CommandResultCode.SUCCESS : CommandResultCode.MATCHING_INVALID_ORDER_ID;
+        if (commandType == OrderCommandType.MOVE_ORDER) {
 
-            case PLACE_ORDER:
-                return (cmd.resultCode == CommandResultCode.VALID_FOR_MATCHING_ENGINE)
-                        ? orderBook.newOrder(cmd)
-                        : cmd.resultCode; // no change
+            return orderBook.moveOrder(cmd);
 
-            case ORDER_BOOK_REQUEST:
-                //log.debug("ORDER_BOOK_REQUEST {}", cmd.size);
-                cmd.marketData = orderBook.getL2MarketDataSnapshot((int) cmd.size);
-                return CommandResultCode.SUCCESS;
+        } else if (commandType == OrderCommandType.CANCEL_ORDER) {
 
-            default:
-                //log.warn("unsupported command {}", cmd.command);
-                return CommandResultCode.MATCHING_UNSUPPORTED_COMMAND;
+            boolean isCancelled = orderBook.cancelOrder(cmd);
+            return isCancelled ? CommandResultCode.SUCCESS : CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
+
+        } else if (commandType == OrderCommandType.PLACE_ORDER) {
+
+            return (cmd.resultCode == CommandResultCode.VALID_FOR_MATCHING_ENGINE)
+                    ? orderBook.newOrder(cmd)
+                    : cmd.resultCode; // no change
+
+        } else if (commandType == OrderCommandType.ORDER_BOOK_REQUEST) {
+
+            //log.debug("ORDER_BOOK_REQUEST {}", cmd.size);
+            cmd.marketData = orderBook.getL2MarketDataSnapshot((int) cmd.size);
+            return CommandResultCode.SUCCESS;
+
+        } else {
+            //log.warn("unsupported command {}", cmd.command);
+            return CommandResultCode.MATCHING_UNSUPPORTED_COMMAND;
         }
 
     }

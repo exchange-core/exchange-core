@@ -367,7 +367,7 @@ public final class TestOrdersGenerator {
             int newPrice = prevPrice + priceMoveRounded;
             session.counterMove++;
 
-            return OrderCommand.update(orderId, (int) (long) uid, newPrice, 0);
+            return OrderCommand.update(orderId, (int) (long) uid, newPrice);
         }
     }
 
@@ -383,8 +383,9 @@ public final class TestOrdersGenerator {
                 .map(cmd -> {
                     switch (cmd.command) {
                         case PLACE_ORDER:
-                            return ApiPlaceOrder.builder().symbol(cmd.symbol).uid(cmd.uid).id(cmd.orderId)
-                                    .price(cmd.price).size(cmd.size).action(cmd.action).orderType(cmd.orderType).build();
+                            return ApiPlaceOrder.builder().symbol(cmd.symbol).uid(cmd.uid).id(cmd.orderId).price(cmd.price).size(cmd.size).action(cmd.action).orderType(cmd.orderType)
+                                    //.reservePrice(cmd.price2)
+                                    .build();
                         case MOVE_ORDER:
                             return ApiMoveOrder.builder().symbol(cmd.symbol).uid(cmd.uid).id(cmd.orderId).newPrice(cmd.price).build();
                         case CANCEL_ORDER:

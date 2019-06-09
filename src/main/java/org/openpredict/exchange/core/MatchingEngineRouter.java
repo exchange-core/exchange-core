@@ -78,10 +78,15 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
 
         if (command == MOVE_ORDER || command == CANCEL_ORDER || command == ORDER_BOOK_REQUEST || command == PLACE_ORDER) {
             // process specific symbol group only
+            //if (symbolForThisHandler(cmd.symbol) && cmd.resultCode == CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
             if (symbolForThisHandler(cmd.symbol)) {
                 processMatchingCommand(cmd);
             }
-
+//        } else if (command == CANCEL_ORDER || command == ORDER_BOOK_REQUEST) {
+//            // process specific symbol group only
+//            if (symbolForThisHandler(cmd.symbol)) {
+//                processMatchingCommand(cmd);
+//            }
         } else if (command == BINARY_DATA) {
             // process all symbols groups, only processor 0 writes result
             final CommandResultCode resultCode = binaryCommandsProcessor.binaryData(cmd);
@@ -143,6 +148,8 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
             cmd.resultCode = IOrderBook.processCommand(orderBook, cmd);
 
             // posting market data for risk processor makes sense only if command execution is successful, otherwise it will be ignored (possible garbage from previous cycle)
+            // TODO don't need for EXCHANGE mode order books?
+            // TODO doing this for many order books simultaneously can introduce hiccups
             if ((cmd.serviceFlags & 1) != 0 && cmd.command != ORDER_BOOK_REQUEST && cmd.resultCode == CommandResultCode.SUCCESS) {
                 cmd.marketData = orderBook.getL2MarketDataSnapshot(8);
             }

@@ -116,15 +116,14 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
      *
      * @param cmd - command
      */
-    public boolean preProcessCommand(OrderCommand cmd) {
+    public boolean preProcessCommand(final OrderCommand cmd) {
 
         final OrderCommandType command = cmd.command;
 
         if (command == MOVE_ORDER || command == CANCEL_ORDER || command == ORDER_BOOK_REQUEST) {
             return false;
-        }
 
-        if (command == PLACE_ORDER) {
+        } else if (command == PLACE_ORDER) {
             if (uidForThisHandler(cmd.uid)) {
                 cmd.resultCode = placeOrderRiskCheck(cmd);
             }
@@ -425,7 +424,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                         taker.accounts.addToValue(spec.baseCurrency, -amountInBaseCurrency - takerFee);
                     } else {
                         // taker is buying, use takerHoldPrice price to calculate released amount
-                        takerSpr.pendingBuyRelease(ev.takerHoldPrice * size);
+                        takerSpr.pendingBuyRelease(ev.holdPrice2 * size);
                         taker.accounts.addToValue(spec.quoteCurrency, -amountInCounterCurrency);
                         taker.accounts.addToValue(spec.baseCurrency, amountInBaseCurrency - takerFee);
                     }
@@ -462,7 +461,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 if (ev.activeOrderAction == OrderAction.ASK) {
                     spr.pendingSellRelease(size);
                 } else {
-                    spr.pendingBuyRelease(size * ev.takerHoldPrice);
+                    spr.pendingBuyRelease(size * ev.holdPrice2);
                 }
                 up.removeRecordIfEmpty(spr);
             }

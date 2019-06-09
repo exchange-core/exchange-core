@@ -17,12 +17,14 @@ public final class ApiPlaceOrder extends ApiCommand {
     final public long uid;
     final public int symbol;
 
-    // options
+    final public long reservePrice;
 
+    // options
 
     @Override
     public String toString() {
         return "[ADD " + id + " " + (action == OrderAction.ASK ? 'A' : 'B') + (orderType == OrderType.IOC ? "IOC" : "GTC")
                 + price + ":" + size + "]";
+        //(reservePrice != 0 ? ("(R" + reservePrice + ")") : "") +
     }
 }

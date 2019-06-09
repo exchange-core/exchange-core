@@ -9,13 +9,12 @@ public final class ApiMoveOrder extends ApiCommand {
     public long id;
 
     public long newPrice;
-    public long newSize;
 
     public long uid;
     public int symbol;
 
     @Override
     public String toString() {
-        return "[MOVE " + id + " " + newPrice + ":" + newSize + "]";
+        return "[MOVE " + id + " " + newPrice + "]";
     }
 }

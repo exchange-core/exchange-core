@@ -6,10 +6,7 @@ import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.apache.commons.lang3.ArrayUtils;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
-import org.openpredict.exchange.beans.L2MarketData;
-import org.openpredict.exchange.beans.Order;
-import org.openpredict.exchange.beans.OrderAction;
-import org.openpredict.exchange.beans.OrderType;
+import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
@@ -25,6 +22,8 @@ import static org.openpredict.exchange.beans.OrderAction.BID;
 public final class OrderBookFastImpl implements IOrderBook {
 
     public static final int DEFAULT_HOT_WIDTH = 32768;
+
+    private final SymbolType symbolType = SymbolType.FUTURES_CONTRACT;
 
     private final int hotPricesRange;
 
@@ -144,7 +143,6 @@ public final class OrderBookFastImpl implements IOrderBook {
 
         // normally placing regular GTC order
 
-        final OrderAction action = cmd.action;
         Order orderRecord = ordersPool.pollLast();
         if (orderRecord == null) {
             orderRecord = new Order();
@@ -155,14 +153,15 @@ public final class OrderBookFastImpl implements IOrderBook {
         orderRecord.symbol = cmd.symbol;
         orderRecord.price = price;
         orderRecord.size = size;
-        orderRecord.action = action;
+        orderRecord.price2 = cmd.price2;
+        orderRecord.action = cmd.action;
         orderRecord.orderType = cmd.orderType;
         orderRecord.uid = cmd.uid;
         orderRecord.timestamp = cmd.timestamp;
         orderRecord.filled = filledSize;
 
-        final IOrdersBucket bucket = action == ASK ? getOrCreateNewBucketAck(price) : getOrCreateNewBucketBid(price);
-        bucket.add(orderRecord);
+        final IOrdersBucket bucket = cmd.action == ASK ? getOrCreateNewBucketAck(price) : getOrCreateNewBucketBid(price);
+        bucket.put(orderRecord);
         idMapToBucket.put(orderId, bucket);
 
         return CommandResultCode.SUCCESS;
@@ -419,8 +418,7 @@ public final class OrderBookFastImpl implements IOrderBook {
         }
 
         // send reduce event
-        long reducedBy = removedOrder.size - removedOrder.filled;
-        OrderBookEventsHelper.sendReduceEvent(cmd, removedOrder, reducedBy);
+        OrderBookEventsHelper.sendReduceEvent(cmd, removedOrder, removedOrder.size - removedOrder.filled);
 
         // saving free object back to the pool
         ordersPool.addLast(removedOrder);
@@ -442,41 +440,32 @@ public final class OrderBookFastImpl implements IOrderBook {
      * 4. Insert order in the bucket (internal hash table and queue)
      * <p>
      * orderId  - order id
-     * newPrice - new price (0 - don't move the order)
-     * newSize  - new size (0 - don't reduce size of the order)
+     * newPrice - new price
      *
      * @return - false if order not found (can be matched or removed), true otherwise
      */
     @Override
-    public boolean updateOrder(OrderCommand cmd) {
+    public CommandResultCode moveOrder(OrderCommand cmd) {
 
-        long orderId = cmd.orderId;
-        long newSize = cmd.size;
-        long newPrice = cmd.price;
+        final long orderId = cmd.orderId;
 
-        IOrdersBucket bucket = idMapToBucket.get(orderId);
+        final IOrdersBucket bucket = idMapToBucket.get(orderId);
         if (bucket == null) {
-            return false;
-        }
-
-
-        // if change volume operation - use bucket implementation
-        // NOTE: not very efficient if moving and reducing volume
-        if (newSize > 0) {
-            if (!bucket.tryReduceSize(cmd)) {
-                return false;
-            }
-        }
-
-        // return if there is no move operation (downsize only)
-        if (newPrice <= 0 || newPrice == bucket.getPrice()) {
-            return true;
+            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
 
         // take order out of the original bucket
-        Order order = bucket.remove(orderId, cmd.uid);
+        final Order order = bucket.remove(orderId, cmd.uid);
         if (order == null) {
-            return false;
+            // uid is checked in the bucket.remove method
+            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
+        }
+
+        // optimistic risk check mode for exchange bids
+        if (symbolType == SymbolType.CURRENCY_EXCHANGE_PAIR && order.action == BID && cmd.price > order.price2) {
+            // put order back (yes it will be in the end of queue)
+            bucket.put(order);
+            return CommandResultCode.MATCHING_MOVE_FAILED_PRICE_ABOVE_RISK_LIMIT;
         }
 
         // remove bucket if moved order was the last one in the bucket
@@ -484,8 +473,9 @@ public final class OrderBookFastImpl implements IOrderBook {
             removeBucket(order.action, bucket.getPrice());
         }
 
+        final long newPrice = cmd.price;
         order.price = newPrice;
-        //if ((action == BID && newPrice >= minAskPrice) || (action == ASK && newPrice <= maxBidPrice)) {
+
         // try match with new price
         long filled = tryMatchInstantly(order, order.filled, cmd);
         if (filled == order.size) {
@@ -493,15 +483,16 @@ public final class OrderBookFastImpl implements IOrderBook {
             idMapToBucket.remove(orderId);
             // saving free object back to pool
             ordersPool.addLast(order);
-            return true;
-        }
-        order.filled = filled;
+        } else {
+            order.filled = filled;
 
-        // if not filled completely - put it into corresponding bucket
-        bucket = (order.action == ASK) ? getOrCreateNewBucketAck(newPrice) : getOrCreateNewBucketBid(newPrice);
-        bucket.add(order);
-        idMapToBucket.put(orderId, bucket);
-        return true;
+            // if not filled completely - put it into corresponding bucket
+            final IOrdersBucket otherBucket = (order.action == ASK) ? getOrCreateNewBucketAck(newPrice) : getOrCreateNewBucketBid(newPrice);
+            otherBucket.put(order);
+            // override cache record
+            idMapToBucket.put(orderId, otherBucket);
+        }
+        return CommandResultCode.SUCCESS;
     }
 
 

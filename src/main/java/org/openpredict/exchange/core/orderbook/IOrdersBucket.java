@@ -15,11 +15,11 @@ import java.util.stream.Collectors;
 public interface IOrdersBucket extends Comparable<IOrdersBucket>, WriteBytesMarshallable {
 
     /**
-     * Add order into bucket
+     * Put a new order into bucket
      *
      * @param order - order
      */
-    void add(Order order);
+    void put(Order order);
 
     /**
      * Remove order from the bucket
@@ -37,20 +37,10 @@ public interface IOrdersBucket extends Comparable<IOrdersBucket>, WriteBytesMars
      * @param volumeToCollect     - volume to collect
      * @param activeOrder         (ignore orders same uid)
      * @param triggerCmd
-     * @param removeOrderCallback
+     * @param removeOrderCallback // TODO better solution?
      * @return - total matched volume
      */
     long match(long volumeToCollect, OrderCommand activeOrder, OrderCommand triggerCmd, Consumer<Order> removeOrderCallback);
-
-    /**
-     * Try to reduce size of the order.
-     * <p>
-     * orderId - order Id
-     * newSize - new size
-     *
-     * @param cmd - update order command
-     */
-    boolean tryReduceSize(OrderCommand cmd);
 
     /**
      * Get number of orders in the bucket

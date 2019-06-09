@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.MatcherEventType;
 import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.Order;
+import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
 @Slf4j
@@ -24,7 +25,6 @@ public final class OrderBookEventsHelper {
         event.activeOrderUid = activeOrder.uid;
         event.activeOrderCompleted = fma;
         event.activeOrderAction = activeOrder.action;
-        event.takerHoldPrice = activeOrder.price;
 //        event.activeOrderSeq = activeOrder.seq;
 
         event.matchedOrderId = matchingOrder.orderId;
@@ -35,6 +35,9 @@ public final class OrderBookEventsHelper {
         event.size = v;
         event.timestamp = activeOrder.timestamp;
         event.symbol = activeOrder.symbol;
+
+        // set order reserved price for correct released EBids
+        event.holdPrice2 = activeOrder.action == OrderAction.BID ? activeOrder.price2 : matchingOrder.price2;
 
         event.nextEvent = cmd.matcherEvent;
         cmd.matcherEvent = event;
@@ -51,14 +54,15 @@ public final class OrderBookEventsHelper {
         event.activeOrderUid = order.uid;
         event.activeOrderCompleted = false;
         event.activeOrderAction = order.action;
-        event.takerHoldPrice = cmd.price;
 //        event.activeOrderSeq = order.seq;
         event.matchedOrderId = 0;
         event.matchedOrderCompleted = false;
         event.price = 0;
         event.size = reducedBy;
-        event.timestamp = order.timestamp; // TODO should be current timestamp
+        event.timestamp = cmd.timestamp;
         event.symbol = order.symbol;
+
+        event.holdPrice2 = order.price2; // set order reserved price for correct released EBids
 
         event.nextEvent = cmd.matcherEvent;
         cmd.matcherEvent = event;
@@ -78,7 +82,6 @@ public final class OrderBookEventsHelper {
         event.activeOrderUid = cmd.uid;
         event.activeOrderCompleted = false;
         event.activeOrderAction = cmd.action;
-        event.takerHoldPrice = cmd.price;
 //        event.activeOrderSeq = cmd.seq;
 
         event.matchedOrderId = 0;
@@ -88,6 +91,8 @@ public final class OrderBookEventsHelper {
         event.size = rejectedSize;
         event.timestamp = cmd.timestamp;
         event.symbol = cmd.symbol;
+
+        event.holdPrice2 = cmd.price2; // set command reserved price for correct released EBids
 
         // insert event
         event.nextEvent = cmd.matcherEvent;

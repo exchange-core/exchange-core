@@ -24,10 +24,11 @@ public final class Order extends OrderCommand implements WriteBytesMarshallable 
     public long filled;
 
     @Builder(builderMethodName = "orderBuilder", builderClassName = "OrderBuilder")
-    public Order(OrderCommandType command, long orderId, int symbol, long price, long size, OrderAction action, OrderType orderType,
+//    public Order(OrderCommandType command, long orderId, int symbol, long price, long size, long price2, OrderAction action, OrderType orderType,
+    public Order(OrderCommandType command, long orderId, int symbol, long price, long size, long price2, OrderAction action, OrderType orderType,
                  long uid, long timestamp, int userCookie, long filled) {
-        //super(command, orderId, symbol, price, size, action, orderType, uid, timestamp, 0, null, null);
-        super(command, orderId, symbol, price, size, action, orderType, uid, timestamp, userCookie, 0, 0, null, null, null);
+        //super(command, orderId, symbol, price, size, price2, action, orderType, uid, timestamp, 0, null, null);
+        super(command, orderId, symbol, price, size, price2, action, orderType, uid, timestamp, userCookie, 0, 0, null, null, null);
         this.filled = filled;
     }
 
@@ -38,6 +39,7 @@ public final class Order extends OrderCommand implements WriteBytesMarshallable 
                 bytes.readInt(),  // symbol
                 bytes.readLong(),  // price
                 bytes.readLong(), // size
+                bytes.readLong(), // price2
                 OrderAction.of(bytes.readByte()),
                 OrderType.of(bytes.readByte()),
                 bytes.readLong(), // uid
@@ -57,6 +59,7 @@ public final class Order extends OrderCommand implements WriteBytesMarshallable 
         bytes.writeLong(orderId);
         bytes.writeInt(symbol);
         bytes.writeLong(price);
+        bytes.writeLong(price2);
         bytes.writeLong(size);
         bytes.writeByte(action.getCode());
         bytes.writeByte(orderType.getCode());
@@ -74,7 +77,7 @@ public final class Order extends OrderCommand implements WriteBytesMarshallable 
 
     @Override
     public int hashCode() {
-        return Objects.hash(orderId, action, orderType, price, size, filled, symbol, userCookie, uid);
+        return Objects.hash(orderId, action, orderType, price, size, price2, filled, symbol, userCookie, uid);
     }
 
 
@@ -94,6 +97,7 @@ public final class Order extends OrderCommand implements WriteBytesMarshallable 
                 .append(orderType, other.orderType)
                 .append(price, other.price)
                 .append(size, other.size)
+                .append(price2, other.price2)
                 .append(filled, other.filled)
                 .append(symbol, other.symbol)
                 .append(userCookie, other.userCookie)
