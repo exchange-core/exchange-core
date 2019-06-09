@@ -24,6 +24,7 @@ public final class OrderBookEventsHelper {
         event.activeOrderUid = activeOrder.uid;
         event.activeOrderCompleted = fma;
         event.activeOrderAction = activeOrder.action;
+        event.takerHoldPrice = activeOrder.price;
 //        event.activeOrderSeq = activeOrder.seq;
 
         event.matchedOrderId = matchingOrder.orderId;
@@ -50,6 +51,7 @@ public final class OrderBookEventsHelper {
         event.activeOrderUid = order.uid;
         event.activeOrderCompleted = false;
         event.activeOrderAction = order.action;
+        event.takerHoldPrice = cmd.price;
 //        event.activeOrderSeq = order.seq;
         event.matchedOrderId = 0;
         event.matchedOrderCompleted = false;
@@ -76,6 +78,7 @@ public final class OrderBookEventsHelper {
         event.activeOrderUid = cmd.uid;
         event.activeOrderCompleted = false;
         event.activeOrderAction = cmd.action;
+        event.takerHoldPrice = cmd.price;
 //        event.activeOrderSeq = cmd.seq;
 
         event.matchedOrderId = 0;
