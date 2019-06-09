@@ -79,7 +79,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         if (command == MOVE_ORDER || command == CANCEL_ORDER || command == ORDER_BOOK_REQUEST || command == PLACE_ORDER) {
             // process specific symbol group only
             if (symbolForThisHandler(cmd.symbol)) {
-                processMathingCommand(cmd);
+                processMatchingCommand(cmd);
             }
 
         } else if (command == BINARY_DATA) {
@@ -134,7 +134,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         }
     }
 
-    private void processMathingCommand(final OrderCommand cmd) {
+    private void processMatchingCommand(final OrderCommand cmd) {
 
         final IOrderBook orderBook = orderBooks.get(cmd.symbol);
         if (orderBook == null) {

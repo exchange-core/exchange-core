@@ -10,7 +10,9 @@ import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.OrderType;
+import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.Utils;
 
 import java.util.*;
@@ -109,65 +111,61 @@ public final class OrderBookFastImpl implements IOrderBook {
         return idx + basePrice;
     }
 
-    public void matchMarketOrder(OrderCommand cmd) {
-        long filledSize = tryMatchInstantly(cmd, 0, cmd);
-
-        // partially filled due no liquidity - should report PARTIAL order execution
-        if (filledSize < cmd.size) {
-            OrderBookEventsHelper.attachRejectEvent(cmd, filledSize);
-        }
-    }
-
     @Override
-    public boolean placeNewLimitOrder(OrderCommand cmd) {
+    public CommandResultCode newOrder(OrderCommand cmd) {
 
-        long orderId = cmd.orderId;
-        if (idMapToBucket.containsKey(orderId)) {
-            // duplicate
-            return false;
-        }
-
-        if (basePrice == -1) {
-            // first limit order will define a base price (middle of the hotPricesRange range)
-            setBasePrice(calculateBasePrice(cmd.price));
-        }
+        final OrderType orderType = cmd.orderType;
+        final long size = cmd.size;
 
         // check if order is marketable there are matching orders
-        long filled = tryMatchInstantly(cmd, 0, cmd);
-        if (filled == cmd.size) {
+        final long filledSize = tryMatchInstantly(cmd, 0, cmd);
+        if (filledSize == size) {
             // fully matched as marketable before actually place - can just return
-            return true;
+            return CommandResultCode.SUCCESS;
         }
 
-        OrderAction action = cmd.action;
-        long price = cmd.price;
+        if (orderType == OrderType.IOC) {
+            OrderBookEventsHelper.attachRejectEvent(cmd, size - filledSize);
+            return CommandResultCode.SUCCESS;
+        }
 
-        // normally placing regular limit order
+        final long orderId = cmd.orderId;
+        if (idMapToBucket.containsKey(orderId)) {
+            // duplicate order id - can match, but can not place
+            OrderBookEventsHelper.attachRejectEvent(cmd, size - filledSize);
+            return CommandResultCode.MATCHING_DUPLICATE_ORDER_ID;
+        }
 
+        final long price = cmd.price;
+        if (basePrice == -1) {
+            // first GTC limit order will define a base price (middle of the hotPricesRange range)
+            setBasePrice(calculateBasePrice(price));
+        }
+
+        // normally placing regular GTC order
+
+        final OrderAction action = cmd.action;
         Order orderRecord = ordersPool.pollLast();
         if (orderRecord == null) {
             orderRecord = new Order();
         }
 
-        orderRecord.command = cmd.command;
+        orderRecord.command = OrderCommandType.PLACE_ORDER;
         orderRecord.orderId = orderId;
         orderRecord.symbol = cmd.symbol;
         orderRecord.price = price;
-        orderRecord.size = cmd.size;
+        orderRecord.size = size;
         orderRecord.action = action;
         orderRecord.orderType = cmd.orderType;
         orderRecord.uid = cmd.uid;
         orderRecord.timestamp = cmd.timestamp;
-        orderRecord.filled = filled;
+        orderRecord.filled = filledSize;
 
-//        log.debug(" New object: {}", orderRecord);
-
-        IOrdersBucket bucket = action == ASK ? getOrCreateNewBucketAck(price) : getOrCreateNewBucketBid(price);
+        final IOrdersBucket bucket = action == ASK ? getOrCreateNewBucketAck(price) : getOrCreateNewBucketBid(price);
         bucket.add(orderRecord);
-
         idMapToBucket.put(orderId, bucket);
 
-        return true;
+        return CommandResultCode.SUCCESS;
     }
 
     /**
@@ -271,7 +269,7 @@ public final class OrderBookFastImpl implements IOrderBook {
      * Fully matching orders are removed from orderId index
      * Should any trades occur - they sent to tradesConsumer
      *
-     * @param activeOrder - LIMIT or MARKET activeOrder to match
+     * @param activeOrder - GTC or IOC activeOrder to match
      * @param filled      - current filled value of the activeOrder
      * @param triggerCmd  -
      * @return matched size (filled - if nothing is matching to the activeOrder)
@@ -286,21 +284,18 @@ public final class OrderBookFastImpl implements IOrderBook {
 //      log.info("filled {} to match {}", filled, activeOrder.size);
 
         long nextPrice;
-        long limitPrice;
         if (action == BID) {
             if (minAskPrice == Long.MAX_VALUE) {
                 // no orders to match
                 return filled;
             }
             nextPrice = minAskPrice;
-            limitPrice = (activeOrder.orderType == OrderType.LIMIT) ? activeOrder.price : Long.MAX_VALUE;
         } else {
             if (maxBidPrice == 0) {
                 // no orders to match
                 return filled;
             }
             nextPrice = maxBidPrice;
-            limitPrice = (activeOrder.orderType == OrderType.LIMIT) ? activeOrder.price : 0;
         }
 
         long orderSize = activeOrder.size;
@@ -308,7 +303,7 @@ public final class OrderBookFastImpl implements IOrderBook {
         while (filled < orderSize) {
 
             // search for next available bucket
-            IOrdersBucket bucket = (action == BID) ? nextAvailableBucketAsk(nextPrice, limitPrice) : nextAvailableBucketBid(nextPrice, limitPrice);
+            IOrdersBucket bucket = (action == BID) ? nextAvailableBucketAsk(nextPrice, activeOrder.price) : nextAvailableBucketBid(nextPrice, activeOrder.price);
             if (bucket == null) {
                 break;
             }
@@ -341,7 +336,7 @@ public final class OrderBookFastImpl implements IOrderBook {
      * Searches for next available bucket for matching starting from currentPrice inclusive and till lastPrice inclusive.
      *
      * @param currentPrice - price to start with
-     * @param lastPrice    - limit price, can also be 0 or LONG_MAX for market orders.
+     * @param lastPrice    - limit price
      * @return bucket or null if not found
      */
     private IOrdersBucket nextAvailableBucketAsk(long currentPrice, long lastPrice) {
@@ -367,7 +362,7 @@ public final class OrderBookFastImpl implements IOrderBook {
      * Searches for next available bucket for matching starting from currentPrice inclusive and till lastPrice inclusive.
      *
      * @param currentPrice - price to start with
-     * @param lastPrice    - limit price, can also be 0 or INT_MAX for market orders.
+     * @param lastPrice    - limit price
      * @return bucket or null if not found
      */
     private IOrdersBucket nextAvailableBucketBid(long currentPrice, long lastPrice) {

@@ -22,7 +22,7 @@ public final class ApiPlaceOrder extends ApiCommand {
 
     @Override
     public String toString() {
-        return "[ADD " + id + " " + (action == OrderAction.ASK ? 'A' : 'B') + (orderType == OrderType.MARKET ? 'M' : 'L')
+        return "[ADD " + id + " " + (action == OrderAction.ASK ? 'A' : 'B') + (orderType == OrderType.IOC ? "IOC" : "GTC")
                 + price + ":" + size + "]";
     }
 }

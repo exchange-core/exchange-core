@@ -68,7 +68,7 @@ public final class Order extends OrderCommand implements WriteBytesMarshallable 
 
     @Override
     public String toString() {
-        return "[" + orderId + " " + (action == OrderAction.ASK ? 'A' : 'B') + (orderType == OrderType.MARKET ? 'M' : 'L')
+        return "[" + orderId + " " + (action == OrderAction.ASK ? 'A' : 'B') + " " + (orderType == OrderType.IOC ? "IOC" : "GTC")
                 + price + ":" + size + "F" + filled + " S" + symbol + " C" + userCookie + " U" + uid + "]";
     }
 

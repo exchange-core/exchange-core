@@ -57,7 +57,7 @@ public class OrderCommand {
     //public long matcherEventSequence;
     // ---- potential false sharing section ------
 
-    public static OrderCommand limitOrder(long orderId, int uid, long price, long size, OrderAction action) {
+    public static OrderCommand newOrder(OrderType orderType, long orderId, int uid, long price, long size, OrderAction action) {
         OrderCommand cmd = new OrderCommand();
         cmd.command = PLACE_ORDER;
         cmd.orderId = orderId;
@@ -65,24 +65,10 @@ public class OrderCommand {
         cmd.price = price;
         cmd.size = size;
         cmd.action = action;
-        cmd.orderType = OrderType.LIMIT;
+        cmd.orderType = orderType;
         cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
         return cmd;
     }
-
-    public static OrderCommand marketOrder(long orderId, int uid, long size, OrderAction action) {
-        OrderCommand cmd = new OrderCommand();
-        cmd.command = PLACE_ORDER;
-        cmd.orderId = orderId;
-        cmd.uid = uid;
-        cmd.price = 0;
-        cmd.size = size;
-        cmd.action = action;
-        cmd.orderType = OrderType.MARKET;
-        cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
-        return cmd;
-    }
-
 
     public static OrderCommand cancel(long orderId, int uid) {
         OrderCommand cmd = new OrderCommand();

@@ -6,7 +6,6 @@ import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.Order;
-import org.openpredict.exchange.beans.OrderType;
 import org.openpredict.exchange.beans.StateHash;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
@@ -18,23 +17,17 @@ import java.util.Objects;
 public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
     /**
-     * Process new MARKET order
-     * Such order matched to any existing LIMIT orders
-     * Of there is not enough volume in order book - reject as partially filled
+     * Process new order.
+     * Depending on price specified (whether the order is marketable),
+     * order will be matched to existing opposite GTC orders from the order book.
+     * In case of remaining volume (order was not matched completely):
+     * IOC - reject it as partially filled.
+     * GTC - place as a new limit order into th order book.
      *
-     * @param order - market order to match
+     * @param cmd - order to match/place
+     * @return command code (success, or rejection reason)
      */
-    void matchMarketOrder(OrderCommand order);
-
-    /**
-     * Place new LIMIT order
-     * If order is marketable (there are matching limit orders) - match it first with existing liquidity
-     * <p>
-     * // todo return reject reason ?
-     *
-     * @param cmd - limit order to place
-     */
-    boolean placeNewLimitOrder(OrderCommand cmd);
+    CommandResultCode newOrder(OrderCommand cmd);
 
     /**
      * Cancel order
@@ -180,30 +173,9 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
                 return isCancelled ? CommandResultCode.SUCCESS : CommandResultCode.MATCHING_INVALID_ORDER_ID;
 
             case PLACE_ORDER:
-//                log.debug("Place {}", cmd.orderId);
-                if (cmd.resultCode == CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
-
-                    if (cmd.orderType == OrderType.LIMIT) {
-
-                        // todo validate price step (also for MOVE_ORDER)
-//                    if (spec.stepSize != 1 && cmd.orderType == OrderType.LIMIT && cmd.price % spec.stepSize != 0) {
-//                        cmd.resultCode = CommandResultCode.INVALID_PRICE_STEP;
-//                        log.warn("Price {} does not match step {} of symbol {}", cmd.price, spec.stepSize, cmd.symbol);
-//                        return;
-//                    }
-
-                        return orderBook.placeNewLimitOrder(cmd)
-                                ? CommandResultCode.SUCCESS
-                                : CommandResultCode.MATCHING_DUPLICATE_ORDER_ID;
-                    } else {
-                        orderBook.matchMarketOrder(cmd);
-                        return CommandResultCode.SUCCESS;
-                    }
-                } else {
-                    // no change
-                    return cmd.resultCode;
-                }
-
+                return (cmd.resultCode == CommandResultCode.VALID_FOR_MATCHING_ENGINE)
+                        ? orderBook.newOrder(cmd)
+                        : cmd.resultCode; // no change
 
             case ORDER_BOOK_REQUEST:
                 //log.debug("ORDER_BOOK_REQUEST {}", cmd.size);

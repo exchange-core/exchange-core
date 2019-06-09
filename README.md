@@ -23,7 +23,7 @@ Capable to process 5M order book operations per second on 8-years old hardware (
 
 Benchmark configuration:
 - Single symbol order book.
-- 3,000,000 inbound messages are distributed as follows: 9% limit + 3% market new orders, 6% cancel operations, 82% move operations. About 6% commands are causing trades.
+- 3,000,000 inbound messages are distributed as follows: 9% GTC orders, 3% IOC orders, 6% cancel commands, 82% move commands. About 6% of all messages are triggering one or more trades.
 - 1,000 active user accounts.
 - In average ~1,000 limit orders are active, placed in ~750 different price slots.
 - Latency results are only for risk processing and orders matching. Other stuff like network interface latency, IPC, journalling is not included.

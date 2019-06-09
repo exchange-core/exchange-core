@@ -63,7 +63,7 @@ public final class OrderBookEventsHelper {
     }
 
 
-    public static void attachRejectEvent(OrderCommand cmd, long filledSize) {
+    public static void attachRejectEvent(OrderCommand cmd, long rejectedSize) {
 
 //        log.debug("Rejected {}", cmd.orderId);
 //        log.debug("\n{}", getL2MarketDataSnapshot(10).dumpOrderBook());
@@ -82,7 +82,7 @@ public final class OrderBookEventsHelper {
         event.matchedOrderCompleted = false;
 
         event.price = 0;
-        event.size = cmd.size - filledSize;
+        event.size = rejectedSize;
         event.timestamp = cmd.timestamp;
         event.symbol = cmd.symbol;
 

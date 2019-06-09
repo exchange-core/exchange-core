@@ -41,7 +41,7 @@ public final class ITExchangeCoreIntegration {
             container.initBasicUsers();
 
             // ### 1. first user places limit orders
-            final ApiPlaceOrder order101 = ApiPlaceOrder.builder().uid(UID_1).id(101).price(1600).size(7).action(OrderAction.ASK).orderType(OrderType.LIMIT).symbol(symbol).build();
+            final ApiPlaceOrder order101 = ApiPlaceOrder.builder().uid(UID_1).id(101).price(1600).size(7).action(OrderAction.ASK).orderType(OrderType.GTC).symbol(symbol).build();
             log.debug("PLACE: {}", order101);
             container.submitCommandSync(order101, cmd -> {
                 assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
@@ -50,12 +50,12 @@ public final class ITExchangeCoreIntegration {
                 assertThat(cmd.price, is(1600L));
                 assertThat(cmd.size, is(7L));
                 assertThat(cmd.action, is(OrderAction.ASK));
-                assertThat(cmd.orderType, is(OrderType.LIMIT));
+                assertThat(cmd.orderType, is(OrderType.GTC));
                 assertThat(cmd.symbol, is(symbol));
                 assertNull(cmd.matcherEvent);
             });
 
-            final ApiPlaceOrder order102 = ApiPlaceOrder.builder().uid(UID_1).id(102).price(1550).size(4).action(OrderAction.BID).orderType(OrderType.LIMIT).symbol(symbol).build();
+            final ApiPlaceOrder order102 = ApiPlaceOrder.builder().uid(UID_1).id(102).price(1550).size(4).action(OrderAction.BID).orderType(OrderType.GTC).symbol(symbol).build();
             log.debug("PLACE: {}", order102);
             container.submitCommandSync(order102, cmd -> {
                 assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
@@ -67,7 +67,7 @@ public final class ITExchangeCoreIntegration {
 
 
             // ### 2. second user sends market order, first order partially matched
-            final ApiPlaceOrder order201 = ApiPlaceOrder.builder().uid(UID_2).id(201).size(2).action(OrderAction.BID).orderType(OrderType.MARKET).symbol(symbol).build();
+            final ApiPlaceOrder order201 = ApiPlaceOrder.builder().uid(UID_2).id(201).price(1700).size(2).action(OrderAction.BID).orderType(OrderType.IOC).symbol(symbol).build();
             log.debug("PLACE: {}", order201);
             container.submitCommandSync(order201, cmd -> {
                 assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
@@ -94,7 +94,7 @@ public final class ITExchangeCoreIntegration {
 
 
             // ### 3. second user places limit order
-            final ApiPlaceOrder order202 = ApiPlaceOrder.builder().uid(UID_2).id(202).price(1583).size(4).action(OrderAction.BID).orderType(OrderType.LIMIT).symbol(symbol).build();
+            final ApiPlaceOrder order202 = ApiPlaceOrder.builder().uid(UID_2).id(202).price(1583).size(4).action(OrderAction.BID).orderType(OrderType.GTC).symbol(symbol).build();
             log.debug("PLACE: {}", order202);
             container.submitCommandSync(order202, cmd -> {
                 assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));

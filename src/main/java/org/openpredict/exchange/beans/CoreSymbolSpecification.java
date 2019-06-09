@@ -50,15 +50,15 @@ public final class CoreSymbolSpecification implements Serializable, WriteBytesMa
 
 /* NOT SUPPORTED YET:
 
-    // lot size
+//  lot size -- validated by gates
 //    public final long lotSize;
 //    public final int stepSize;
 
-    // order book limits
+    // order book limits -- for FUTURES only
 //    public final long highLimit;
 //    public final long lowLimit;
 
-    // swaps
+    // swaps -- not by
 //    public final long longSwap;
 //    public final long shortSwap;
 

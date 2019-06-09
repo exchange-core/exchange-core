@@ -292,13 +292,13 @@ public final class TestOrdersGenerator {
 
             long size = 1 + rand.nextInt(6) * rand.nextInt(6) * rand.nextInt(6);
 
-            OrderType orderType = growOrders ? OrderType.LIMIT : OrderType.MARKET;
+            OrderType orderType = growOrders ? OrderType.GTC : OrderType.IOC;
             long uid = 1 + rand.nextInt(session.numUsers);
 
             OrderCommand placeCmd = OrderCommand.builder().command(OrderCommandType.PLACE_ORDER).uid(uid).orderId(session.seq).size(size)
                     .action(action).orderType(orderType).build();
 
-            if (orderType == OrderType.LIMIT) {
+            if (orderType == OrderType.GTC) {
                 session.actualOrders.set(session.seq);
 
                 int dev = 1 + (int) (Math.pow(rand.nextDouble(), 2) * session.priceDeviation);
@@ -321,6 +321,7 @@ public final class TestOrdersGenerator {
                 placeCmd.price = price;
                 session.counterPlaceLimit++;
             } else {
+                placeCmd.price = action == OrderAction.BID ? MAX_PRICE : MIN_PRICE;
                 session.counterPlaceMarket++;
             }
 
@@ -398,13 +399,13 @@ public final class TestOrdersGenerator {
         final int commandsListSize = allCommands.size() - readyAtSequenceApproximate;
         final Map<OrderCommandType, List<OrderCommand>> commandsByType = allCommands.stream().skip(readyAtSequenceApproximate).collect(Collectors.groupingBy(r -> r.command));
         final Map<OrderType, List<OrderCommand>> ordersByType = commandsByType.get(OrderCommandType.PLACE_ORDER).stream().collect(Collectors.groupingBy(cmd -> cmd.orderType));
-        final int counterPlaceLimit = ordersByType.get(OrderType.LIMIT).size();
-        final int counterPlaceMarket = ordersByType.get(OrderType.MARKET).size();
+        final int counterPlaceGTC = ordersByType.get(OrderType.GTC).size();
+        final int counterPlaceIOC = ordersByType.get(OrderType.IOC).size();
         final int counterCancel = commandsByType.get(OrderCommandType.CANCEL_ORDER).size();
         final int counterMove = commandsByType.get(OrderCommandType.MOVE_ORDER).size();
 
-        log.debug("place limit: {} ({}%)", counterPlaceLimit, (float) counterPlaceLimit / (float) commandsListSize * 100.0f);
-        log.debug("place market: {} ({}%)", counterPlaceMarket, (float) counterPlaceMarket / (float) commandsListSize * 100.0f);
+        log.debug("new GTC: {} ({}%)", counterPlaceGTC, (float) counterPlaceGTC / (float) commandsListSize * 100.0f);
+        log.debug("new IOC: {} ({}%)", counterPlaceIOC, (float) counterPlaceIOC / (float) commandsListSize * 100.0f);
         log.debug("cancel: {} ({}%)", counterCancel, (float) counterCancel / (float) commandsListSize * 100.0f);
         log.debug("move: {} ({}%)", counterMove, (float) counterMove / (float) commandsListSize * 100.0f);
 

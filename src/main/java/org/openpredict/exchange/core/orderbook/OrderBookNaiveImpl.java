@@ -7,7 +7,10 @@ import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.OrderAction;
+import org.openpredict.exchange.beans.OrderType;
+import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.Utils;
 
 import java.util.*;
@@ -39,57 +42,61 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         //validateInternalState();
     }
 
-
-    public void matchMarketOrder(OrderCommand cmd) {
-        final NavigableMap<Long, IOrdersBucket> matchingBuckets = cmd.action == OrderAction.ASK ? bidBuckets : askBuckets;
-        long filledSize = tryMatchInstantly(cmd, matchingBuckets, 0, cmd);
-
-        // partially filled due no liquidity - should report PARTIAL order execution
-        if (filledSize < cmd.size) {
-            OrderBookEventsHelper.attachRejectEvent(cmd, filledSize);
-        }
-    }
-
     @Override
-    public boolean placeNewLimitOrder(OrderCommand cmd) {
+    public CommandResultCode newOrder(OrderCommand cmd) {
 
-        if (idMap.containsKey(cmd.orderId)) {
-            // duplicate
-            return false;
-        }
+        final OrderType orderType = cmd.orderType;
+        final OrderAction action = cmd.action;
+        final long price = cmd.price;
+        final long size = cmd.size;
 
         // check if order is marketable (if there are opposite matching orders)
-        long filled = tryMatchInstantly(cmd, subtreeForMatching(cmd.action, cmd.price), 0, cmd);
-        if (filled == cmd.size) {
-            // fully matched as marketable before actually place - can just return
-            return true;
+        long filledSize = tryMatchInstantly(cmd, subtreeForMatching(action, price), 0, cmd);
+        if (filledSize == size) {
+            // order is fully matched - can just return
+            return CommandResultCode.SUCCESS;
+
         }
 
-        // normally placing regular limit order
-        Order orderRecord = new Order(
-                cmd.command,
-                cmd.orderId,
+        if (orderType == OrderType.IOC) {
+            OrderBookEventsHelper.attachRejectEvent(cmd, cmd.size - filledSize);
+            return CommandResultCode.SUCCESS;
+        }
+
+        long newOrderId = cmd.orderId;
+        if (idMap.containsKey(newOrderId)) {
+
+            // duplicate order id - can match, but can not place
+            OrderBookEventsHelper.attachRejectEvent(cmd, cmd.size - filledSize);
+            return CommandResultCode.MATCHING_DUPLICATE_ORDER_ID;
+        }
+
+        // normally placing regular GTC limit order
+
+        final Order orderRecord = new Order(
+                OrderCommandType.PLACE_ORDER,
+                newOrderId,
                 cmd.symbol,
-                cmd.price,
-                cmd.size,
-                cmd.action,
-                cmd.orderType,
+                price,
+                size,
+                action,
+                orderType,
                 cmd.uid,
                 cmd.timestamp,
                 cmd.userCookie,
-                filled);
+                filledSize);
 
-        IOrdersBucket bucket = getBucketsByAction(cmd.action)
-                .computeIfAbsent(cmd.price, price -> {
-                    IOrdersBucket b = new OrdersBucketNaiveImpl();
-                    b.setPrice(price);
+        final IOrdersBucket bucket = getBucketsByAction(action)
+                .computeIfAbsent(price, p -> {
+                    final IOrdersBucket b = new OrdersBucketNaiveImpl();
+                    b.setPrice(p);
                     return b;
                 });
         bucket.add(orderRecord);
 
-        idMap.put(cmd.orderId, orderRecord);
+        idMap.put(newOrderId, orderRecord);
 
-        return true;
+        return CommandResultCode.SUCCESS;
     }
 
     private SortedMap<Long, IOrdersBucket> subtreeForMatching(OrderAction action, long price) {
@@ -102,7 +109,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
      * Fully matching orders are removed from orderId index
      * Should any trades occur - they sent to tradesConsumer
      *
-     * @param activeOrder     - LIMIT or MARKET order to match
+     * @param activeOrder     - GTC or IOC order to match
      * @param matchingBuckets - sorted buckets map
      * @param filled          - current 'filled' value for the order
      * @param triggerCmd      -
