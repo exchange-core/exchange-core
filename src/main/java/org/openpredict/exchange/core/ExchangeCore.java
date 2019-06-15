@@ -17,6 +17,7 @@ import org.openpredict.exchange.core.biprocessor.MasterProcessor;
 import org.openpredict.exchange.core.biprocessor.SlaveProcessor;
 import org.openpredict.exchange.core.journalling.ISerializationProcessor;
 import org.openpredict.exchange.core.journalling.JournallingProcessor;
+import org.openpredict.exchange.core.orderbook.IOrderBook;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -42,6 +43,7 @@ public final class ExchangeCore {
                         final int msgsInGroupLimit,
                         final Utils.ThreadAffityMode threadAffityMode,
                         final DisruptorWaitStrategy waitStrategy,
+                        final Supplier<IOrderBook> orderBookFactory,
                         final Long loadStateId) {
 
         this.disruptor = new Disruptor<>(
@@ -66,7 +68,7 @@ public final class ExchangeCore {
         // creating matching engine event handlers array // TODO parallel deserialization
         final EventHandler<OrderCommand>[] matchingEngineHandlers = IntStream.range(0, matchingEnginesNum)
                 .mapToObj(shardId -> {
-                    final MatchingEngineRouter router = new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, loadStateId);
+                    final MatchingEngineRouter router = new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, orderBookFactory, loadStateId);
                     return (EventHandler<OrderCommand>) (cmd, seq, eob) -> router.processOrder(cmd);
                 })
                 .toArray(ExchangeCore::newEventHandlersArray);

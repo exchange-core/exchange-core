@@ -59,8 +59,8 @@ public final class Order extends OrderCommand implements WriteBytesMarshallable 
         bytes.writeLong(orderId);
         bytes.writeInt(symbol);
         bytes.writeLong(price);
-        bytes.writeLong(price2);
         bytes.writeLong(size);
+        bytes.writeLong(price2);
         bytes.writeByte(action.getCode());
         bytes.writeByte(orderType.getCode());
         bytes.writeLong(uid);

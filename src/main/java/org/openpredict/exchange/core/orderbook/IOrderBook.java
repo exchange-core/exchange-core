@@ -91,9 +91,9 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     }
 
     // TODO to default?
-    static int hash(IOrdersBucket[] askBuckets, IOrdersBucket[] bidBuckets) {
-        int a = Arrays.hashCode(askBuckets);
-        int b = Arrays.hashCode(bidBuckets);
+    static int hash(final IOrdersBucket[] askBuckets, final IOrdersBucket[] bidBuckets) {
+        final int a = Arrays.hashCode(askBuckets);
+        final int b = Arrays.hashCode(bidBuckets);
         return Objects.hash(a, b);
     }
 

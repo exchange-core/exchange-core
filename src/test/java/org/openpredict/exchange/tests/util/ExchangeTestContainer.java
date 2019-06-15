@@ -14,6 +14,7 @@ import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.ExchangeApi;
 import org.openpredict.exchange.core.ExchangeCore;
 import org.openpredict.exchange.core.journalling.DiskSerializationProcessor;
+import org.openpredict.exchange.core.orderbook.OrderBookFastImpl;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -119,6 +120,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
                 .msgsInGroupLimit(msgsInGroupLimit)
                 .threadAffityMode(THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE)
                 .waitStrategy(BUSY_SPIN)
+                .orderBookFactory(() -> new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH))
                 .loadStateId(stateId) // Loading from persisted state
                 .build();
 

@@ -12,9 +12,9 @@ import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.journalling.ISerializationProcessor;
 import org.openpredict.exchange.core.orderbook.IOrderBook;
-import org.openpredict.exchange.core.orderbook.OrderBookFastImpl;
 
 import java.util.Objects;
+import java.util.function.Supplier;
 
 import static net.openhft.chronicle.core.UnsafeMemory.UNSAFE;
 import static org.openpredict.exchange.beans.cmd.OrderCommandType.*;
@@ -29,6 +29,8 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
     // symbol->OB
     private final IntObjectHashMap<IOrderBook> orderBooks;
 
+    private final Supplier<IOrderBook> orderBookFactory;
+
     private final int shardId;
     private final long shardMask;
 
@@ -37,6 +39,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
     public MatchingEngineRouter(final int shardId,
                                 final long numShards,
                                 final ISerializationProcessor serializationProcessor,
+                                final Supplier<IOrderBook> orderBookFactory,
                                 final Long loadStateId) {
 
         if (Long.bitCount(numShards) != 1) {
@@ -45,6 +48,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         this.shardId = shardId;
         this.shardMask = numShards - 1;
         this.serializationProcessor = serializationProcessor;
+        this.orderBookFactory = orderBookFactory;
 
         if (loadStateId != null) {
             final Pair<BinaryCommandsProcessor, IntObjectHashMap<IOrderBook>> deserialized = serializationProcessor.loadData(
@@ -78,15 +82,9 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
 
         if (command == MOVE_ORDER || command == CANCEL_ORDER || command == ORDER_BOOK_REQUEST || command == PLACE_ORDER) {
             // process specific symbol group only
-            //if (symbolForThisHandler(cmd.symbol) && cmd.resultCode == CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
             if (symbolForThisHandler(cmd.symbol)) {
                 processMatchingCommand(cmd);
             }
-//        } else if (command == CANCEL_ORDER || command == ORDER_BOOK_REQUEST) {
-//            // process specific symbol group only
-//            if (symbolForThisHandler(cmd.symbol)) {
-//                processMatchingCommand(cmd);
-//            }
         } else if (command == BINARY_DATA) {
             // process all symbols groups, only processor 0 writes result
             final CommandResultCode resultCode = binaryCommandsProcessor.binaryData(cmd);
@@ -103,7 +101,6 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
             }
 
         } else if (command == PERSIST_STATE_MATCHING) {
-            log.debug("DUMP MATCHING_ENGINE_ROUTER");
             final boolean isSuccess = serializationProcessor.storeData(cmd.orderId, ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER, shardId, this);
             // Send ACCEPTED because this is a first command in series. Risk engine is second - so it will return SUCCESS
             Utils.setResultVolatile(cmd, isSuccess, CommandResultCode.ACCEPTED, CommandResultCode.STATE_PERSIST_MATCHING_ENGINE_FAILED);
@@ -131,10 +128,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         if (orderBooks.get(symbolId) != null) {
             return CommandResultCode.MATCHING_ORDER_BOOK_ALREADY_EXISTS;
         } else {
-            // TODO configurable creator
-            IOrderBook orderBook = new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH);
-//            IOrderBook orderBook = new OrderBookNaiveImpl();
-            orderBooks.put(symbolId, orderBook);
+            orderBooks.put(symbolId, orderBookFactory.get());
             return CommandResultCode.SUCCESS;
         }
     }

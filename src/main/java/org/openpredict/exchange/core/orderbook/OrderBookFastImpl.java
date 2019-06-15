@@ -1016,12 +1016,11 @@ public final class OrderBookFastImpl implements IOrderBook {
     public int hashCode() {
         final IOrdersBucket[] a = getAsksAsArray();
         final IOrdersBucket[] b = getBidsAsArray();
+//        for(IOrdersBucket ord: a) log.debug("ask {}", ord);
+//        for(IOrdersBucket ord: b) log.debug("bid {}", ord);
         //log.debug("FAST A:{} B:{}", a, b);
-        final int hash = IOrderBook.hash(a, b);
-
+        return IOrderBook.hash(a, b);
         //log.debug("{} {} {} {} {}", hash, hotAskBuckets.size(), farAskBuckets.size(), hotBidBuckets.size(), farBidBuckets.size());
-        return hash;
-
     }
 
 
