@@ -41,7 +41,7 @@ public final class TestOrdersGenerator {
 
     public static final double CENTRAL_MOVE_ALPHA = 0.01;
 
-    public static final int CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND = 512;
+    public static final int CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND = 256;
 
     public static final int GENERATION_THREADS = 6;
 
@@ -209,6 +209,8 @@ public final class TestOrdersGenerator {
 
         final L2MarketData l2MarketData = orderBook.getL2MarketDataSnapshot(-1);
 
+        //log.info("gen: {}", LatencyTools.createLatencyReportFast(session.hdrRecorder.getIntervalHistogram()));
+
         return GenResult.builder().commands(commands)
                 .finalOrderbookHash(orderBook.hashCode())
                 .finalOrderBookSnapshot(l2MarketData)
@@ -236,11 +238,11 @@ public final class TestOrdersGenerator {
     private static void matcherTradeEventEventHandler(TestOrdersGeneratorSession session, MatcherTradeEvent ev) {
         if (ev.eventType == MatcherEventType.TRADE) {
             if (ev.activeOrderCompleted) {
-                session.actualOrders.clear((int) ev.activeOrderId);
+                session.orderUids.remove((int) ev.activeOrderId);
                 session.numCompleted++;
             }
             if (ev.matchedOrderCompleted) {
-                session.actualOrders.clear((int) ev.matchedOrderId);
+                session.orderUids.remove((int) ev.matchedOrderId);
                 session.numCompleted++;
             }
 
@@ -253,7 +255,7 @@ public final class TestOrdersGenerator {
             }
 
         } else if (ev.eventType == MatcherEventType.REJECTION) {
-            session.actualOrders.clear((int) ev.activeOrderId);
+            session.orderUids.remove((int) ev.activeOrderId);
             session.numRejected++;
 
             // update order book stat if order get rejected
@@ -261,7 +263,8 @@ public final class TestOrdersGenerator {
             updateOrderBookSizeStat(session);
 
         } else if (ev.eventType == MatcherEventType.REDUCE) {
-            session.actualOrders.clear((int) ev.activeOrderId);
+            // partial reduce is not expected, only full
+            session.orderUids.remove((int) ev.activeOrderId);
             session.numReduced++;
         }
     }
@@ -271,6 +274,7 @@ public final class TestOrdersGenerator {
 
         Random rand = session.rand;
 
+        // TODO move to lastOrderBookOrdersSize writer method
         int lackOfOrders = session.targetOrderBookOrders - session.lastOrderBookOrdersSize;
         boolean growOrders = lackOfOrders > 0;
         if (session.orderbooksFilledAtSequence == 0 && lackOfOrders <= 0) {
@@ -293,13 +297,12 @@ public final class TestOrdersGenerator {
             long size = 1 + rand.nextInt(6) * rand.nextInt(6) * rand.nextInt(6);
 
             OrderType orderType = growOrders ? OrderType.GTC : OrderType.IOC;
-            long uid = 1 + rand.nextInt(session.numUsers);
+            final int uid = 1 + rand.nextInt(session.numUsers);
 
             OrderCommand placeCmd = OrderCommand.builder().command(OrderCommandType.PLACE_ORDER).uid(uid).orderId(session.seq).size(size)
                     .action(action).orderType(orderType).build();
 
             if (orderType == OrderType.GTC) {
-                session.actualOrders.set(session.seq);
 
                 int dev = 1 + (int) (Math.pow(rand.nextDouble(), 2) * session.priceDeviation);
 
@@ -330,20 +333,31 @@ public final class TestOrdersGenerator {
             return placeCmd;
         }
 
+        // TODO improve random picking performance (custom hashset implementation?)
 
-        int orderId = rand.nextInt(session.seq);
-        orderId = session.actualOrders.nextSetBit(orderId);
-        if (orderId < 0) {
+//        long t = System.nanoTime();
+        int size = Math.min(session.orderUids.size(), 512);
+        if (size == 0) {
             return null;
         }
 
-        long uid = session.orderUids.get(orderId);
+        int randPos = rand.nextInt(size);
+        Iterator<Map.Entry<Integer, Integer>> iterator = session.orderUids.entrySet().iterator();
+
+        Map.Entry<Integer, Integer> rec = iterator.next();
+        for (int i = 0; i < randPos; i++) {
+            rec = iterator.next();
+        }
+//        session.hdrRecorder.recordValue(Math.min(System.nanoTime() - t, Integer.MAX_VALUE));
+        int orderId = rec.getKey();
+
+        long uid = rec.getValue();
         if (uid == 0) {
             return null;
         }
 
         if (cmd == 2) {
-            session.actualOrders.clear(orderId);
+            session.orderUids.remove(orderId);
             session.counterCancel++;
             return OrderCommand.cancel(orderId, (int) (long) uid);
 
@@ -365,7 +379,12 @@ public final class TestOrdersGenerator {
             }
 
             int newPrice = prevPrice + priceMoveRounded;
+
+            // log.debug("session.seq={} orderId={} size={} p={}", session.seq, orderId, session.actualOrders.size(), priceMoveRounded);
+
             session.counterMove++;
+
+            session.orderPrices.put(orderId, newPrice);
 
             return OrderCommand.update(orderId, (int) (long) uid, newPrice);
         }

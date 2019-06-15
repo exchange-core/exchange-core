@@ -223,6 +223,8 @@ public final class OrderBookNaiveImpl implements IOrderBook {
             return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
 
+//         log.debug("{}. {}->{}", orderId, order.price, newPrice);
+
         if (order.uid != cmd.uid) {
             return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
