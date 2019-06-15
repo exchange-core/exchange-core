@@ -159,7 +159,7 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
 
         queue[pos - 1] = null;
         totalVolume -= (order.size - order.filled);
-        assert totalVolume >= 0;
+//        assert totalVolume >= 0;
         realSize--;
 
         //validate();

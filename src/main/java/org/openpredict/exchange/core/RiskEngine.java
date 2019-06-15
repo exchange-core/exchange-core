@@ -198,8 +198,8 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
         // check if account has enough funds
         if (!placeOrder(cmd, userProfile, spec)) {
-            log.warn("NSF uid={}: Can not place {}", userProfile.uid, cmd);
-            log.warn("accounts:{}", userProfile.accounts);
+            log.warn("{} NSF uid={}: Can not place {}", cmd.orderId, userProfile.uid, cmd);
+            log.warn("{} accounts:{}", cmd.orderId, userProfile.accounts);
             return CommandResultCode.RISK_NSF;
         }
 
@@ -274,8 +274,18 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             }
         }
 
+        long orderAmount =  (cmd.action == OrderAction.BID)
+                ? cmd.size * Math.max(cmd.price, cmd.price2) * spec.quoteScaleK
+                : cmd.size * spec.baseScaleK;
+
+//        log.debug("userProfile.accounts.get(currency)={}", userProfile.accounts.get(currency));
+//        log.debug("freeFuturesMargin={}", freeFuturesMargin);
+//        log.debug("orderAmount={}", orderAmount);
+//        log.debug("pendingAmount={}", pendingAmount);
+
         // TODO fees
-        return userProfile.accounts.get(currency) + freeFuturesMargin >= cmd.size + pendingAmount;
+
+        return userProfile.accounts.get(currency) + freeFuturesMargin >= orderAmount + pendingAmount;
     }
 
     /**

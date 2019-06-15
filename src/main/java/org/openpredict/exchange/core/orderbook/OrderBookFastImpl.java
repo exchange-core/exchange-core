@@ -277,48 +277,42 @@ public final class OrderBookFastImpl implements IOrderBook {
             final OrderCommand activeOrder,
             long filled,
             final OrderCommand triggerCmd) {
-        OrderAction action = activeOrder.action;
-
-//      log.info("-------- matchInstantly: {}", activeOrder);
-//      log.info("filled {} to match {}", filled, activeOrder.size);
 
         long nextPrice;
-        if (action == BID) {
-            if (minAskPrice == Long.MAX_VALUE) {
+        if (activeOrder.action == BID) {
+            if (minAskPrice > activeOrder.price) {
                 // no orders to match
                 return filled;
             }
             nextPrice = minAskPrice;
         } else {
-            if (maxBidPrice == 0) {
+            if (maxBidPrice < activeOrder.price) {
                 // no orders to match
                 return filled;
             }
             nextPrice = maxBidPrice;
         }
 
-        long orderSize = activeOrder.size;
-
-        while (filled < orderSize) {
+        while (filled < activeOrder.size) {
 
             // search for next available bucket
-            IOrdersBucket bucket = (action == BID) ? nextAvailableBucketAsk(nextPrice, activeOrder.price) : nextAvailableBucketBid(nextPrice, activeOrder.price);
+            final IOrdersBucket bucket = (activeOrder.action == BID) ? nextAvailableBucketAsk(nextPrice, activeOrder.price) : nextAvailableBucketBid(nextPrice, activeOrder.price);
             if (bucket == null) {
                 break;
             }
 
             final long tradePrice = bucket.getPrice();
             // next iteration price
-            nextPrice = (action == BID) ? tradePrice + 1 : tradePrice - 1;
+            nextPrice = (activeOrder.action == BID) ? tradePrice + 1 : tradePrice - 1;
 
             // matching orders within bucket
-            final long sizeLeft = orderSize - filled;
+            final long sizeLeft = activeOrder.size - filled;
             // log.debug("bucket {} match size: {}", bucket.getPrice(), sizeLeft);
             filled += bucket.match(sizeLeft, activeOrder, triggerCmd, this::removeFullyMatchedOrder);
 
             // remove bucket if its empty
             if (bucket.getTotalVolume() == 0) {
-                removeBucket(action.opposite(), tradePrice);
+                removeBucket(activeOrder.action.opposite(), tradePrice);
             }
         }
         return filled;

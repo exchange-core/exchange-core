@@ -3,6 +3,7 @@ package org.openpredict.exchange.tests;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 import org.openpredict.exchange.beans.*;
+import org.openpredict.exchange.beans.api.ApiAdjustUserBalance;
 import org.openpredict.exchange.beans.api.ApiCommand;
 import org.openpredict.exchange.beans.api.ApiMoveOrder;
 import org.openpredict.exchange.beans.api.ApiPlaceOrder;
@@ -140,6 +141,62 @@ public final class ITExchangeCoreIntegration {
         }
     }
 
+
+    @Test(timeout = 30_000)
+    public void exchangeRiskTest() throws Exception {
+
+        try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
+            container.initBasicSymbols();
+            container.createUserWithMoney(UID_1, CURRENECY_XBT, 2_000_000); // 2M satoshi (0.02 BTC)
+
+            // try submit an order - limit BUY 7 lots, price 300K satoshi (30K x10 step) for each lot 100K szabo
+            // should be rejected
+            final ApiPlaceOrder order101 = ApiPlaceOrder.builder().uid(UID_1).id(101).price(30_000).size(7).action(OrderAction.BID).orderType(OrderType.GTC).symbol(SYMBOL_EXCHANGE).build();
+            container.submitCommandSync(order101, cmd -> {
+                assertThat(cmd.resultCode, is(CommandResultCode.RISK_NSF));
+            });
+
+            // add 100K more
+            container.submitCommandSync(ApiAdjustUserBalance.builder().uid(UID_1).currency(CURRENECY_XBT).amount(100_000).transactionId(2L).build(), CHECK_SUCCESS);
+
+            // submit order again - should be placed
+            container.submitCommandSync(order101, cmd -> {
+                assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
+                assertThat(cmd.orderId, is(101L));
+                assertThat(cmd.uid, is((long) UID_1));
+                assertThat(cmd.price, is(30_000L));
+                assertThat(cmd.size, is(7L));
+                assertThat(cmd.action, is(OrderAction.BID));
+                assertThat(cmd.orderType, is(OrderType.GTC));
+                assertThat(cmd.symbol, is(SYMBOL_EXCHANGE));
+                assertNull(cmd.matcherEvent);
+            });
+
+            container.createUserWithMoney(UID_2, CURRENECY_ETH, 699_999); // 699'999 szabo (<~0.7 ETH)
+            // try submit an order - sell 7 lots, price 300K satoshi (30K x10 step) for each lot 100K szabo
+            // should be rejected
+            final ApiPlaceOrder order102 = ApiPlaceOrder.builder().uid(UID_2).id(102).price(30_000).size(7).action(OrderAction.ASK).orderType(OrderType.IOC).symbol(SYMBOL_EXCHANGE).build();
+            container.submitCommandSync(order102, cmd -> {
+                assertThat(cmd.resultCode, is(CommandResultCode.RISK_NSF));
+            });
+
+            // add 1 szabo more
+            container.submitCommandSync(ApiAdjustUserBalance.builder().uid(UID_2).currency(CURRENECY_ETH).amount(1).transactionId(2L).build(), CHECK_SUCCESS);
+
+            // submit order again - should be matched
+            container.submitCommandSync(order102, cmd -> {
+                assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
+                assertThat(cmd.orderId, is(102L));
+                assertThat(cmd.uid, is((long) UID_2));
+                assertThat(cmd.price, is(30_000L));
+                assertThat(cmd.size, is(7L));
+                assertThat(cmd.action, is(OrderAction.ASK));
+                assertThat(cmd.orderType, is(OrderType.IOC));
+                assertThat(cmd.symbol, is(SYMBOL_EXCHANGE));
+                assertNotNull(cmd.matcherEvent);
+            });
+        }
+    }
 
     @Test(timeout = 30_000)
     public void manyOperationsMargin() throws Exception {

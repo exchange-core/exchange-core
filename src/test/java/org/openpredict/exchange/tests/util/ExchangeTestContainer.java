@@ -53,8 +53,8 @@ public final class ExchangeTestContainer implements AutoCloseable {
     public static final int CURRENECY_USD = 840;
     public static final int CURRENECY_EUR = 978;
 
-    public static final int CURRENECY_XBT = 3762;
-    public static final int CURRENECY_ETH = 3928;
+    public static final int CURRENECY_XBT = 3762; // satoshi, 10-8
+    public static final int CURRENECY_ETH = 3928; // szabo, 10-6
     public static final int CURRENECY_LTC = 4141;
     public static final int CURRENECY_XDG = 4142;
     public static final int CURRENECY_GRC = 4143;
@@ -99,7 +99,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
     private Consumer<OrderCommand> consumer = cmd -> {
     };
 
-    static final Consumer<OrderCommand> CHECK_SUCCESS = cmd -> assertEquals(CommandResultCode.SUCCESS, cmd.resultCode);
+    public static final Consumer<OrderCommand> CHECK_SUCCESS = cmd -> assertEquals(CommandResultCode.SUCCESS, cmd.resultCode);
 
     public ExchangeTestContainer() {
         this(RING_BUFFER_SIZE_DEFAULT, MATCHING_ENGINES_ONE, RISK_ENGINES_ONE, MGS_IN_GROUP_LIMIT_DEFAULT, null);
@@ -156,10 +156,10 @@ public final class ExchangeTestContainer implements AutoCloseable {
         final CoreSymbolSpecification symbol2 = CoreSymbolSpecification.builder()
                 .symbolId(SYMBOL_EXCHANGE)
                 .type(SymbolType.CURRENCY_EXCHANGE_PAIR)
-                .baseCurrency(CURRENECY_ETH)
-                .quoteCurrency(CURRENECY_XBT)
-                .baseScaleK(1)
-                .quoteScaleK(1)
+                .baseCurrency(CURRENECY_ETH)    // base = szabo
+                .quoteCurrency(CURRENECY_XBT)   // quote = satoshi
+                .baseScaleK(100_000)            // 1 lot = 100K szabo (0.1 ETH)
+                .quoteScaleK(10)                // 1 step = 10 satoshi
                 .takerFee(0)
                 .makerFee(0)
                 .build();
@@ -169,7 +169,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
     public void initBasicUsers() throws InterruptedException {
 
-        List<ApiCommand> cmds = new ArrayList<>();
+        final List<ApiCommand> cmds = new ArrayList<>();
 
         cmds.add(ApiAddUser.builder().uid(UID_1).build());
         cmds.add(ApiAdjustUserBalance.builder().uid(UID_1).transactionId(1L).amount(10_000_00L).currency(CURRENECY_USD).build());
@@ -181,6 +181,13 @@ public final class ExchangeTestContainer implements AutoCloseable {
         cmds.add(ApiAdjustUserBalance.builder().uid(UID_2).transactionId(2L).amount(1_0000_0000L).currency(CURRENECY_XBT).build());
         cmds.add(ApiAdjustUserBalance.builder().uid(UID_2).transactionId(3L).amount(1_0000_0000L).currency(CURRENECY_ETH).build());
 
+        submitCommandsSync(cmds);
+    }
+
+    public void createUserWithMoney(long uid, int currency, long amount) throws InterruptedException {
+        final List<ApiCommand> cmds = new ArrayList<>();
+        cmds.add(ApiAddUser.builder().uid(uid).build());
+        cmds.add(ApiAdjustUserBalance.builder().uid(uid).transactionId(1L).amount(amount).currency(currency).build());
         submitCommandsSync(cmds);
     }
 
