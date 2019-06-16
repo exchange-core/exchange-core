@@ -19,10 +19,8 @@ import java.util.concurrent.CountDownLatch;
 
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
-import static org.openpredict.exchange.tests.util.ExchangeTestContainer.ALL_CURRENCIES;
-import static org.openpredict.exchange.tests.util.ExchangeTestContainer.AllowedSymbolTypes.BOTH;
-import static org.openpredict.exchange.tests.util.ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT;
-import static org.openpredict.exchange.tests.util.ExchangeTestContainer.CURRENCIES_FUTURES;
+import static org.openpredict.exchange.tests.util.ExchangeTestContainer.*;
+import static org.openpredict.exchange.tests.util.ExchangeTestContainer.AllowedSymbolTypes.*;
 
 @Slf4j
 public final class PerfPersistence {
@@ -45,6 +43,22 @@ public final class PerfPersistence {
                 CURRENCIES_FUTURES,
                 1,
                 FUTURES_CONTRACT,
+                1,
+                1,
+                2 * 1024,
+                1024);
+    }
+
+    @Test
+    public void persistenceExchangeTest() throws Exception {
+        persistenceTestImpl(
+                3_000_000,
+                1000,
+                1000,
+                10,
+                CURRENCIES_EXCHANGE,
+                1,
+                CURRENCY_EXCHANGE_PAIR,
                 1,
                 1,
                 2 * 1024,

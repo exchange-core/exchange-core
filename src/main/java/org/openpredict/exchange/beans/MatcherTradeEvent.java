@@ -20,7 +20,7 @@ public final class MatcherTradeEvent {
     // taker (for TRADE)
     public long activeOrderId;
     public long activeOrderUid;
-    public boolean activeOrderCompleted; // false, except when activeOrder is completely filled
+    public boolean activeOrderCompleted; // false, except when activeOrder is completely filled (should be ignored for REDUCE or REJECTION)
     public OrderAction activeOrderAction; // assume matched order has opposite action
 //    public long activeOrderSeq;
 
@@ -33,7 +33,7 @@ public final class MatcherTradeEvent {
     public long size;  // ? unmatched size for rejection
     public long timestamp; // same as activeOrder related event timestamp
 
-    public long holdPrice2; // frozen price from BID order owner
+    public long bidderHoldPrice; // frozen price from BID order owner (depends on activeOrderAction)
 
     // reference to next event in chain
     public MatcherTradeEvent nextEvent;
@@ -47,13 +47,13 @@ public final class MatcherTradeEvent {
         evt.activeOrderUid = this.activeOrderUid;
         evt.activeOrderCompleted = this.activeOrderCompleted;
         evt.activeOrderAction = this.activeOrderAction;
-        evt.holdPrice2 = this.holdPrice2;
         evt.matchedOrderId = this.matchedOrderId;
         evt.matchedOrderUid = this.matchedOrderUid;
         evt.matchedOrderCompleted = this.matchedOrderCompleted;
         evt.price = this.price;
         evt.size = this.size;
         evt.timestamp = this.timestamp;
+        evt.bidderHoldPrice = this.bidderHoldPrice;
         return evt;
     }
 
@@ -72,12 +72,12 @@ public final class MatcherTradeEvent {
                 .append(activeOrderUid, other.activeOrderUid)
                 .append(activeOrderCompleted, other.activeOrderCompleted)
                 .append(activeOrderAction, other.activeOrderAction)
-                .append(holdPrice2, other.holdPrice2)
                 .append(matchedOrderId, other.matchedOrderId)
                 .append(matchedOrderUid, other.matchedOrderUid)
                 .append(matchedOrderCompleted, other.matchedOrderCompleted)
                 .append(price, other.price)
                 .append(size, other.size)
+                .append(bidderHoldPrice, other.bidderHoldPrice)
                 // ignore timestamp
                 .append(nextEvent, other.nextEvent)
                 .isEquals();
@@ -94,12 +94,12 @@ public final class MatcherTradeEvent {
                 activeOrderUid,
                 activeOrderCompleted,
                 activeOrderAction,
-                holdPrice2,
                 matchedOrderId,
                 matchedOrderUid,
                 matchedOrderCompleted,
                 price,
                 size,
+                bidderHoldPrice,
                 nextEvent);
     }
 

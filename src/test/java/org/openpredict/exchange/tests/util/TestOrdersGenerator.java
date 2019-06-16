@@ -119,7 +119,7 @@ public final class TestOrdersGenerator {
             final int symbol,
             final boolean enableSlidingPrice) {
 
-        final IOrderBook orderBook = new OrderBookNaiveImpl();
+        final IOrderBook orderBook = new OrderBookNaiveImpl(SymbolType.FUTURES_CONTRACT);
 
         final TestOrdersGeneratorSession session = new TestOrdersGeneratorSession(
                 orderBook,
@@ -322,6 +322,7 @@ public final class TestOrdersGenerator {
                 session.orderPrices.put(session.seq, price);
                 session.orderUids.put(session.seq, uid);
                 placeCmd.price = price;
+                placeCmd.price2 = action == OrderAction.BID ? MAX_PRICE : 0; // set limit price
                 session.counterPlaceLimit++;
             } else {
                 placeCmd.price = action == OrderAction.BID ? MAX_PRICE : MIN_PRICE;
@@ -403,7 +404,7 @@ public final class TestOrdersGenerator {
                     switch (cmd.command) {
                         case PLACE_ORDER:
                             return ApiPlaceOrder.builder().symbol(cmd.symbol).uid(cmd.uid).id(cmd.orderId).price(cmd.price).size(cmd.size).action(cmd.action).orderType(cmd.orderType)
-                                    //.reservePrice(cmd.price2)
+                                    .reservePrice(cmd.price2)
                                     .build();
                         case MOVE_ORDER:
                             return ApiMoveOrder.builder().symbol(cmd.symbol).uid(cmd.uid).id(cmd.orderId).newPrice(cmd.price).build();

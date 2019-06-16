@@ -3,6 +3,7 @@ package org.openpredict.exchange.core.orderbook;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 import org.openpredict.exchange.beans.L2MarketData;
+import org.openpredict.exchange.beans.SymbolType;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
@@ -27,7 +28,7 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
     @Override
     protected IOrderBook createNewOrderBook() {
 
-        return new OrderBookFastImpl(HOT_PRICES_RANGE);
+        return new OrderBookFastImpl(HOT_PRICES_RANGE, SymbolType.FUTURES_CONTRACT);
     }
 
 
@@ -40,9 +41,9 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
         int targetOrderBookOrders = 500;
         int numUsers = 500;
 
-        IOrderBook orderBook = new OrderBookFastImpl(4096);
+        IOrderBook orderBook = new OrderBookFastImpl(4096, SymbolType.FUTURES_CONTRACT);
         //IOrderBook orderBook = new OrderBookNaiveImpl();
-        IOrderBook orderBookRef = new OrderBookNaiveImpl();
+        IOrderBook orderBookRef = new OrderBookNaiveImpl(SymbolType.FUTURES_CONTRACT);
 
         TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(tranNum, targetOrderBookOrders, numUsers, 0, true);
 

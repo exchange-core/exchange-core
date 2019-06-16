@@ -20,18 +20,18 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     private final NavigableMap<Long, IOrdersBucket> askBuckets;
     private final NavigableMap<Long, IOrdersBucket> bidBuckets;
 
-    private final SymbolType symbolType = SymbolType.FUTURES_CONTRACT;
+    private final SymbolType symbolType;
 
     private final LongObjectHashMap<Order> idMap = new LongObjectHashMap<>();
 
-    public OrderBookNaiveImpl() {
-
+    public OrderBookNaiveImpl(final SymbolType symbolType) {
+        this.symbolType = symbolType;
         this.askBuckets = new TreeMap<>();
         this.bidBuckets = new TreeMap<>(Collections.reverseOrder());
     }
 
-    public OrderBookNaiveImpl(BytesIn bytes) {
-
+    public OrderBookNaiveImpl(final BytesIn bytes) {
+        this.symbolType = SymbolType.of(bytes.readByte());
         this.askBuckets = Utils.readLongMap(bytes, TreeMap::new, IOrdersBucket::create);
         this.bidBuckets = Utils.readLongMap(bytes, () -> new TreeMap<>(Collections.reverseOrder()), IOrdersBucket::create);
 
@@ -206,7 +206,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
             buckets.remove(price);
         }
 
-        OrderBookEventsHelper.sendReduceEvent(cmd, order, order.size - order.filled);
+        OrderBookEventsHelper.sendReduceEvent(cmd, order);
 
         return true;
     }
@@ -387,6 +387,8 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
     @Override
     public void writeMarshallable(BytesOut bytes) {
+        bytes.writeByte(getImplementationType().getCode());
+        bytes.writeByte(symbolType.getCode());
         Utils.marshallLongMap(askBuckets, bytes);
         Utils.marshallLongMap(bidBuckets, bytes);
     }
@@ -397,7 +399,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         IOrdersBucket[] b = this.bidBuckets.values().toArray(new IOrdersBucket[0]);
 //        for(IOrdersBucket ord: a) log.debug("ask {}", ord);
 //        for(IOrdersBucket ord: b) log.debug("bid {}", ord);
-        return IOrderBook.hash(a, b);
+        return IOrderBook.hash(a, b, symbolType);
     }
 
     @Override

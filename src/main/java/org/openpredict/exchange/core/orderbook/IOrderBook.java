@@ -7,6 +7,7 @@ import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.StateHash;
+import org.openpredict.exchange.beans.SymbolType;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
@@ -91,10 +92,10 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     }
 
     // TODO to default?
-    static int hash(final IOrdersBucket[] askBuckets, final IOrdersBucket[] bidBuckets) {
+    static int hash(final IOrdersBucket[] askBuckets, final IOrdersBucket[] bidBuckets, final SymbolType symbolType) {
         final int a = Arrays.hashCode(askBuckets);
         final int b = Arrays.hashCode(bidBuckets);
-        return Objects.hash(a, b);
+        return Objects.hash(a, b, symbolType.getCode());
     }
 
     // TODO to default?
@@ -195,12 +196,12 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     }
 
 
-    static IOrderBook create(OrderBookImplType type) {
+    static IOrderBook create(OrderBookImplType type, final SymbolType symbolType) {
         switch (type) {
             case NAIVE:
-                return new OrderBookNaiveImpl();
+                return new OrderBookNaiveImpl(symbolType);
             case FAST:
-                return new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH);
+                return new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH, symbolType);
             default:
                 throw new IllegalArgumentException();
         }

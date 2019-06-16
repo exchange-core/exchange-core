@@ -7,6 +7,7 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.StateHash;
+import org.openpredict.exchange.beans.SymbolType;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
@@ -14,7 +15,7 @@ import org.openpredict.exchange.core.journalling.ISerializationProcessor;
 import org.openpredict.exchange.core.orderbook.IOrderBook;
 
 import java.util.Objects;
-import java.util.function.Supplier;
+import java.util.function.Function;
 
 import static net.openhft.chronicle.core.UnsafeMemory.UNSAFE;
 import static org.openpredict.exchange.beans.cmd.OrderCommandType.*;
@@ -29,7 +30,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
     // symbol->OB
     private final IntObjectHashMap<IOrderBook> orderBooks;
 
-    private final Supplier<IOrderBook> orderBookFactory;
+    private final Function<SymbolType, IOrderBook> orderBookFactory;
 
     private final int shardId;
     private final long shardMask;
@@ -39,7 +40,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
     public MatchingEngineRouter(final int shardId,
                                 final long numShards,
                                 final ISerializationProcessor serializationProcessor,
-                                final Supplier<IOrderBook> orderBookFactory,
+                                final Function<SymbolType, IOrderBook> orderBookFactory,
                                 final Long loadStateId) {
 
         if (Long.bitCount(numShards) != 1) {
@@ -128,7 +129,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         if (orderBooks.get(symbolId) != null) {
             return CommandResultCode.MATCHING_ORDER_BOOK_ALREADY_EXISTS;
         } else {
-            orderBooks.put(symbolId, orderBookFactory.get());
+            orderBooks.put(symbolId, orderBookFactory.apply(symbolSpecification.type));
             return CommandResultCode.SUCCESS;
         }
     }

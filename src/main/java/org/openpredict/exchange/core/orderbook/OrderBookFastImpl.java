@@ -23,7 +23,7 @@ public final class OrderBookFastImpl implements IOrderBook {
 
     public static final int DEFAULT_HOT_WIDTH = 32768;
 
-    private final SymbolType symbolType = SymbolType.FUTURES_CONTRACT;
+    private final SymbolType symbolType;
 
     private final int hotPricesRange;
 
@@ -51,12 +51,12 @@ public final class OrderBookFastImpl implements IOrderBook {
     private final ArrayDeque<Order> ordersPool = new ArrayDeque<>(65536);
     private final ArrayDeque<IOrdersBucket> bucketsPool = new ArrayDeque<>(65536);
 
-    public OrderBookFastImpl(int hotPricesRange) {
+    public OrderBookFastImpl(final int hotPricesRange, final SymbolType symbolType) {
         // must be aligned by 64 bit, can not be lower than 1024
         if ((hotPricesRange & 63) != 0 || hotPricesRange < 1024) {
             throw new IllegalArgumentException("invalid hotPricesRange=" + hotPricesRange);
         }
-
+        this.symbolType = symbolType;
         this.hotPricesRange = hotPricesRange;
         this.hotAskBitSet = new BitSet(hotPricesRange);
         this.hotBidBitSet = new BitSet(hotPricesRange);
@@ -66,9 +66,11 @@ public final class OrderBookFastImpl implements IOrderBook {
         this.farBidBuckets = new TreeMap<>(Collections.reverseOrder());
     }
 
-    public OrderBookFastImpl(BytesIn bytes) {
+    public OrderBookFastImpl(final BytesIn bytes) {
 
-        hotPricesRange = bytes.readInt();
+        this.symbolType = SymbolType.of(bytes.readByte());
+
+        this.hotPricesRange = bytes.readInt();
 
         this.hotAskBitSet = Utils.readBitSet(bytes);
         this.hotBidBitSet = Utils.readBitSet(bytes);
@@ -412,7 +414,7 @@ public final class OrderBookFastImpl implements IOrderBook {
         }
 
         // send reduce event
-        OrderBookEventsHelper.sendReduceEvent(cmd, removedOrder, removedOrder.size - removedOrder.filled);
+        OrderBookEventsHelper.sendReduceEvent(cmd, removedOrder);
 
         // saving free object back to the pool
         ordersPool.addLast(removedOrder);
@@ -454,6 +456,8 @@ public final class OrderBookFastImpl implements IOrderBook {
             // uid is checked in the bucket.remove method
             return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
+
+//        log.debug("{} {} {}>{}", symbolType, order.action, cmd.price, order.price2);
 
         // optimistic risk check mode for exchange bids
         if (symbolType == SymbolType.CURRENCY_EXCHANGE_PAIR && order.action == BID && cmd.price > order.price2) {
@@ -987,6 +991,7 @@ public final class OrderBookFastImpl implements IOrderBook {
     @Override
     public void writeMarshallable(BytesOut bytes) {
         bytes.writeByte(getImplementationType().getCode());
+        bytes.writeByte(symbolType.getCode());
         bytes.writeInt(hotPricesRange);
 
         Utils.marshallBitSet(hotAskBitSet, bytes);
@@ -1013,7 +1018,7 @@ public final class OrderBookFastImpl implements IOrderBook {
 //        for(IOrdersBucket ord: a) log.debug("ask {}", ord);
 //        for(IOrdersBucket ord: b) log.debug("bid {}", ord);
         //log.debug("FAST A:{} B:{}", a, b);
-        return IOrderBook.hash(a, b);
+        return IOrderBook.hash(a, b, symbolType);
         //log.debug("{} {} {} {} {}", hash, hotAskBuckets.size(), farAskBuckets.size(), hotBidBuckets.size(), farBidBuckets.size());
     }
 

@@ -8,6 +8,6 @@ public enum MatcherEventType {
     // Before being rejected active order can partially filled though.
     REJECTION,
 
-    // After cancel order or reduced its size - risk engine has to unlock deposit accordingly
-    REDUCE
+    // After cancel order - risk engine has to unlock deposit accordingly
+    REDUCE // TODO rename to CANCEL
 }

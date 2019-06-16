@@ -37,7 +37,7 @@ public final class OrderBookEventsHelper {
         event.symbol = activeOrder.symbol;
 
         // set order reserved price for correct released EBids
-        event.holdPrice2 = activeOrder.action == OrderAction.BID ? activeOrder.price2 : matchingOrder.price2;
+        event.bidderHoldPrice = activeOrder.action == OrderAction.BID ? activeOrder.price2 : matchingOrder.price2;
 
         event.nextEvent = cmd.matcherEvent;
         cmd.matcherEvent = event;
@@ -46,7 +46,7 @@ public final class OrderBookEventsHelper {
     }
 
 
-    public static void sendReduceEvent(OrderCommand cmd, Order order, long reducedBy) {
+    public static void sendReduceEvent(OrderCommand cmd, Order order) {
 //        log.debug("Reduce ");
         final MatcherTradeEvent event = newMatcherEvent();
         event.eventType = MatcherEventType.REDUCE;
@@ -57,12 +57,12 @@ public final class OrderBookEventsHelper {
 //        event.activeOrderSeq = order.seq;
         event.matchedOrderId = 0;
         event.matchedOrderCompleted = false;
-        event.price = 0;
-        event.size = reducedBy;
+        event.price = order.price;
+        event.size = order.size - order.filled;
         event.timestamp = cmd.timestamp;
         event.symbol = order.symbol;
 
-        event.holdPrice2 = order.price2; // set order reserved price for correct released EBids
+        event.bidderHoldPrice = order.price2; // set order reserved price for correct released EBids
 
         event.nextEvent = cmd.matcherEvent;
         cmd.matcherEvent = event;
@@ -87,12 +87,12 @@ public final class OrderBookEventsHelper {
         event.matchedOrderId = 0;
         event.matchedOrderCompleted = false;
 
-        event.price = 0;
+        event.price = cmd.price;
         event.size = rejectedSize;
         event.timestamp = cmd.timestamp;
         event.symbol = cmd.symbol;
 
-        event.holdPrice2 = cmd.price2; // set command reserved price for correct released EBids
+        event.bidderHoldPrice = cmd.price2; // set command reserved price for correct released EBids
 
         // insert event
         event.nextEvent = cmd.matcherEvent;

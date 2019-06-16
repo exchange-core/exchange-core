@@ -24,7 +24,7 @@ public final class SymbolPortfolioRecordExchange implements WriteBytesMarshallab
     // pending orders total size
     // increment before sending order to matching engine
     // decrement after receiving trade confirmation from matching engine
-    public long pendingSellSize = 0;
+    public long pendingSellAmount = 0;
     public long pendingBuyAmount = 0;
 
     public SymbolPortfolioRecordExchange(long uid, int symbol, int currency) {
@@ -39,20 +39,20 @@ public final class SymbolPortfolioRecordExchange implements WriteBytesMarshallab
 
         this.symbol = bytes.readInt();
         this.currency = bytes.readInt();
-        this.pendingSellSize = bytes.readLong();
+        this.pendingSellAmount = bytes.readLong();
         this.pendingBuyAmount = bytes.readLong();
     }
 
-    public void pendingHold(OrderAction orderAction, long size) {
-        if (orderAction == OrderAction.ASK) {
-            pendingSellSize += size;
-        } else {
-            pendingBuyAmount += size;
-        }
+    public void pendingHoldSell(final long amount) {
+        pendingSellAmount += amount;
     }
 
-    public void pendingSellRelease(long size) {
-        pendingSellSize -= size;
+    public void pendingHoldBuy(final long amount) {
+        pendingBuyAmount += amount;
+    }
+
+    public void pendingSellRelease(long amount) {
+        pendingSellAmount -= amount;
     }
 
     public void pendingBuyRelease(long amount) {
@@ -65,7 +65,7 @@ public final class SymbolPortfolioRecordExchange implements WriteBytesMarshallab
      * @return true if portfolio is empty (no pending orders)
      */
     public boolean isEmpty() {
-        return pendingSellSize == 0 && pendingBuyAmount == 0;
+        return pendingSellAmount == 0 && pendingBuyAmount == 0;
     }
 
 
@@ -74,7 +74,7 @@ public final class SymbolPortfolioRecordExchange implements WriteBytesMarshallab
         bytes.writeInt(symbol);
         bytes.writeInt(currency);
 
-        bytes.writeLong(pendingSellSize);
+        bytes.writeLong(pendingSellAmount);
         bytes.writeLong(pendingBuyAmount);
     }
 
@@ -82,18 +82,18 @@ public final class SymbolPortfolioRecordExchange implements WriteBytesMarshallab
 
         // log.debug("records: {}, Pending B{} S{} total size: {}", records.size(), pendingBuySize, pendingSellSize, totalSize);
         pendingBuyAmount = 0;
-        pendingSellSize = 0;
+        pendingSellAmount = 0;
     }
 
     public void validateInternalState() {
-        if (pendingSellSize < 0 || pendingBuyAmount < 0) {
-            log.error("uid {} : pendingSellSize:{} pendingBuyAmount:{}", uid, pendingSellSize, pendingBuyAmount);
+        if (pendingSellAmount < 0 || pendingBuyAmount < 0) {
+            log.error("uid {} : pendingSellSize:{} pendingBuyAmount:{}", uid, pendingSellAmount, pendingBuyAmount);
             throw new IllegalStateException();
         }
     }
 
     @Override
     public int stateHash() {
-        return Objects.hash(symbol, currency, pendingSellSize, pendingBuyAmount);
+        return Objects.hash(symbol, currency, pendingSellAmount, pendingBuyAmount);
     }
 }

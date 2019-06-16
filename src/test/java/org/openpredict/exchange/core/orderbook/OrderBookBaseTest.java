@@ -30,6 +30,7 @@ import static org.openpredict.exchange.beans.cmd.CommandResultCode.SUCCESS;
  * TODO cancel/update other uid not allowed
  * TODO tests where IOC order is not fully matched because of limit price (similar to GTC tests)
  * TODO tests where GTC order has duplicate id - rejection event should be sent
+ * TODO add tests for exchange mode (moves)
  */
 @Slf4j
 public abstract class OrderBookBaseTest {
@@ -239,23 +240,6 @@ public abstract class OrderBookBaseTest {
         assertThat(events.size(), is(0));
     }
 
-//    @Test
-//    public void shouldReduceOrderSize() {
-//
-//        OrderCommand cmd = OrderCommand.update(2, UID_1, 0, 5);
-//        processAndValidate(cmd, SUCCESS);
-//
-//        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
-//
-//        // volume reduced
-//        L2MarketData expected = expectedState.setAskVolume(0, 30).build();
-//        assertEquals(expected, snapshot);
-//
-//        List<MatcherTradeEvent> events = cmd.extractEvents();
-//        assertThat(events.size(), is(1));
-//        checkReduce(events.get(0), 2L, ASK, 45L, UID_1);
-//    }
-
     @Test
     public void shouldMoveOrderExistingBucket() {
         OrderCommand cmd = OrderCommand.update(7, UID_1, 81590);
@@ -285,23 +269,6 @@ public abstract class OrderBookBaseTest {
         List<MatcherTradeEvent> events = cmd.extractEvents();
         assertThat(events.size(), is(0));
     }
-
-//    @Test
-//    public void shouldMoveAndReduceOrder() {
-//        OrderCommand cmd = OrderCommand.update(7, UID_1, 81590, 1);
-//        processAndValidate(cmd, SUCCESS);
-//
-//        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
-//
-//        // volume reduced and moved
-//        L2MarketData expected = expectedState.setBidVolume(1, 22).removeBid(2).build();
-//        assertEquals(expected, snapshot);
-//
-//        List<MatcherTradeEvent> events = cmd.extractEvents();
-//        assertThat(events.size(), is(1));
-//        checkReduce(events.get(0), 7L, BID, 19L, UID_1);
-//    }
-
 
     // ------------------------ MATCHING TESTS -----------------------
 

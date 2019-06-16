@@ -15,6 +15,7 @@ import java.util.concurrent.CountDownLatch;
 
 import static org.junit.Assert.assertEquals;
 import static org.openpredict.exchange.tests.util.ExchangeTestContainer.ALL_CURRENCIES;
+import static org.openpredict.exchange.tests.util.ExchangeTestContainer.CURRENCIES_EXCHANGE;
 import static org.openpredict.exchange.tests.util.ExchangeTestContainer.CURRENCIES_FUTURES;
 
 @Slf4j
@@ -41,6 +42,21 @@ public final class PerfThroughput {
                     CURRENCIES_FUTURES,
                     1,
                     ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT);
+        }
+    }
+
+    @Test
+    public void throughputTestExchange() throws Exception {
+        try (final ExchangeTestContainer container = new ExchangeTestContainer(2 * 1024, 1, 1, 1536, null)) {
+            throughputTestImpl(
+                    container,
+                    3_000_000,
+                    1000,
+                    1000,
+                    50,
+                    CURRENCIES_EXCHANGE,
+                    1,
+                    ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR);
         }
     }
 

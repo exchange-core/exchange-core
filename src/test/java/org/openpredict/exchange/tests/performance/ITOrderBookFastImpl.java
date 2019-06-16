@@ -1,5 +1,6 @@
 package org.openpredict.exchange.tests.performance;
 
+import org.openpredict.exchange.beans.SymbolType;
 import org.openpredict.exchange.core.orderbook.IOrderBook;
 import org.openpredict.exchange.core.orderbook.OrderBookFastImpl;
 
@@ -7,6 +8,6 @@ public class ITOrderBookFastImpl extends ITOrderBookBase {
 
     @Override
     protected IOrderBook createNewOrderBook() {
-        return new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH);
+        return new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH, SymbolType.FUTURES_CONTRACT);
     }
 }
