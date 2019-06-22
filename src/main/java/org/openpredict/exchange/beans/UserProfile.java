@@ -18,7 +18,6 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
 
     // symbol -> portfolio records
     public final IntObjectHashMap<SymbolPortfolioRecord> portfolio;
-    public final IntObjectHashMap<SymbolPortfolioRecordExchange> exchangePortfolio;
 
     // set of applied transactionId
     public final LongHashSet externalTransactions;
@@ -40,7 +39,6 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
         //log.debug("New {}", uid);
         this.uid = uid;
         this.portfolio = new IntObjectHashMap<>();
-        this.exchangePortfolio = new IntObjectHashMap<>();
         this.externalTransactions = new LongHashSet();
         this.accounts = new IntLongHashMap();
     }
@@ -51,7 +49,6 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
 
         // positions
         this.portfolio = Utils.readIntHashMap(bytesIn, b -> new SymbolPortfolioRecord(uid, b));
-        this.exchangePortfolio = Utils.readIntHashMap(bytesIn, b -> new SymbolPortfolioRecordExchange(uid, b));
 
         // externalTransactions
         this.externalTransactions = Utils.readLongHashSet(bytesIn);
@@ -85,30 +82,6 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
         }
     }
 
-    public SymbolPortfolioRecordExchange getOrCreatePortfolioRecordExch(CoreSymbolSpecification spec) {
-        final int symbol = spec.symbolId;
-        SymbolPortfolioRecordExchange record = exchangePortfolio.get(symbol);
-        if (record == null) {
-            record = new SymbolPortfolioRecordExchange(uid, symbol, spec.quoteCurrency);
-            exchangePortfolio.put(symbol, record);
-        }
-        return record;
-    }
-
-    public SymbolPortfolioRecordExchange getPortfolioExchRecordOrThrowEx(int symbol) {
-        final SymbolPortfolioRecordExchange record = exchangePortfolio.get(symbol);
-        if (record == null) {
-            throw new IllegalStateException("not found portfolio for symbol " + symbol);
-        }
-        return record;
-    }
-
-    public void removeRecordIfEmpty(SymbolPortfolioRecordExchange record) {
-        if (record.isEmpty()) {
-            portfolio.removeKey(record.symbol);
-        }
-    }
-
     @Override
     public void writeMarshallable(BytesOut bytes) {
 
@@ -116,7 +89,6 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
 
         // positions
         Utils.marshallIntHashMap(portfolio, bytes);
-        Utils.marshallIntHashMap(exchangePortfolio, bytes);
 
         // externalTransactions
         Utils.marshallLongHashSet(externalTransactions, bytes);
@@ -131,7 +103,6 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
         return "UserProfile{" +
                 "uid=" + uid +
                 ", portfolios=" + portfolio.size() +
-                ", exchangePortfolios=" + exchangePortfolio.size() +
                 ", accounts=" + accounts +
                 ", commandsCounter=" + commandsCounter +
                 '}';
@@ -142,7 +113,6 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
         return Objects.hash(
                 uid,
                 Utils.stateHash(portfolio),
-                Utils.stateHash(exchangePortfolio),
                 externalTransactions.hashCode(),
                 accounts.hashCode());
     }

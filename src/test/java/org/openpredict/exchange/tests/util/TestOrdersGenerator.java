@@ -326,6 +326,7 @@ public final class TestOrdersGenerator {
                 session.counterPlaceLimit++;
             } else {
                 placeCmd.price = action == OrderAction.BID ? MAX_PRICE : MIN_PRICE;
+                placeCmd.price2 = action == OrderAction.BID ? placeCmd.price : 0; // set limit price
                 session.counterPlaceMarket++;
             }
 

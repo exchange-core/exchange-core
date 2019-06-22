@@ -266,12 +266,6 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         final boolean canPlace = userProfile.accounts.get(currency) + freeFuturesMargin >= orderAmount;
 
         if (canPlace) {
-            final SymbolPortfolioRecordExchange pr = userProfile.getOrCreatePortfolioRecordExch(spec);
-            if (cmd.action == OrderAction.BID) {
-                pr.pendingHoldBuy(orderAmount);
-            } else {
-                pr.pendingHoldSell(orderAmount);
-            }
             userProfile.accounts.addToValue(currency, -orderAmount);
         }
 
@@ -428,19 +422,15 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
                 // for reduce/rejection only one party is involved
                 final UserProfile up = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
-                final SymbolPortfolioRecordExchange spr = up.getPortfolioExchRecordOrThrowEx(ev.symbol);
                 if (ev.activeOrderAction == OrderAction.ASK) {
                     final long amountToReleaseInBaseCurrency = calculateAmountAsk(ev.size, spec);
-                    spr.pendingSellRelease(amountToReleaseInBaseCurrency);
                     up.accounts.addToValue(spec.baseCurrency, amountToReleaseInBaseCurrency);
 //                    log.debug("REJ/RED ASK: amountToRelease = {}  ACC:{}", amountToReleaseInBaseCurrency, userProfileService.getUserProfile(ev.activeOrderUid).accounts);
                 } else {
                     final long amountToRelease = calculateAmountBid(ev.size, ev.bidderHoldPrice, spec);
-                    spr.pendingBuyRelease(amountToRelease);
                     up.accounts.addToValue(spec.quoteCurrency, amountToRelease);
 //                    log.debug("REJ/RED BID: amountToRelease = {}  ACC:{}", amountToRelease, userProfileService.getUserProfile(ev.activeOrderUid).accounts);
                 }
-                up.removeRecordIfEmpty(spr);
             }
         } else {
             log.error("unsupported eventType: {}", ev.eventType);
@@ -450,11 +440,9 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
     private void processExchangeHoldRelease2(long uid, boolean isSelling, MatcherTradeEvent ev, CoreSymbolSpecification spec) {
         final long size = ev.size;
         final UserProfile up = userProfileService.getUserProfileOrThrowEx(uid);
-        final SymbolPortfolioRecordExchange spr = up.getPortfolioExchRecordOrThrowEx(ev.symbol);
 
         if (isSelling) {
             // selling
-            spr.pendingSellRelease(calculateAmountAsk(size, spec));
 
             final long obtainedAmountInQuoteCurrency = calculateAmountBid(size, ev.price, spec);
             up.accounts.addToValue(spec.quoteCurrency, obtainedAmountInQuoteCurrency);
@@ -462,7 +450,6 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         } else {
             // buying, use bidderHoldPrice to calculate released amount based on price difference
             final long amountDiffToReleaseInQuoteCurrency = calculateAmountBid(size, ev.bidderHoldPrice - ev.price, spec);
-            spr.pendingBuyRelease(amountDiffToReleaseInQuoteCurrency);
             up.accounts.addToValue(spec.quoteCurrency, amountDiffToReleaseInQuoteCurrency);
 
             final long obtainedAmountInBaseCurrency = calculateAmountAsk(size, spec);
@@ -470,7 +457,6 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 //            log.debug("{} buys - amountDiffToReleaseInQuoteCurrency={} ({}-{}) (in quote cur={})", up.uid, amountDiffToReleaseInQuoteCurrency, ev.bidderHoldPrice, ev.price, spec.quoteCurrency);
 //            log.debug("{} buys - getting {} (in base cur={}) size={} ACCOUNTS:{}", up.uid, obtainedAmountInBaseCurrency, spec.baseCurrency, size, userProfileService.getUserProfile(uid).accounts);
         }
-        up.removeRecordIfEmpty(spr);
     }
 
     @Override

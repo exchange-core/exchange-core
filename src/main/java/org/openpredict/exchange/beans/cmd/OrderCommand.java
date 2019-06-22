@@ -67,7 +67,7 @@ public class OrderCommand {
         cmd.orderId = orderId;
         cmd.uid = uid;
         cmd.price = price;
-        cmd.price2 = price; // TODO fix
+        cmd.price2 = price;
         cmd.size = size;
         cmd.action = action;
         cmd.orderType = orderType;
@@ -90,7 +90,6 @@ public class OrderCommand {
         cmd.orderId = orderId;
         cmd.uid = uid;
         cmd.price = price;
-        cmd.price2 = 0; // TODO fix
         cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
         return cmd;
     }
