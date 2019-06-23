@@ -26,8 +26,12 @@ public class OrderCommand {
 
     public long orderId;
     public int symbol;
-    public long price;  // optional for move
+    public long price;
     public long size;
+
+    // new orders - reserved price for fast moves of GTC bid orders in exchange mode
+    // move - expected original price (if price is less, command will be rejected)
+    public long price2;
 
     // required for PLACE_ORDER only;
     public OrderAction action;
@@ -39,7 +43,7 @@ public class OrderCommand {
 
     public int userCookie;
 
-    // ---- false sharing section ------
+    // filled by grouping processor:
 
     public long eventsGroup;
     public int serviceFlags;
@@ -57,32 +61,19 @@ public class OrderCommand {
     //public long matcherEventSequence;
     // ---- potential false sharing section ------
 
-    public static OrderCommand limitOrder(long orderId, int uid, long price, long size, OrderAction action) {
+    public static OrderCommand newOrder(OrderType orderType, long orderId, int uid, long price, long size, OrderAction action) {
         OrderCommand cmd = new OrderCommand();
         cmd.command = PLACE_ORDER;
         cmd.orderId = orderId;
         cmd.uid = uid;
         cmd.price = price;
+        cmd.price2 = price;
         cmd.size = size;
         cmd.action = action;
-        cmd.orderType = OrderType.LIMIT;
+        cmd.orderType = orderType;
         cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
         return cmd;
     }
-
-    public static OrderCommand marketOrder(long orderId, int uid, long size, OrderAction action) {
-        OrderCommand cmd = new OrderCommand();
-        cmd.command = PLACE_ORDER;
-        cmd.orderId = orderId;
-        cmd.uid = uid;
-        cmd.price = 0;
-        cmd.size = size;
-        cmd.action = action;
-        cmd.orderType = OrderType.MARKET;
-        cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
-        return cmd;
-    }
-
 
     public static OrderCommand cancel(long orderId, int uid) {
         OrderCommand cmd = new OrderCommand();
@@ -93,13 +84,12 @@ public class OrderCommand {
         return cmd;
     }
 
-    public static OrderCommand update(long orderId, int uid, long price, long size) {
+    public static OrderCommand update(long orderId, int uid, long price) {
         OrderCommand cmd = new OrderCommand();
         cmd.command = MOVE_ORDER;
         cmd.orderId = orderId;
         cmd.uid = uid;
         cmd.price = price;
-        cmd.size = size;
         cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
         return cmd;
     }
@@ -154,6 +144,7 @@ public class OrderCommand {
         cmd2.uid = this.uid;
         cmd2.timestamp = this.timestamp;
 
+        cmd2.price2 = this.price2;
         cmd2.price = this.price;
         cmd2.size = this.size;
         cmd2.action = this.action;

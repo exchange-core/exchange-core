@@ -6,11 +6,10 @@ import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.apache.commons.lang3.ArrayUtils;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
-import org.openpredict.exchange.beans.L2MarketData;
-import org.openpredict.exchange.beans.Order;
-import org.openpredict.exchange.beans.OrderAction;
-import org.openpredict.exchange.beans.OrderType;
+import org.openpredict.exchange.beans.*;
+import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.Utils;
 
 import java.util.*;
@@ -23,6 +22,8 @@ import static org.openpredict.exchange.beans.OrderAction.BID;
 public final class OrderBookFastImpl implements IOrderBook {
 
     public static final int DEFAULT_HOT_WIDTH = 32768;
+
+    private final SymbolType symbolType;
 
     private final int hotPricesRange;
 
@@ -50,12 +51,12 @@ public final class OrderBookFastImpl implements IOrderBook {
     private final ArrayDeque<Order> ordersPool = new ArrayDeque<>(65536);
     private final ArrayDeque<IOrdersBucket> bucketsPool = new ArrayDeque<>(65536);
 
-    public OrderBookFastImpl(int hotPricesRange) {
+    public OrderBookFastImpl(final int hotPricesRange, final SymbolType symbolType) {
         // must be aligned by 64 bit, can not be lower than 1024
         if ((hotPricesRange & 63) != 0 || hotPricesRange < 1024) {
             throw new IllegalArgumentException("invalid hotPricesRange=" + hotPricesRange);
         }
-
+        this.symbolType = symbolType;
         this.hotPricesRange = hotPricesRange;
         this.hotAskBitSet = new BitSet(hotPricesRange);
         this.hotBidBitSet = new BitSet(hotPricesRange);
@@ -65,9 +66,11 @@ public final class OrderBookFastImpl implements IOrderBook {
         this.farBidBuckets = new TreeMap<>(Collections.reverseOrder());
     }
 
-    public OrderBookFastImpl(BytesIn bytes) {
+    public OrderBookFastImpl(final BytesIn bytes) {
 
-        hotPricesRange = bytes.readInt();
+        this.symbolType = SymbolType.of(bytes.readByte());
+
+        this.hotPricesRange = bytes.readInt();
 
         this.hotAskBitSet = Utils.readBitSet(bytes);
         this.hotBidBitSet = Utils.readBitSet(bytes);
@@ -109,65 +112,61 @@ public final class OrderBookFastImpl implements IOrderBook {
         return idx + basePrice;
     }
 
-    public void matchMarketOrder(OrderCommand cmd) {
-        long filledSize = tryMatchInstantly(cmd, 0, cmd);
-
-        // partially filled due no liquidity - should report PARTIAL order execution
-        if (filledSize < cmd.size) {
-            OrderBookEventsHelper.attachRejectEvent(cmd, filledSize);
-        }
-    }
-
     @Override
-    public boolean placeNewLimitOrder(OrderCommand cmd) {
+    public CommandResultCode newOrder(OrderCommand cmd) {
 
-        long orderId = cmd.orderId;
-        if (idMapToBucket.containsKey(orderId)) {
-            // duplicate
-            return false;
-        }
-
-        if (basePrice == -1) {
-            // first limit order will define a base price (middle of the hotPricesRange range)
-            setBasePrice(calculateBasePrice(cmd.price));
-        }
+        final OrderType orderType = cmd.orderType;
+        final long size = cmd.size;
 
         // check if order is marketable there are matching orders
-        long filled = tryMatchInstantly(cmd, 0, cmd);
-        if (filled == cmd.size) {
+        final long filledSize = tryMatchInstantly(cmd, 0, cmd);
+        if (filledSize == size) {
             // fully matched as marketable before actually place - can just return
-            return true;
+            return CommandResultCode.SUCCESS;
         }
 
-        OrderAction action = cmd.action;
-        long price = cmd.price;
+        if (orderType == OrderType.IOC) {
+            OrderBookEventsHelper.attachRejectEvent(cmd, size - filledSize);
+            return CommandResultCode.SUCCESS;
+        }
 
-        // normally placing regular limit order
+        final long orderId = cmd.orderId;
+        if (idMapToBucket.containsKey(orderId)) {
+            // duplicate order id - can match, but can not place
+            OrderBookEventsHelper.attachRejectEvent(cmd, size - filledSize);
+            return CommandResultCode.MATCHING_DUPLICATE_ORDER_ID;
+        }
+
+        final long price = cmd.price;
+        if (basePrice == -1) {
+            // first GTC limit order will define a base price (middle of the hotPricesRange range)
+            setBasePrice(calculateBasePrice(price));
+        }
+
+        // normally placing regular GTC order
 
         Order orderRecord = ordersPool.pollLast();
         if (orderRecord == null) {
             orderRecord = new Order();
         }
 
-        orderRecord.command = cmd.command;
+        orderRecord.command = OrderCommandType.PLACE_ORDER;
         orderRecord.orderId = orderId;
         orderRecord.symbol = cmd.symbol;
         orderRecord.price = price;
-        orderRecord.size = cmd.size;
-        orderRecord.action = action;
+        orderRecord.size = size;
+        orderRecord.price2 = cmd.price2;
+        orderRecord.action = cmd.action;
         orderRecord.orderType = cmd.orderType;
         orderRecord.uid = cmd.uid;
         orderRecord.timestamp = cmd.timestamp;
-        orderRecord.filled = filled;
+        orderRecord.filled = filledSize;
 
-//        log.debug(" New object: {}", orderRecord);
-
-        IOrdersBucket bucket = action == ASK ? getOrCreateNewBucketAck(price) : getOrCreateNewBucketBid(price);
-        bucket.add(orderRecord);
-
+        final IOrdersBucket bucket = cmd.action == ASK ? getOrCreateNewBucketAck(price) : getOrCreateNewBucketBid(price);
+        bucket.put(orderRecord);
         idMapToBucket.put(orderId, bucket);
 
-        return true;
+        return CommandResultCode.SUCCESS;
     }
 
     /**
@@ -271,7 +270,7 @@ public final class OrderBookFastImpl implements IOrderBook {
      * Fully matching orders are removed from orderId index
      * Should any trades occur - they sent to tradesConsumer
      *
-     * @param activeOrder - LIMIT or MARKET activeOrder to match
+     * @param activeOrder - GTC or IOC activeOrder to match
      * @param filled      - current filled value of the activeOrder
      * @param triggerCmd  -
      * @return matched size (filled - if nothing is matching to the activeOrder)
@@ -280,51 +279,42 @@ public final class OrderBookFastImpl implements IOrderBook {
             final OrderCommand activeOrder,
             long filled,
             final OrderCommand triggerCmd) {
-        OrderAction action = activeOrder.action;
-
-//      log.info("-------- matchInstantly: {}", activeOrder);
-//      log.info("filled {} to match {}", filled, activeOrder.size);
 
         long nextPrice;
-        long limitPrice;
-        if (action == BID) {
-            if (minAskPrice == Long.MAX_VALUE) {
+        if (activeOrder.action == BID) {
+            if (minAskPrice > activeOrder.price) {
                 // no orders to match
                 return filled;
             }
             nextPrice = minAskPrice;
-            limitPrice = (activeOrder.orderType == OrderType.LIMIT) ? activeOrder.price : Long.MAX_VALUE;
         } else {
-            if (maxBidPrice == 0) {
+            if (maxBidPrice < activeOrder.price) {
                 // no orders to match
                 return filled;
             }
             nextPrice = maxBidPrice;
-            limitPrice = (activeOrder.orderType == OrderType.LIMIT) ? activeOrder.price : 0;
         }
 
-        long orderSize = activeOrder.size;
-
-        while (filled < orderSize) {
+        while (filled < activeOrder.size) {
 
             // search for next available bucket
-            IOrdersBucket bucket = (action == BID) ? nextAvailableBucketAsk(nextPrice, limitPrice) : nextAvailableBucketBid(nextPrice, limitPrice);
+            final IOrdersBucket bucket = (activeOrder.action == BID) ? nextAvailableBucketAsk(nextPrice, activeOrder.price) : nextAvailableBucketBid(nextPrice, activeOrder.price);
             if (bucket == null) {
                 break;
             }
 
             final long tradePrice = bucket.getPrice();
             // next iteration price
-            nextPrice = (action == BID) ? tradePrice + 1 : tradePrice - 1;
+            nextPrice = (activeOrder.action == BID) ? tradePrice + 1 : tradePrice - 1;
 
             // matching orders within bucket
-            final long sizeLeft = orderSize - filled;
+            final long sizeLeft = activeOrder.size - filled;
             // log.debug("bucket {} match size: {}", bucket.getPrice(), sizeLeft);
             filled += bucket.match(sizeLeft, activeOrder, triggerCmd, this::removeFullyMatchedOrder);
 
             // remove bucket if its empty
             if (bucket.getTotalVolume() == 0) {
-                removeBucket(action.opposite(), tradePrice);
+                removeBucket(activeOrder.action.opposite(), tradePrice);
             }
         }
         return filled;
@@ -341,7 +331,7 @@ public final class OrderBookFastImpl implements IOrderBook {
      * Searches for next available bucket for matching starting from currentPrice inclusive and till lastPrice inclusive.
      *
      * @param currentPrice - price to start with
-     * @param lastPrice    - limit price, can also be 0 or LONG_MAX for market orders.
+     * @param lastPrice    - limit price
      * @return bucket or null if not found
      */
     private IOrdersBucket nextAvailableBucketAsk(long currentPrice, long lastPrice) {
@@ -367,7 +357,7 @@ public final class OrderBookFastImpl implements IOrderBook {
      * Searches for next available bucket for matching starting from currentPrice inclusive and till lastPrice inclusive.
      *
      * @param currentPrice - price to start with
-     * @param lastPrice    - limit price, can also be 0 or INT_MAX for market orders.
+     * @param lastPrice    - limit price
      * @return bucket or null if not found
      */
     private IOrdersBucket nextAvailableBucketBid(long currentPrice, long lastPrice) {
@@ -424,8 +414,7 @@ public final class OrderBookFastImpl implements IOrderBook {
         }
 
         // send reduce event
-        long reducedBy = removedOrder.size - removedOrder.filled;
-        OrderBookEventsHelper.sendReduceEvent(cmd, removedOrder, reducedBy);
+        OrderBookEventsHelper.sendReduceEvent(cmd, removedOrder);
 
         // saving free object back to the pool
         ordersPool.addLast(removedOrder);
@@ -447,41 +436,34 @@ public final class OrderBookFastImpl implements IOrderBook {
      * 4. Insert order in the bucket (internal hash table and queue)
      * <p>
      * orderId  - order id
-     * newPrice - new price (0 - don't move the order)
-     * newSize  - new size (0 - don't reduce size of the order)
+     * newPrice - new price
      *
      * @return - false if order not found (can be matched or removed), true otherwise
      */
     @Override
-    public boolean updateOrder(OrderCommand cmd) {
+    public CommandResultCode moveOrder(OrderCommand cmd) {
 
-        long orderId = cmd.orderId;
-        long newSize = cmd.size;
-        long newPrice = cmd.price;
+        final long orderId = cmd.orderId;
 
-        IOrdersBucket bucket = idMapToBucket.get(orderId);
+        final IOrdersBucket bucket = idMapToBucket.get(orderId);
         if (bucket == null) {
-            return false;
-        }
-
-
-        // if change volume operation - use bucket implementation
-        // NOTE: not very efficient if moving and reducing volume
-        if (newSize > 0) {
-            if (!bucket.tryReduceSize(cmd)) {
-                return false;
-            }
-        }
-
-        // return if there is no move operation (downsize only)
-        if (newPrice <= 0 || newPrice == bucket.getPrice()) {
-            return true;
+            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
 
         // take order out of the original bucket
-        Order order = bucket.remove(orderId, cmd.uid);
+        final Order order = bucket.remove(orderId, cmd.uid);
         if (order == null) {
-            return false;
+            // uid is checked in the bucket.remove method
+            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
+        }
+
+//        log.debug("{} {} {}>{}", symbolType, order.action, cmd.price, order.price2);
+
+        // optimistic risk check mode for exchange bids
+        if (symbolType == SymbolType.CURRENCY_EXCHANGE_PAIR && order.action == BID && cmd.price > order.price2) {
+            // put order back (yes it will be in the end of queue)
+            bucket.put(order);
+            return CommandResultCode.MATCHING_MOVE_FAILED_PRICE_ABOVE_RISK_LIMIT;
         }
 
         // remove bucket if moved order was the last one in the bucket
@@ -489,8 +471,9 @@ public final class OrderBookFastImpl implements IOrderBook {
             removeBucket(order.action, bucket.getPrice());
         }
 
+        final long newPrice = cmd.price;
         order.price = newPrice;
-        //if ((action == BID && newPrice >= minAskPrice) || (action == ASK && newPrice <= maxBidPrice)) {
+
         // try match with new price
         long filled = tryMatchInstantly(order, order.filled, cmd);
         if (filled == order.size) {
@@ -498,15 +481,16 @@ public final class OrderBookFastImpl implements IOrderBook {
             idMapToBucket.remove(orderId);
             // saving free object back to pool
             ordersPool.addLast(order);
-            return true;
-        }
-        order.filled = filled;
+        } else {
+            order.filled = filled;
 
-        // if not filled completely - put it into corresponding bucket
-        bucket = (order.action == ASK) ? getOrCreateNewBucketAck(newPrice) : getOrCreateNewBucketBid(newPrice);
-        bucket.add(order);
-        idMapToBucket.put(orderId, bucket);
-        return true;
+            // if not filled completely - put it into corresponding bucket
+            final IOrdersBucket otherBucket = (order.action == ASK) ? getOrCreateNewBucketAck(newPrice) : getOrCreateNewBucketBid(newPrice);
+            otherBucket.put(order);
+            // override cache record
+            idMapToBucket.put(orderId, otherBucket);
+        }
+        return CommandResultCode.SUCCESS;
     }
 
 
@@ -1007,6 +991,7 @@ public final class OrderBookFastImpl implements IOrderBook {
     @Override
     public void writeMarshallable(BytesOut bytes) {
         bytes.writeByte(getImplementationType().getCode());
+        bytes.writeByte(symbolType.getCode());
         bytes.writeInt(hotPricesRange);
 
         Utils.marshallBitSet(hotAskBitSet, bytes);
@@ -1030,12 +1015,11 @@ public final class OrderBookFastImpl implements IOrderBook {
     public int hashCode() {
         final IOrdersBucket[] a = getAsksAsArray();
         final IOrdersBucket[] b = getBidsAsArray();
+//        for(IOrdersBucket ord: a) log.debug("ask {}", ord);
+//        for(IOrdersBucket ord: b) log.debug("bid {}", ord);
         //log.debug("FAST A:{} B:{}", a, b);
-        final int hash = IOrderBook.hash(a, b);
-
+        return IOrderBook.hash(a, b, symbolType);
         //log.debug("{} {} {} {} {}", hash, hotAskBuckets.size(), farAskBuckets.size(), hotBidBuckets.size(), farBidBuckets.size());
-        return hash;
-
     }
 
 

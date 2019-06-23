@@ -38,24 +38,12 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
         this.totalVolume = bytes.readLong();
     }
 
-    /**
-     * Place order into end of bucket
-     *
-     * @param order
-     */
-
     @Override
-    public void add(Order order) {
+    public void put(Order order) {
         entries.put(order.orderId, order);
         totalVolume += order.size - order.filled;
     }
 
-    /**
-     * Remove order
-     *
-     * @param orderId
-     * @return
-     */
     @Override
     public Order remove(long orderId, long uid) {
         Order order = entries.get(orderId);
@@ -120,32 +108,6 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
 
         return totalMatchingVolume;
     }
-
-    /**
-     * Reduce order volume if possible
-     * <p>
-     * orderId
-     * newSize
-     *
-     * @return
-     */
-    @Override
-    public boolean tryReduceSize(OrderCommand cmd) {
-        Order order = entries.get(cmd.orderId);
-        if (order == null || order.uid != cmd.uid) {
-            return false;
-        }
-
-        long reduceBy = order.size - order.filled - cmd.size;
-        if (reduceBy > 0) {
-            order.size -= reduceBy;
-            totalVolume -= reduceBy;
-            OrderBookEventsHelper.sendReduceEvent(cmd, order, reduceBy);
-        }
-
-        return true;
-    }
-
 
     @Override
     public int getNumOrders() {

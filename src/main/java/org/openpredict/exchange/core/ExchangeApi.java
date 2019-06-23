@@ -154,6 +154,7 @@ public final class ExchangeApi {
     private static final EventTranslatorOneArg<OrderCommand, ApiPlaceOrder> NEW_ORDER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.PLACE_ORDER;
         cmd.price = api.price;
+        cmd.price2 = api.reservePrice;
         cmd.size = api.size;
         cmd.orderId = api.id;
         cmd.timestamp = api.timestamp;
@@ -167,7 +168,7 @@ public final class ExchangeApi {
     private static final EventTranslatorOneArg<OrderCommand, ApiMoveOrder> MOVE_ORDER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.MOVE_ORDER;
         cmd.price = api.newPrice;
-        cmd.size = api.newSize;
+        //cmd.price2
         cmd.orderId = api.id;
         cmd.symbol = api.symbol;
         cmd.uid = api.uid;

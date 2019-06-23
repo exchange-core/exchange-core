@@ -35,19 +35,19 @@ public abstract class ITOrdersBucketBase {
         bucket = createNewOrdersBucket();
         bucket.setPrice(PRICE);
 
-        bucket.add(Order.orderBuilder().orderId(1).uid(UID_1).size(100).build());
+        bucket.put(Order.orderBuilder().orderId(1).uid(UID_1).size(100).build());
         assertThat(bucket.getNumOrders(), is(1));
         assertThat(bucket.getTotalVolume(), is(100L));
 
         bucket.validate();
 
-        bucket.add(Order.orderBuilder().orderId(2).uid(UID_2).size(40).build());
+        bucket.put(Order.orderBuilder().orderId(2).uid(UID_2).size(40).build());
         assertThat(bucket.getNumOrders(), is(2));
         assertThat(bucket.getTotalVolume(), is(140L));
 
         bucket.validate();
 
-        bucket.add(Order.orderBuilder().orderId(3).uid(UID_1).size(1).build());
+        bucket.put(Order.orderBuilder().orderId(3).uid(UID_1).size(1).build());
         assertThat(bucket.getNumOrders(), is(3));
         assertThat(bucket.getTotalVolume(), is(141L));
 
@@ -59,7 +59,7 @@ public abstract class ITOrdersBucketBase {
 
         bucket.validate();
 
-        bucket.add(Order.orderBuilder().orderId(4).uid(UID_1).size(200).build());
+        bucket.put(Order.orderBuilder().orderId(4).uid(UID_1).size(200).build());
         assertThat(bucket.getNumOrders(), is(3));
         assertThat(bucket.getTotalVolume(), is(301L));
     }
@@ -80,7 +80,7 @@ public abstract class ITOrdersBucketBase {
                 Order order = Order.orderBuilder().orderId(orderId++).uid(UID_2).size(i).build();
                 orders.add(order);
 
-                bucket.add(order);
+                bucket.put(order);
                 expectedNumOrders++;
                 expectedVolume += i;
 
@@ -107,7 +107,7 @@ public abstract class ITOrdersBucketBase {
             }
 
             long toMatch = expectedVolume / 2;
-            OrderCommand triggerOrder = OrderCommand.update(1238729387, UID_9, 1000, toMatch);
+            OrderCommand triggerOrder = OrderCommand.update(1238729387, UID_9, 1000);
             long totalVolume = bucket.match(toMatch, triggerOrder, triggerOrder, IGNORE_CMD_CONSUMER);
             assertThat(totalVolume, is(toMatch));
             expectedVolume -= totalVolume;
@@ -117,7 +117,7 @@ public abstract class ITOrdersBucketBase {
             bucket.validate();
         }
 
-        OrderCommand triggerOrder = OrderCommand.update(1238729387, UID_9, 1000, expectedVolume);
+        OrderCommand triggerOrder = OrderCommand.update(1238729387, UID_9, 1000);
         bucket.match(expectedVolume, triggerOrder, triggerOrder, IGNORE_CMD_CONSUMER);
         assertThat(triggerOrder.extractEvents().size(), is(expectedNumOrders));
 
@@ -144,7 +144,7 @@ public abstract class ITOrdersBucketBase {
 
         long t = System.currentTimeMillis();
         for (Order order : orders) {
-            bucket.add(order);
+            bucket.put(order);
         }
         log.debug("{}ms", System.currentTimeMillis() - t);
 
@@ -172,7 +172,7 @@ public abstract class ITOrdersBucketBase {
                 Order order = Order.orderBuilder().orderId(orderId++).uid(UID_2).size(i).build();
                 orders.add(order);
 
-                bucket.add(order);
+                bucket.put(order);
                 expectedNumOrders++;
                 expectedVolume += i;
 
@@ -200,7 +200,7 @@ public abstract class ITOrdersBucketBase {
             long toMatch = expectedVolume / 2;
             s = System.nanoTime();
 
-            OrderCommand triggerOrd = OrderCommand.update(1238729387, UID_9, 1000, toMatch);
+            OrderCommand triggerOrd = OrderCommand.update(1238729387, UID_9, 1000);
             long matchingTotalVol = bucket.match(toMatch, triggerOrd, triggerOrd, IGNORE_CMD_CONSUMER);
 
             timeAccum += System.nanoTime() - s;

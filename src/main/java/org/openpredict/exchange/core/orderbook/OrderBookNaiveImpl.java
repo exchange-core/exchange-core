@@ -4,13 +4,15 @@ import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
-import org.openpredict.exchange.beans.L2MarketData;
-import org.openpredict.exchange.beans.Order;
-import org.openpredict.exchange.beans.OrderAction;
+import org.openpredict.exchange.beans.*;
+import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.Utils;
 
 import java.util.*;
+
+import static org.openpredict.exchange.beans.OrderAction.BID;
 
 @Slf4j
 public final class OrderBookNaiveImpl implements IOrderBook {
@@ -18,16 +20,18 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     private final NavigableMap<Long, IOrdersBucket> askBuckets;
     private final NavigableMap<Long, IOrdersBucket> bidBuckets;
 
+    private final SymbolType symbolType;
+
     private final LongObjectHashMap<Order> idMap = new LongObjectHashMap<>();
 
-    public OrderBookNaiveImpl() {
-
+    public OrderBookNaiveImpl(final SymbolType symbolType) {
+        this.symbolType = symbolType;
         this.askBuckets = new TreeMap<>();
         this.bidBuckets = new TreeMap<>(Collections.reverseOrder());
     }
 
-    public OrderBookNaiveImpl(BytesIn bytes) {
-
+    public OrderBookNaiveImpl(final BytesIn bytes) {
+        this.symbolType = SymbolType.of(bytes.readByte());
         this.askBuckets = Utils.readLongMap(bytes, TreeMap::new, IOrdersBucket::create);
         this.bidBuckets = Utils.readLongMap(bytes, () -> new TreeMap<>(Collections.reverseOrder()), IOrdersBucket::create);
 
@@ -39,57 +43,62 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         //validateInternalState();
     }
 
-
-    public void matchMarketOrder(OrderCommand cmd) {
-        final NavigableMap<Long, IOrdersBucket> matchingBuckets = cmd.action == OrderAction.ASK ? bidBuckets : askBuckets;
-        long filledSize = tryMatchInstantly(cmd, matchingBuckets, 0, cmd);
-
-        // partially filled due no liquidity - should report PARTIAL order execution
-        if (filledSize < cmd.size) {
-            OrderBookEventsHelper.attachRejectEvent(cmd, filledSize);
-        }
-    }
-
     @Override
-    public boolean placeNewLimitOrder(OrderCommand cmd) {
+    public CommandResultCode newOrder(OrderCommand cmd) {
 
-        if (idMap.containsKey(cmd.orderId)) {
-            // duplicate
-            return false;
-        }
+        final OrderType orderType = cmd.orderType;
+        final OrderAction action = cmd.action;
+        final long price = cmd.price;
+        final long size = cmd.size;
 
         // check if order is marketable (if there are opposite matching orders)
-        long filled = tryMatchInstantly(cmd, subtreeForMatching(cmd.action, cmd.price), 0, cmd);
-        if (filled == cmd.size) {
-            // fully matched as marketable before actually place - can just return
-            return true;
+        long filledSize = tryMatchInstantly(cmd, subtreeForMatching(action, price), 0, cmd);
+        if (filledSize == size) {
+            // order is fully matched - can just return
+            return CommandResultCode.SUCCESS;
+
         }
 
-        // normally placing regular limit order
-        Order orderRecord = new Order(
-                cmd.command,
-                cmd.orderId,
+        if (orderType == OrderType.IOC) {
+            OrderBookEventsHelper.attachRejectEvent(cmd, cmd.size - filledSize);
+            return CommandResultCode.SUCCESS;
+        }
+
+        long newOrderId = cmd.orderId;
+        if (idMap.containsKey(newOrderId)) {
+
+            // duplicate order id - can match, but can not place
+            OrderBookEventsHelper.attachRejectEvent(cmd, cmd.size - filledSize);
+            return CommandResultCode.MATCHING_DUPLICATE_ORDER_ID;
+        }
+
+        // normally placing regular GTC limit order
+
+        final Order orderRecord = new Order(
+                OrderCommandType.PLACE_ORDER,
+                newOrderId,
                 cmd.symbol,
-                cmd.price,
-                cmd.size,
-                cmd.action,
-                cmd.orderType,
+                price,
+                size,
+                cmd.price2,
+                action,
+                orderType,
                 cmd.uid,
                 cmd.timestamp,
                 cmd.userCookie,
-                filled);
+                filledSize);
 
-        IOrdersBucket bucket = getBucketsByAction(cmd.action)
-                .computeIfAbsent(cmd.price, price -> {
-                    IOrdersBucket b = new OrdersBucketNaiveImpl();
-                    b.setPrice(price);
+        final IOrdersBucket bucket = getBucketsByAction(action)
+                .computeIfAbsent(price, p -> {
+                    final IOrdersBucket b = new OrdersBucketNaiveImpl();
+                    b.setPrice(p);
                     return b;
                 });
-        bucket.add(orderRecord);
+        bucket.put(orderRecord);
 
-        idMap.put(cmd.orderId, orderRecord);
+        idMap.put(newOrderId, orderRecord);
 
-        return true;
+        return CommandResultCode.SUCCESS;
     }
 
     private SortedMap<Long, IOrdersBucket> subtreeForMatching(OrderAction action, long price) {
@@ -102,7 +111,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
      * Fully matching orders are removed from orderId index
      * Should any trades occur - they sent to tradesConsumer
      *
-     * @param activeOrder     - LIMIT or MARKET order to match
+     * @param activeOrder     - GTC or IOC order to match
      * @param matchingBuckets - sorted buckets map
      * @param filled          - current 'filled' value for the order
      * @param triggerCmd      -
@@ -197,85 +206,67 @@ public final class OrderBookNaiveImpl implements IOrderBook {
             buckets.remove(price);
         }
 
-        OrderBookEventsHelper.sendReduceEvent(cmd, order, order.size - order.filled);
+        OrderBookEventsHelper.sendReduceEvent(cmd, order);
 
         return true;
     }
 
-
-    /**
-     * Reduce volume or/and move an order
-     * <p>
-     * orderId  - order id
-     * newPrice - new price (0 - don't move the order)
-     * newSize  - new size (0 - don't reduce size of the order)
-     *
-     * @return - false if order not found (can be matched or removed), true otherwise
-     */
     @Override
-    public boolean updateOrder(OrderCommand cmd) {
+    public CommandResultCode moveOrder(OrderCommand cmd) {
 
-        long orderId = cmd.orderId;
-        long newSize = cmd.size;
-        long newPrice = cmd.price;
+        final long orderId = cmd.orderId;
+        final long newPrice = cmd.price;
 
-        Order order = idMap.get(orderId);
+        final Order order = idMap.get(orderId);
         if (order == null) {
             // already matched, moved or cancelled
-            return false;
+            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
+
+//         log.debug("{}. {}->{}", orderId, order.price, newPrice);
 
         if (order.uid != cmd.uid) {
-            return false;
+            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
 
-        long price = order.price;
-        NavigableMap<Long, IOrdersBucket> buckets = getBucketsByAction(order.action);
-        IOrdersBucket ordersBucket = buckets.get(price);
+        final long price = order.price;
+        final NavigableMap<Long, IOrdersBucket> buckets = getBucketsByAction(order.action);
+        final IOrdersBucket bucket = buckets.get(price);
 
-        // if change volume operation - use bucket implementation
-        // not very efficient if moving and reducing volume
-        if (newSize > 0) {
-            if (!ordersBucket.tryReduceSize(cmd)) {
-                return false;
-            }
-        }
-
-        // return if there is no move operation (downsize only)
-        if (newPrice <= 0 || newPrice == price) {
-            return true;
+        // optimistic risk check mode for exchange bids
+        if (symbolType == SymbolType.CURRENCY_EXCHANGE_PAIR && order.action == BID && cmd.price > order.price2) {
+            // put order back (yes it will be in the end of queue)
+            bucket.put(order);
+            return CommandResultCode.MATCHING_MOVE_FAILED_PRICE_ABOVE_RISK_LIMIT;
         }
 
         // take order out of the original bucket and clean bucket if its empty
-        if (ordersBucket.remove(orderId, cmd.uid) == null) {
-            return false;
-        }
-
-        if (ordersBucket.getTotalVolume() == 0) {
+        bucket.remove(orderId, cmd.uid);
+        if (bucket.getTotalVolume() == 0) {
             buckets.remove(price);
         }
 
         order.price = newPrice;
 
         // try match with new price
-        SortedMap<Long, IOrdersBucket> matchingArea = subtreeForMatching(order.action, newPrice);
+        final SortedMap<Long, IOrdersBucket> matchingArea = subtreeForMatching(order.action, newPrice);
         long filled = tryMatchInstantly(order, matchingArea, order.filled, cmd);
         if (filled == order.size) {
             // order was fully matched (100% marketable) - removing from order book
             idMap.remove(orderId);
-            return true;
+            return CommandResultCode.SUCCESS;
         }
         order.filled = filled;
 
         // if not filled completely - put it into corresponding bucket
-        ordersBucket = buckets.computeIfAbsent(newPrice, p -> {
+        final IOrdersBucket anotherBucket = buckets.computeIfAbsent(newPrice, p -> {
             IOrdersBucket b = new OrdersBucketNaiveImpl();
             b.setPrice(p);
             return b;
         });
-        ordersBucket.add(order);
+        anotherBucket.put(order);
 
-        return true;
+        return CommandResultCode.SUCCESS;
     }
 
     /**
@@ -396,6 +387,8 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
     @Override
     public void writeMarshallable(BytesOut bytes) {
+        bytes.writeByte(getImplementationType().getCode());
+        bytes.writeByte(symbolType.getCode());
         Utils.marshallLongMap(askBuckets, bytes);
         Utils.marshallLongMap(bidBuckets, bytes);
     }
@@ -404,7 +397,9 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     public int hashCode() {
         IOrdersBucket[] a = this.askBuckets.values().toArray(new IOrdersBucket[0]);
         IOrdersBucket[] b = this.bidBuckets.values().toArray(new IOrdersBucket[0]);
-        return IOrderBook.hash(a, b);
+//        for(IOrdersBucket ord: a) log.debug("ask {}", ord);
+//        for(IOrdersBucket ord: b) log.debug("bid {}", ord);
+        return IOrderBook.hash(a, b, symbolType);
     }
 
     @Override

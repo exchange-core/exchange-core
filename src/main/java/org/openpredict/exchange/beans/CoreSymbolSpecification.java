@@ -23,14 +23,14 @@ public final class CoreSymbolSpecification implements Serializable, WriteBytesMa
     // currency pair specification
     public final int baseCurrency;  // base currency
     public final int quoteCurrency; // quote/counter currency (OR futures contract currency)
-    public final long baseScaleK;   // base currency amount multiplier
-    public final long quoteScaleK;  // quote currency amount multiplier
+    public final long baseScaleK;   // base currency amount multiplier (lot size in base currency units)
+    public final long quoteScaleK;  // quote currency amount multiplier (step size in quote currency units)
 
     // deposit settings (for type=FUTURES_CONTRACT only)
     public final long depositBuy;   // buy margin (quote currency)
     public final long depositSell;  // sell margin (quote currency)
 
-    // fees (per lot)
+    // fees per lot in quote? currency units
     public final long takerFee;
     public final long makerFee;
     // TODO public final int feeCurrency; //  if type=CURRENCY_EXCHANGE_PAIR - should be the same as quoteCurrency
@@ -50,15 +50,15 @@ public final class CoreSymbolSpecification implements Serializable, WriteBytesMa
 
 /* NOT SUPPORTED YET:
 
-    // lot size
+//  lot size -- validated by gates
 //    public final long lotSize;
 //    public final int stepSize;
 
-    // order book limits
+    // order book limits -- for FUTURES only
 //    public final long highLimit;
 //    public final long lowLimit;
 
-    // swaps
+    // swaps -- not by
 //    public final long longSwap;
 //    public final long shortSwap;
 

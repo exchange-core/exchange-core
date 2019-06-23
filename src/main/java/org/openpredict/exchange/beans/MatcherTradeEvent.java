@@ -20,7 +20,7 @@ public final class MatcherTradeEvent {
     // taker (for TRADE)
     public long activeOrderId;
     public long activeOrderUid;
-    public boolean activeOrderCompleted; // false, except when activeOrder is completely filled
+    public boolean activeOrderCompleted; // false, except when activeOrder is completely filled (should be ignored for REDUCE or REJECTION)
     public OrderAction activeOrderAction; // assume matched order has opposite action
 //    public long activeOrderSeq;
 
@@ -29,9 +29,11 @@ public final class MatcherTradeEvent {
     public long matchedOrderUid; // 0 for rejection
     public boolean matchedOrderCompleted; // false, except when matchedOrder is completely filled
 
-    public long price; // 0 for rejection
+    public long price; // actual price of the deal (from maker order), 0 for rejection
     public long size;  // ? unmatched size for rejection
     public long timestamp; // same as activeOrder related event timestamp
+
+    public long bidderHoldPrice; // frozen price from BID order owner (depends on activeOrderAction)
 
     // reference to next event in chain
     public MatcherTradeEvent nextEvent;
@@ -51,6 +53,7 @@ public final class MatcherTradeEvent {
         evt.price = this.price;
         evt.size = this.size;
         evt.timestamp = this.timestamp;
+        evt.bidderHoldPrice = this.bidderHoldPrice;
         return evt;
     }
 
@@ -74,6 +77,7 @@ public final class MatcherTradeEvent {
                 .append(matchedOrderCompleted, other.matchedOrderCompleted)
                 .append(price, other.price)
                 .append(size, other.size)
+                .append(bidderHoldPrice, other.bidderHoldPrice)
                 // ignore timestamp
                 .append(nextEvent, other.nextEvent)
                 .isEquals();
@@ -95,6 +99,7 @@ public final class MatcherTradeEvent {
                 matchedOrderCompleted,
                 price,
                 size,
+                bidderHoldPrice,
                 nextEvent);
     }
 

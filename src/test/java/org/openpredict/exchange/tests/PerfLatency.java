@@ -9,7 +9,7 @@ import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.api.ApiCommand;
 import org.openpredict.exchange.core.ExchangeApi;
 import org.openpredict.exchange.tests.util.ExchangeTestContainer;
-import org.openpredict.exchange.tests.util.ExchangeTestContainer.AllowedSymbolTypes;
+import org.openpredict.exchange.tests.util.ExchangeTestContainer.*;
 import org.openpredict.exchange.tests.util.LatencyTools;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 
@@ -23,8 +23,7 @@ import java.util.function.BiFunction;
 import java.util.stream.IntStream;
 
 import static org.junit.Assert.assertEquals;
-import static org.openpredict.exchange.tests.util.ExchangeTestContainer.ALL_CURRENCIES;
-import static org.openpredict.exchange.tests.util.ExchangeTestContainer.CURRENCIES_FUTURES;
+import static org.openpredict.exchange.tests.util.ExchangeTestContainer.*;
 
 @Slf4j
 public final class PerfLatency {
@@ -51,6 +50,22 @@ public final class PerfLatency {
                     CURRENCIES_FUTURES,
                     1,
                     AllowedSymbolTypes.FUTURES_CONTRACT,
+                    20);
+        }
+    }
+
+    @Test
+    public void latencyExchangeTest() {
+
+        try (final ExchangeTestContainer container = new ExchangeTestContainer(2 * 1024, 1, 1, 512, null)) {
+            latencyTestImpl(
+                    container,
+                    3_000_000,
+                    1_000,
+                    1_000,
+                    CURRENCIES_EXCHANGE,
+                    1,
+                    AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR,
                     20);
         }
     }

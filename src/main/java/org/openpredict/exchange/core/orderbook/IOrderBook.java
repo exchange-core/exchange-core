@@ -6,10 +6,11 @@ import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.openpredict.exchange.beans.L2MarketData;
 import org.openpredict.exchange.beans.Order;
-import org.openpredict.exchange.beans.OrderType;
 import org.openpredict.exchange.beans.StateHash;
+import org.openpredict.exchange.beans.SymbolType;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.beans.cmd.OrderCommandType;
 
 import java.util.Arrays;
 import java.util.List;
@@ -18,23 +19,17 @@ import java.util.Objects;
 public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
     /**
-     * Process new MARKET order
-     * Such order matched to any existing LIMIT orders
-     * Of there is not enough volume in order book - reject as partially filled
+     * Process new order.
+     * Depending on price specified (whether the order is marketable),
+     * order will be matched to existing opposite GTC orders from the order book.
+     * In case of remaining volume (order was not matched completely):
+     * IOC - reject it as partially filled.
+     * GTC - place as a new limit order into th order book.
      *
-     * @param order - market order to match
+     * @param cmd - order to match/place
+     * @return command code (success, or rejection reason)
      */
-    void matchMarketOrder(OrderCommand order);
-
-    /**
-     * Place new LIMIT order
-     * If order is marketable (there are matching limit orders) - match it first with existing liquidity
-     * <p>
-     * // todo return reject reason ?
-     *
-     * @param cmd - limit order to place
-     */
-    boolean placeNewLimitOrder(OrderCommand cmd);
+    CommandResultCode newOrder(OrderCommand cmd);
 
     /**
      * Cancel order
@@ -54,7 +49,7 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
      *
      * @return false if order was not found, otherwise always true
      */
-    boolean updateOrder(OrderCommand cmd);
+    CommandResultCode moveOrder(OrderCommand cmd);
 
 
     int getOrdersNum();
@@ -97,10 +92,10 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     }
 
     // TODO to default?
-    static int hash(IOrdersBucket[] askBuckets, IOrdersBucket[] bidBuckets) {
-        int a = Arrays.hashCode(askBuckets);
-        int b = Arrays.hashCode(bidBuckets);
-        return Objects.hash(a, b);
+    static int hash(final IOrdersBucket[] askBuckets, final IOrdersBucket[] bidBuckets, final SymbolType symbolType) {
+        final int a = Arrays.hashCode(askBuckets);
+        final int b = Arrays.hashCode(bidBuckets);
+        return Objects.hash(a, b, symbolType.getCode());
     }
 
     // TODO to default?
@@ -170,60 +165,43 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
     static CommandResultCode processCommand(final IOrderBook orderBook, final OrderCommand cmd) {
 
-        switch (cmd.command) {
-            case MOVE_ORDER:
-                boolean isUpdated = orderBook.updateOrder(cmd);
-                return isUpdated ? CommandResultCode.SUCCESS : CommandResultCode.MATCHING_INVALID_ORDER_ID;
+        final OrderCommandType commandType = cmd.command;
 
-            case CANCEL_ORDER:
-                boolean isCancelled = orderBook.cancelOrder(cmd);
-                return isCancelled ? CommandResultCode.SUCCESS : CommandResultCode.MATCHING_INVALID_ORDER_ID;
+        if (commandType == OrderCommandType.MOVE_ORDER) {
 
-            case PLACE_ORDER:
-//                log.debug("Place {}", cmd.orderId);
-                if (cmd.resultCode == CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
+            return orderBook.moveOrder(cmd);
 
-                    if (cmd.orderType == OrderType.LIMIT) {
+        } else if (commandType == OrderCommandType.CANCEL_ORDER) {
 
-                        // todo validate price step (also for MOVE_ORDER)
-//                    if (spec.stepSize != 1 && cmd.orderType == OrderType.LIMIT && cmd.price % spec.stepSize != 0) {
-//                        cmd.resultCode = CommandResultCode.INVALID_PRICE_STEP;
-//                        log.warn("Price {} does not match step {} of symbol {}", cmd.price, spec.stepSize, cmd.symbol);
-//                        return;
-//                    }
+            boolean isCancelled = orderBook.cancelOrder(cmd);
+            return isCancelled ? CommandResultCode.SUCCESS : CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
 
-                        return orderBook.placeNewLimitOrder(cmd)
-                                ? CommandResultCode.SUCCESS
-                                : CommandResultCode.MATCHING_DUPLICATE_ORDER_ID;
-                    } else {
-                        orderBook.matchMarketOrder(cmd);
-                        return CommandResultCode.SUCCESS;
-                    }
-                } else {
-                    // no change
-                    return cmd.resultCode;
-                }
+        } else if (commandType == OrderCommandType.PLACE_ORDER) {
 
+            return (cmd.resultCode == CommandResultCode.VALID_FOR_MATCHING_ENGINE)
+                    ? orderBook.newOrder(cmd)
+                    : cmd.resultCode; // no change
 
-            case ORDER_BOOK_REQUEST:
-                //log.debug("ORDER_BOOK_REQUEST {}", cmd.size);
-                cmd.marketData = orderBook.getL2MarketDataSnapshot((int) cmd.size);
-                return CommandResultCode.SUCCESS;
+        } else if (commandType == OrderCommandType.ORDER_BOOK_REQUEST) {
 
-            default:
-                //log.warn("unsupported command {}", cmd.command);
-                return CommandResultCode.MATCHING_UNSUPPORTED_COMMAND;
+            //log.debug("ORDER_BOOK_REQUEST {}", cmd.size);
+            cmd.marketData = orderBook.getL2MarketDataSnapshot((int) cmd.size);
+            return CommandResultCode.SUCCESS;
+
+        } else {
+            //log.warn("unsupported command {}", cmd.command);
+            return CommandResultCode.MATCHING_UNSUPPORTED_COMMAND;
         }
 
     }
 
 
-    static IOrderBook create(OrderBookImplType type) {
+    static IOrderBook create(OrderBookImplType type, final SymbolType symbolType) {
         switch (type) {
             case NAIVE:
-                return new OrderBookNaiveImpl();
+                return new OrderBookNaiveImpl(symbolType);
             case FAST:
-                return new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH);
+                return new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH, symbolType);
             default:
                 throw new IllegalArgumentException();
         }

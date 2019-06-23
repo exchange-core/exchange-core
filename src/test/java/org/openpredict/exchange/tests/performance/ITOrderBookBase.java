@@ -23,6 +23,7 @@ import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 import static org.openpredict.exchange.beans.OrderAction.ASK;
 import static org.openpredict.exchange.beans.OrderAction.BID;
+import static org.openpredict.exchange.beans.OrderType.IOC;
 
 /**
  * TODO add tests where orders for same UID ignored during matching
@@ -39,16 +40,18 @@ public abstract class ITOrderBookBase {
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10000);
 
+        final long maxPrice = Arrays.stream(snapshot.askPrices).max().orElse(1);
+
         // match all asks
         long askSum = Arrays.stream(snapshot.askVolumes).sum();
-        IOrderBook.processCommand(orderBook, OrderCommand.marketOrder(100000000000L, -1, askSum, BID));
+        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(IOC, 100000000000L, -1, maxPrice, askSum, BID));
 //        log.debug("{}", dumpOrderBook(orderBook.getL2MarketDataSnapshot(100000)));
 
         // match all bids
         long bidSum = Arrays.stream(snapshot.bidVolumes).sum();
 
 //        log.debug("Matching {} bids", bidSum);
-        IOrderBook.processCommand(orderBook, OrderCommand.marketOrder(100000000001L, -2, bidSum, ASK));
+        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(IOC, 100000000001L, -2, 1, bidSum, ASK));
 
 //        log.debug("{}", dumpOrderBook(orderBook.getL2MarketDataSnapshot(100000)));
 

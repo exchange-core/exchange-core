@@ -53,8 +53,8 @@ public class OrdersBucketFastImplTest extends OrdersBucketBaseTest {
                 Order order2 = Order.orderBuilder().price(1).orderId(orderId).uid(UID_2).size(size).build();
                 orders.add(order1);
 
-                bucket.add(order1);
-                bucketRef.add(order2);
+                bucket.put(order1);
+                bucketRef.put(order2);
 
                 expectedVolume += size;
 
@@ -77,8 +77,8 @@ public class OrdersBucketFastImplTest extends OrdersBucketBaseTest {
 //            TradeEventCallback.TradeEventCollector eventsRef = new TradeEventCallback.TradeEventCollector();
             long toMatch = expectedVolume / 2;
 
-            OrderCommand trig = OrderCommand.update(1238729387, UID_9, 1000, toMatch);
-            OrderCommand trigRef = OrderCommand.update(1238729387, UID_9, 1000, toMatch);
+            OrderCommand trig = OrderCommand.update(1238729387, UID_9, 1000);
+            OrderCommand trigRef = OrderCommand.update(1238729387, UID_9, 1000);
 
             long totalVolume = bucket.match(toMatch, trig, trig,IGNORE_CMD_CONSUMER);
             bucketRef.match(toMatch, trigRef, trigRef, IGNORE_CMD_CONSUMER);
@@ -89,8 +89,8 @@ public class OrdersBucketFastImplTest extends OrdersBucketBaseTest {
 
 //        TradeEventCallback.TradeEventCollector events = new TradeEventCallback.TradeEventCollector();
 //        TradeEventCallback.TradeEventCollector eventsRef = new TradeEventCallback.TradeEventCollector();
-        OrderCommand trig = OrderCommand.update(1238729387, UID_9, 1000, expectedVolume);
-        OrderCommand trigRef = OrderCommand.update(1238729387, UID_9, 1000, expectedVolume);
+        OrderCommand trig = OrderCommand.update(1238729387, UID_9, 1000);
+        OrderCommand trigRef = OrderCommand.update(1238729387, UID_9, 1000);
         bucket.match(expectedVolume, trig, trig, IGNORE_CMD_CONSUMER);
         bucketRef.match(expectedVolume, trigRef, trigRef, IGNORE_CMD_CONSUMER);
         MatcherAssert.assertThat(bucket, is(bucketRef));

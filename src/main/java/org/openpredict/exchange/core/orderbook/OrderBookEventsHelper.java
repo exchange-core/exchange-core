@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.MatcherEventType;
 import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.Order;
+import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
 @Slf4j
@@ -35,6 +36,9 @@ public final class OrderBookEventsHelper {
         event.timestamp = activeOrder.timestamp;
         event.symbol = activeOrder.symbol;
 
+        // set order reserved price for correct released EBids
+        event.bidderHoldPrice = activeOrder.action == OrderAction.BID ? activeOrder.price2 : matchingOrder.price2;
+
         event.nextEvent = cmd.matcherEvent;
         cmd.matcherEvent = event;
 
@@ -42,7 +46,7 @@ public final class OrderBookEventsHelper {
     }
 
 
-    public static void sendReduceEvent(OrderCommand cmd, Order order, long reducedBy) {
+    public static void sendReduceEvent(OrderCommand cmd, Order order) {
 //        log.debug("Reduce ");
         final MatcherTradeEvent event = newMatcherEvent();
         event.eventType = MatcherEventType.REDUCE;
@@ -53,17 +57,19 @@ public final class OrderBookEventsHelper {
 //        event.activeOrderSeq = order.seq;
         event.matchedOrderId = 0;
         event.matchedOrderCompleted = false;
-        event.price = 0;
-        event.size = reducedBy;
-        event.timestamp = order.timestamp; // TODO should be current timestamp
+        event.price = order.price;
+        event.size = order.size - order.filled;
+        event.timestamp = cmd.timestamp;
         event.symbol = order.symbol;
+
+        event.bidderHoldPrice = order.price2; // set order reserved price for correct released EBids
 
         event.nextEvent = cmd.matcherEvent;
         cmd.matcherEvent = event;
     }
 
 
-    public static void attachRejectEvent(OrderCommand cmd, long filledSize) {
+    public static void attachRejectEvent(OrderCommand cmd, long rejectedSize) {
 
 //        log.debug("Rejected {}", cmd.orderId);
 //        log.debug("\n{}", getL2MarketDataSnapshot(10).dumpOrderBook());
@@ -81,10 +87,12 @@ public final class OrderBookEventsHelper {
         event.matchedOrderId = 0;
         event.matchedOrderCompleted = false;
 
-        event.price = 0;
-        event.size = cmd.size - filledSize;
+        event.price = cmd.price;
+        event.size = rejectedSize;
         event.timestamp = cmd.timestamp;
         event.symbol = cmd.symbol;
+
+        event.bidderHoldPrice = cmd.price2; // set command reserved price for correct released EBids
 
         // insert event
         event.nextEvent = cmd.matcherEvent;

@@ -3,6 +3,7 @@ package org.openpredict.exchange.core.orderbook;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 import org.openpredict.exchange.beans.L2MarketData;
+import org.openpredict.exchange.beans.SymbolType;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
@@ -16,6 +17,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.openpredict.exchange.beans.OrderAction.ASK;
 import static org.openpredict.exchange.beans.OrderAction.BID;
+import static org.openpredict.exchange.beans.OrderType.GTC;
 import static org.openpredict.exchange.beans.cmd.CommandResultCode.SUCCESS;
 
 @Slf4j
@@ -26,7 +28,7 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
     @Override
     protected IOrderBook createNewOrderBook() {
 
-        return new OrderBookFastImpl(HOT_PRICES_RANGE);
+        return new OrderBookFastImpl(HOT_PRICES_RANGE, SymbolType.FUTURES_CONTRACT);
     }
 
 
@@ -39,9 +41,9 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
         int targetOrderBookOrders = 500;
         int numUsers = 500;
 
-        IOrderBook orderBook = new OrderBookFastImpl(4096);
+        IOrderBook orderBook = new OrderBookFastImpl(4096, SymbolType.FUTURES_CONTRACT);
         //IOrderBook orderBook = new OrderBookNaiveImpl();
-        IOrderBook orderBookRef = new OrderBookNaiveImpl();
+        IOrderBook orderBookRef = new OrderBookNaiveImpl(SymbolType.FUTURES_CONTRACT);
 
         TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(tranNum, targetOrderBookOrders, numUsers, 0, true);
 
@@ -118,7 +120,7 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
 
         // placing limit bid orders
         for (long price = bottomPrice; price < INITIAL_PRICE; price++) {
-            OrderCommand cmd = OrderCommand.limitOrder(orderId++, UID_1, price, 1, BID);
+            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_1, price, 1, BID);
 //            log.debug("BID {}", price);
             processAndValidate(cmd, SUCCESS);
             results.put(price, -1L);
@@ -127,7 +129,7 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
 
         for (long price = topPrice; price >= bottomPrice; price--) {
             long size = price * price;
-            OrderCommand cmd = OrderCommand.limitOrder(orderId++, UID_2, price, size, ASK);
+            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_2, price, size, ASK);
 //            log.debug("ASK {}", price);
             processAndValidate(cmd, SUCCESS);
             results.compute(price, (p, v) -> v == null ? size : v + size);
@@ -177,16 +179,15 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
 
         // placing limit ask orders
         for (long price = topPrice; price > INITIAL_PRICE; price--) {
-            OrderCommand cmd = OrderCommand.limitOrder(orderId++, UID_1, price, 1, ASK);
+            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_1, price, 1, ASK);
 //            log.debug("BID {}", price);
             processAndValidate(cmd, SUCCESS);
             results.put(price, -1L);
         }
 
-
         for (long price = bottomPrice; price <= topPrice; price++) {
             long size = price * price;
-            OrderCommand cmd = OrderCommand.limitOrder(orderId++, UID_2, price, size, BID);
+            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_2, price, size, BID);
 //            log.debug("ASK {}", price);
             processAndValidate(cmd, SUCCESS);
             results.compute(price, (p, v) -> v == null ? size : v + size);
@@ -215,6 +216,5 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
         // obviously no aks records expected (they all should be matched)
         assertThat(snapshot.askSize, is(0));
     }
-
 
 }

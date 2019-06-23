@@ -9,6 +9,7 @@ import lombok.Builder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ArrayUtils;
+import org.openpredict.exchange.beans.SymbolType;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
@@ -17,10 +18,12 @@ import org.openpredict.exchange.core.biprocessor.MasterProcessor;
 import org.openpredict.exchange.core.biprocessor.SlaveProcessor;
 import org.openpredict.exchange.core.journalling.ISerializationProcessor;
 import org.openpredict.exchange.core.journalling.JournallingProcessor;
+import org.openpredict.exchange.core.orderbook.IOrderBook;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -42,6 +45,7 @@ public final class ExchangeCore {
                         final int msgsInGroupLimit,
                         final Utils.ThreadAffityMode threadAffityMode,
                         final DisruptorWaitStrategy waitStrategy,
+                        final Function<SymbolType, IOrderBook> orderBookFactory,
                         final Long loadStateId) {
 
         this.disruptor = new Disruptor<>(
@@ -66,7 +70,7 @@ public final class ExchangeCore {
         // creating matching engine event handlers array // TODO parallel deserialization
         final EventHandler<OrderCommand>[] matchingEngineHandlers = IntStream.range(0, matchingEnginesNum)
                 .mapToObj(shardId -> {
-                    final MatchingEngineRouter router = new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, loadStateId);
+                    final MatchingEngineRouter router = new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, orderBookFactory, loadStateId);
                     return (EventHandler<OrderCommand>) (cmd, seq, eob) -> router.processOrder(cmd);
                 })
                 .toArray(ExchangeCore::newEventHandlersArray);

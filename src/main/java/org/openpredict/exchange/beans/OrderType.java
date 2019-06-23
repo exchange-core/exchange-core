@@ -4,8 +4,8 @@ import lombok.Getter;
 
 @Getter
 public enum OrderType {
-    LIMIT(0),
-    MARKET(1); // TODO deprecate
+    GTC(0), // Good till Cancel - equivalent to regular limit order
+    IOC(1); // Immediate or Cancel - equivalent to strict-risk market order
 
     private byte code;
 
@@ -16,9 +16,9 @@ public enum OrderType {
     public static OrderType of(byte code) {
         switch (code) {
             case 0:
-                return LIMIT;
+                return GTC;
             case 1:
-                return MARKET;
+                return IOC;
             default:
                 throw new IllegalArgumentException("unknown OrderType:" + code);
         }
