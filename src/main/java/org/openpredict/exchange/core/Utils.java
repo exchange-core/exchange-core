@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
+import net.openhft.chronicle.bytes.NativeBytes;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.api.map.primitive.MutableIntLongMap;
 import org.eclipse.collections.api.map.primitive.MutableLongIntMap;
@@ -12,10 +13,13 @@ import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongIntHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.eclipse.collections.impl.set.mutable.primitive.LongHashSet;
+import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.StateHash;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
+import java.nio.ByteBuffer;
+import java.nio.LongBuffer;
 import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -27,14 +31,12 @@ import static net.openhft.chronicle.core.UnsafeMemory.UNSAFE;
 @Slf4j
 public final class Utils {
 
-    public static int requiredLongArraySize(final int bytesLength) {
-        return ((bytesLength - 1) >> 3) + 1;
-    }
 
     final static long OFFSET_ORDER_ID;
     final static long OFFSET_RESULT_CODE;
     final static long OFFSET_PRICE;
     final static long OFFSET_UID;
+    final static long OFFSET_EVENT;
 
     static {
         try {
@@ -42,6 +44,7 @@ public final class Utils {
             OFFSET_PRICE = UNSAFE.objectFieldOffset(OrderCommand.class.getDeclaredField("price"));
             OFFSET_UID = UNSAFE.objectFieldOffset(OrderCommand.class.getDeclaredField("uid"));
             OFFSET_RESULT_CODE = UNSAFE.objectFieldOffset(OrderCommand.class.getDeclaredField("resultCode"));
+            OFFSET_EVENT = UNSAFE.objectFieldOffset(OrderCommand.class.getDeclaredField("matcherEvent"));
         } catch (NoSuchFieldException ex) {
             throw new IllegalStateException(ex);
         }
@@ -72,6 +75,43 @@ public final class Utils {
         }
     }
 
+    public static long[] bytesToLongArray(final NativeBytes<Void> bytes, final int padding) {
+        final ByteBuffer byteBuffer = ByteBuffer.allocate((int) bytes.readRemaining());
+        bytes.read(byteBuffer);
+        final byte[] array = byteBuffer.array();
+        log.debug("array:{}", array);
+        final long[] longs = toLongsArray(array, padding);
+        log.debug("longs:{}", longs);
+        return longs;
+    }
+
+    public static long[] toLongsArray(final byte[] bytes, final int padding) {
+
+        final int longLength = Utils.requiredLongArraySize(bytes.length, padding);
+        long[] longArray = new long[longLength];
+        //log.debug("byte[{}]={}", bytes.length, bytes);
+
+        final ByteBuffer allocate = ByteBuffer.allocate(bytes.length * 2);
+        final LongBuffer longBuffer = allocate.asLongBuffer();
+        allocate.put(bytes);
+        longBuffer.get(longArray);
+        return longArray;
+    }
+
+    public static int requiredLongArraySize(final int bytesLength, final int padding) {
+        int len = requiredLongArraySize(bytesLength);
+        if (padding == 1) {
+            return len;
+        } else {
+            int rem = len % padding;
+            return rem == 0 ? len : (len + padding - rem);
+        }
+    }
+
+    public static int requiredLongArraySize(final int bytesLength) {
+        return ((bytesLength - 1) >> 3) + 1;
+    }
+
     public static void setResultVolatile(final OrderCommand cmd,
                                          final boolean result,
                                          final CommandResultCode successCode,
@@ -91,7 +131,22 @@ public final class Utils {
             }
 
             // do a CAS operation
-        } while (UNSAFE.compareAndSwapObject(cmd, OFFSET_RESULT_CODE, currentCode, codeToSet));
+        } while (!UNSAFE.compareAndSwapObject(cmd, OFFSET_RESULT_CODE, currentCode, codeToSet));
+    }
+
+    public static void appendEventsVolatile(final OrderCommand cmd,
+                                            final MatcherTradeEvent eventHead) {
+
+        final MatcherTradeEvent tail = eventHead.findTail();
+
+        //MatcherTradeEvent.asList(eventHead).forEach(a -> log.info("in {}", a));
+
+        do {
+            // read current head and attach to the tail of new
+            tail.nextEvent = (MatcherTradeEvent) UNSAFE.getObjectVolatile(cmd, OFFSET_EVENT);
+
+            // do a CAS operation
+        } while (!UNSAFE.compareAndSwapObject(cmd, OFFSET_EVENT, tail.nextEvent, eventHead));
     }
 
 

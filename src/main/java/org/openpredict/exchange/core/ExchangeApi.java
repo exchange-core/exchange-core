@@ -11,9 +11,6 @@ import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
 
-import java.nio.ByteBuffer;
-import java.nio.LongBuffer;
-
 @RequiredArgsConstructor
 @Slf4j
 public final class ExchangeApi {
@@ -44,6 +41,8 @@ public final class ExchangeApi {
             ringBuffer.publishEvent(ADD_USER_TRANSLATOR, (ApiAddUser) cmd);
         } else if (cmd instanceof ApiAdjustUserBalance) {
             ringBuffer.publishEvent(ADJUST_USER_BALANCE_TRANSLATOR, (ApiAdjustUserBalance) cmd);
+        } else if (cmd instanceof ApiUserReport) {
+            ringBuffer.publishEvent(USER_REPORT_TRANSLATOR, (ApiUserReport) cmd);
         } else if (cmd instanceof ApiBinaryDataCommand) {
             publishBinaryData(ringBuffer, (ApiBinaryDataCommand) cmd);
         } else if (cmd instanceof ApiPersistState) {
@@ -70,22 +69,13 @@ public final class ExchangeApi {
         // 1010011110 >> 1010011 + 1
         // 1010011111 >> 1010011 + 1
 
-        // TODO optimize
+        long[] longArray = Utils.toLongsArray(bytes, 1);
 
-        final int longLength = Utils.requiredLongArraySize(bytes.length);
-        long[] longArray = new long[longLength];
-        //log.debug("byte[{}]={}", bytes.length, bytes);
-
-
-        final ByteBuffer allocate = ByteBuffer.allocate(bytes.length * 2);
-        final LongBuffer longBuffer = allocate.asLongBuffer();
-        allocate.put(bytes);
-        longBuffer.get(longArray);
         //log.debug("longArray[{}]={}",longArray.length, longArray);
 
         int i = 0;
-        long highSeq = ringBuffer.next(longLength);
-        long lowSeq = highSeq - longLength + 1;
+        long highSeq = ringBuffer.next(longArray.length);
+        long lowSeq = highSeq - longArray.length + 1;
 
         try {
             for (long seq = lowSeq; seq <= highSeq; seq++) {
@@ -154,7 +144,7 @@ public final class ExchangeApi {
     private static final EventTranslatorOneArg<OrderCommand, ApiPlaceOrder> NEW_ORDER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.PLACE_ORDER;
         cmd.price = api.price;
-        cmd.price2 = api.reservePrice;
+        cmd.reserveBidPrice = api.reservePrice;
         cmd.size = api.size;
         cmd.orderId = api.id;
         cmd.timestamp = api.timestamp;
@@ -212,6 +202,13 @@ public final class ExchangeApi {
         cmd.symbol = api.currency;
         cmd.uid = api.uid;
         cmd.price = api.amount;
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+    };
+
+    private static final EventTranslatorOneArg<OrderCommand, ApiUserReport> USER_REPORT_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.USER_REPORT;
+        cmd.uid = api.uid;
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
     };

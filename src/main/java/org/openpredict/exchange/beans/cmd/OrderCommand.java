@@ -30,8 +30,7 @@ public class OrderCommand {
     public long size;
 
     // new orders - reserved price for fast moves of GTC bid orders in exchange mode
-    // move - expected original price (if price is less, command will be rejected)
-    public long price2;
+    public long reserveBidPrice;
 
     // required for PLACE_ORDER only;
     public OrderAction action;
@@ -67,7 +66,7 @@ public class OrderCommand {
         cmd.orderId = orderId;
         cmd.uid = uid;
         cmd.price = price;
-        cmd.price2 = price;
+        cmd.reserveBidPrice = price;
         cmd.size = size;
         cmd.action = action;
         cmd.orderType = orderType;
@@ -144,7 +143,7 @@ public class OrderCommand {
         cmd2.uid = this.uid;
         cmd2.timestamp = this.timestamp;
 
-        cmd2.price2 = this.price2;
+        cmd2.reserveBidPrice = this.reserveBidPrice;
         cmd2.price = this.price;
         cmd2.size = this.size;
         cmd2.action = this.action;

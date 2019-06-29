@@ -38,7 +38,7 @@ public final class TestOrdersGeneratorSession {
 
     public long numCompleted = 0;
     public long numRejected = 0;
-    public long numReduced = 0;
+    public long numCancelled = 0;
 
     public long counterPlaceMarket = 0;
     public long counterPlaceLimit = 0;

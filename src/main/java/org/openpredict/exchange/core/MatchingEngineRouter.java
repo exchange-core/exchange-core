@@ -1,18 +1,20 @@
 package org.openpredict.exchange.core;
 
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.bytes.BytesOut;
+import net.openhft.chronicle.bytes.NativeBytes;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.apache.commons.lang3.tuple.Pair;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
-import org.openpredict.exchange.beans.CoreSymbolSpecification;
-import org.openpredict.exchange.beans.StateHash;
-import org.openpredict.exchange.beans.SymbolType;
+import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
+import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.journalling.ISerializationProcessor;
 import org.openpredict.exchange.core.orderbook.IOrderBook;
+import org.openpredict.exchange.core.orderbook.OrderBookEventsHelper;
 
 import java.util.Objects;
 import java.util.function.Function;
@@ -92,6 +94,15 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
             if (shardId == 0) {
                 cmd.resultCode = resultCode;
             }
+        } else if (command == USER_REPORT) {
+            // process all symbols groups, only processor 0 writes result
+
+            if (cmd.resultCode == CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
+                attachUserReport(cmd);
+                if (shardId == 0) {
+                    cmd.resultCode = CommandResultCode.SUCCESS;
+                }
+            }
 
         } else if (command == RESET) {
             // process all symbols groups, only processor 0 writes result
@@ -114,6 +125,20 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
             }
         }
 
+    }
+
+    private void attachUserReport(OrderCommand cmd) {
+        final LongObjectHashMap<Order> orders = new LongObjectHashMap<>();
+        orderBooks.stream().flatMap(ob -> ob.findUserOrders(cmd.uid).stream()).forEach(order -> orders.put(order.orderId, order));
+
+        log.debug("orders: {}", orders.size());
+
+        if (!orders.isEmpty()) {
+            final NativeBytes<Void> bytes = Bytes.allocateElasticDirect(64 * orders.size());
+            Utils.marshallLongHashMap(orders, bytes);
+            final MatcherTradeEvent binaryEventsChain = OrderBookEventsHelper.createBinaryEventsChain(cmd.timestamp, shardId + 1, bytes);
+            Utils.appendEventsVolatile(cmd, binaryEventsChain);
+        }
     }
 
     private boolean symbolForThisHandler(final long symbol) {

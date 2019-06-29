@@ -41,7 +41,7 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     boolean cancelOrder(OrderCommand cmd);
 
     /**
-     * Reduce volume or/and move an order
+     * Move an order
      * <p>
      * orderId  - order Id
      * newPrice - new price (if 0 or same - order will not moved)
@@ -81,6 +81,18 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
      * @return actual implementation
      */
     OrderBookImplType getImplementationType();
+
+
+    /**
+     * Search for all orders for specified user.<br/>
+     * Slow, because order book do not maintain uid->order index.<br/>
+     * Produces garbage.<br/>
+     * Orders must be processed before doing any other mutable call.<br/>
+     *
+     * @param uid user id
+     * @return list of orders
+     */
+    List<Order> findUserOrders(long uid);
 
     /**
      * State hash for order books is implementation-agnostic

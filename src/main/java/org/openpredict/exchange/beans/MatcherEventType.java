@@ -9,5 +9,8 @@ public enum MatcherEventType {
     REJECTION,
 
     // After cancel order - risk engine has to unlock deposit accordingly
-    REDUCE // TODO rename to CANCEL
+    CANCEL,
+
+    // Custom binary data attached
+    BINARY_EVENT
 }

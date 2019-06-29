@@ -60,7 +60,7 @@ public final class Order extends OrderCommand implements WriteBytesMarshallable 
         bytes.writeInt(symbol);
         bytes.writeLong(price);
         bytes.writeLong(size);
-        bytes.writeLong(price2);
+        bytes.writeLong(reserveBidPrice);
         bytes.writeByte(action.getCode());
         bytes.writeByte(orderType.getCode());
         bytes.writeLong(uid);
@@ -77,7 +77,7 @@ public final class Order extends OrderCommand implements WriteBytesMarshallable 
 
     @Override
     public int hashCode() {
-        return Objects.hash(orderId, action, orderType, price, size, price2, filled, symbol, userCookie, uid);
+        return Objects.hash(orderId, action, orderType, price, size, reserveBidPrice, filled, symbol, userCookie, uid);
     }
 
 
@@ -97,7 +97,7 @@ public final class Order extends OrderCommand implements WriteBytesMarshallable 
                 .append(orderType, other.orderType)
                 .append(price, other.price)
                 .append(size, other.size)
-                .append(price2, other.price2)
+                .append(reserveBidPrice, other.reserveBidPrice)
                 .append(filled, other.filled)
                 .append(symbol, other.symbol)
                 .append(userCookie, other.userCookie)

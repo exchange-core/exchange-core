@@ -6,6 +6,8 @@ import lombok.NoArgsConstructor;
 import lombok.ToString;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 @AllArgsConstructor
@@ -13,14 +15,14 @@ import java.util.Objects;
 @ToString
 public final class MatcherTradeEvent {
 
-    public MatcherEventType eventType; // TRADE, REDUCE or REJECTION (rare)
+    public MatcherEventType eventType; // TRADE, CANCEL or REJECTION (rare)
 
     public int symbol;
 
     // taker (for TRADE)
     public long activeOrderId;
     public long activeOrderUid;
-    public boolean activeOrderCompleted; // false, except when activeOrder is completely filled (should be ignored for REDUCE or REJECTION)
+    public boolean activeOrderCompleted; // false, except when activeOrder is completely filled (should be ignored for CANCEL or REJECTION)
     public OrderAction activeOrderAction; // assume matched order has opposite action
 //    public long activeOrderSeq;
 
@@ -30,7 +32,7 @@ public final class MatcherTradeEvent {
     public boolean matchedOrderCompleted; // false, except when matchedOrder is completely filled
 
     public long price; // actual price of the deal (from maker order), 0 for rejection
-    public long size;  // ? unmatched size for rejection
+    public long size;  // trade size, or unmatched size for REJECTION or CANCEL
     public long timestamp; // same as activeOrder related event timestamp
 
     public long bidderHoldPrice; // frozen price from BID order owner (depends on activeOrderAction)
@@ -55,6 +57,25 @@ public final class MatcherTradeEvent {
         evt.timestamp = this.timestamp;
         evt.bidderHoldPrice = this.bidderHoldPrice;
         return evt;
+    }
+
+    // testing only
+    public MatcherTradeEvent findTail() {
+        MatcherTradeEvent tail = this;
+        while (tail.nextEvent != null) {
+            tail = tail.nextEvent;
+        }
+        return tail;
+    }
+
+    // testing only
+    public static List<MatcherTradeEvent> asList(MatcherTradeEvent next) {
+        List<MatcherTradeEvent> list = new ArrayList<>();
+        while (next != null) {
+            list.add(next);
+            next = next.nextEvent;
+        }
+        return list;
     }
 
     /**

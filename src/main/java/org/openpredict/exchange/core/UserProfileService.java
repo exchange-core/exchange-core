@@ -99,12 +99,30 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
      * @return
      */
     public CommandResultCode addEmptyUserProfile(long uid) {
-        if (userProfiles.get(uid) != null) {
+        if (userProfiles.get(uid) == null) {
+            userProfiles.put(uid, new UserProfile(uid));
+            return CommandResultCode.SUCCESS;
+        } else {
             log.debug("Can not add user, already exists: {}", uid);
             return CommandResultCode.USER_MGMT_USER_ALREADY_EXISTS;
         }
-        userProfiles.put(uid, new UserProfile(uid));
-        return CommandResultCode.SUCCESS;
+    }
+
+    /**
+     * Serialize user profile
+     *
+     * @param uid   user id
+     * @param bytes bytes to write into
+     * @return true if user found, false otherwise
+     */
+    public boolean singleUserState(final long uid, final BytesOut bytes) {
+        final UserProfile userProfile = userProfiles.get(uid);
+        if (userProfile != null) {
+            userProfile.writeMarshallable(bytes);
+            return true;
+        } else {
+            return false;
+        }
     }
 
     public void reset() {

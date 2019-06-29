@@ -185,7 +185,7 @@ public final class TestOrdersGenerator {
         final int commandsListSize = commands.size() - (int) session.orderbooksFilledAtSequence;
 //        log.debug("total commands: {}, post-fill commands: {}", commands.size(), commandsListSize);
 
-//        log.debug("completed:{} rejected:{} reduce:{}", session.numCompleted, session.numRejected, session.numReduced);
+//        log.debug("completed:{} rejected:{} cancel:{}", session.numCompleted, session.numRejected, session.numCancelled);
 //
 //        log.debug("place limit: {} ({}%)", session.counterPlaceLimit, (float) session.counterPlaceLimit / (float) commandsListSize * 100.0f);
 //        log.debug("place market: {} ({}%)", session.counterPlaceMarket, (float) session.counterPlaceMarket / (float) commandsListSize * 100.0f);
@@ -262,10 +262,10 @@ public final class TestOrdersGenerator {
             // that will trigger generator to issue more limit orders
             updateOrderBookSizeStat(session);
 
-        } else if (ev.eventType == MatcherEventType.REDUCE) {
-            // partial reduce is not expected, only full
+        } else if (ev.eventType == MatcherEventType.CANCEL) {
+            // full cancel - forget about this order
             session.orderUids.remove((int) ev.activeOrderId);
-            session.numReduced++;
+            session.numCancelled++;
         }
     }
 
@@ -322,11 +322,11 @@ public final class TestOrdersGenerator {
                 session.orderPrices.put(session.seq, price);
                 session.orderUids.put(session.seq, uid);
                 placeCmd.price = price;
-                placeCmd.price2 = action == OrderAction.BID ? MAX_PRICE : 0; // set limit price
+                placeCmd.reserveBidPrice = action == OrderAction.BID ? MAX_PRICE : 0; // set limit price
                 session.counterPlaceLimit++;
             } else {
                 placeCmd.price = action == OrderAction.BID ? MAX_PRICE : MIN_PRICE;
-                placeCmd.price2 = action == OrderAction.BID ? placeCmd.price : 0; // set limit price
+                placeCmd.reserveBidPrice = action == OrderAction.BID ? placeCmd.price : 0; // set limit price
                 session.counterPlaceMarket++;
             }
 
@@ -405,7 +405,7 @@ public final class TestOrdersGenerator {
                     switch (cmd.command) {
                         case PLACE_ORDER:
                             return ApiPlaceOrder.builder().symbol(cmd.symbol).uid(cmd.uid).id(cmd.orderId).price(cmd.price).size(cmd.size).action(cmd.action).orderType(cmd.orderType)
-                                    .reservePrice(cmd.price2)
+                                    .reservePrice(cmd.reserveBidPrice)
                                     .build();
                         case MOVE_ORDER:
                             return ApiMoveOrder.builder().symbol(cmd.symbol).uid(cmd.uid).id(cmd.orderId).newPrice(cmd.price).build();

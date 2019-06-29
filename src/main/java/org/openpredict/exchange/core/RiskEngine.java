@@ -3,16 +3,14 @@ package org.openpredict.exchange.core;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import net.openhft.chronicle.bytes.BytesIn;
-import net.openhft.chronicle.bytes.BytesMarshallable;
-import net.openhft.chronicle.bytes.BytesOut;
-import net.openhft.chronicle.bytes.WriteBytesMarshallable;
+import net.openhft.chronicle.bytes.*;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.journalling.ISerializationProcessor;
+import org.openpredict.exchange.core.orderbook.OrderBookEventsHelper;
 
 import java.util.Objects;
 
@@ -136,7 +134,21 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 cmd.resultCode = userProfileService.balanceAdjustment(cmd.uid, cmd.symbol, cmd.price, cmd.orderId);
             }
         } else if (command == BINARY_DATA) {
+
             binaryCommandsProcessor.binaryData(cmd);
+
+        } else if (command == USER_REPORT) {
+            if (uidForThisHandler(cmd.uid)) {
+                final NativeBytes<Void> bytes = Bytes.allocateElasticDirect(128);
+                if (userProfileService.singleUserState(cmd.uid, bytes)) {
+                    cmd.matcherEvent = OrderBookEventsHelper.createBinaryEventsChain(cmd.timestamp, 0, bytes);
+                    cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
+                } else {
+                    log.debug("Can not serialize user, uid not found: {}", cmd.uid);
+                    cmd.resultCode = CommandResultCode.USER_MGMT_USER_NOT_FOUND;
+                }
+            }
+
         } else if (command == RESET) {
             reset();
             if (shardId == 0) {
@@ -254,7 +266,13 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             }
         }
 
-        final long orderAmount = calculateAmount(cmd.action, cmd.size, Math.max(cmd.price, cmd.price2), spec);
+        if (cmd.action == OrderAction.BID && cmd.reserveBidPrice < cmd.price) {
+            // TODO refactor
+            log.warn("reserveBidPrice={} less than price={}", cmd.reserveBidPrice, cmd.price);
+            return false;
+        }
+
+        final long orderAmount = calculateAmount(cmd.action, cmd.size, cmd.action == OrderAction.BID ? cmd.reserveBidPrice : cmd.price, spec);
 
 //        log.debug("--------- {} -----------", cmd.orderId);
 //        log.debug("serProfile.accounts.get(currency)={}", userProfile.accounts.get(currency));
@@ -331,7 +349,8 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                                    final L2MarketData marketData,
                                    MatcherTradeEvent mte) {
 
-        if (marketData == null && mte == null) {
+        // skip events processing if no events (or if contains BINARY EVENT)
+        if (marketData == null && (mte == null || mte.eventType == BINARY_EVENT)) {
             return;
         }
 
@@ -340,7 +359,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             throw new IllegalStateException("Symbol not found: " + symbol);
         }
 
-        if (mte != null) {
+        if (mte != null && mte.eventType != BINARY_EVENT) {
             // TODO ?? check if processing order is not reversed
             do {
                 if (spec.type == SymbolType.CURRENCY_EXCHANGE_PAIR) {
@@ -382,10 +401,10 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 maker.removeRecordIfEmpty(makerSpr);
             }
 
-        } else if (ev.eventType == REJECTION || ev.eventType == REDUCE) {
+        } else if (ev.eventType == REJECTION || ev.eventType == CANCEL) {
 
             if (uidForThisHandler(ev.activeOrderUid)) {
-                // for reduce/rejection only one party is involved
+                // for cancel/rejection only one party is involved
                 final UserProfile up = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
                 final SymbolPortfolioRecord spr = up.getPortfolioRecordOrThrowEx(ev.symbol);
                 spr.pendingRelease(ev.activeOrderAction, size);
@@ -415,21 +434,21 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 processExchangeHoldRelease2(ev.matchedOrderUid, ev.activeOrderAction != OrderAction.ASK, ev, spec);
             }
 
-        } else if (ev.eventType == REJECTION || ev.eventType == REDUCE) {
+        } else if (ev.eventType == REJECTION || ev.eventType == CANCEL) {
             if (uidForThisHandler(ev.activeOrderUid)) {
 
-//                log.debug("REDUCE/REJ uid: {}", ev.activeOrderUid);
+//                log.debug("CANCEL/REJ uid: {}", ev.activeOrderUid);
 
-                // for reduce/rejection only one party is involved
+                // for cancel/rejection only one party is involved
                 final UserProfile up = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
                 if (ev.activeOrderAction == OrderAction.ASK) {
                     final long amountToReleaseInBaseCurrency = calculateAmountAsk(ev.size, spec);
                     up.accounts.addToValue(spec.baseCurrency, amountToReleaseInBaseCurrency);
-//                    log.debug("REJ/RED ASK: amountToRelease = {}  ACC:{}", amountToReleaseInBaseCurrency, userProfileService.getUserProfile(ev.activeOrderUid).accounts);
+//                    log.debug("REJ/CAN ASK: amountToRelease = {}  ACC:{}", amountToReleaseInBaseCurrency, userProfileService.getUserProfile(ev.activeOrderUid).accounts);
                 } else {
                     final long amountToRelease = calculateAmountBid(ev.size, ev.bidderHoldPrice, spec);
                     up.accounts.addToValue(spec.quoteCurrency, amountToRelease);
-//                    log.debug("REJ/RED BID: amountToRelease = {}  ACC:{}", amountToRelease, userProfileService.getUserProfile(ev.activeOrderUid).accounts);
+//                    log.debug("REJ/CAN BID: amountToRelease = {}  ACC:{}", amountToRelease, userProfileService.getUserProfile(ev.activeOrderUid).accounts);
                 }
             }
         } else {

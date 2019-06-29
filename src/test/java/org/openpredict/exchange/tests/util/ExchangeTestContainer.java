@@ -3,23 +3,21 @@ package org.openpredict.exchange.tests.util;
 import com.google.common.collect.Sets;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import net.openhft.chronicle.wire.Wire;
 import org.nustaq.serialization.FSTConfiguration;
-import org.openpredict.exchange.beans.CoreSymbolSpecification;
-import org.openpredict.exchange.beans.L2MarketData;
-import org.openpredict.exchange.beans.SymbolType;
+import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.api.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.ExchangeApi;
 import org.openpredict.exchange.core.ExchangeCore;
+import org.openpredict.exchange.core.Utils;
 import org.openpredict.exchange.core.journalling.DiskSerializationProcessor;
+import org.openpredict.exchange.core.orderbook.OrderBookEventsHelper;
 import org.openpredict.exchange.core.orderbook.OrderBookFastImpl;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Random;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Consumer;
@@ -29,8 +27,8 @@ import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.hamcrest.core.Is.is;
+import static org.junit.Assert.*;
 import static org.openpredict.exchange.core.ExchangeCore.DisruptorWaitStrategy.BUSY_SPIN;
 import static org.openpredict.exchange.core.Utils.ThreadAffityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE;
 
@@ -91,6 +89,30 @@ public final class ExchangeTestContainer implements AutoCloseable {
             CURRENECY_ETC,
             CURRENECY_ZEC);
 
+    public static final CoreSymbolSpecification SYMBOLSPEC_EUR_USD = CoreSymbolSpecification.builder()
+            .symbolId(SYMBOL_MARGIN)
+            .type(SymbolType.FUTURES_CONTRACT)
+            .baseCurrency(CURRENECY_EUR)
+            .quoteCurrency(CURRENECY_USD)
+            .baseScaleK(1)
+            .quoteScaleK(1)
+            .depositBuy(2200)
+            .depositSell(3210)
+            .takerFee(0)
+            .makerFee(0)
+            .build();
+
+    public static final CoreSymbolSpecification SYMBOLSPEC_ETH_XBT = CoreSymbolSpecification.builder()
+            .symbolId(SYMBOL_EXCHANGE)
+            .type(SymbolType.CURRENCY_EXCHANGE_PAIR)
+            .baseCurrency(CURRENECY_ETH)    // base = szabo
+            .quoteCurrency(CURRENECY_XBT)   // quote = satoshi
+            .baseScaleK(100_000)            // 1 lot = 100K szabo (0.1 ETH)
+            .quoteScaleK(10)                // 1 step = 10 satoshi
+            .takerFee(0)
+            .makerFee(0)
+            .build();
+
 
     public final ExchangeCore exchangeCore;
     public final ExchangeApi api;
@@ -139,33 +161,8 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
     public void initBasicSymbols() {
 
-        final CoreSymbolSpecification symbol1 = CoreSymbolSpecification.builder()
-                .symbolId(SYMBOL_MARGIN)
-                .type(SymbolType.FUTURES_CONTRACT)
-                .baseCurrency(CURRENECY_EUR)
-                .quoteCurrency(CURRENECY_USD)
-                .baseScaleK(1)
-                .quoteScaleK(1)
-                .depositBuy(2200)
-                .depositSell(3210)
-                .takerFee(0)
-                .makerFee(0)
-                .build();
-
-        addSymbol(symbol1);
-
-        final CoreSymbolSpecification symbol2 = CoreSymbolSpecification.builder()
-                .symbolId(SYMBOL_EXCHANGE)
-                .type(SymbolType.CURRENCY_EXCHANGE_PAIR)
-                .baseCurrency(CURRENECY_ETH)    // base = szabo
-                .quoteCurrency(CURRENECY_XBT)   // quote = satoshi
-                .baseScaleK(100_000)            // 1 lot = 100K szabo (0.1 ETH)
-                .quoteScaleK(10)                // 1 step = 10 satoshi
-                .takerFee(0)
-                .makerFee(0)
-                .build();
-
-        addSymbol(symbol2);
+        addSymbol(SYMBOLSPEC_EUR_USD);
+        addSymbol(SYMBOLSPEC_ETH_XBT);
     }
 
     public void initBasicUsers() throws InterruptedException {
@@ -329,6 +326,33 @@ public final class ExchangeTestContainer implements AutoCloseable {
         })
                 .limit(c)
                 .collect(Collectors.toList());
+    }
+
+
+    public void validateUserState(long uid,
+                                  Consumer<UserProfile> riskEngineStateConsumer,
+                                  Consumer<Map<Long, Order>> matchingEngineStateConsumer) throws InterruptedException {
+        submitCommandSync(
+                ApiUserReport.builder().uid(uid).build(),
+                cmd -> {
+                    assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
+
+                    NavigableMap<Integer, Wire> integerWireMap = OrderBookEventsHelper.deserializeEvents(cmd.matcherEvent);
+                    UserProfile userProfile = new UserProfile(integerWireMap.get(0).bytes());
+                    log.debug("userProfile={}", userProfile);
+
+                    riskEngineStateConsumer.accept(userProfile);
+
+                    Map<Long, Order> collect = integerWireMap.tailMap(0, false).values().stream()
+                            .map(wire -> Utils.readLongHashMap(wire.bytes(), Order::new))
+                            .flatMap(map -> map.values().stream())
+                            .collect(Collectors.toMap(order -> order.orderId, order -> order));
+
+                    log.debug("allOrders={}", collect);
+                    matchingEngineStateConsumer.accept(collect);
+                }
+        );
+
     }
 
 

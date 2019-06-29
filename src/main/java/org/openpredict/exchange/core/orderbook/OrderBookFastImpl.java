@@ -13,6 +13,7 @@ import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.Utils;
 
 import java.util.*;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import static org.openpredict.exchange.beans.OrderAction.ASK;
@@ -155,7 +156,7 @@ public final class OrderBookFastImpl implements IOrderBook {
         orderRecord.symbol = cmd.symbol;
         orderRecord.price = price;
         orderRecord.size = size;
-        orderRecord.price2 = cmd.price2;
+        orderRecord.reserveBidPrice = cmd.reserveBidPrice;
         orderRecord.action = cmd.action;
         orderRecord.orderType = cmd.orderType;
         orderRecord.uid = cmd.uid;
@@ -413,8 +414,8 @@ public final class OrderBookFastImpl implements IOrderBook {
             removeBucket(removedOrder.action, ordersBucket.getPrice());
         }
 
-        // send reduce event
-        OrderBookEventsHelper.sendReduceEvent(cmd, removedOrder);
+        // send cancel event
+        OrderBookEventsHelper.sendCancelEvent(cmd, removedOrder);
 
         // saving free object back to the pool
         ordersPool.addLast(removedOrder);
@@ -424,7 +425,7 @@ public final class OrderBookFastImpl implements IOrderBook {
 
 
     /**
-     * Reduce volume or/and move an order
+     * Move an order to different price
      * <p>
      * Normally requires 4 hash table lookup operations.
      * 1. Find bucket by orderId
@@ -460,7 +461,7 @@ public final class OrderBookFastImpl implements IOrderBook {
 //        log.debug("{} {} {}>{}", symbolType, order.action, cmd.price, order.price2);
 
         // optimistic risk check mode for exchange bids
-        if (symbolType == SymbolType.CURRENCY_EXCHANGE_PAIR && order.action == BID && cmd.price > order.price2) {
+        if (symbolType == SymbolType.CURRENCY_EXCHANGE_PAIR && order.action == BID && cmd.price > order.reserveBidPrice) {
             // put order back (yes it will be in the end of queue)
             bucket.put(order);
             return CommandResultCode.MATCHING_MOVE_FAILED_PRICE_ABOVE_RISK_LIMIT;
@@ -899,8 +900,8 @@ public final class OrderBookFastImpl implements IOrderBook {
         }
 
         // check known orders number is the same as total orders in all buckets TODO compare explicitly
-        int ah = hotAskBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
-        int bh = hotBidBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
+        int ah = hotAskBuckets.stream().mapToInt(IOrdersBucket::getNumOrders).sum();
+        int bh = hotBidBuckets.stream().mapToInt(IOrdersBucket::getNumOrders).sum();
         int af = farAskBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
         int bf = farBidBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
         if (idMapToBucket.size() != af + ah + bf + bh) {
@@ -920,6 +921,21 @@ public final class OrderBookFastImpl implements IOrderBook {
     @Override
     public OrderBookImplType getImplementationType() {
         return OrderBookImplType.FAST;
+    }
+
+    @Override
+    public List<Order> findUserOrders(final long uid) {
+        List<Order> list = new ArrayList<>();
+        Consumer<IOrdersBucket> bucketConsumer = bucket -> bucket.forEachOrder(order -> {
+            if (order.uid == uid) {
+                list.add(order);
+            }
+        });
+        hotAskBuckets.stream().forEach(bucketConsumer);
+        hotBidBuckets.stream().forEach(bucketConsumer);
+        farAskBuckets.values().forEach(bucketConsumer);
+        farBidBuckets.values().forEach(bucketConsumer);
+        return list;
     }
 
     private void checkNoSameOrdersInHotAndFar(Set<Long> hot, Set<Long> far) {

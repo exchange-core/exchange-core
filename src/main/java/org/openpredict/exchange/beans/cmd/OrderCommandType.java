@@ -15,6 +15,8 @@ public enum OrderCommandType {
 
     CLEARING_OPERATION(30),
 
+    USER_REPORT(50),
+
     BINARY_DATA(90),
 
     PERSIST_STATE_MATCHING(110),

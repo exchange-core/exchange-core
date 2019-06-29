@@ -11,6 +11,7 @@ import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.Utils;
 
 import java.util.*;
+import java.util.function.Consumer;
 
 import static org.openpredict.exchange.beans.OrderAction.BID;
 
@@ -80,7 +81,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
                 cmd.symbol,
                 price,
                 size,
-                cmd.price2,
+                cmd.reserveBidPrice,
                 action,
                 orderType,
                 cmd.uid,
@@ -206,7 +207,8 @@ public final class OrderBookNaiveImpl implements IOrderBook {
             buckets.remove(price);
         }
 
-        OrderBookEventsHelper.sendReduceEvent(cmd, order);
+        // send cancel event
+        OrderBookEventsHelper.sendCancelEvent(cmd, order);
 
         return true;
     }
@@ -234,7 +236,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         final IOrdersBucket bucket = buckets.get(price);
 
         // optimistic risk check mode for exchange bids
-        if (symbolType == SymbolType.CURRENCY_EXCHANGE_PAIR && order.action == BID && cmd.price > order.price2) {
+        if (symbolType == SymbolType.CURRENCY_EXCHANGE_PAIR && order.action == BID && cmd.price > order.reserveBidPrice) {
             // put order back (yes it will be in the end of queue)
             bucket.put(order);
             return CommandResultCode.MATCHING_MOVE_FAILED_PRICE_ABOVE_RISK_LIMIT;
@@ -369,6 +371,19 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     @Override
     public OrderBookImplType getImplementationType() {
         return OrderBookImplType.NAIVE;
+    }
+
+    @Override
+    public List<Order> findUserOrders(final long uid) {
+        List<Order> list = new ArrayList<>();
+        Consumer<IOrdersBucket> bucketConsumer = bucket -> bucket.forEachOrder(order -> {
+            if (order.uid == uid) {
+                list.add(order);
+            }
+        });
+        askBuckets.values().forEach(bucketConsumer);
+        bidBuckets.values().forEach(bucketConsumer);
+        return list;
     }
 
     // for testing only
