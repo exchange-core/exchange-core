@@ -1,11 +1,11 @@
 package org.openpredict.exchange.core.orderbook;
 
-import org.openpredict.exchange.beans.SymbolType;
+import static org.openpredict.exchange.tests.util.TestConstants.SYMBOLSPEC_ETH_XBT;
 
 public class OrderBookNaiveImplTest extends OrderBookBaseTest {
 
     @Override
     protected IOrderBook createNewOrderBook() {
-        return new OrderBookNaiveImpl(SymbolType.FUTURES_CONTRACT);
+        return new OrderBookNaiveImpl(SYMBOLSPEC_ETH_XBT);
     }
 }

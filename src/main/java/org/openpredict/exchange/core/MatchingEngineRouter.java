@@ -6,17 +6,23 @@ import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.NativeBytes;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.apache.commons.lang3.tuple.Pair;
+import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
+import org.openpredict.exchange.beans.reports.ReportQuery;
+import org.openpredict.exchange.beans.reports.SingleUserReportQuery;
+import org.openpredict.exchange.beans.reports.SingleUserReportResult;
+import org.openpredict.exchange.beans.reports.TotalCurrencyBalanceReportResult;
 import org.openpredict.exchange.core.journalling.ISerializationProcessor;
 import org.openpredict.exchange.core.orderbook.IOrderBook;
 import org.openpredict.exchange.core.orderbook.OrderBookEventsHelper;
 
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
 
 import static net.openhft.chronicle.core.UnsafeMemory.UNSAFE;
@@ -32,7 +38,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
     // symbol->OB
     private final IntObjectHashMap<IOrderBook> orderBooks;
 
-    private final Function<SymbolType, IOrderBook> orderBookFactory;
+    private final Function<CoreSymbolSpecification, IOrderBook> orderBookFactory;
 
     private final int shardId;
     private final long shardMask;
@@ -42,7 +48,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
     public MatchingEngineRouter(final int shardId,
                                 final long numShards,
                                 final ISerializationProcessor serializationProcessor,
-                                final Function<SymbolType, IOrderBook> orderBookFactory,
+                                final Function<CoreSymbolSpecification, IOrderBook> orderBookFactory,
                                 final Long loadStateId) {
 
         if (Long.bitCount(numShards) != 1) {
@@ -65,7 +71,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
                         if (shardMask != bytesIn.readLong()) {
                             throw new IllegalStateException("wrong shardMask");
                         }
-                        final BinaryCommandsProcessor bcp = new BinaryCommandsProcessor(this::addSymbol, CommandResultCode.ACCEPTED, bytesIn);
+                        final BinaryCommandsProcessor bcp = new BinaryCommandsProcessor(this::handleBinaryMessage, bytesIn, shardId + 1024);
                         final IntObjectHashMap<IOrderBook> ob = Utils.readIntHashMap(bytesIn, IOrderBook::create);
                         return Pair.of(bcp, ob);
                     });
@@ -74,7 +80,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
             this.orderBooks = deserialized.getRight();
 
         } else {
-            this.binaryCommandsProcessor = new BinaryCommandsProcessor(this::addSymbol, CommandResultCode.ACCEPTED);
+            this.binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, shardId + 1024);
             this.orderBooks = new IntObjectHashMap<>();
         }
     }
@@ -89,19 +95,10 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
                 processMatchingCommand(cmd);
             }
         } else if (command == BINARY_DATA) {
-            // process all symbols groups, only processor 0 writes result
-            final CommandResultCode resultCode = binaryCommandsProcessor.binaryData(cmd);
-            if (shardId == 0) {
-                cmd.resultCode = resultCode;
-            }
-        } else if (command == USER_REPORT) {
-            // process all symbols groups, only processor 0 writes result
 
-            if (cmd.resultCode == CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
-                attachUserReport(cmd);
-                if (shardId == 0) {
-                    cmd.resultCode = CommandResultCode.SUCCESS;
-                }
+            final boolean isLastFrame = binaryCommandsProcessor.acceptBinaryFrame(cmd);
+            if (shardId == 0) {
+                cmd.resultCode = isLastFrame ? CommandResultCode.SUCCESS : CommandResultCode.ACCEPTED;
             }
 
         } else if (command == RESET) {
@@ -127,19 +124,67 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
 
     }
 
-    private void attachUserReport(OrderCommand cmd) {
-        final LongObjectHashMap<Order> orders = new LongObjectHashMap<>();
-        orderBooks.stream().flatMap(ob -> ob.findUserOrders(cmd.uid).stream()).forEach(order -> orders.put(order.orderId, order));
 
-        log.debug("orders: {}", orders.size());
-
-        if (!orders.isEmpty()) {
-            final NativeBytes<Void> bytes = Bytes.allocateElasticDirect(64 * orders.size());
-            Utils.marshallLongHashMap(orders, bytes);
-            final MatcherTradeEvent binaryEventsChain = OrderBookEventsHelper.createBinaryEventsChain(cmd.timestamp, shardId + 1, bytes);
-            Utils.appendEventsVolatile(cmd, binaryEventsChain);
+    private Optional<? extends WriteBytesMarshallable> handleBinaryMessage(Object message) {
+        if (message instanceof CoreSymbolSpecification) {
+            // TODO return status object
+            addSymbol((CoreSymbolSpecification) message);
+            return Optional.empty();
+        } else if (message instanceof ReportQuery) {
+            return processReport((ReportQuery) message);
+        } else {
+            return Optional.empty();
         }
     }
+
+
+    private Optional<? extends WriteBytesMarshallable> processReport(ReportQuery reportQuery) {
+
+        switch (reportQuery.getReportType()) {
+
+            case SINGLE_USER_REPORT:
+                return reportSingleUser((SingleUserReportQuery) reportQuery);
+
+
+            case TOTAL_CURRENCY_BALANCE:
+                return reportGlobalBalance();
+
+            default:
+                throw new IllegalStateException("Report not implemented");
+        }
+    }
+
+    private Optional<SingleUserReportResult> reportSingleUser(final SingleUserReportQuery query) {
+        final LongObjectHashMap<Order> orders = new LongObjectHashMap<>();
+        orderBooks.stream()
+                .flatMap(ob -> ob.findUserOrders(query.getUid()).stream())
+                .forEach(order -> orders.put(order.orderId, order));
+
+        //log.debug("orders: {}", orders.size());
+        return Optional.of(new SingleUserReportResult(null, orders, SingleUserReportResult.ExecutionStatus.OK));
+    }
+
+    private Optional<TotalCurrencyBalanceReportResult> reportGlobalBalance() {
+
+        final IntLongHashMap currencyBalance = new IntLongHashMap();
+
+        orderBooks.stream()
+                .filter(ob -> ob.getSymbolSpec().type == SymbolType.CURRENCY_EXCHANGE_PAIR)
+                .forEach(ob -> {
+                    final CoreSymbolSpecification spec = ob.getSymbolSpec();
+
+                    currencyBalance.addToValue(
+                            spec.getBaseCurrency(),
+                            ob.askOrdersStream(false).mapToLong(ord -> Utils.calculateAmountAsk(ord.size - ord.filled, spec)).sum());
+
+                    currencyBalance.addToValue(
+                            spec.getQuoteCurrency(),
+                            ob.bidOrdersStream(false).mapToLong(ord -> Utils.calculateAmountBid(ord.size - ord.filled, ord.reserveBidPrice, spec)).sum());
+                });
+
+        return Optional.of(new TotalCurrencyBalanceReportResult(null, currencyBalance));
+    }
+
 
     private boolean symbolForThisHandler(final long symbol) {
         return (shardMask == 0) || ((symbol & shardMask) == shardId);
@@ -154,7 +199,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         if (orderBooks.get(symbolId) != null) {
             return CommandResultCode.MATCHING_ORDER_BOOK_ALREADY_EXISTS;
         } else {
-            orderBooks.put(symbolId, orderBookFactory.apply(symbolSpecification.type));
+            orderBooks.put(symbolId, orderBookFactory.apply(symbolSpecification));
             return CommandResultCode.SUCCESS;
         }
     }

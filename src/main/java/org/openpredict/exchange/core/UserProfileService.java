@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
+import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.beans.StateHash;
 import org.openpredict.exchange.beans.UserProfile;
@@ -25,7 +26,7 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
     private final LongObjectHashMap<UserProfile> userProfiles;
 
     public UserProfileService() {
-        this.userProfiles = new LongObjectHashMap<>();
+        this.userProfiles = new LongObjectHashMap<>(1024);
     }
 
     public UserProfileService(BytesIn bytes) {
@@ -108,21 +109,10 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
         }
     }
 
-    /**
-     * Serialize user profile
-     *
-     * @param uid   user id
-     * @param bytes bytes to write into
-     * @return true if user found, false otherwise
-     */
-    public boolean singleUserState(final long uid, final BytesOut bytes) {
-        final UserProfile userProfile = userProfiles.get(uid);
-        if (userProfile != null) {
-            userProfile.writeMarshallable(bytes);
-            return true;
-        } else {
-            return false;
-        }
+    public IntLongHashMap globalCurrenciesBalances() {
+        final IntLongHashMap currencyBalance = new IntLongHashMap();
+        userProfiles.forEach(userProfile -> userProfile.accounts.forEachKeyValue(currencyBalance::addToValue));
+        return currencyBalance;
     }
 
     public void reset() {

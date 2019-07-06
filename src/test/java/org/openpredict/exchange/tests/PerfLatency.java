@@ -9,7 +9,7 @@ import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.api.ApiCommand;
 import org.openpredict.exchange.core.ExchangeApi;
 import org.openpredict.exchange.tests.util.ExchangeTestContainer;
-import org.openpredict.exchange.tests.util.ExchangeTestContainer.*;
+import org.openpredict.exchange.tests.util.ExchangeTestContainer.AllowedSymbolTypes;
 import org.openpredict.exchange.tests.util.LatencyTools;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 
@@ -23,7 +23,9 @@ import java.util.function.BiFunction;
 import java.util.stream.IntStream;
 
 import static org.junit.Assert.assertEquals;
-import static org.openpredict.exchange.tests.util.ExchangeTestContainer.*;
+import static org.openpredict.exchange.tests.util.TestConstants.ALL_CURRENCIES;
+import static org.openpredict.exchange.tests.util.TestConstants.CURRENCIES_EXCHANGE;
+import static org.openpredict.exchange.tests.util.TestConstants.CURRENCIES_FUTURES;
 
 @Slf4j
 public final class PerfLatency {

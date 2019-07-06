@@ -1,6 +1,7 @@
 package org.openpredict.exchange.tests;
 
 import lombok.extern.slf4j.Slf4j;
+import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.junit.Test;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.api.*;
@@ -13,12 +14,17 @@ import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.hamcrest.core.Is.is;
+import static org.hamcrest.number.OrderingComparison.greaterThan;
 import static org.junit.Assert.*;
 import static org.openpredict.exchange.beans.OrderAction.ASK;
 import static org.openpredict.exchange.beans.OrderType.GTC;
-import static org.openpredict.exchange.tests.util.ExchangeTestContainer.*;
+import static org.openpredict.exchange.tests.util.ExchangeTestContainer.CHECK_SUCCESS;
+import static org.openpredict.exchange.tests.util.TestConstants.*;
 
 @Slf4j
 public final class ITExchangeCoreIntegration {
@@ -33,6 +39,21 @@ public final class ITExchangeCoreIntegration {
 
         basicFullCycleTest(SYMBOLSPEC_ETH_XBT);
     }
+
+    @Test(timeout = 5_000)
+    public void shouldInitSymbolsExchanges() throws Exception {
+        try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
+            container.initBasicSymbols();
+        }
+    }
+
+    @Test(timeout = 5_000)
+    public void shouldInitUsers() throws Exception {
+        try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
+            container.initBasicUsers();
+        }
+    }
+
 
     // TODO count/verify number of commands and events
     private void basicFullCycleTest(final CoreSymbolSpecification symbolSpec) throws Exception {
@@ -374,7 +395,7 @@ public final class ITExchangeCoreIntegration {
             container.submitCommandSync(
                     ApiMoveOrder.builder().uid(UID_2).id(203).newPrice(18_501).symbol(SYMBOL_EXCHANGE).build(),
                     cmd -> {
-                        assertThat(cmd.resultCode, is(CommandResultCode.MATCHING_MOVE_FAILED_PRICE_ABOVE_RISK_LIMIT));
+                        assertThat(cmd.resultCode, is(CommandResultCode.MATCHING_MOVE_FAILED_PRICE_OVER_RISK_LIMIT));
                     });
 
             container.validateUserState(
@@ -536,28 +557,38 @@ public final class ITExchangeCoreIntegration {
     @Test(timeout = 30_000)
     public void manyOperationsMargin() throws Exception {
 
-        manyOperations(SYMBOL_MARGIN, CURRENCIES_FUTURES);
+        manyOperations(SYMBOLSPEC_EUR_USD);
     }
 
     @Test(timeout = 30_000)
     public void manyOperationsExchange() throws Exception {
 
-        manyOperations(SYMBOL_EXCHANGE, CURRENCIES_EXCHANGE);
+        manyOperations(SYMBOLSPEC_ETH_XBT);
     }
 
-    public void manyOperations(final int symbol, final Set<Integer> currenciesAllowed) throws Exception {
+    public void manyOperations(final CoreSymbolSpecification symbolSpec) throws Exception {
         try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
             container.initBasicSymbols();
-            container.initBasicUsers();
+            //container.initBasicUsers();
 
-            int numOrders = 1_000_000;
+            int numOrders = 3_248;
             int targetOrderBookOrders = 1000;
             int numUsers = 1000;
 
-            TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, symbol, false);
+//            int targetOrderBookOrders = 121000;
+//            int numUsers = 54000;
+
+            TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, symbolSpec.getSymbolId(), false);
             List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
 
-            container.usersInit(numUsers, currenciesAllowed);
+            Set<Integer> allowedCurrencies = Stream.of(symbolSpec.quoteCurrency, symbolSpec.baseCurrency).collect(Collectors.toSet());
+            container.usersInit(numUsers, allowedCurrencies);
+
+            // validate total balance as a sum of loaded funds
+            final Consumer<IntLongHashMap> balancesValidator = balances -> allowedCurrencies.forEach(
+                    cur -> assertThat(balances.get(cur), is(10_0000_0000L * numUsers)));
+
+            container.validateTotalBalance(balancesValidator);
 
             final CountDownLatch ordersLatch = new CountDownLatch(apiCommands.size());
             container.setConsumer(cmd -> ordersLatch.countDown());
@@ -569,10 +600,13 @@ public final class ITExchangeCoreIntegration {
 
             // compare orderBook final state just to make sure all commands executed same way
             // TODO compare events, wait until finish
-            final L2MarketData l2MarketData = container.requestCurrentOrderBook(symbol);
+            final L2MarketData l2MarketData = container.requestCurrentOrderBook(symbolSpec.getSymbolId());
             assertEquals(genResult.getFinalOrderBookSnapshot(), l2MarketData);
-            assertTrue(l2MarketData.askSize > targetOrderBookOrders / 4);
-            assertTrue(l2MarketData.bidSize > targetOrderBookOrders / 4);
+            assertThat(l2MarketData.askSize, greaterThan(10));
+            assertThat(l2MarketData.bidSize, greaterThan(10));
+
+            // verify that total balance was not changed
+            container.validateTotalBalance(balancesValidator);
         }
     }
 

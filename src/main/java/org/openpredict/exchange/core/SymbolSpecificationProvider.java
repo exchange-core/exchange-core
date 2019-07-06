@@ -27,12 +27,12 @@ public final class SymbolSpecificationProvider implements WriteBytesMarshallable
     }
 
 
-    public CommandResultCode addSymbol(final CoreSymbolSpecification symbolSpecification) {
+    public boolean addSymbol(final CoreSymbolSpecification symbolSpecification) {
         if (getSymbolSpecification(symbolSpecification.symbolId) != null) {
-            return CommandResultCode.SYMBOL_MGMT_SYMBOL_ALREADY_EXISTS;
+            return false; // CommandResultCode.SYMBOL_MGMT_SYMBOL_ALREADY_EXISTS;
         } else {
             registerSymbol(symbolSpecification.symbolId, symbolSpecification);
-            return CommandResultCode.VALID_FOR_MATCHING_ENGINE;
+            return true;
         }
     }
 

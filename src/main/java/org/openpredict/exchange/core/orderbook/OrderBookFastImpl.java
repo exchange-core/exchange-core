@@ -15,6 +15,7 @@ import org.openpredict.exchange.core.Utils;
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.openpredict.exchange.beans.OrderAction.ASK;
 import static org.openpredict.exchange.beans.OrderAction.BID;
@@ -24,7 +25,7 @@ public final class OrderBookFastImpl implements IOrderBook {
 
     public static final int DEFAULT_HOT_WIDTH = 32768;
 
-    private final SymbolType symbolType;
+    private final CoreSymbolSpecification symbolSpec;
 
     private final int hotPricesRange;
 
@@ -52,12 +53,12 @@ public final class OrderBookFastImpl implements IOrderBook {
     private final ArrayDeque<Order> ordersPool = new ArrayDeque<>(65536);
     private final ArrayDeque<IOrdersBucket> bucketsPool = new ArrayDeque<>(65536);
 
-    public OrderBookFastImpl(final int hotPricesRange, final SymbolType symbolType) {
+    public OrderBookFastImpl(final int hotPricesRange, final CoreSymbolSpecification symbolSpec) {
         // must be aligned by 64 bit, can not be lower than 1024
         if ((hotPricesRange & 63) != 0 || hotPricesRange < 1024) {
             throw new IllegalArgumentException("invalid hotPricesRange=" + hotPricesRange);
         }
-        this.symbolType = symbolType;
+        this.symbolSpec = symbolSpec;
         this.hotPricesRange = hotPricesRange;
         this.hotAskBitSet = new BitSet(hotPricesRange);
         this.hotBidBitSet = new BitSet(hotPricesRange);
@@ -69,7 +70,7 @@ public final class OrderBookFastImpl implements IOrderBook {
 
     public OrderBookFastImpl(final BytesIn bytes) {
 
-        this.symbolType = SymbolType.of(bytes.readByte());
+        this.symbolSpec = new CoreSymbolSpecification(bytes);
 
         this.hotPricesRange = bytes.readInt();
 
@@ -461,10 +462,10 @@ public final class OrderBookFastImpl implements IOrderBook {
 //        log.debug("{} {} {}>{}", symbolType, order.action, cmd.price, order.price2);
 
         // optimistic risk check mode for exchange bids
-        if (symbolType == SymbolType.CURRENCY_EXCHANGE_PAIR && order.action == BID && cmd.price > order.reserveBidPrice) {
+        if (symbolSpec.type == SymbolType.CURRENCY_EXCHANGE_PAIR && order.action == BID && cmd.price > order.reserveBidPrice) {
             // put order back (yes it will be in the end of queue)
             bucket.put(order);
-            return CommandResultCode.MATCHING_MOVE_FAILED_PRICE_ABOVE_RISK_LIMIT;
+            return CommandResultCode.MATCHING_MOVE_FAILED_PRICE_OVER_RISK_LIMIT;
         }
 
         // remove bucket if moved order was the last one in the bucket
@@ -972,6 +973,33 @@ public final class OrderBookFastImpl implements IOrderBook {
         return asSet;
     }
 
+
+    @Override
+    public CoreSymbolSpecification getSymbolSpec() {
+        return symbolSpec;
+    }
+
+    @Override
+    public Stream<Order> askOrdersStream(final boolean sorted) {
+        if (sorted) {
+            throw new UnsupportedOperationException();
+        } else {
+            return Stream.concat(hotAskBuckets.stream(), farAskBuckets.values().stream())
+                    .flatMap(bucket -> bucket.getAllOrders().stream());
+        }
+    }
+
+    @Override
+    public Stream<Order> bidOrdersStream(final boolean sorted) {
+        if (sorted) {
+            throw new UnsupportedOperationException();
+        } else {
+            return Stream.concat(hotBidBuckets.stream(), farBidBuckets.values().stream())
+                    .flatMap(bucket -> bucket.getAllOrders().stream());
+        }
+    }
+
+
     // for testing only
     @Override
     public int getOrdersNum() {
@@ -1007,7 +1035,7 @@ public final class OrderBookFastImpl implements IOrderBook {
     @Override
     public void writeMarshallable(BytesOut bytes) {
         bytes.writeByte(getImplementationType().getCode());
-        bytes.writeByte(symbolType.getCode());
+        symbolSpec.writeMarshallable(bytes);
         bytes.writeInt(hotPricesRange);
 
         Utils.marshallBitSet(hotAskBitSet, bytes);
@@ -1034,7 +1062,7 @@ public final class OrderBookFastImpl implements IOrderBook {
 //        for(IOrdersBucket ord: a) log.debug("ask {}", ord);
 //        for(IOrdersBucket ord: b) log.debug("bid {}", ord);
         //log.debug("FAST A:{} B:{}", a, b);
-        return IOrderBook.hash(a, b, symbolType);
+        return IOrderBook.hash(a, b, symbolSpec);
         //log.debug("{} {} {} {} {}", hash, hotAskBuckets.size(), farAskBuckets.size(), hotBidBuckets.size(), farBidBuckets.size());
     }
 

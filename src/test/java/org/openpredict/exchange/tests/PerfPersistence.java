@@ -19,8 +19,10 @@ import java.util.concurrent.CountDownLatch;
 
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
-import static org.openpredict.exchange.tests.util.ExchangeTestContainer.*;
 import static org.openpredict.exchange.tests.util.ExchangeTestContainer.AllowedSymbolTypes.*;
+import static org.openpredict.exchange.tests.util.TestConstants.ALL_CURRENCIES;
+import static org.openpredict.exchange.tests.util.TestConstants.CURRENCIES_EXCHANGE;
+import static org.openpredict.exchange.tests.util.TestConstants.CURRENCIES_FUTURES;
 
 @Slf4j
 public final class PerfPersistence {
