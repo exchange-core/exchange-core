@@ -2,6 +2,8 @@ package org.openpredict.exchange.tests;
 
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
+import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
+import org.hamcrest.core.Is;
 import org.junit.Test;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.api.ApiCommand;
@@ -16,6 +18,8 @@ import org.openpredict.exchange.tests.util.TestOrdersGenerator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
 
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
@@ -69,7 +73,7 @@ public final class PerfPersistence {
 
     /**
      * This is serialization test for verifying "triple million" capability.
-     * This test requires 10+ GiB freee disk space, 16+ GiB of RAM and 12-threads CPU
+     * This test requires 10+ GiB free disk space, 16+ GiB of RAM and 12-threads CPU
      */
     @Test
     public void persistenceMultiSymbol() throws Exception {
@@ -97,7 +101,7 @@ public final class PerfPersistence {
                                      final int matchingEngines,
                                      final int riskEngines,
                                      final int bufferSize,
-                                     final int msgsInGroupLimit) throws InterruptedException {
+                                     final int msgsInGroupLimit) throws InterruptedException, ExecutionException {
 
         for (int iteration = 0; iteration < iterations; iteration++) {
 
@@ -109,6 +113,9 @@ public final class PerfPersistence {
 
             final float originalPerfMt;
 
+            // validate total balance as a sum of loaded funds
+            final Consumer<IntLongHashMap> balancesValidator = balances -> currenciesAllowed.forEach(
+                    cur -> assertThat(balances.get(cur), Is.is(10_0000_0000L * numUsers)));
 
             try (final ExchangeTestContainer container = new ExchangeTestContainer(bufferSize, matchingEngines, riskEngines, msgsInGroupLimit, null)) {
 
@@ -143,6 +150,11 @@ public final class PerfPersistence {
                     apiCommandsFill.forEach(api::submitCommand);
                     latchFill.await();
 
+                    container.setConsumer(cmd -> {
+                    });
+
+                    container.validateTotalBalance(balancesValidator);
+
                     log.info("Persisting...");
                     final long tc = System.currentTimeMillis();
                     stateId = tc;
@@ -164,6 +176,9 @@ public final class PerfPersistence {
                     apiCommandsBenchmark.forEach(api::submitCommand);
                     latchBenchmark.await();
                     t = System.currentTimeMillis() - t;
+
+                    container.validateTotalBalance(balancesValidator);
+
                     originalPerfMt = (float) apiCommandsBenchmark.size() / (float) t / 1000.0f;
                     log.info("{}. original speed: {} MT/s", iteration, String.format("%.3f", originalPerfMt));
                 }
@@ -187,6 +202,9 @@ public final class PerfPersistence {
                         return res.orderId;
                     });
                     assertThat(restoredPrefillStateHash, is(originalPrefillStateHash));
+
+                    recreatedContainer.validateTotalBalance(balancesValidator);
+
                     log.info("Restored snapshot is valid, benchmarking original state...");
                     final ExchangeApi api = recreatedContainer.api;
                     List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
@@ -196,6 +214,9 @@ public final class PerfPersistence {
                     apiCommandsBenchmark.forEach(api::submitCommand);
                     latchBenchmark.await();
                     t = System.currentTimeMillis() - t;
+
+                    recreatedContainer.validateTotalBalance(balancesValidator);
+
                     final float perfMt = (float) apiCommandsBenchmark.size() / (float) t / 1000.0f;
                     final float perfRatioPerc = perfMt / originalPerfMt * 100f;
                     log.info("{}. restored speed: {} MT/s ({}%)", iteration, String.format("%.3f", perfMt), String.format("%.1f", perfRatioPerc));

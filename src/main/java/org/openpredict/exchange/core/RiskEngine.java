@@ -2,11 +2,13 @@ package org.openpredict.exchange.core;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
+import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesMarshallable;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
+import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
@@ -85,11 +87,17 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         }
     }
 
+    @ToString
     public static class LastPriceCacheRecord implements BytesMarshallable, StateHash {
         public long askPrice = Long.MAX_VALUE;
         public long bidPrice = 0L;
 
         public LastPriceCacheRecord() {
+        }
+
+        public LastPriceCacheRecord(long askPrice, long bidPrice) {
+            this.askPrice = askPrice;
+            this.bidPrice = bidPrice;
         }
 
         public LastPriceCacheRecord(BytesIn bytes) {
@@ -101,8 +109,16 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         public void writeMarshallable(BytesOut bytes) {
             bytes.writeLong(askPrice);
             bytes.writeLong(bidPrice);
-
         }
+
+        public LastPriceCacheRecord averagingRecord() {
+            LastPriceCacheRecord average = new LastPriceCacheRecord();
+            average.askPrice = (this.askPrice + this.bidPrice) >> 1;
+            average.bidPrice = average.askPrice;
+            return average;
+        }
+
+        public static LastPriceCacheRecord dummy = new LastPriceCacheRecord(42, 42);
 
         @Override
         public int stateHash() {
@@ -220,7 +236,23 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
     }
 
     private Optional<TotalCurrencyBalanceReportResult> reportGlobalBalance() {
-        return Optional.of(new TotalCurrencyBalanceReportResult(userProfileService.globalCurrenciesBalances(), null));
+
+        // prepare fast price cache for profit estimation with some price (exact value is not important, except ask==bid condition)
+        final IntObjectHashMap<LastPriceCacheRecord> dummyLastPriceCache = new IntObjectHashMap<>();
+        lastPriceCache.forEachKeyValue((s, r) -> dummyLastPriceCache.put(s, r.averagingRecord()));
+
+        final IntLongHashMap currencyBalance = new IntLongHashMap();
+
+        userProfileService.getUserProfiles().forEach(userProfile -> {
+            userProfile.accounts.forEachKeyValue(currencyBalance::addToValue);
+            userProfile.portfolio.forEachKeyValue((symbolId, portfolioRecord) -> {
+                final CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(symbolId);
+                final LastPriceCacheRecord avgPrice = dummyLastPriceCache.getIfAbsentPut(symbolId, LastPriceCacheRecord.dummy);
+                currencyBalance.addToValue(portfolioRecord.currency, portfolioRecord.estimateProfit(spec, avgPrice));
+            });
+        });
+
+        return Optional.of(new TotalCurrencyBalanceReportResult(currencyBalance, null));
     }
 
     /**

@@ -1,7 +1,6 @@
 package org.openpredict.exchange.beans;
 
 
-import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
@@ -10,7 +9,6 @@ import org.openpredict.exchange.core.RiskEngine;
 
 import java.util.Objects;
 
-@ToString
 @Slf4j
 public final class SymbolPortfolioRecord implements WriteBytesMarshallable, StateHash {
 
@@ -84,20 +82,20 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable, Stat
     }
 
     public long estimateProfit(final CoreSymbolSpecification spec, final RiskEngine.LastPriceCacheRecord lastPriceCacheRecord) {
-
-        final long varProfit;
-        if (position == PortfolioPosition.LONG) {
-            varProfit = (lastPriceCacheRecord != null && lastPriceCacheRecord.bidPrice != 0)
-                    ? (openVolume * lastPriceCacheRecord.bidPrice - openPriceSum)
-                    : spec.depositBuy * openVolume; // unknown price - no liquidity - require extra margin
-        } else {
-            varProfit = (lastPriceCacheRecord != null && lastPriceCacheRecord.askPrice != Long.MAX_VALUE)
-                    ? (openPriceSum - openVolume * lastPriceCacheRecord.askPrice)
-                    : spec.depositSell * openVolume; // unknown price - no liquidity - require extra margin
+        switch (position) {
+            case EMPTY:
+                return profit;
+            case LONG:
+                return profit + ((lastPriceCacheRecord != null && lastPriceCacheRecord.bidPrice != 0)
+                        ? (openVolume * lastPriceCacheRecord.bidPrice - openPriceSum)
+                        : spec.depositBuy * openVolume); // unknown price - no liquidity - require extra margin
+            case SHORT:
+                return profit + ((lastPriceCacheRecord != null && lastPriceCacheRecord.askPrice != Long.MAX_VALUE)
+                        ? (openPriceSum - openVolume * lastPriceCacheRecord.askPrice)
+                        : spec.depositSell * openVolume); // unknown price - no liquidity - require extra margin
+            default:
+                throw new IllegalStateException();
         }
-
-
-        return profit + varProfit;
     }
 
     /**
@@ -185,18 +183,16 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable, Stat
         }
 
         if (openVolume > tradeSize) {
-            // current position is bigger than trade size - just reduce position accordingly
+            // current position is bigger than trade size - just reduce position accordingly, don't fix profit
             openVolume -= tradeSize;
             openPriceSum -= tradeSize * tradePrice;
             return 0;
         }
 
         // current position smaller than trade size, can close completely and calculate profit
-        profit = (openPriceSum - openVolume * tradePrice) * position.getMultiplier();
+        profit += (openVolume * tradePrice - openPriceSum) * position.getMultiplier();
         openPriceSum = 0;
-
         position = PortfolioPosition.EMPTY;
-
         final long sizeToOpen = tradeSize - openVolume;
         openVolume = 0;
 
@@ -257,5 +253,20 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable, Stat
     @Override
     public int stateHash() {
         return Objects.hash(symbol, currency, position.getMultiplier(), openVolume, openPriceSum, profit, pendingSellSize, pendingBuySize);
+    }
+
+    @Override
+    public String toString() {
+        return "SPR{" +
+                "u" + uid +
+                " sym" + symbol +
+                " cur" + currency +
+                " pos" + position +
+                " Σv=" + openVolume +
+                " Σp=" + openPriceSum +
+                " pnl=" + profit +
+                " pendingS=" + pendingSellSize +
+                " pendingB=" + pendingBuySize +
+                '}';
     }
 }

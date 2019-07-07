@@ -3,7 +3,6 @@ package org.openpredict.exchange.beans;
 
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
-import lombok.ToString;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 
 import java.util.ArrayList;
@@ -12,7 +11,6 @@ import java.util.Objects;
 
 @AllArgsConstructor
 @NoArgsConstructor
-@ToString
 public final class MatcherTradeEvent {
 
     public MatcherEventType eventType; // TRADE, CANCEL or REJECTION (rare)
@@ -124,4 +122,24 @@ public final class MatcherTradeEvent {
                 nextEvent);
     }
 
+
+    @Override
+    public String toString() {
+        return "MatcherTradeEvent{" +
+                "eventType=" + eventType +
+                ", symbol=" + symbol +
+                ", activeOrderId=" + activeOrderId +
+                ", activeOrderUid=" + activeOrderUid +
+                ", activeOrderCompleted=" + activeOrderCompleted +
+                ", activeOrderAction=" + activeOrderAction +
+                ", matchedOrderId=" + matchedOrderId +
+                ", matchedOrderUid=" + matchedOrderUid +
+                ", matchedOrderCompleted=" + matchedOrderCompleted +
+                ", price=" + price +
+                ", size=" + size +
+                ", timestamp=" + timestamp +
+                ", bidderHoldPrice=" + bidderHoldPrice +
+                ", nextEvent=" + (nextEvent != null) +
+                '}';
+    }
 }

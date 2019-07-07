@@ -3,7 +3,6 @@ package org.openpredict.exchange.core.orderbook;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 import org.openpredict.exchange.beans.L2MarketData;
-import org.openpredict.exchange.beans.SymbolType;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
@@ -121,7 +120,7 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
 
         // placing limit bid orders
         for (long price = bottomPrice; price < INITIAL_PRICE; price++) {
-            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_1, price, 1, BID);
+            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_1, price, price * 10, 1, BID);
 //            log.debug("BID {}", price);
             processAndValidate(cmd, SUCCESS);
             results.put(price, -1L);
@@ -130,7 +129,7 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
 
         for (long price = topPrice; price >= bottomPrice; price--) {
             long size = price * price;
-            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_2, price, size, ASK);
+            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_2, price, 0, size, ASK);
 //            log.debug("ASK {}", price);
             processAndValidate(cmd, SUCCESS);
             results.compute(price, (p, v) -> v == null ? size : v + size);
@@ -180,7 +179,7 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
 
         // placing limit ask orders
         for (long price = topPrice; price > INITIAL_PRICE; price--) {
-            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_1, price, 1, ASK);
+            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_1, price, 0, 1, ASK);
 //            log.debug("BID {}", price);
             processAndValidate(cmd, SUCCESS);
             results.put(price, -1L);
@@ -188,7 +187,7 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
 
         for (long price = bottomPrice; price <= topPrice; price++) {
             long size = price * price;
-            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_2, price, size, BID);
+            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_2, price, price * 10, size, BID);
 //            log.debug("ASK {}", price);
             processAndValidate(cmd, SUCCESS);
             results.compute(price, (p, v) -> v == null ? size : v + size);

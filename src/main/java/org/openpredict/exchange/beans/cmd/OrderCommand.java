@@ -60,13 +60,13 @@ public class OrderCommand {
     //public long matcherEventSequence;
     // ---- potential false sharing section ------
 
-    public static OrderCommand newOrder(OrderType orderType, long orderId, int uid, long price, long size, OrderAction action) {
+    public static OrderCommand newOrder(OrderType orderType, long orderId, int uid, long price, long reserveBidPrice, long size, OrderAction action) {
         OrderCommand cmd = new OrderCommand();
         cmd.command = PLACE_ORDER;
         cmd.orderId = orderId;
         cmd.uid = uid;
         cmd.price = price;
-        cmd.reserveBidPrice = price;
+        cmd.reserveBidPrice = reserveBidPrice;
         cmd.size = size;
         cmd.action = action;
         cmd.orderType = orderType;
@@ -98,7 +98,7 @@ public class OrderCommand {
      *
      * @param handler - MatcherTradeEvent handler
      */
-    public void processMatherEvents(Consumer<MatcherTradeEvent> handler) {
+    public void processMatcherEvents(Consumer<MatcherTradeEvent> handler) {
         MatcherTradeEvent mte = this.matcherEvent;
         while (mte != null) {
             handler.accept(mte);
@@ -114,7 +114,7 @@ public class OrderCommand {
      */
     public List<MatcherTradeEvent> extractEvents() {
         List<MatcherTradeEvent> list = new ArrayList<>();
-        processMatherEvents(list::add);
+        processMatcherEvents(list::add);
         return Lists.reverse(list);
     }
 

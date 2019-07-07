@@ -554,13 +554,13 @@ public final class ITExchangeCoreIntegration {
         }
     }
 
-    @Test(timeout = 30_000)
+    @Test(timeout = 60_000)
     public void manyOperationsMargin() throws Exception {
 
         manyOperations(SYMBOLSPEC_EUR_USD);
     }
 
-    @Test(timeout = 30_000)
+    @Test(timeout = 60_000)
     public void manyOperationsExchange() throws Exception {
 
         manyOperations(SYMBOLSPEC_ETH_XBT);
@@ -571,17 +571,14 @@ public final class ITExchangeCoreIntegration {
             container.initBasicSymbols();
             //container.initBasicUsers();
 
-            int numOrders = 3_248;
+            int numOrders = 1_000_000;
             int targetOrderBookOrders = 1000;
             int numUsers = 1000;
 
-//            int targetOrderBookOrders = 121000;
-//            int numUsers = 54000;
+            final TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, symbolSpec.getSymbolId(), false);
+            final List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
 
-            TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, symbolSpec.getSymbolId(), false);
-            List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
-
-            Set<Integer> allowedCurrencies = Stream.of(symbolSpec.quoteCurrency, symbolSpec.baseCurrency).collect(Collectors.toSet());
+            final Set<Integer> allowedCurrencies = Stream.of(symbolSpec.quoteCurrency, symbolSpec.baseCurrency).collect(Collectors.toSet());
             container.usersInit(numUsers, allowedCurrencies);
 
             // validate total balance as a sum of loaded funds

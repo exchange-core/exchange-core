@@ -111,10 +111,11 @@ public final class GroupingProcessor implements EventProcessor {
                         OrderCommand cmd = ringBuffer.get(nextSequence);
                         nextSequence++;
 
-                        // RESET, PERSIST_STATE_MATCHING and BINARY_DATA should trigger R2 stage to avoid unprocessed state in events
+                        // some commands should trigger R2 stage to avoid unprocessed state in events
                         if (cmd.command == OrderCommandType.RESET
                                 || cmd.command == OrderCommandType.PERSIST_STATE_MATCHING
-                                || cmd.command == OrderCommandType.BINARY_DATA) {
+                                || cmd.command == OrderCommandType.BINARY_DATA
+                                || cmd.command == OrderCommandType.STATE_HASH_REQUEST) {
                             groupCounter++;
                             msgsInGroup = 0;
                         }

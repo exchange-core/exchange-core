@@ -1,10 +1,10 @@
 package org.openpredict.exchange.core;
 
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
-import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.beans.StateHash;
 import org.openpredict.exchange.beans.UserProfile;
@@ -23,6 +23,7 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
     /**
      * State: uid -> user profile
      */
+    @Getter
     private final LongObjectHashMap<UserProfile> userProfiles;
 
     public UserProfileService() {
@@ -107,12 +108,6 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
             log.debug("Can not add user, already exists: {}", uid);
             return CommandResultCode.USER_MGMT_USER_ALREADY_EXISTS;
         }
-    }
-
-    public IntLongHashMap globalCurrenciesBalances() {
-        final IntLongHashMap currencyBalance = new IntLongHashMap();
-        userProfiles.forEach(userProfile -> userProfile.accounts.forEachKeyValue(currencyBalance::addToValue));
-        return currencyBalance;
     }
 
     public void reset() {

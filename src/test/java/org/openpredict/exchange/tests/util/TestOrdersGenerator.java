@@ -158,7 +158,7 @@ public final class TestOrdersGenerator {
             commands.add(cmd);
 
             // process and cleanup matcher events
-            cmd.processMatherEvents(ev -> matcherTradeEventEventHandler(session, ev));
+            cmd.processMatcherEvents(ev -> matcherTradeEventEventHandler(session, ev));
             cmd.matcherEvent = null;
 
             if (i >= nextSizeCheck) {
