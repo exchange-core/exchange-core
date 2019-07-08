@@ -9,7 +9,7 @@ import lombok.Builder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ArrayUtils;
-import org.openpredict.exchange.beans.SymbolType;
+import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
@@ -33,7 +33,9 @@ public final class ExchangeCore {
 
     private final Disruptor<OrderCommand> disruptor;
 
-    private final RingBuffer<OrderCommand> cmdRingBuffer;
+//    private final RingBuffer<OrderCommand> cmdRingBuffer;
+
+    private final ExchangeApi api;
 
     @Builder
     public ExchangeCore(final Consumer<OrderCommand> resultsConsumer,
@@ -45,7 +47,7 @@ public final class ExchangeCore {
                         final int msgsInGroupLimit,
                         final Utils.ThreadAffityMode threadAffityMode,
                         final DisruptorWaitStrategy waitStrategy,
-                        final Function<SymbolType, IOrderBook> orderBookFactory,
+                        final Function<CoreSymbolSpecification, IOrderBook> orderBookFactory,
                         final Long loadStateId) {
 
         this.disruptor = new Disruptor<>(
@@ -55,13 +57,13 @@ public final class ExchangeCore {
                 ProducerType.MULTI, // multiple gateway threads are writing
                 waitStrategy.create());
 
-        this.cmdRingBuffer = disruptor.getRingBuffer();
+        this.api = new ExchangeApi(disruptor.getRingBuffer());
 
         // creating and attaching exceptions handler
         final DisruptorExceptionHandler<OrderCommand> exceptionHandler = new DisruptorExceptionHandler<>("main", (ex, seq) -> {
             log.error("Exception thrown on sequence={}", seq, ex);
             // TODO re-throw exception on publishing
-            cmdRingBuffer.publishEvent(SHUTDOWN_SIGNAL_TRANSLATOR);
+            disruptor.getRingBuffer().publishEvent(SHUTDOWN_SIGNAL_TRANSLATOR);
             disruptor.shutdown();
         });
 
@@ -113,7 +115,10 @@ public final class ExchangeCore {
 
         // 4. results handler (E) after matching engine (ME) + [journalling (J)]
         (journallingHandler != null ? disruptor.after(ArrayUtils.add(matchingEngineHandlers, journallingHandler::onEvent)) : afterMatchingEngine)
-                .handleEventsWith((cmd, seq, eob) -> resultsConsumer.accept(cmd));
+                .handleEventsWith((cmd, seq, eob) -> {
+                    resultsConsumer.accept(cmd);
+                    api.processResult(seq, cmd);
+                });
 
         // attach slave processors to master processor
         Streams.forEachPair(procR1.stream(), procR2.stream(), MasterProcessor::setSlaveProcessor);
@@ -126,11 +131,7 @@ public final class ExchangeCore {
     }
 
     public ExchangeApi getApi() {
-        return new ExchangeApi(this);
-    }
-
-    public RingBuffer<OrderCommand> getRingBuffer() {
-        return cmdRingBuffer;
+        return api;
     }
 
     private static final EventTranslator<OrderCommand> SHUTDOWN_SIGNAL_TRANSLATOR = (cmd, seq) -> {
@@ -141,7 +142,7 @@ public final class ExchangeCore {
     public void shutdown() {
         // TODO stop accepting new events first
         log.info("Shutdown disruptor...");
-        cmdRingBuffer.publishEvent(SHUTDOWN_SIGNAL_TRANSLATOR);
+        disruptor.getRingBuffer().publishEvent(SHUTDOWN_SIGNAL_TRANSLATOR);
         disruptor.shutdown();
         log.info("Disruptor stopped");
     }

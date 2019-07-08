@@ -2,10 +2,9 @@ package org.openpredict.exchange.core;
 
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
-import net.openhft.chronicle.bytes.BytesIn;
-import net.openhft.chronicle.bytes.BytesOut;
-import net.openhft.chronicle.bytes.NativeBytes;
-import net.openhft.chronicle.bytes.WriteBytesMarshallable;
+import net.openhft.chronicle.bytes.*;
+import net.openhft.chronicle.wire.Wire;
+import net.openhft.chronicle.wire.WireType;
 import org.eclipse.collections.api.map.primitive.MutableIntLongMap;
 import org.eclipse.collections.api.map.primitive.MutableLongIntMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
@@ -13,7 +12,9 @@ import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongIntHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.eclipse.collections.impl.set.mutable.primitive.LongHashSet;
+import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.MatcherTradeEvent;
+import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.StateHash;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
@@ -31,6 +32,7 @@ import static net.openhft.chronicle.core.UnsafeMemory.UNSAFE;
 @Slf4j
 public final class Utils {
 
+    // TODO split to different classes
 
     final static long OFFSET_ORDER_ID;
     final static long OFFSET_RESULT_CODE;
@@ -79,9 +81,9 @@ public final class Utils {
         final ByteBuffer byteBuffer = ByteBuffer.allocate((int) bytes.readRemaining());
         bytes.read(byteBuffer);
         final byte[] array = byteBuffer.array();
-        log.debug("array:{}", array);
+//        log.debug("array:{}", array);
         final long[] longs = toLongsArray(array, padding);
-        log.debug("longs:{}", longs);
+//        log.debug("longs:{}", longs);
         return longs;
     }
 
@@ -90,8 +92,7 @@ public final class Utils {
         final int longLength = Utils.requiredLongArraySize(bytes.length, padding);
         long[] longArray = new long[longLength];
         //log.debug("byte[{}]={}", bytes.length, bytes);
-
-        final ByteBuffer allocate = ByteBuffer.allocate(bytes.length * 2);
+        final ByteBuffer allocate = ByteBuffer.allocate(longLength * 8 * 2);
         final LongBuffer longBuffer = allocate.asLongBuffer();
         allocate.put(bytes);
         longBuffer.get(longArray);
@@ -107,6 +108,32 @@ public final class Utils {
             return rem == 0 ? len : (len + padding - rem);
         }
     }
+
+
+    public static Wire longsToWire(long[] dataArray) {
+
+        final int sizeInBytes = dataArray.length * 8;
+        final ByteBuffer byteBuffer = ByteBuffer.allocate(sizeInBytes);
+        byteBuffer.asLongBuffer().put(dataArray);
+
+        final byte[] bytesArray = new byte[sizeInBytes];
+        byteBuffer.get(bytesArray);
+
+        //log.debug(" section {} -> {}", section, bytes);
+
+        final Bytes<ByteBuffer> bytes = Bytes.elasticHeapByteBuffer(sizeInBytes);
+        bytes.ensureCapacity(sizeInBytes);
+
+        bytes.write(bytesArray);
+
+        //byte[] array = bytes1.underlyingObject().array();
+        //byteBuffer.get(array);
+
+        //log.debug("{}", bytesArray);
+
+        return WireType.RAW.apply(bytes);
+    }
+
 
     public static int requiredLongArraySize(final int bytesLength) {
         return ((bytesLength - 1) >> 3) + 1;
@@ -321,6 +348,36 @@ public final class Utils {
         final SortedMap<Long, T> sortedMap = new TreeMap<>();
         map.forEach(sortedMap::put);
         return Arrays.hashCode(sortedMap.entrySet().stream().mapToInt(ent -> Objects.hash(ent.getKey(), ent.getValue().stateHash())).toArray());
+    }
+
+
+    public static long calculateAmount(OrderAction action, long size, long price, CoreSymbolSpecification spec) {
+        return action == OrderAction.BID ? calculateAmountBid(size, price, spec) : calculateAmountAsk(size, spec);
+    }
+
+    public static long calculateAmountBid(long size, long price, CoreSymbolSpecification spec) {
+        return size * price * spec.quoteScaleK;
+    }
+
+    public static long calculateAmountAsk(long size, CoreSymbolSpecification spec) {
+        return size * spec.baseScaleK;
+    }
+
+
+    public static <V> LongObjectHashMap<V> mergeOverride(final LongObjectHashMap<V> a, final LongObjectHashMap<V> b) {
+        final LongObjectHashMap<V> res = a == null ? new LongObjectHashMap<>() : new LongObjectHashMap<>(a);
+        if (b != null) {
+            res.putAll(b);
+        }
+        return res;
+    }
+
+    public static IntLongHashMap mergeSum(final IntLongHashMap a, final IntLongHashMap b) {
+        final IntLongHashMap res = a == null ? new IntLongHashMap() : new IntLongHashMap(a);
+        if (b != null) {
+            b.forEachKeyValue(res::addToValue);
+        }
+        return res;
     }
 
 

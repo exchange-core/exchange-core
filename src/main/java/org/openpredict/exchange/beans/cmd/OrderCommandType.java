@@ -15,14 +15,12 @@ public enum OrderCommandType {
 
     CLEARING_OPERATION(30),
 
-    USER_REPORT(50),
-
     BINARY_DATA(90),
 
     PERSIST_STATE_MATCHING(110),
     PERSIST_STATE_RISK(111),
 
-    STATE_HASH_REQUEST(118),
+    STATE_HASH_REQUEST(118), // TODO convert to report
 
     NOP(120),
     RESET(124),

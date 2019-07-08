@@ -3,7 +3,6 @@ package org.openpredict.exchange.core.orderbook;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 import org.openpredict.exchange.beans.L2MarketData;
-import org.openpredict.exchange.beans.SymbolType;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
@@ -19,6 +18,7 @@ import static org.openpredict.exchange.beans.OrderAction.ASK;
 import static org.openpredict.exchange.beans.OrderAction.BID;
 import static org.openpredict.exchange.beans.OrderType.GTC;
 import static org.openpredict.exchange.beans.cmd.CommandResultCode.SUCCESS;
+import static org.openpredict.exchange.tests.util.TestConstants.SYMBOLSPEC_EUR_USD;
 
 @Slf4j
 public class OrderBookFastImplTest extends OrderBookBaseTest {
@@ -28,7 +28,7 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
     @Override
     protected IOrderBook createNewOrderBook() {
 
-        return new OrderBookFastImpl(HOT_PRICES_RANGE, SymbolType.FUTURES_CONTRACT);
+        return new OrderBookFastImpl(HOT_PRICES_RANGE, SYMBOLSPEC_EUR_USD);
     }
 
 
@@ -41,9 +41,9 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
         int targetOrderBookOrders = 500;
         int numUsers = 500;
 
-        IOrderBook orderBook = new OrderBookFastImpl(4096, SymbolType.FUTURES_CONTRACT);
+        IOrderBook orderBook = new OrderBookFastImpl(4096, SYMBOLSPEC_EUR_USD);
         //IOrderBook orderBook = new OrderBookNaiveImpl();
-        IOrderBook orderBookRef = new OrderBookNaiveImpl(SymbolType.FUTURES_CONTRACT);
+        IOrderBook orderBookRef = new OrderBookNaiveImpl(SYMBOLSPEC_EUR_USD);
 
         TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(tranNum, targetOrderBookOrders, numUsers, 0, true);
 
@@ -120,7 +120,7 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
 
         // placing limit bid orders
         for (long price = bottomPrice; price < INITIAL_PRICE; price++) {
-            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_1, price, 1, BID);
+            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_1, price, price * 10, 1, BID);
 //            log.debug("BID {}", price);
             processAndValidate(cmd, SUCCESS);
             results.put(price, -1L);
@@ -129,7 +129,7 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
 
         for (long price = topPrice; price >= bottomPrice; price--) {
             long size = price * price;
-            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_2, price, size, ASK);
+            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_2, price, 0, size, ASK);
 //            log.debug("ASK {}", price);
             processAndValidate(cmd, SUCCESS);
             results.compute(price, (p, v) -> v == null ? size : v + size);
@@ -179,7 +179,7 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
 
         // placing limit ask orders
         for (long price = topPrice; price > INITIAL_PRICE; price--) {
-            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_1, price, 1, ASK);
+            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_1, price, 0, 1, ASK);
 //            log.debug("BID {}", price);
             processAndValidate(cmd, SUCCESS);
             results.put(price, -1L);
@@ -187,7 +187,7 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
 
         for (long price = bottomPrice; price <= topPrice; price++) {
             long size = price * price;
-            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_2, price, size, BID);
+            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_2, price, price * 10, size, BID);
 //            log.debug("ASK {}", price);
             processAndValidate(cmd, SUCCESS);
             results.compute(price, (p, v) -> v == null ? size : v + size);

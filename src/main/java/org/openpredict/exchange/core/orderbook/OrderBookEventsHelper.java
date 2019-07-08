@@ -134,7 +134,7 @@ public final class OrderBookEventsHelper {
             event.timestamp = timestamp;
             event.nextEvent = null;
 
-            log.debug("BIN EVENT: {}", event);
+//            log.debug("BIN EVENT: {}", event);
 
             // attach in direct order
             if (firstEvent == null) {
@@ -156,7 +156,7 @@ public final class OrderBookEventsHelper {
         NavigableMap<Integer, Wire> result = new TreeMap<>();
 
         sections.forEach((section, events) -> {
-            long[] dataArray = events.stream()
+            final long[] dataArray = events.stream()
                     .flatMap(evt -> Stream.of(
                             evt.activeOrderId,
                             evt.activeOrderUid,
@@ -168,34 +168,15 @@ public final class OrderBookEventsHelper {
                     .mapToLong(s -> s)
                     .toArray();
 
+            final Wire wire = Utils.longsToWire(dataArray);
 
-            int sizeInBytes = dataArray.length * 8;
-            final ByteBuffer byteBuffer = ByteBuffer.allocate(sizeInBytes);
-            byteBuffer.asLongBuffer().put(dataArray);
-
-            final byte[] bytesArray = new byte[sizeInBytes];
-            byteBuffer.get(bytesArray);
-
-            //log.debug(" section {} -> {}", section, bytes);
-
-
-            final Bytes<ByteBuffer> bytes = Bytes.elasticHeapByteBuffer(sizeInBytes);
-            bytes.ensureCapacity(sizeInBytes);
-
-            bytes.write(bytesArray);
-
-            final Wire wire = WireType.RAW.apply(bytes);
-
-            //byte[] array = bytes1.underlyingObject().array();
-            //byteBuffer.get(array);
-
-            log.debug(" section {} -> {}", section, bytesArray);
             result.put(section, wire);
         });
 
 
         return result;
     }
+
 
 
     private static MatcherTradeEvent newMatcherEvent() {

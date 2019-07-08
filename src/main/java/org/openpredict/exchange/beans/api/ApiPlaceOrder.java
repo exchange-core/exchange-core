@@ -23,8 +23,9 @@ public final class ApiPlaceOrder extends ApiCommand {
 
     @Override
     public String toString() {
-        return "[ADD " + id + " " + (action == OrderAction.ASK ? 'A' : 'B') + (orderType == OrderType.IOC ? "IOC" : "GTC")
-                + price + ":" + size + "]";
+        return "[ADD " + id + " u" + uid + " " + (action == OrderAction.ASK ? 'A' : 'B')
+                + ":" + (orderType == OrderType.IOC ? "IOC" : "GTC")
+                + ":" + price + ":" + size + "]";
         //(reservePrice != 0 ? ("(R" + reservePrice + ")") : "") +
     }
 }

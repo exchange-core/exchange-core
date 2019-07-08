@@ -28,6 +28,7 @@ import java.util.stream.DoubleStream;
 
 import static org.hamcrest.Matchers.greaterThan;
 import static org.junit.Assert.assertThat;
+import static org.openpredict.exchange.tests.util.TestConstants.SYMBOLSPEC_EUR_USD;
 
 @Slf4j
 public final class TestOrdersGenerator {
@@ -119,7 +120,8 @@ public final class TestOrdersGenerator {
             final int symbol,
             final boolean enableSlidingPrice) {
 
-        final IOrderBook orderBook = new OrderBookNaiveImpl(SymbolType.FUTURES_CONTRACT);
+        // TODO specify symbol type
+        final IOrderBook orderBook = new OrderBookNaiveImpl(SYMBOLSPEC_EUR_USD);
 
         final TestOrdersGeneratorSession session = new TestOrdersGeneratorSession(
                 orderBook,
@@ -156,7 +158,7 @@ public final class TestOrdersGenerator {
             commands.add(cmd);
 
             // process and cleanup matcher events
-            cmd.processMatherEvents(ev -> matcherTradeEventEventHandler(session, ev));
+            cmd.processMatcherEvents(ev -> matcherTradeEventEventHandler(session, ev));
             cmd.matcherEvent = null;
 
             if (i >= nextSizeCheck) {

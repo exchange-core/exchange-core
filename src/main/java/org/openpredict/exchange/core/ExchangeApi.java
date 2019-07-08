@@ -2,31 +2,53 @@ package org.openpredict.exchange.core;
 
 import com.lmax.disruptor.EventTranslatorOneArg;
 import com.lmax.disruptor.RingBuffer;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.nustaq.serialization.FSTConfiguration;
+import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.chronicle.bytes.BytesIn;
+import net.openhft.chronicle.bytes.NativeBytes;
+import net.openhft.chronicle.bytes.WriteBytesMarshallable;
+import net.openhft.chronicle.wire.Wire;
+import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.api.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
+import org.openpredict.exchange.beans.reports.ReportQuery;
+import org.openpredict.exchange.beans.reports.ReportResult;
+import org.openpredict.exchange.beans.reports.SingleUserReportQuery;
+import org.openpredict.exchange.beans.reports.TotalCurrencyBalanceReportQuery;
+import org.openpredict.exchange.core.orderbook.OrderBookEventsHelper;
 
-@RequiredArgsConstructor
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Future;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.LongConsumer;
+import java.util.stream.Stream;
+
 @Slf4j
 public final class ExchangeApi {
 
-    private final ExchangeCore exchangeCore;
+    private final RingBuffer<OrderCommand> ringBuffer;
 
-    private final static FSTConfiguration minBin = FSTConfiguration.createMinBinConfiguration();
+    // promises cache (TODO can be changed to queue)
+    private final LongObjectHashMap<Consumer<OrderCommand>> promises = new LongObjectHashMap<>();
 
-    static {
-        minBin.registerCrossPlatformClassMappingUseSimpleName(CoreSymbolSpecification.class);
+    public ExchangeApi(RingBuffer<OrderCommand> ringBuffer) {
+        this.ringBuffer = ringBuffer;
     }
 
+    public void processResult(final long seq, final OrderCommand cmd) {
+        final Consumer<OrderCommand> consumer = promises.remove(seq);
+        if (consumer != null) {
+            consumer.accept(cmd);
+        }
+    }
 
     public void submitCommand(ApiCommand cmd) {
         //log.debug("{}", cmd);
-        final RingBuffer<OrderCommand> ringBuffer = exchangeCore.getRingBuffer();
+
         // TODO benchmark instanceof performance
 
         if (cmd instanceof ApiMoveOrder) {
@@ -41,12 +63,11 @@ public final class ExchangeApi {
             ringBuffer.publishEvent(ADD_USER_TRANSLATOR, (ApiAddUser) cmd);
         } else if (cmd instanceof ApiAdjustUserBalance) {
             ringBuffer.publishEvent(ADJUST_USER_BALANCE_TRANSLATOR, (ApiAdjustUserBalance) cmd);
-        } else if (cmd instanceof ApiUserReport) {
-            ringBuffer.publishEvent(USER_REPORT_TRANSLATOR, (ApiUserReport) cmd);
         } else if (cmd instanceof ApiBinaryDataCommand) {
-            publishBinaryData(ringBuffer, (ApiBinaryDataCommand) cmd);
+            publishBinaryData((ApiBinaryDataCommand) cmd, seq -> {
+            });
         } else if (cmd instanceof ApiPersistState) {
-            publishPersistCmd(ringBuffer, (ApiPersistState) cmd);
+            publishPersistCmd((ApiPersistState) cmd);
         } else if (cmd instanceof ApiStateHashRequest) {
             ringBuffer.publishEvent(STATE_HASH_TRANSLATOR, (ApiStateHashRequest) cmd);
         } else if (cmd instanceof ApiReset) {
@@ -58,18 +79,45 @@ public final class ExchangeApi {
         }
     }
 
-    private void publishBinaryData(final RingBuffer<OrderCommand> ringBuffer, final ApiBinaryDataCommand apiCmd) {
+    public <R> Future<R> submitBinaryCommandAsync(final WriteBytesMarshallable data, final Function<OrderCommand, R> translator) {
 
-        final byte[] bytes = minBin.asByteArray(apiCmd.data);
+        final long transferId = System.nanoTime(); // TODO fix
 
-        // 1010011000 >> 1010011
-        // 1010011001 >> 1010011 + 1
-        // 1010011010 >> 1010011 + 1
-        //       ..........
-        // 1010011110 >> 1010011 + 1
-        // 1010011111 >> 1010011 + 1
+        final CompletableFuture<R> future = new CompletableFuture<>();
 
-        long[] longArray = Utils.toLongsArray(bytes, 1);
+        publishBinaryData(
+                ApiBinaryDataCommand.builder().data(data).transferId(transferId).build(),
+                seq -> promises.put(seq, orderCommand -> future.complete(translator.apply(orderCommand))));
+
+        return future;
+    }
+
+    public <Q extends ReportQuery<R>, R extends ReportResult> Future<R> processReport(Q query) {
+        return submitBinaryCommandAsync(query, cmd -> {
+            final Stream<BytesIn> sections = OrderBookEventsHelper.deserializeEvents(cmd.matcherEvent).values().stream().map(Wire::bytes);
+            return query.getResultBuilder().apply(sections);
+        });
+    }
+
+    private void publishBinaryData(final ApiBinaryDataCommand apiCmd, final LongConsumer endSeqConsumer) {
+
+        final NativeBytes<Void> bytes = Bytes.allocateElasticDirect(128);
+
+        // TODO refactor
+        final WriteBytesMarshallable data = apiCmd.data;
+        if (data instanceof CoreSymbolSpecification) {
+            bytes.writeInt(1002);
+        } else if (data instanceof SingleUserReportQuery) {
+            bytes.writeInt(2001);
+        } else if (data instanceof TotalCurrencyBalanceReportQuery) {
+            bytes.writeInt(2002);
+        } else {
+            throw new IllegalStateException("Unsupported class: " + data.getClass());
+        }
+
+        data.writeMarshallable(bytes);
+        long remaining = bytes.readRemaining();
+        long[] longArray = Utils.bytesToLongArray(bytes, 1);
 
         //log.debug("longArray[{}]={}",longArray.length, longArray);
 
@@ -80,31 +128,33 @@ public final class ExchangeApi {
         try {
             for (long seq = lowSeq; seq <= highSeq; seq++) {
 
+                // TODO process few longs at one time
+
                 OrderCommand cmd = ringBuffer.get(seq);
                 cmd.command = OrderCommandType.BINARY_DATA;
                 cmd.orderId = apiCmd.transferId;
                 cmd.symbol = -1;
                 cmd.price = longArray[i];
-                cmd.size = ((long) bytes.length << 32) + i;
+                cmd.size = (remaining << 32) + i;
                 cmd.uid = -1;
                 cmd.timestamp = apiCmd.timestamp;
                 cmd.resultCode = CommandResultCode.NEW;
 
-                //log.debug("seq={} cmd.size={} data={}", seq, cmd.size, cmd.price);
+//                log.debug("seq={} cmd.size={} data={}", seq, cmd.size, cmd.price);
 
                 i++;
             }
-        } catch (Exception ex) {
+        } catch (final Exception ex) {
             log.error("Binary commands processing exception: ", ex);
 
         } finally {
             //System.out.println("publish " + lowSeq + "-" + highSeq);
-
+            endSeqConsumer.accept(highSeq);
             ringBuffer.publish(lowSeq, highSeq);
         }
     }
 
-    private void publishPersistCmd(final RingBuffer<OrderCommand> ringBuffer, final ApiPersistState api) {
+    private void publishPersistCmd(final ApiPersistState api) {
 
         long secondSeq = ringBuffer.next(2);
         long firstSeq = secondSeq - 1;
@@ -202,13 +252,6 @@ public final class ExchangeApi {
         cmd.symbol = api.currency;
         cmd.uid = api.uid;
         cmd.price = api.amount;
-        cmd.timestamp = api.timestamp;
-        cmd.resultCode = CommandResultCode.NEW;
-    };
-
-    private static final EventTranslatorOneArg<OrderCommand, ApiUserReport> USER_REPORT_TRANSLATOR = (cmd, seq, api) -> {
-        cmd.command = OrderCommandType.USER_REPORT;
-        cmd.uid = api.uid;
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
     };

@@ -12,6 +12,7 @@ import org.openpredict.exchange.core.Utils;
 
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 
 import static org.openpredict.exchange.beans.OrderAction.BID;
 
@@ -21,18 +22,18 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     private final NavigableMap<Long, IOrdersBucket> askBuckets;
     private final NavigableMap<Long, IOrdersBucket> bidBuckets;
 
-    private final SymbolType symbolType;
+    private final CoreSymbolSpecification symbolSpec;
 
     private final LongObjectHashMap<Order> idMap = new LongObjectHashMap<>();
 
-    public OrderBookNaiveImpl(final SymbolType symbolType) {
-        this.symbolType = symbolType;
+    public OrderBookNaiveImpl(final CoreSymbolSpecification symbolSpec) {
+        this.symbolSpec = symbolSpec;
         this.askBuckets = new TreeMap<>();
         this.bidBuckets = new TreeMap<>(Collections.reverseOrder());
     }
 
     public OrderBookNaiveImpl(final BytesIn bytes) {
-        this.symbolType = SymbolType.of(bytes.readByte());
+        this.symbolSpec = new CoreSymbolSpecification(bytes);
         this.askBuckets = Utils.readLongMap(bytes, TreeMap::new, IOrdersBucket::create);
         this.bidBuckets = Utils.readLongMap(bytes, () -> new TreeMap<>(Collections.reverseOrder()), IOrdersBucket::create);
 
@@ -236,10 +237,10 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         final IOrdersBucket bucket = buckets.get(price);
 
         // optimistic risk check mode for exchange bids
-        if (symbolType == SymbolType.CURRENCY_EXCHANGE_PAIR && order.action == BID && cmd.price > order.reserveBidPrice) {
+        if (symbolSpec.type == SymbolType.CURRENCY_EXCHANGE_PAIR && order.action == BID && cmd.price > order.reserveBidPrice) {
             // put order back (yes it will be in the end of queue)
             bucket.put(order);
-            return CommandResultCode.MATCHING_MOVE_FAILED_PRICE_ABOVE_RISK_LIMIT;
+            return CommandResultCode.MATCHING_MOVE_FAILED_PRICE_OVER_RISK_LIMIT;
         }
 
         // take order out of the original bucket and clean bucket if its empty
@@ -386,6 +387,21 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         return list;
     }
 
+    @Override
+    public CoreSymbolSpecification getSymbolSpec() {
+        return symbolSpec;
+    }
+
+    @Override
+    public Stream<Order> askOrdersStream(final boolean sorted) {
+        return askBuckets.values().stream().flatMap(bucket -> bucket.getAllOrders().stream());
+    }
+
+    @Override
+    public Stream<Order> bidOrdersStream(final boolean sorted) {
+        return bidBuckets.values().stream().flatMap(bucket -> bucket.getAllOrders().stream());
+    }
+
     // for testing only
     @Override
     public int getOrdersNum() {
@@ -403,7 +419,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     @Override
     public void writeMarshallable(BytesOut bytes) {
         bytes.writeByte(getImplementationType().getCode());
-        bytes.writeByte(symbolType.getCode());
+        symbolSpec.writeMarshallable(bytes);
         Utils.marshallLongMap(askBuckets, bytes);
         Utils.marshallLongMap(bidBuckets, bytes);
     }
@@ -414,7 +430,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         IOrdersBucket[] b = this.bidBuckets.values().toArray(new IOrdersBucket[0]);
 //        for(IOrdersBucket ord: a) log.debug("ask {}", ord);
 //        for(IOrdersBucket ord: b) log.debug("bid {}", ord);
-        return IOrderBook.hash(a, b, symbolType);
+        return IOrderBook.hash(a, b, symbolSpec);
     }
 
     @Override

@@ -2,8 +2,8 @@ package org.openpredict.exchange.beans.api;
 
 
 import lombok.Builder;
+import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 
-import java.io.Serializable;
 
 @Builder
 public final class ApiBinaryDataCommand extends ApiCommand {
@@ -13,7 +13,7 @@ public final class ApiBinaryDataCommand extends ApiCommand {
     public final long transferId;
 
     // serializable object
-    public final Serializable data;
+    public final WriteBytesMarshallable data;
 
     @Override
     public String toString() {

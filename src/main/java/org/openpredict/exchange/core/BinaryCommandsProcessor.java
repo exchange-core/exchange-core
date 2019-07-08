@@ -1,20 +1,20 @@
 package org.openpredict.exchange.core;
 
 import lombok.extern.slf4j.Slf4j;
-import net.openhft.chronicle.bytes.BytesIn;
-import net.openhft.chronicle.bytes.BytesOut;
-import net.openhft.chronicle.bytes.WriteBytesMarshallable;
+import net.openhft.chronicle.bytes.*;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
-import org.nustaq.serialization.FSTConfiguration;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
+import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.StateHash;
-import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.beans.reports.SingleUserReportQuery;
+import org.openpredict.exchange.beans.reports.TotalCurrencyBalanceReportQuery;
+import org.openpredict.exchange.core.orderbook.OrderBookEventsHelper;
 
-import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
 
 /**
@@ -29,55 +29,32 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
     // transactionId -> TransferRecord (long array + bitset)
     private final LongObjectHashMap<TransferRecord> incomingData;
 
-    private final Function<CoreSymbolSpecification, CommandResultCode> symbolsConsumer;
+    private final Function<Object, Optional<? extends WriteBytesMarshallable>> completeMessagesHandler;
 
-    private final CommandResultCode acceptedResultCode;
+    private final int section;
 
-    private final static FSTConfiguration minBin = FSTConfiguration.createMinBinConfiguration();
-
-    static {
-        minBin.registerCrossPlatformClassMappingUseSimpleName(CoreSymbolSpecification.class);
-    }
-
-    public BinaryCommandsProcessor(Function<CoreSymbolSpecification, CommandResultCode> symbolsConsumer, CommandResultCode acceptedResultCode) {
-        this.symbolsConsumer = symbolsConsumer;
-        this.acceptedResultCode = acceptedResultCode;
+    public BinaryCommandsProcessor(Function<Object, Optional<? extends WriteBytesMarshallable>> completeMessagesHandler, int section) {
+        this.completeMessagesHandler = completeMessagesHandler;
         this.incomingData = new LongObjectHashMap<>();
+        this.section = section;
     }
 
-    public BinaryCommandsProcessor(Function<CoreSymbolSpecification, CommandResultCode> symbolsConsumer,
-                                   CommandResultCode acceptedResultCode,
-                                   BytesIn bytesIn) {
-        this.symbolsConsumer = symbolsConsumer;
-        this.acceptedResultCode = acceptedResultCode;
+    public BinaryCommandsProcessor(Function<Object, Optional<? extends WriteBytesMarshallable>> completeMessagesHandler, BytesIn bytesIn, int section) {
+        this.completeMessagesHandler = completeMessagesHandler;
         this.incomingData = Utils.readLongHashMap(bytesIn, b -> new TransferRecord(bytesIn));
+        this.section = section;
     }
 
-    public CommandResultCode binaryData(OrderCommand cmd) {
+    public boolean acceptBinaryFrame(OrderCommand cmd) {
 
         final int dataSizeBytes = (int) (cmd.size >> 32);
-        final int frameIndex = (int) (cmd.size);
-
-        Object obj = registerData(cmd.orderId, frameIndex, cmd.price, dataSizeBytes);
-        if (obj == null) {
-            return acceptedResultCode;
-
-        } else if (obj instanceof CoreSymbolSpecification) {
-
-            final CoreSymbolSpecification symbolSpecification = (CoreSymbolSpecification) obj;
-
-            return symbolsConsumer.apply(symbolSpecification);
-
-        } else {
-            return CommandResultCode.BINARY_COMMAND_FAILED;
-        }
-    }
-
-    private Object registerData(long transactionId, int position, long dataFrame, int sizeInBytes) {
+        final int position = (int) (cmd.size);
+        final long transactionId = cmd.orderId;
+        final long dataFrame = cmd.price;
 
         //log.debug("transactionId={}, position={}, dataFrame={}, sizeInBytes={}", transactionId, position, dataFrame, sizeInBytes);
 
-        final TransferRecord record = incomingData.getIfAbsentPut(transactionId, () -> new TransferRecord(sizeInBytes));
+        final TransferRecord record = incomingData.getIfAbsentPut(transactionId, () -> new TransferRecord(dataSizeBytes));
 
         final long[] dataArray = record.dataArray;
         dataArray[position] = dataFrame;
@@ -87,28 +64,43 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
 
         //int x = dataArray.length ;
         //log.debug("previousClearBit({}) = {}, {}", x, framesReceived.previousClearBit(x), framesReceived);
+
         if (framesReceived.previousClearBit(dataArray.length - 1) == -1) {
             // all frames received
-            final ByteBuffer byteBuffer = ByteBuffer.allocate(dataArray.length * 8);
-            byteBuffer.asLongBuffer().put(dataArray);
-
-            final byte[] bytes = new byte[sizeInBytes];
-            byteBuffer.get(bytes);
-
-            //log.debug("byte[{}]={}", bytes.length, bytes);
-
-            Object object = minBin.asObject(bytes);
-            //byteBuffer.get()
-
             //log.debug("OBJ={}", object);
-
             incomingData.removeKey(transactionId);
 
-            return object;
+            final BytesIn bytesIn = Utils.longsToWire(dataArray).bytes();
+            final Object obj;
+            int classCode = bytesIn.readInt();
+            switch (classCode) {
+                case 1002:
+                    obj = new CoreSymbolSpecification(bytesIn);
+                    break;
+                case 2001:
+                    obj = new SingleUserReportQuery(bytesIn);
+                    break;
+                case 2002:
+                    obj = new TotalCurrencyBalanceReportQuery(bytesIn);
+                    break;
+                default:
+                    throw new IllegalStateException("Unsupported classCode: " + classCode);
+            }
+
+            completeMessagesHandler.apply(obj).ifPresent(res -> {
+                final NativeBytes<Void> bytes = Bytes.allocateElasticDirect(128);
+                res.writeMarshallable(bytes);
+                final MatcherTradeEvent binaryEventsChain = OrderBookEventsHelper.createBinaryEventsChain(cmd.timestamp, section, bytes);
+                Utils.appendEventsVolatile(cmd, binaryEventsChain);
+            });
+
+            return true;
+        } else {
+            return false;
         }
 
-        return null;
     }
+
 
     public void reset() {
         incomingData.clear();

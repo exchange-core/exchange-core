@@ -15,8 +15,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.function.IntFunction;
 import java.util.stream.IntStream;
 
-import static org.openpredict.exchange.tests.util.ExchangeTestContainer.CURRENCIES_FUTURES;
-import static org.openpredict.exchange.tests.util.ExchangeTestContainer.SYMBOL_MARGIN;
+import static org.openpredict.exchange.tests.util.TestConstants.CURRENCIES_FUTURES;
+import static org.openpredict.exchange.tests.util.TestConstants.SYMBOL_MARGIN;
+
 
 @Slf4j
 public final class PerfHiccups {

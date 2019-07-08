@@ -4,10 +4,8 @@ import lombok.Getter;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.apache.commons.lang3.builder.EqualsBuilder;
-import org.openpredict.exchange.beans.L2MarketData;
-import org.openpredict.exchange.beans.Order;
-import org.openpredict.exchange.beans.StateHash;
-import org.openpredict.exchange.beans.SymbolType;
+import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
+import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
@@ -15,6 +13,7 @@ import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Stream;
 
 public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
@@ -56,8 +55,10 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
     Order getOrderById(long orderId);
 
+    @Deprecated
     List<IOrdersBucket> getAllAskBuckets();
 
+    @Deprecated
     List<IOrdersBucket> getAllBidBuckets();
 
     /**
@@ -94,6 +95,12 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
      */
     List<Order> findUserOrders(long uid);
 
+    CoreSymbolSpecification getSymbolSpec();
+
+    Stream<Order> askOrdersStream(boolean sorted);
+
+    Stream<Order> bidOrdersStream(boolean sorted);
+
     /**
      * State hash for order books is implementation-agnostic
      * Look {@link org.openpredict.exchange.core.orderbook.IOrderBook#validateInternalState} for complete state validation for de-serialized objects
@@ -104,10 +111,10 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     }
 
     // TODO to default?
-    static int hash(final IOrdersBucket[] askBuckets, final IOrdersBucket[] bidBuckets, final SymbolType symbolType) {
+    static int hash(final IOrdersBucket[] askBuckets, final IOrdersBucket[] bidBuckets, final CoreSymbolSpecification symbolSpec) {
         final int a = Arrays.hashCode(askBuckets);
         final int b = Arrays.hashCode(bidBuckets);
-        return Objects.hash(a, b, symbolType.getCode());
+        return Objects.hash(a, b, symbolSpec.stateHash());
     }
 
     // TODO to default?
@@ -207,17 +214,16 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
     }
 
-
-    static IOrderBook create(OrderBookImplType type, final SymbolType symbolType) {
-        switch (type) {
-            case NAIVE:
-                return new OrderBookNaiveImpl(symbolType);
-            case FAST:
-                return new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH, symbolType);
-            default:
-                throw new IllegalArgumentException();
-        }
-    }
+//    static IOrderBook create(OrderBookImplType type, final SymbolType symbolType) {
+//        switch (type) {
+//            case NAIVE:
+//                return new OrderBookNaiveImpl(symbolType);
+//            case FAST:
+//                return new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH, symbolType);
+//            default:
+//                throw new IllegalArgumentException();
+//        }
+//    }
 
     static IOrderBook create(BytesIn bytes) {
         switch (OrderBookImplType.of(bytes.readByte())) {
