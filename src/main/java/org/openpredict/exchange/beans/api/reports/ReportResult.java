@@ -1,7 +1,6 @@
-package org.openpredict.exchange.beans.reports;
+package org.openpredict.exchange.beans.api.reports;
 
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
-import org.openpredict.exchange.beans.ReportType;
 
 public interface ReportResult extends WriteBytesMarshallable {
 

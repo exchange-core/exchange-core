@@ -19,10 +19,8 @@ import org.openpredict.exchange.core.orderbook.IOrderBook;
 import org.openpredict.exchange.core.orderbook.OrderBookNaiveImpl;
 
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.*;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.DoubleStream;
 
@@ -46,40 +44,37 @@ public final class TestOrdersGenerator {
 
     public static final int GENERATION_THREADS = 6;
 
+    public static final UnaryOperator<Integer> UID_PLAIN_MAPPER = i -> i + 1;
 
     // TODO allow limiting max volume
 
 
     public static MultiSymbolGenResult generateMultipleSymbols(final List<CoreSymbolSpecification> coreSymbolSpecifications,
                                                                final int totalTransactionsNumber,
-                                                               final int numUsers,
+                                                               final List<BitSet> usersAccounts,
                                                                final int targetOrderBookOrdersTotal) {
-
-        int[] symbols = coreSymbolSpecifications.stream().mapToInt(spec -> spec.symbolId).toArray();
-
-        final RealDistribution paretoDistribution = new ParetoDistribution(new JDKRandomGenerator(0), 0.001, 1.6);
-        final double[] paretoRaw = DoubleStream.generate(paretoDistribution::sample).limit(symbols.length).toArray();
-        //Arrays.sort(paretoRaw);
-        //ArrayUtils.reverse(paretoRaw);
-        final double sum = Arrays.stream(paretoRaw).sum();
-        final double[] distribution = Arrays.stream(paretoRaw).map(x -> x / sum).toArray();
-
-        int quotaLeft = totalTransactionsNumber;
-        final Map<Integer, CompletableFuture<GenResult>> futures = new HashMap<>();
 
         final ExecutorService executor = Executors.newFixedThreadPool(
                 GENERATION_THREADS,
-                Utils.affinedThreadFactory(Utils.ThreadAffityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE));
+                Utils.affinedThreadFactory(Utils.ThreadAffityMode.THREAD_AFFINITY_DISABLE));
+
+        final double[] distribution = createWeightedDistribution(coreSymbolSpecifications.size());
+        int quotaLeft = totalTransactionsNumber;
+        final Map<Integer, CompletableFuture<GenResult>> futures = new HashMap<>();
 
         //int[] stat = new int[4];
-        for (int i = 0; i < symbols.length; i++) {
-            final int symbolId = symbols[i];
+        for (int i = 0; i < coreSymbolSpecifications.size(); i++) {
+            final CoreSymbolSpecification spec = coreSymbolSpecifications.get(i);
             final int numOrdersTarget = (int) (targetOrderBookOrdersTotal * distribution[i]);
-            final int commandsNum = (i != symbols.length - 1) ? (int) (totalTransactionsNumber * distribution[i]) : quotaLeft;
+            final int commandsNum = (i != coreSymbolSpecifications.size() - 1) ? (int) (totalTransactionsNumber * distribution[i]) : quotaLeft;
             quotaLeft -= commandsNum;
-
             //log.debug("{}. Generating symbol {} : commands={} numOrdersTarget={}", i, symbolId, commandsNum, numOrdersTarget);
-            futures.put(symbolId, CompletableFuture.supplyAsync(() -> generateCommands(commandsNum, numOrdersTarget, numUsers, symbolId, false), executor));
+            futures.put(spec.symbolId, CompletableFuture.supplyAsync(() -> {
+                final int[] uidsAvailableForSymbol = UserCurrencyAccountsGenerator.createUserListForSymbol(usersAccounts, spec, commandsNum);
+                final int numUsers = uidsAvailableForSymbol.length;
+                final UnaryOperator<Integer> uidMapper = idx -> uidsAvailableForSymbol[idx];
+                return generateCommands(commandsNum, numOrdersTarget, numUsers, uidMapper, spec.symbolId, false);
+            }, executor));
 
             //stat[symbolId%4] += numOrdersTarget;
         }
@@ -106,6 +101,7 @@ public final class TestOrdersGenerator {
 
         final List<ApiCommand> apiCommandsFill = TestOrdersGenerator.convertToApiCommand(allCommands, 0, readyAtSequenceApproximate);
         final List<ApiCommand> apiCommandsBenchmark = TestOrdersGenerator.convertToApiCommand(allCommands, readyAtSequenceApproximate, allCommands.size());
+
         return MultiSymbolGenResult.builder()
                 .genResults(genResults)
                 .apiCommandsBenchmark(apiCommandsBenchmark)
@@ -113,10 +109,20 @@ public final class TestOrdersGenerator {
                 .build();
     }
 
+    public static double[] createWeightedDistribution(int size) {
+        final RealDistribution paretoDistribution = new ParetoDistribution(new JDKRandomGenerator(0), 0.001, 1.6);
+        final double[] paretoRaw = DoubleStream.generate(paretoDistribution::sample).limit(size).toArray();
+        //Arrays.sort(paretoRaw);
+        //ArrayUtils.reverse(paretoRaw);
+        final double sum = Arrays.stream(paretoRaw).sum();
+        return Arrays.stream(paretoRaw).map(x -> x / sum).toArray();
+    }
+
     public static GenResult generateCommands(
             final int transactionsNumber,
             final int targetOrderBookOrders,
             final int numUsers,
+            final UnaryOperator<Integer> uidMapper,
             final int symbol,
             final boolean enableSlidingPrice) {
 
@@ -128,6 +134,7 @@ public final class TestOrdersGenerator {
                 targetOrderBookOrders,
                 PRICE_DEVIATION_DEFAULT,
                 numUsers,
+                uidMapper,
                 symbol,
                 CENTRAL_PRICE,
                 enableSlidingPrice);
@@ -299,7 +306,7 @@ public final class TestOrdersGenerator {
             long size = 1 + rand.nextInt(6) * rand.nextInt(6) * rand.nextInt(6);
 
             OrderType orderType = growOrders ? OrderType.GTC : OrderType.IOC;
-            final int uid = 1 + rand.nextInt(session.numUsers);
+            final int uid = session.uidMapper.apply(rand.nextInt(session.numUsers));
 
             OrderCommand placeCmd = OrderCommand.builder().command(OrderCommandType.PLACE_ORDER).uid(uid).orderId(session.seq).size(size)
                     .action(action).orderType(orderType).build();

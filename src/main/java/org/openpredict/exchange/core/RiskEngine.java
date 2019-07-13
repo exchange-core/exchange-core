@@ -10,11 +10,14 @@ import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
+import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.beans.*;
+import org.openpredict.exchange.beans.api.binary.BatchAddAccountsCommand;
+import org.openpredict.exchange.beans.api.binary.BatchAddSymbolsCommand;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
-import org.openpredict.exchange.beans.reports.*;
+import org.openpredict.exchange.beans.api.reports.*;
 import org.openpredict.exchange.core.journalling.ISerializationProcessor;
 
 import java.util.Objects;
@@ -145,7 +148,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             }
         } else if (command == ADD_USER) {
             if (uidForThisHandler(cmd.uid)) {
-                cmd.resultCode = userProfileService.addEmptyUserProfile(cmd.uid);
+                cmd.resultCode = userProfileService.addEmptyUserProfile(cmd.uid) ? CommandResultCode.SUCCESS : CommandResultCode.USER_MGMT_USER_ALREADY_EXISTS;
             }
         } else if (command == BALANCE_ADJUSTMENT) {
             if (uidForThisHandler(cmd.uid)) {
@@ -182,9 +185,20 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
     private Optional<? extends WriteBytesMarshallable> handleBinaryMessage(Object message) {
 
-        if (message instanceof CoreSymbolSpecification) {
+        if (message instanceof BatchAddSymbolsCommand) {
             // TODO return status object
-            symbolSpecificationProvider.addSymbol((CoreSymbolSpecification) message);
+            final IntObjectHashMap<CoreSymbolSpecification> symbols = ((BatchAddSymbolsCommand) message).getSymbols();
+            symbols.forEach(symbolSpecificationProvider::addSymbol);
+            return Optional.empty();
+        } else if (message instanceof BatchAddAccountsCommand) {
+            // TODO return status object
+            ((BatchAddAccountsCommand) message).getUsers().forEachKeyValue((u, a) -> {
+                if (userProfileService.addEmptyUserProfile(u)) {
+                    a.forEachKeyValue((cur, bal) -> userProfileService.balanceAdjustment(u, cur, bal, 1_000_000_000 + cur));
+                } else {
+                    log.debug("User already exist: {}", u);
+                }
+            });
             return Optional.empty();
         } else if (message instanceof ReportQuery) {
             return processReport((ReportQuery) message);

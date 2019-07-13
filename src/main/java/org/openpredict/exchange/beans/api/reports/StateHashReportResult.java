@@ -1,11 +1,10 @@
-package org.openpredict.exchange.beans.reports;
+package org.openpredict.exchange.beans.api.reports;
 
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
-import org.openpredict.exchange.beans.ReportType;
 
 import java.util.Arrays;
 import java.util.stream.Stream;

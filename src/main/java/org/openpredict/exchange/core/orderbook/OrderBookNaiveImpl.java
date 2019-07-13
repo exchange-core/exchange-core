@@ -77,18 +77,15 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         // normally placing regular GTC limit order
 
         final Order orderRecord = new Order(
-                OrderCommandType.PLACE_ORDER,
                 newOrderId,
-                cmd.symbol,
                 price,
                 size,
+                filledSize,
                 cmd.reserveBidPrice,
                 action,
-                orderType,
                 cmd.uid,
                 cmd.timestamp,
-                cmd.userCookie,
-                filledSize);
+                cmd.userCookie);
 
         final IOrdersBucket bucket = getBucketsByAction(action)
                 .computeIfAbsent(price, p -> {
@@ -120,7 +117,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
      * @return new filled size
      */
     private long tryMatchInstantly(
-            final OrderCommand activeOrder,
+            final IOrder activeOrder,
             final SortedMap<Long, IOrdersBucket> matchingBuckets,
             long filled,
             final OrderCommand triggerCmd) {
@@ -131,7 +128,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
             return filled;
         }
 
-        long orderSize = activeOrder.size;
+        final long orderSize = activeOrder.getSize();
 
         List<Long> emptyBuckets = new ArrayList<>();
         for (IOrdersBucket bucket : matchingBuckets.values()) {
@@ -155,7 +152,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
                 emptyBuckets.add(price);
             }
 
-            if (filled == activeOrder.size) {
+            if (filled == orderSize) {
                 // enough matched
                 break;
             }
@@ -338,29 +335,6 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     @Override
     public int getTotalBidBuckets() {
         return bidBuckets.size();
-    }
-
-
-    @Override
-    public List<IOrdersBucket> getAllAskBuckets() {
-        return new ArrayList<>(askBuckets.values());
-    }
-
-    @Override
-    public List<IOrdersBucket> getAllBidBuckets() {
-        return new ArrayList<>(bidBuckets.values());
-    }
-
-    @Override
-    public long getBestAsk() {
-        Long price = askBuckets.firstKey();
-        return price != null ? price : Long.MAX_VALUE;
-    }
-
-    @Override
-    public long getBestBid() {
-        Long price = bidBuckets.firstKey();
-        return price != null ? price : 0;
     }
 
     @Override

@@ -7,14 +7,13 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
-import org.openpredict.exchange.beans.CoreSymbolSpecification;
-import org.openpredict.exchange.beans.Order;
-import org.openpredict.exchange.beans.StateHash;
-import org.openpredict.exchange.beans.SymbolType;
+import org.openpredict.exchange.beans.*;
+import org.openpredict.exchange.beans.api.binary.BatchAddAccountsCommand;
+import org.openpredict.exchange.beans.api.binary.BatchAddSymbolsCommand;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
-import org.openpredict.exchange.beans.reports.*;
+import org.openpredict.exchange.beans.api.reports.*;
 import org.openpredict.exchange.core.journalling.ISerializationProcessor;
 import org.openpredict.exchange.core.orderbook.IOrderBook;
 
@@ -114,9 +113,13 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
 
 
     private Optional<? extends WriteBytesMarshallable> handleBinaryMessage(Object message) {
-        if (message instanceof CoreSymbolSpecification) {
+        if (message instanceof BatchAddSymbolsCommand) {
             // TODO return status object
-            addSymbol((CoreSymbolSpecification) message);
+            final IntObjectHashMap<CoreSymbolSpecification> symbols = ((BatchAddSymbolsCommand) message).getSymbols();
+            symbols.forEach(this::addSymbol);
+            return Optional.empty();
+        } else if (message instanceof BatchAddAccountsCommand) {
+            // do nothing
             return Optional.empty();
         } else if (message instanceof ReportQuery) {
             return processReport((ReportQuery) message);
@@ -188,7 +191,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
 
     private CommandResultCode addSymbol(final CoreSymbolSpecification symbolSpecification) {
 
-        //log.debug("symbolSpecification: {}", symbolSpecification);
+//        log.debug("symbolSpecification: {}", symbolSpecification);
 
         final int symbolId = symbolSpecification.symbolId;
         if (orderBooks.get(symbolId) != null) {

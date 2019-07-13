@@ -1,14 +1,8 @@
 package org.openpredict.exchange.beans.cmd;
 
 import com.google.common.collect.Lists;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.NoArgsConstructor;
-import lombok.ToString;
-import org.openpredict.exchange.beans.L2MarketData;
-import org.openpredict.exchange.beans.MatcherTradeEvent;
-import org.openpredict.exchange.beans.OrderAction;
-import org.openpredict.exchange.beans.OrderType;
+import lombok.*;
+import org.openpredict.exchange.beans.*;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -20,24 +14,35 @@ import static org.openpredict.exchange.beans.cmd.OrderCommandType.*;
 @NoArgsConstructor
 @AllArgsConstructor
 @ToString
-public class OrderCommand {
+public final class OrderCommand implements IOrder {
 
     public OrderCommandType command;
 
+    @Getter
     public long orderId;
+
     public int symbol;
+
+    @Getter
     public long price;
+
+    @Getter
     public long size;
 
+    @Getter
     // new orders - reserved price for fast moves of GTC bid orders in exchange mode
     public long reserveBidPrice;
 
     // required for PLACE_ORDER only;
+    @Getter
     public OrderAction action;
+
     public OrderType orderType;
 
+    @Getter
     public long uid;
 
+    @Getter
     public long timestamp;
 
     public int userCookie;

@@ -41,7 +41,7 @@ public final class ITExchangeCoreIntegration {
     }
 
     @Test(timeout = 5_000)
-    public void shouldInitSymbolsExchanges() throws Exception {
+    public void shouldInitSymbols() {
         try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
             container.initBasicSymbols();
         }
@@ -575,7 +575,7 @@ public final class ITExchangeCoreIntegration {
             int targetOrderBookOrders = 1000;
             int numUsers = 1000;
 
-            final TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, symbolSpec.getSymbolId(), false);
+            final TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, TestOrdersGenerator.UID_PLAIN_MAPPER, symbolSpec.getSymbolId(), false);
             final List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
 
             final Set<Integer> allowedCurrencies = Stream.of(symbolSpec.quoteCurrency, symbolSpec.baseCurrency).collect(Collectors.toSet());

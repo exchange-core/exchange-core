@@ -553,6 +553,7 @@ public abstract class OrderBookBaseTest {
         TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(tranNum,
                 200,
                 6,
+                TestOrdersGenerator.UID_PLAIN_MAPPER,
                 0,
                 false);
 

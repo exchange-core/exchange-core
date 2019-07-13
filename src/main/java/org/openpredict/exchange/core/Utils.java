@@ -24,8 +24,10 @@ import java.nio.LongBuffer;
 import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 import static net.openhft.chronicle.core.UnsafeMemory.UNSAFE;
 
@@ -58,7 +60,7 @@ public final class Utils {
         THREAD_AFFINITY_DISABLE
     }
 
-    public static ThreadFactory affinedThreadFactory(final ThreadAffityMode threadAffityMode) {
+    public static synchronized ThreadFactory affinedThreadFactory(final ThreadAffityMode threadAffityMode) {
 
         if (threadAffityMode == ThreadAffityMode.THREAD_AFFINITY_DISABLE) {
             return Executors.defaultThreadFactory();
@@ -276,6 +278,17 @@ public final class Utils {
 
     }
 
+    public static <T> void marshallLongHashMap(final LongObjectHashMap<T> hashMap, final BiConsumer<T, BytesOut> valuesMarshaller, final BytesOut bytes) {
+
+        bytes.writeInt(hashMap.size());
+
+        hashMap.forEachKeyValue((k, v) -> {
+            bytes.writeLong(k);
+            valuesMarshaller.accept(v, bytes);
+        });
+
+    }
+
     public static <T> LongObjectHashMap<T> readLongHashMap(final BytesIn bytes, Function<BytesIn, T> creator) {
         int length = bytes.readInt();
         final LongObjectHashMap<T> hashMap = new LongObjectHashMap<>(length);
@@ -380,5 +393,15 @@ public final class Utils {
         return res;
     }
 
+    public static boolean checkStreamsEqual(Stream<?> s1, Stream<?> s2) {
+        Iterator<?> iter1 = s1.iterator(), iter2 = s2.iterator();
+        while (iter1.hasNext() && iter2.hasNext()) {
+            if (!iter1.next().equals(iter2.next())) {
+                return false;
+            }
+        }
+
+        return !iter1.hasNext() && !iter2.hasNext();
+    }
 
 }

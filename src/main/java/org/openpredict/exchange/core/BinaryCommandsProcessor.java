@@ -3,17 +3,17 @@ package org.openpredict.exchange.core;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.*;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
-import org.openpredict.exchange.beans.CoreSymbolSpecification;
+import org.openpredict.exchange.beans.api.binary.BatchAddAccountsCommand;
+import org.openpredict.exchange.beans.api.binary.BatchAddSymbolsCommand;
 import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.StateHash;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
-import org.openpredict.exchange.beans.reports.SingleUserReportQuery;
-import org.openpredict.exchange.beans.reports.StateHashReportQuery;
-import org.openpredict.exchange.beans.reports.TotalCurrencyBalanceReportQuery;
+import org.openpredict.exchange.beans.api.reports.SingleUserReportQuery;
+import org.openpredict.exchange.beans.api.reports.StateHashReportQuery;
+import org.openpredict.exchange.beans.api.reports.TotalCurrencyBalanceReportQuery;
 import org.openpredict.exchange.core.orderbook.OrderBookEventsHelper;
 
 import java.util.Arrays;
-import java.util.BitSet;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
@@ -48,35 +48,31 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
 
     public boolean acceptBinaryFrame(OrderCommand cmd) {
 
-        final int dataSizeBytes = (int) (cmd.size >> 32);
-        final int position = (int) (cmd.size);
-        final long transactionId = cmd.orderId;
-        final long dataFrame = cmd.price;
+        final int transferId = cmd.userCookie;
 
-        //log.debug("transactionId={}, position={}, dataFrame={}, sizeInBytes={}", transactionId, position, dataFrame, sizeInBytes);
+        final TransferRecord record = incomingData.getIfAbsentPut(transferId, TransferRecord::new);
 
-        final TransferRecord record = incomingData.getIfAbsentPut(transactionId, () -> new TransferRecord(dataSizeBytes));
+        record.addWord(cmd.orderId);
+        record.addWord(cmd.price);
+        record.addWord(cmd.reserveBidPrice);
+        record.addWord(cmd.size);
+        record.addWord(cmd.uid);
 
-        final long[] dataArray = record.dataArray;
-        dataArray[position] = dataFrame;
 
-        final BitSet framesReceived = record.framesReceived;
-        framesReceived.set(position);
-
-        //int x = dataArray.length ;
-        //log.debug("previousClearBit({}) = {}, {}", x, framesReceived.previousClearBit(x), framesReceived);
-
-        if (framesReceived.previousClearBit(dataArray.length - 1) == -1) {
+        if (cmd.symbol == -1) {
             // all frames received
             //log.debug("OBJ={}", object);
-            incomingData.removeKey(transactionId);
+            incomingData.removeKey(transferId);
 
-            final BytesIn bytesIn = Utils.longsToWire(dataArray).bytes();
+            final BytesIn bytesIn = Utils.longsToWire(record.dataArray).bytes();
             final Object obj;
             int classCode = bytesIn.readInt();
             switch (classCode) {
                 case 1002:
-                    obj = new CoreSymbolSpecification(bytesIn);
+                    obj = new BatchAddSymbolsCommand(bytesIn);
+                    break;
+                case 1003:
+                    obj = new BatchAddAccountsCommand(bytesIn);
                     break;
                 case 2001:
                     obj = new StateHashReportQuery(bytesIn);
@@ -125,31 +121,40 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
 
     private static class TransferRecord implements WriteBytesMarshallable, StateHash {
 
-        private final long[] dataArray;
-        private final BitSet framesReceived;
+        private long[] dataArray;
+        private int wordsTransfered;
 
-        public TransferRecord(int dataSizeBytes) {
-
-            int longArraySize = Utils.requiredLongArraySize(dataSizeBytes);
-
-            this.dataArray = new long[longArraySize];
-            this.framesReceived = new BitSet(longArraySize);
+        public TransferRecord() {
+            this.wordsTransfered = 0;
+            this.dataArray = new long[256];
         }
 
         public TransferRecord(BytesIn bytes) {
+            wordsTransfered = bytes.readInt();
             this.dataArray = Utils.readLongArray(bytes);
-            this.framesReceived = Utils.readBitSet(bytes);
+        }
+
+        public void addWord(long word) {
+
+            if (wordsTransfered == dataArray.length) {
+                long[] newArray = new long[dataArray.length * 2];
+                System.arraycopy(dataArray, 0, newArray, 0, dataArray.length);
+                dataArray = newArray;
+            }
+
+            dataArray[wordsTransfered++] = word;
+
         }
 
         @Override
         public void writeMarshallable(BytesOut bytes) {
+            bytes.writeInt(wordsTransfered);
             Utils.marshallLongArray(dataArray, bytes);
-            Utils.marshallBitSet(framesReceived, bytes);
         }
 
         @Override
         public int stateHash() {
-            return Objects.hash(Arrays.hashCode(dataArray), Utils.stateHash(framesReceived));
+            return Objects.hash(Arrays.hashCode(dataArray), wordsTransfered);
         }
     }
 

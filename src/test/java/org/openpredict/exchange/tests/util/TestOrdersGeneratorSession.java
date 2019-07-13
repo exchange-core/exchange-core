@@ -5,6 +5,7 @@ import org.eclipse.collections.impl.map.mutable.primitive.IntIntHashMap;
 import org.openpredict.exchange.core.orderbook.IOrderBook;
 
 import java.util.*;
+import java.util.function.UnaryOperator;
 
 public final class TestOrdersGeneratorSession {
 
@@ -15,6 +16,7 @@ public final class TestOrdersGeneratorSession {
     public final long priceDeviation;
 
     public final int numUsers;
+    public final UnaryOperator<Integer> uidMapper;
 
     public final int symbol;
 
@@ -51,11 +53,12 @@ public final class TestOrdersGeneratorSession {
 
 //    public SingleWriterRecorder hdrRecorder = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
 
-    public TestOrdersGeneratorSession(IOrderBook orderBook, int targetOrderBookOrders, long priceDeviation, int numUsers, int symbol, long centralPrice, boolean enableSlidingPrice) {
+    public TestOrdersGeneratorSession(IOrderBook orderBook, int targetOrderBookOrders, long priceDeviation, int numUsers, UnaryOperator<Integer> uidMapper, int symbol, long centralPrice, boolean enableSlidingPrice) {
         this.orderBook = orderBook;
         this.targetOrderBookOrders = targetOrderBookOrders;
         this.priceDeviation = priceDeviation;
         this.numUsers = numUsers;
+        this.uidMapper = uidMapper;
         this.symbol = symbol;
         this.rand = new Random(symbol);
 

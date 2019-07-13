@@ -3,6 +3,7 @@ package org.openpredict.exchange.core.orderbook;
 import lombok.Getter;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
+import org.openpredict.exchange.beans.IOrder;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 
@@ -40,7 +41,7 @@ public interface IOrdersBucket extends Comparable<IOrdersBucket>, WriteBytesMars
      * @param removeOrderCallback // TODO better solution?
      * @return - total matched volume
      */
-    long match(long volumeToCollect, OrderCommand activeOrder, OrderCommand triggerCmd, Consumer<Order> removeOrderCallback);
+    long match(long volumeToCollect, IOrder activeOrder, OrderCommand triggerCmd, Consumer<Order> removeOrderCallback);
 
     /**
      * Get number of orders in the bucket

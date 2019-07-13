@@ -1,4 +1,4 @@
-package org.openpredict.exchange.beans.reports;
+package org.openpredict.exchange.beans.api.reports;
 
 import lombok.NoArgsConstructor;
 import net.openhft.chronicle.bytes.BytesIn;

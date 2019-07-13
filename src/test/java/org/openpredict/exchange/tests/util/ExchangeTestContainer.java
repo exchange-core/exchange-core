@@ -1,31 +1,31 @@
 package org.openpredict.exchange.tests.util;
 
+import com.google.common.collect.Lists;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.api.*;
+import org.openpredict.exchange.beans.api.binary.BatchAddAccountsCommand;
+import org.openpredict.exchange.beans.api.binary.BatchAddSymbolsCommand;
+import org.openpredict.exchange.beans.api.reports.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
-import org.openpredict.exchange.beans.reports.*;
 import org.openpredict.exchange.core.ExchangeApi;
 import org.openpredict.exchange.core.ExchangeCore;
 import org.openpredict.exchange.core.Utils;
 import org.openpredict.exchange.core.journalling.DiskSerializationProcessor;
 import org.openpredict.exchange.core.orderbook.OrderBookFastImpl;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Random;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
@@ -119,9 +119,45 @@ public final class ExchangeTestContainer implements AutoCloseable {
         submitCommandsSync(cmds);
     }
 
+    public void addSymbol(final CoreSymbolSpecification symbol) {
+        addSymbols(new BatchAddSymbolsCommand(symbol));
+    }
 
-    public void addSymbol(CoreSymbolSpecification symbol) {
-        submitMultiCommandSync(ApiBinaryDataCommand.builder().transferId(System.nanoTime()).data(symbol).build());
+    public void addSymbols(final List<CoreSymbolSpecification> symbols) {
+        Lists.partition(symbols, 1024).forEach(partition -> addSymbols(new BatchAddSymbolsCommand(partition)));
+    }
+
+    public void addSymbols(final BatchAddSymbolsCommand symbols) {
+        submitMultiCommandSync(ApiBinaryDataCommand.builder().transferId((int) (System.nanoTime() & Integer.MAX_VALUE)).data(symbols).build());
+    }
+
+    public void userAccountsInit(List<BitSet> userCurrencies) throws InterruptedException {
+
+        final int totalAccounts = userCurrencies.stream().skip(1).mapToInt(BitSet::cardinality).sum();
+        final int numUsers = userCurrencies.size() - 1;
+        final CountDownLatch usersLatch = new CountDownLatch(totalAccounts + numUsers);
+        consumer = cmd -> {
+            if (cmd.resultCode == CommandResultCode.SUCCESS
+                    && (cmd.command == OrderCommandType.ADD_USER || cmd.command == OrderCommandType.BALANCE_ADJUSTMENT)) {
+                usersLatch.countDown();
+            } else {
+                throw new IllegalStateException("Unexpected command" + cmd);
+            }
+        };
+
+        IntStream.rangeClosed(1, numUsers).forEach(uid -> {
+            api.submitCommand(ApiAddUser.builder().uid(uid).build());
+            userCurrencies.get(uid).stream().forEach(currency ->
+                    api.submitCommand(ApiAdjustUserBalance.builder().uid(uid).transactionId(uid * 1000 + currency).amount(10_0000_0000L).currency(currency).build()));
+
+            if (uid > 1000000 && uid % 1000000 == 0) {
+                log.debug("uid: {} usersLatch: {}", uid, usersLatch.getCount());
+            }
+        });
+        usersLatch.await();
+
+        consumer = cmd -> {
+        };
     }
 
     public void usersInit(int numUsers, Set<Integer> currencies) throws InterruptedException {
@@ -137,16 +173,13 @@ public final class ExchangeTestContainer implements AutoCloseable {
             }
         };
 
-        LongAdder c = new LongAdder();
 
         LongStream.rangeClosed(1, numUsers)
                 .forEach(uid -> {
                     api.submitCommand(ApiAddUser.builder().uid(uid).build());
-                    c.increment();
                     currencies.forEach(currency -> {
                         int transactionId = currency;
                         api.submitCommand(ApiAdjustUserBalance.builder().uid(uid).transactionId(transactionId).amount(10_0000_0000L).currency(currency).build());
-                        c.increment();
                     });
                     if (uid > 1000000 && uid % 1000000 == 0) {
                         log.debug("uid: {} usersLatch: {}", uid, usersLatch.getCount());
@@ -157,8 +190,37 @@ public final class ExchangeTestContainer implements AutoCloseable {
         consumer = cmd -> {
         };
 
-//        log.debug("commands sent: {} totalCommands:{}", c, totalCommands);
     }
+
+    // TODO slow (due allocations)
+    public void usersInitBatch(int numUsers, Set<Integer> currencies) {
+        int fromUid = 0;
+        final int batchSize = 1024;
+        while (usersInitBatch(fromUid, Math.min(fromUid + batchSize, numUsers + 1), currencies)) {
+            fromUid += batchSize;
+        }
+    }
+
+    public boolean usersInitBatch(int uidStartIncl, int uidStartExcl, Set<Integer> currencies) {
+
+        if (uidStartIncl > uidStartExcl) {
+            return false;
+        }
+
+        final LongObjectHashMap<IntLongHashMap> users = new LongObjectHashMap<>();
+        for (int uid = uidStartIncl; uid < uidStartExcl; uid++) {
+            final IntLongHashMap accounts = new IntLongHashMap();
+            currencies.forEach(currency -> accounts.put(currency, 10_0000_0000L));
+            users.put(uid, accounts);
+            if (uid > 100000 && uid % 100000 == 0) {
+                log.debug("uid: {}", uid);
+            }
+        }
+        submitMultiCommandSync(ApiBinaryDataCommand.builder().transferId((int) (System.nanoTime() & Integer.MAX_VALUE)).data(new BatchAddAccountsCommand(users)).build());
+
+        return true;
+    }
+
 
     public void resetExchangeCore() throws InterruptedException {
         submitCommandSync(ApiReset.builder().build(), CHECK_SUCCESS);
@@ -278,9 +340,9 @@ public final class ExchangeTestContainer implements AutoCloseable {
         return api.processReport(new StateHashReportQuery()).get().getStateHash();
     }
 
-    public List<CoreSymbolSpecification> generateAndAddSymbols(final int num,
-                                                               final Set<Integer> currenciesAllowed,
-                                                               final AllowedSymbolTypes allowedSymbolTypes) {
+    public static List<CoreSymbolSpecification> generateRandomSymbols(final int num,
+                                                                      final Collection<Integer> currenciesAllowed,
+                                                                      final AllowedSymbolTypes allowedSymbolTypes) {
         final Random random = new Random(1L);
 
         final Supplier<SymbolType> symbolTypeSupplier;

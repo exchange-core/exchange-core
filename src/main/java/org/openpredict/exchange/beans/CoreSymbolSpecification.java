@@ -6,14 +6,13 @@ import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 
-import java.io.Serializable;
 import java.util.Objects;
 
 @Builder
 @AllArgsConstructor
 @Getter
 @ToString
-public final class CoreSymbolSpecification implements Serializable, WriteBytesMarshallable, StateHash {
+public final class CoreSymbolSpecification implements WriteBytesMarshallable, StateHash {
 
     public final int symbolId;
 

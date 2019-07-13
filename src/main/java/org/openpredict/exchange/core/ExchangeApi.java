@@ -9,12 +9,13 @@ import net.openhft.chronicle.bytes.NativeBytes;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import net.openhft.chronicle.wire.Wire;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
-import org.openpredict.exchange.beans.CoreSymbolSpecification;
+import org.openpredict.exchange.beans.api.binary.BatchAddAccountsCommand;
+import org.openpredict.exchange.beans.api.binary.BatchAddSymbolsCommand;
 import org.openpredict.exchange.beans.api.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
-import org.openpredict.exchange.beans.reports.*;
+import org.openpredict.exchange.beans.api.reports.*;
 import org.openpredict.exchange.core.orderbook.OrderBookEventsHelper;
 
 import java.util.concurrent.CompletableFuture;
@@ -76,7 +77,7 @@ public final class ExchangeApi {
 
     public <R> Future<R> submitBinaryCommandAsync(final WriteBytesMarshallable data, final Function<OrderCommand, R> translator) {
 
-        final long transferId = System.nanoTime(); // TODO fix
+        final int transferId = (int) (System.nanoTime() & Integer.MAX_VALUE); // TODO fix
 
         final CompletableFuture<R> future = new CompletableFuture<>();
 
@@ -100,8 +101,10 @@ public final class ExchangeApi {
 
         // TODO refactor
         final WriteBytesMarshallable data = apiCmd.data;
-        if (data instanceof CoreSymbolSpecification) {
+        if (data instanceof BatchAddSymbolsCommand) {
             bytes.writeInt(1002);
+        } else if (data instanceof BatchAddAccountsCommand) {
+            bytes.writeInt(1003);
         } else if (data instanceof StateHashReportQuery) {
             bytes.writeInt(2001);
         } else if (data instanceof SingleUserReportQuery) {
@@ -113,14 +116,16 @@ public final class ExchangeApi {
         }
 
         data.writeMarshallable(bytes);
-        long remaining = bytes.readRemaining();
-        long[] longArray = Utils.bytesToLongArray(bytes, 1);
+        final int longsPerMessage = 5;
+        long[] longArray = Utils.bytesToLongArray(bytes, longsPerMessage);
 
-        //log.debug("longArray[{}]={}",longArray.length, longArray);
 
         int i = 0;
-        long highSeq = ringBuffer.next(longArray.length);
-        long lowSeq = highSeq - longArray.length + 1;
+        int n = longArray.length / longsPerMessage;
+        long highSeq = ringBuffer.next(n);
+        long lowSeq = highSeq - n + 1;
+
+//        log.debug("longArray[{}] n={} seq={}..{}", longArray.length, n, lowSeq, highSeq);
 
         try {
             for (long seq = lowSeq; seq <= highSeq; seq++) {
@@ -129,17 +134,21 @@ public final class ExchangeApi {
 
                 OrderCommand cmd = ringBuffer.get(seq);
                 cmd.command = OrderCommandType.BINARY_DATA;
-                cmd.orderId = apiCmd.transferId;
-                cmd.symbol = -1;
-                cmd.price = longArray[i];
-                cmd.size = (remaining << 32) + i;
-                cmd.uid = -1;
+                cmd.userCookie = apiCmd.transferId;
+                cmd.symbol = seq == highSeq ? -1 : 0;
+
+                cmd.orderId = longArray[i];
+                cmd.price = longArray[i + 1];
+                cmd.reserveBidPrice = longArray[i + 2];
+                cmd.size = longArray[i + 3];
+                cmd.uid = longArray[i + 4];
+
                 cmd.timestamp = apiCmd.timestamp;
                 cmd.resultCode = CommandResultCode.NEW;
 
 //                log.debug("seq={} cmd.size={} data={}", seq, cmd.size, cmd.price);
 
-                i++;
+                i += longsPerMessage;
             }
         } catch (final Exception ex) {
             log.error("Binary commands processing exception: ", ex);

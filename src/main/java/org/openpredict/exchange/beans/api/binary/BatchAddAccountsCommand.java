@@ -5,34 +5,22 @@ import lombok.Getter;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
-import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
-import org.openpredict.exchange.beans.CoreSymbolSpecification;
+import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
+import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.core.Utils;
-
-import java.util.Collection;
 
 @AllArgsConstructor
 @Getter
-public class BatchAddSymbolsCommand implements WriteBytesMarshallable {
+public class BatchAddAccountsCommand implements WriteBytesMarshallable {
 
-    private final IntObjectHashMap<CoreSymbolSpecification> symbols;
+    private final LongObjectHashMap<IntLongHashMap> users;
 
-    public BatchAddSymbolsCommand(final CoreSymbolSpecification symbol) {
-        symbols = IntObjectHashMap.newWithKeysValues(symbol.symbolId, symbol);
-    }
-
-    public BatchAddSymbolsCommand(final Collection<CoreSymbolSpecification> collection) {
-        symbols = new IntObjectHashMap<>(collection.size());
-        collection.forEach(s -> symbols.put(s.symbolId, s));
-    }
-
-
-    public BatchAddSymbolsCommand(final BytesIn bytes) {
-        symbols = Utils.readIntHashMap(bytes, CoreSymbolSpecification::new);
+    public BatchAddAccountsCommand(final BytesIn bytes) {
+        users = Utils.readLongHashMap(bytes, c -> Utils.readIntLongHashMap(bytes));
     }
 
     @Override
     public void writeMarshallable(BytesOut bytes) {
-        Utils.marshallIntHashMap(symbols, bytes);
+        Utils.marshallLongHashMap(users, Utils::marshallIntLongHashMap, bytes);
     }
 }
