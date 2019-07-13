@@ -162,11 +162,13 @@ public final class PerfPersistence {
                     final float persistTimeSec = (float) (System.currentTimeMillis() - tc) / 1000.0f;
                     log.debug("Persisting time: {}s", String.format("%.3f", persistTimeSec));
 
-                    originalPrefillStateHash = container.submitCommandSync(ApiStateHashRequest.builder().build(), res -> {
-                        assertThat(res.command, is(OrderCommandType.STATE_HASH_REQUEST));
-                        assertThat(res.resultCode, is(CommandResultCode.SUCCESS));
-                        return res.orderId;
-                    });
+
+                    originalPrefillStateHash = container.requestStateHash();
+//                    originalPrefillStateHash = container.submitCommandSync(ApiStateHashRequest.builder().build(), res -> {
+//                        assertThat(res.command, is(OrderCommandType.STATE_HASH_REQUEST));
+//                        assertThat(res.resultCode, is(CommandResultCode.SUCCESS));
+//                        return res.orderId;
+//                    });
 
                     log.info("Benchmarking original state...");
                     List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
@@ -196,11 +198,12 @@ public final class PerfPersistence {
 
                 try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
 
-                    final long restoredPrefillStateHash = recreatedContainer.submitCommandSync(ApiStateHashRequest.builder().build(), res -> {
-                        assertThat(res.command, is(OrderCommandType.STATE_HASH_REQUEST));
-                        assertThat(res.resultCode, is(CommandResultCode.SUCCESS));
-                        return res.orderId;
-                    });
+//                    final long restoredPrefillStateHash = recreatedContainer.submitCommandSync(ApiStateHashRequest.builder().build(), res -> {
+//                        assertThat(res.command, is(OrderCommandType.STATE_HASH_REQUEST));
+//                        assertThat(res.resultCode, is(CommandResultCode.SUCCESS));
+//                        return res.orderId;
+//                    });
+                    final long restoredPrefillStateHash = recreatedContainer.requestStateHash();
                     assertThat(restoredPrefillStateHash, is(originalPrefillStateHash));
 
                     recreatedContainer.validateTotalBalance(balancesValidator);

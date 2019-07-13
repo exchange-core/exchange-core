@@ -41,7 +41,7 @@ public final class PerfLatency {
      */
 
     @Test
-    public void latencyTest() {
+    public void latencyTestMargin() {
 
         try (final ExchangeTestContainer container = new ExchangeTestContainer(2 * 1024, 1, 1, 512, null)) {
             latencyTestImpl(
@@ -57,7 +57,7 @@ public final class PerfLatency {
     }
 
     @Test
-    public void latencyExchangeTest() {
+    public void latencyTestExchange() {
 
         try (final ExchangeTestContainer container = new ExchangeTestContainer(2 * 1024, 1, 1, 512, null)) {
             latencyTestImpl(
@@ -80,7 +80,7 @@ public final class PerfLatency {
      * 12-threads CPU is required for running this test in 4+4 configuration.
      */
     @Test
-    public void latencyMultiSymbol() {
+    public void latencyTestMultiSymbol() {
         try (final ExchangeTestContainer container = new ExchangeTestContainer(64 * 1024, 4, 4, 2048, null)) {
             latencyTestImpl(
                     container,

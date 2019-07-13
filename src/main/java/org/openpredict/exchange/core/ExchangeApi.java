@@ -14,10 +14,7 @@ import org.openpredict.exchange.beans.api.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
-import org.openpredict.exchange.beans.reports.ReportQuery;
-import org.openpredict.exchange.beans.reports.ReportResult;
-import org.openpredict.exchange.beans.reports.SingleUserReportQuery;
-import org.openpredict.exchange.beans.reports.TotalCurrencyBalanceReportQuery;
+import org.openpredict.exchange.beans.reports.*;
 import org.openpredict.exchange.core.orderbook.OrderBookEventsHelper;
 
 import java.util.concurrent.CompletableFuture;
@@ -68,8 +65,6 @@ public final class ExchangeApi {
             });
         } else if (cmd instanceof ApiPersistState) {
             publishPersistCmd((ApiPersistState) cmd);
-        } else if (cmd instanceof ApiStateHashRequest) {
-            ringBuffer.publishEvent(STATE_HASH_TRANSLATOR, (ApiStateHashRequest) cmd);
         } else if (cmd instanceof ApiReset) {
             ringBuffer.publishEvent(RESET_TRANSLATOR, (ApiReset) cmd);
         } else if (cmd instanceof ApiNoOp) {
@@ -107,10 +102,12 @@ public final class ExchangeApi {
         final WriteBytesMarshallable data = apiCmd.data;
         if (data instanceof CoreSymbolSpecification) {
             bytes.writeInt(1002);
-        } else if (data instanceof SingleUserReportQuery) {
+        } else if (data instanceof StateHashReportQuery) {
             bytes.writeInt(2001);
-        } else if (data instanceof TotalCurrencyBalanceReportQuery) {
+        } else if (data instanceof SingleUserReportQuery) {
             bytes.writeInt(2002);
+        } else if (data instanceof TotalCurrencyBalanceReportQuery) {
+            bytes.writeInt(2003);
         } else {
             throw new IllegalStateException("Unsupported class: " + data.getClass());
         }
@@ -269,16 +266,6 @@ public final class ExchangeApi {
     private static final EventTranslatorOneArg<OrderCommand, ApiNoOp> NOOP_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.NOP;
         cmd.orderId = -1;
-        cmd.symbol = -1;
-        cmd.uid = -1;
-        cmd.price = -1;
-        cmd.timestamp = api.timestamp;
-        cmd.resultCode = CommandResultCode.NEW;
-    };
-
-    private static final EventTranslatorOneArg<OrderCommand, ApiStateHashRequest> STATE_HASH_TRANSLATOR = (cmd, seq, api) -> {
-        cmd.command = OrderCommandType.STATE_HASH_REQUEST;
-        cmd.orderId = 0;
         cmd.symbol = -1;
         cmd.uid = -1;
         cmd.price = -1;

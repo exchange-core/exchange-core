@@ -5,6 +5,4 @@ import org.openpredict.exchange.beans.ReportType;
 
 public interface ReportResult extends WriteBytesMarshallable {
 
-    ReportType getReportType();
-
 }

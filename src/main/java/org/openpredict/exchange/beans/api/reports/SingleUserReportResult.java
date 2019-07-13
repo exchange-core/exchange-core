@@ -33,11 +33,6 @@ public class SingleUserReportResult implements ReportResult {
     }
 
     @Override
-    public ReportType getReportType() {
-        return ReportType.SINGLE_USER_REPORT;
-    }
-
-    @Override
     public void writeMarshallable(BytesOut bytes) {
 
         bytes.writeBoolean(userProfile != null);

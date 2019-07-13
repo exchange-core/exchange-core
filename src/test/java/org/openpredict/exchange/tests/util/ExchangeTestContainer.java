@@ -9,10 +9,7 @@ import org.openpredict.exchange.beans.api.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
-import org.openpredict.exchange.beans.reports.SingleUserReportQuery;
-import org.openpredict.exchange.beans.reports.SingleUserReportResult;
-import org.openpredict.exchange.beans.reports.TotalCurrencyBalanceReportQuery;
-import org.openpredict.exchange.beans.reports.TotalCurrencyBalanceReportResult;
+import org.openpredict.exchange.beans.reports.*;
 import org.openpredict.exchange.core.ExchangeApi;
 import org.openpredict.exchange.core.ExchangeCore;
 import org.openpredict.exchange.core.Utils;
@@ -275,6 +272,10 @@ public final class ExchangeTestContainer implements AutoCloseable {
         final IntLongHashMap totalBalances = Utils.mergeSum(res.getAccountBalances(), res.getOrdersBalances());
         log.debug("totalBalances : {}", totalBalances);
         balancesValidator.accept(totalBalances);
+    }
+
+    public int requestStateHash() throws InterruptedException, ExecutionException {
+        return api.processReport(new StateHashReportQuery()).get().getStateHash();
     }
 
     public List<CoreSymbolSpecification> generateAndAddSymbols(final int num,

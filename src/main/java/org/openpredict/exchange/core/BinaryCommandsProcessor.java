@@ -8,6 +8,7 @@ import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.StateHash;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.reports.SingleUserReportQuery;
+import org.openpredict.exchange.beans.reports.StateHashReportQuery;
 import org.openpredict.exchange.beans.reports.TotalCurrencyBalanceReportQuery;
 import org.openpredict.exchange.core.orderbook.OrderBookEventsHelper;
 
@@ -78,9 +79,12 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
                     obj = new CoreSymbolSpecification(bytesIn);
                     break;
                 case 2001:
-                    obj = new SingleUserReportQuery(bytesIn);
+                    obj = new StateHashReportQuery(bytesIn);
                     break;
                 case 2002:
+                    obj = new SingleUserReportQuery(bytesIn);
+                    break;
+                case 2003:
                     obj = new TotalCurrencyBalanceReportQuery(bytesIn);
                     break;
                 default:

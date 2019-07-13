@@ -1,33 +1,28 @@
 package org.openpredict.exchange.core;
 
 import lombok.extern.slf4j.Slf4j;
-import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.bytes.BytesOut;
-import net.openhft.chronicle.bytes.NativeBytes;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.apache.commons.lang3.tuple.Pair;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
-import org.openpredict.exchange.beans.*;
+import org.openpredict.exchange.beans.CoreSymbolSpecification;
+import org.openpredict.exchange.beans.Order;
+import org.openpredict.exchange.beans.StateHash;
+import org.openpredict.exchange.beans.SymbolType;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
-import org.openpredict.exchange.beans.reports.ReportQuery;
-import org.openpredict.exchange.beans.reports.SingleUserReportQuery;
-import org.openpredict.exchange.beans.reports.SingleUserReportResult;
-import org.openpredict.exchange.beans.reports.TotalCurrencyBalanceReportResult;
+import org.openpredict.exchange.beans.reports.*;
 import org.openpredict.exchange.core.journalling.ISerializationProcessor;
 import org.openpredict.exchange.core.orderbook.IOrderBook;
-import org.openpredict.exchange.core.orderbook.OrderBookEventsHelper;
 
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 
-import static net.openhft.chronicle.core.UnsafeMemory.UNSAFE;
 import static org.openpredict.exchange.beans.cmd.OrderCommandType.*;
-import static org.openpredict.exchange.core.Utils.OFFSET_ORDER_ID;
 
 @Slf4j
 public final class MatchingEngineRouter implements WriteBytesMarshallable, StateHash {
@@ -113,13 +108,6 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
             final boolean isSuccess = serializationProcessor.storeData(cmd.orderId, ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER, shardId, this);
             // Send ACCEPTED because this is a first command in series. Risk engine is second - so it will return SUCCESS
             Utils.setResultVolatile(cmd, isSuccess, CommandResultCode.ACCEPTED, CommandResultCode.STATE_PERSIST_MATCHING_ENGINE_FAILED);
-
-        } else if (command == STATE_HASH_REQUEST) {
-            // common hash as sum of each module hash (for simplicity)
-            UNSAFE.getAndAddLong(cmd, OFFSET_ORDER_ID, stateHash());
-            if (shardId == 0) {
-                cmd.resultCode = CommandResultCode.SUCCESS;
-            }
         }
 
     }
@@ -142,6 +130,9 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
 
         switch (reportQuery.getReportType()) {
 
+            case STATE_HASH:
+                return reportStateHash();
+
             case SINGLE_USER_REPORT:
                 return reportSingleUser((SingleUserReportQuery) reportQuery);
 
@@ -152,6 +143,10 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
             default:
                 throw new IllegalStateException("Report not implemented");
         }
+    }
+
+    private Optional<StateHashReportResult> reportStateHash() {
+        return Optional.of(new StateHashReportResult(stateHash()));
     }
 
     private Optional<SingleUserReportResult> reportSingleUser(final SingleUserReportQuery query) {

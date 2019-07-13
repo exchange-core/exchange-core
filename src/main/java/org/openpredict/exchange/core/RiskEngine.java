@@ -14,19 +14,14 @@ import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
-import org.openpredict.exchange.beans.reports.ReportQuery;
-import org.openpredict.exchange.beans.reports.SingleUserReportQuery;
-import org.openpredict.exchange.beans.reports.SingleUserReportResult;
-import org.openpredict.exchange.beans.reports.TotalCurrencyBalanceReportResult;
+import org.openpredict.exchange.beans.reports.*;
 import org.openpredict.exchange.core.journalling.ISerializationProcessor;
 
 import java.util.Objects;
 import java.util.Optional;
 
-import static net.openhft.chronicle.core.UnsafeMemory.UNSAFE;
 import static org.openpredict.exchange.beans.MatcherEventType.*;
 import static org.openpredict.exchange.beans.cmd.OrderCommandType.*;
-import static org.openpredict.exchange.core.Utils.OFFSET_ORDER_ID;
 
 /**
  * Stateful risk engine
@@ -180,13 +175,6 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             final boolean isSuccess = serializationProcessor.storeData(cmd.orderId, ISerializationProcessor.SerializedModuleType.RISK_ENGINE, shardId, this);
             Utils.setResultVolatile(cmd, isSuccess, CommandResultCode.SUCCESS, CommandResultCode.STATE_PERSIST_RISK_ENGINE_FAILED);
 
-        } else if (command == STATE_HASH_REQUEST) {
-            // common hash as sum of each module hash (for simplicity)
-            UNSAFE.getAndAddLong(cmd, OFFSET_ORDER_ID, stateHash());
-
-            if (shardId == 0) {
-                cmd.resultCode = CommandResultCode.ACCEPTED;
-            }
         }
 
         return false;
@@ -211,9 +199,11 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
         switch (reportQuery.getReportType()) {
 
+            case STATE_HASH:
+                return reportStateHash();
+
             case SINGLE_USER_REPORT:
                 return reportSingleUser((SingleUserReportQuery) reportQuery);
-
 
             case TOTAL_CURRENCY_BALANCE:
                 return reportGlobalBalance();
@@ -221,6 +211,10 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             default:
                 throw new IllegalStateException("Report not implemented");
         }
+    }
+
+    private Optional<StateHashReportResult> reportStateHash() {
+        return Optional.of(new StateHashReportResult(stateHash()));
     }
 
     private Optional<SingleUserReportResult> reportSingleUser(final SingleUserReportQuery query) {

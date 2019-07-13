@@ -27,11 +27,6 @@ public class TotalCurrencyBalanceReportResult implements ReportResult {
     }
 
     @Override
-    public ReportType getReportType() {
-        return ReportType.TOTAL_CURRENCY_BALANCE;
-    }
-
-    @Override
     public void writeMarshallable(final BytesOut bytes) {
         bytes.writeBoolean(accountBalances != null);
         if (accountBalances != null) {
