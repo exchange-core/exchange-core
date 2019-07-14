@@ -550,12 +550,14 @@ public abstract class OrderBookBaseTest {
         final IOrderBook localOrderBook = createNewOrderBook();
         localOrderBook.validateInternalState();
 
-        TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(tranNum,
+        TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(
+                tranNum,
                 200,
                 6,
                 TestOrdersGenerator.UID_PLAIN_MAPPER,
                 0,
-                false);
+                false,
+                TestOrdersGenerator.createAsyncProgressLogger(tranNum));
 
         genResult.getCommands().forEach(cmd -> {
             cmd.orderId += 100; // TODO set start id

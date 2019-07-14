@@ -30,7 +30,7 @@ public final class PerfHiccups {
 
         final int numOrders = 3_000_000;
         final int targetOrderBookOrders = 1000;
-        final int numUsers = 1000;
+        final int numUsers = 2000;
 
         // will print each occurrence if latency>0.2ms
         final long hiccupThresholdNs = 200_000;
@@ -40,7 +40,15 @@ public final class PerfHiccups {
         try (final ExchangeTestContainer container = new ExchangeTestContainer(16 * 1024, 1, 1, 512, null);
              final AffinityLock cpuLock = AffinityLock.acquireLock()) {
 
-            final TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, TestOrdersGenerator.UID_PLAIN_MAPPER, SYMBOL_MARGIN, false);
+            final TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(
+                    numOrders,
+                    targetOrderBookOrders,
+                    numUsers,
+                    TestOrdersGenerator.UID_PLAIN_MAPPER,
+                    SYMBOL_MARGIN,
+                    false,
+                    TestOrdersGenerator.createAsyncProgressLogger(numOrders));
+
             final List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
 
             IntFunction<TreeMap<Instant, Long>> testIteration = tps -> {

@@ -30,7 +30,7 @@ public final class UserCurrencyAccountsGenerator {
 
         final Random rand = new Random(1);
 
-        final RealDistribution paretoDistribution = new ParetoDistribution(new JDKRandomGenerator(0), 0.9, 1.5);
+        final RealDistribution paretoDistribution = new ParetoDistribution(new JDKRandomGenerator(0), 1, 1.5);
 
         int totalAccountsQuota = accountsToCreate;
         do {
@@ -119,7 +119,8 @@ public final class UserCurrencyAccountsGenerator {
 
         // we would prefer to choose from same number of users as number of messages to be generated in tests
         // at least 2 users are required, but no more than half of all users provided
-        int numUsersToSelect = Math.min(users2currencies.size() / 2, Math.max(2, symbolMessagesExpected / 10));
+        int numUsersToSelect = Math.min(users2currencies.size(), Math.max(2, symbolMessagesExpected / 5));
+
         final ArrayList<Integer> uids = new ArrayList<>();
         final Random rand = new Random(spec.symbolId);
         int uid = 1 + rand.nextInt(users2currencies.size() - 1);
@@ -137,44 +138,45 @@ public final class UserCurrencyAccountsGenerator {
             c++;
         } while (uids.size() < numUsersToSelect && c < users2currencies.size());
 
-        if (uids.size() < Math.max(2, symbolMessagesExpected / 1000)) {
-            // less than 2 uids
-            throw new IllegalStateException("Insufficient accounts density - can not find more than " + uids.size() + " matching users for symbol " + spec.symbolId
-                    + " total users:" + users2currencies.size()
-                    + " symbolMessagesExpected=" + symbolMessagesExpected
-                    + " numUsersToSelect=" + numUsersToSelect);
-        }
+//        int expectedUsers = symbolMessagesExpected / 20000;
+//        if (uids.size() < Math.max(2, expectedUsers)) {
+//            // less than 2 uids
+//            throw new IllegalStateException("Insufficient accounts density - can not find more than " + uids.size() + " matching users for symbol " + spec.symbolId
+//                    + " total users:" + users2currencies.size()
+//                    + " symbolMessagesExpected=" + symbolMessagesExpected
+//                    + " numUsersToSelect=" + numUsersToSelect);
+//        }
 
-//        System.out.println("sym: " + spec.symbolId + " " + spec.type + " uids:" + uids.size() + " numUsersToSelect=" + numUsersToSelect + " c=" + c);
+//        log.debug("sym: " + spec.symbolId + " " + spec.type + " uids:" + uids.size() + " msg=" + symbolMessagesExpected + " numUsersToSelect=" + numUsersToSelect + " c=" + c);
+
         return uids.stream().mapToInt(x -> x).toArray();
     }
 
 
-    public static void main(String[] args) {
-
-        Collection<Integer> currencies = new ArrayList<>();
-        for (int i = 1; i <= 32; i++) {
-            currencies.add(i);
-        }
-
-        List<CoreSymbolSpecification> specs = ExchangeTestContainer.generateRandomSymbols(100000, currencies, ExchangeTestContainer.AllowedSymbolTypes.BOTH);
-
-
-        long t = System.currentTimeMillis();
-        List<BitSet> users2currencies = generateUsers(10000000, currencies);
-        System.out.println(users2currencies.size() + " generated in " + (System.currentTimeMillis() - t) + "ms");
-
-        System.out.println("total: " + users2currencies.stream().mapToInt(BitSet::cardinality).sum());
-
-
-        //users2currencies.forEachKeyValue((k, v) -> System.out.println(k + " - " + v));
-
-
-        t = System.currentTimeMillis();
-        IntObjectHashMap<int[]> ints1 = assignSymbolsToUsers(users2currencies, specs, TestOrdersGenerator.createWeightedDistribution(specs.size()), 10_000_000);
-        System.out.println("Mapped to users in " + (System.currentTimeMillis() - t) + "ms");
-
-
-    }
+//    public static void main(String[] args) {
+//
+//        Collection<Integer> currencies = new ArrayList<>();
+//        for (int i = 1; i <= 32; i++) {
+//            currencies.add(i);
+//        }
+//
+//        List<CoreSymbolSpecification> specs = ExchangeTestContainer.generateRandomSymbols(100000, currencies, ExchangeTestContainer.AllowedSymbolTypes.BOTH);
+//
+//
+//        long t = System.currentTimeMillis();
+//        List<BitSet> users2currencies = generateUsers(10000000, currencies);
+//        System.out.println(users2currencies.size() + " generated in " + (System.currentTimeMillis() - t) + "ms");
+//
+//        System.out.println("total: " + users2currencies.stream().mapToInt(BitSet::cardinality).sum());
+//
+//
+//        //users2currencies.forEachKeyValue((k, v) -> System.out.println(k + " - " + v));
+//
+//
+//        t = System.currentTimeMillis();
+//        IntObjectHashMap<int[]> ints1 = assignSymbolsToUsers(users2currencies, specs, TestOrdersGenerator.createWeightedDistribution(specs.size()), 10_000_000);
+//        System.out.println("Mapped to users in " + (System.currentTimeMillis() - t) + "ms");
+//
+//    }
 
 }

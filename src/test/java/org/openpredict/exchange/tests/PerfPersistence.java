@@ -36,7 +36,7 @@ public final class PerfPersistence {
     /**
      * This is serialization test for simplified conditions
      * - one symbol
-     * - 1K active users (~2K currency accounts)
+     * - ~1K active users (2K currency accounts)
      * - 1K pending limit-orders (in one order book)
      * 6-threads CPU can run this test
      */
@@ -45,7 +45,7 @@ public final class PerfPersistence {
         persistenceTestImpl(
                 3_000_000,
                 1000,
-                1000,
+                2000,
                 10,
                 CURRENCIES_FUTURES,
                 1,
@@ -61,7 +61,7 @@ public final class PerfPersistence {
         persistenceTestImpl(
                 3_000_000,
                 1000,
-                1000,
+                2000,
                 10,
                 CURRENCIES_EXCHANGE,
                 1,

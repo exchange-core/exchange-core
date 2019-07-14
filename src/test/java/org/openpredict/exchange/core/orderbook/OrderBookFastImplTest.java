@@ -45,7 +45,14 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
         //IOrderBook orderBook = new OrderBookNaiveImpl();
         IOrderBook orderBookRef = new OrderBookNaiveImpl(SYMBOLSPEC_EUR_USD);
 
-        TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(tranNum, targetOrderBookOrders, numUsers, TestOrdersGenerator.UID_PLAIN_MAPPER, 0, true);
+        TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(
+                tranNum,
+                targetOrderBookOrders,
+                numUsers,
+                TestOrdersGenerator.UID_PLAIN_MAPPER,
+                0,
+                true,
+                TestOrdersGenerator.createAsyncProgressLogger(tranNum));
 
         long i = 0;
         for (OrderCommand cmd : genResult.getCommands()) {

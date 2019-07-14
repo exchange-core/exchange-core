@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.math3.distribution.ParetoDistribution;
 import org.apache.commons.math3.distribution.RealDistribution;
 import org.apache.commons.math3.random.JDKRandomGenerator;
+import org.jetbrains.annotations.NotNull;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.api.ApiCancelOrder;
 import org.openpredict.exchange.beans.api.ApiCommand;
@@ -20,6 +21,9 @@ import org.openpredict.exchange.core.orderbook.OrderBookNaiveImpl;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
+import java.util.function.LongConsumer;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.DoubleStream;
@@ -62,6 +66,8 @@ public final class TestOrdersGenerator {
         int quotaLeft = totalTransactionsNumber;
         final Map<Integer, CompletableFuture<GenResult>> futures = new HashMap<>();
 
+        final LongConsumer sharedProgressLogger = createAsyncProgressLogger(totalTransactionsNumber);
+
         //int[] stat = new int[4];
         for (int i = 0; i < coreSymbolSpecifications.size(); i++) {
             final CoreSymbolSpecification spec = coreSymbolSpecifications.get(i);
@@ -73,7 +79,7 @@ public final class TestOrdersGenerator {
                 final int[] uidsAvailableForSymbol = UserCurrencyAccountsGenerator.createUserListForSymbol(usersAccounts, spec, commandsNum);
                 final int numUsers = uidsAvailableForSymbol.length;
                 final UnaryOperator<Integer> uidMapper = idx -> uidsAvailableForSymbol[idx];
-                return generateCommands(commandsNum, numOrdersTarget, numUsers, uidMapper, spec.symbolId, false);
+                return generateCommands(commandsNum, numOrdersTarget, numUsers, uidMapper, spec.symbolId, false, sharedProgressLogger);
             }, executor));
 
             //stat[symbolId%4] += numOrdersTarget;
@@ -118,13 +124,33 @@ public final class TestOrdersGenerator {
         return Arrays.stream(paretoRaw).map(x -> x / sum).toArray();
     }
 
+    @NotNull
+    public static LongConsumer createAsyncProgressLogger(int totalTransactionsNumber) {
+        final long progressLogInterval = 3_000_000_000L; // 3 sec
+        final AtomicLong nextUpdateTime = new AtomicLong(System.nanoTime() + progressLogInterval);
+        final LongAdder progress = new LongAdder();
+        return transactions -> {
+            progress.add(transactions);
+            final long whenLogNext = nextUpdateTime.get();
+            final long timeNow = System.nanoTime();
+            if (timeNow > whenLogNext) {
+                if (nextUpdateTime.compareAndSet(whenLogNext, timeNow + progressLogInterval)) {
+                    // whichever thread won - it should print progress
+                    final long done = progress.sum();
+                    log.debug("{} ({}% done)", done, (done * 100L / totalTransactionsNumber));
+                }
+            }
+        };
+    }
+
     public static GenResult generateCommands(
             final int transactionsNumber,
             final int targetOrderBookOrders,
             final int numUsers,
             final UnaryOperator<Integer> uidMapper,
             final int symbol,
-            final boolean enableSlidingPrice) {
+            final boolean enableSlidingPrice,
+            final LongConsumer asyncProgressConsumer) {
 
         // TODO specify symbol type
         final IOrderBook orderBook = new OrderBookNaiveImpl(SYMBOLSPEC_EUR_USD);
@@ -145,7 +171,7 @@ public final class TestOrdersGenerator {
 
         int nextSizeCheck = CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND;
 
-        long nextUpdateTime = 0;
+        int lastProgress = 0;
 
         for (int i = 0; i < transactionsNumber; i++) {
             OrderCommand cmd = generateRandomOrder(session);
@@ -173,15 +199,14 @@ public final class TestOrdersGenerator {
 
                 updateOrderBookSizeStat(session);
 
-                if (System.currentTimeMillis() > nextUpdateTime) {
-                    log.debug("{} ({}% done), last limit orders num: {}",
-                            commands.size(), (i * 100L / transactionsNumber), session.lastOrderBookOrdersSize);
-                    nextUpdateTime = System.currentTimeMillis() + 3000;
-                    //log.debug("{}", orderBook.getL2MarketDataSnapshot(1000));
-                }
+                // TODO report less often
+                asyncProgressConsumer.accept(i - lastProgress);
+                lastProgress = i;
 
             }
         }
+
+        asyncProgressConsumer.accept(transactionsNumber - lastProgress);
 
         // if transactionsNumber is too small - assume order books filled
         if (session.orderbooksFilledAtSequence == 0 && transactionsNumber < 10000) {

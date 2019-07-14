@@ -3,19 +3,16 @@ package org.openpredict.exchange.core;
 import com.lmax.disruptor.EventTranslatorOneArg;
 import com.lmax.disruptor.RingBuffer;
 import lombok.extern.slf4j.Slf4j;
-import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.bytes.BytesIn;
-import net.openhft.chronicle.bytes.NativeBytes;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import net.openhft.chronicle.wire.Wire;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
-import org.openpredict.exchange.beans.api.binary.BatchAddAccountsCommand;
-import org.openpredict.exchange.beans.api.binary.BatchAddSymbolsCommand;
 import org.openpredict.exchange.beans.api.*;
+import org.openpredict.exchange.beans.api.reports.ReportQuery;
+import org.openpredict.exchange.beans.api.reports.ReportResult;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
-import org.openpredict.exchange.beans.api.reports.*;
 import org.openpredict.exchange.core.orderbook.OrderBookEventsHelper;
 
 import java.util.concurrent.CompletableFuture;
@@ -75,9 +72,10 @@ public final class ExchangeApi {
         }
     }
 
-    public <R> Future<R> submitBinaryCommandAsync(final WriteBytesMarshallable data, final Function<OrderCommand, R> translator) {
-
-        final int transferId = (int) (System.nanoTime() & Integer.MAX_VALUE); // TODO fix
+    public <R> Future<R> submitBinaryCommandAsync(
+            final WriteBytesMarshallable data,
+            final int transferId,
+            final Function<OrderCommand, R> translator) {
 
         final CompletableFuture<R> future = new CompletableFuture<>();
 
@@ -88,37 +86,20 @@ public final class ExchangeApi {
         return future;
     }
 
-    public <Q extends ReportQuery<R>, R extends ReportResult> Future<R> processReport(Q query) {
-        return submitBinaryCommandAsync(query, cmd -> {
-            final Stream<BytesIn> sections = OrderBookEventsHelper.deserializeEvents(cmd.matcherEvent).values().stream().map(Wire::bytes);
-            return query.getResultBuilder().apply(sections);
-        });
+    public <Q extends ReportQuery<R>, R extends ReportResult> Future<R> processReport(final Q query, final int transferId) {
+        return submitBinaryCommandAsync(
+                query,
+                transferId,
+                cmd -> {
+                    final Stream<BytesIn> sections = OrderBookEventsHelper.deserializeEvents(cmd.matcherEvent).values().stream().map(Wire::bytes);
+                    return query.getResultBuilder().apply(sections);
+                });
     }
 
     private void publishBinaryData(final ApiBinaryDataCommand apiCmd, final LongConsumer endSeqConsumer) {
 
-        final NativeBytes<Void> bytes = Bytes.allocateElasticDirect(128);
-
-        // TODO refactor
-        final WriteBytesMarshallable data = apiCmd.data;
-        if (data instanceof BatchAddSymbolsCommand) {
-            bytes.writeInt(1002);
-        } else if (data instanceof BatchAddAccountsCommand) {
-            bytes.writeInt(1003);
-        } else if (data instanceof StateHashReportQuery) {
-            bytes.writeInt(2001);
-        } else if (data instanceof SingleUserReportQuery) {
-            bytes.writeInt(2002);
-        } else if (data instanceof TotalCurrencyBalanceReportQuery) {
-            bytes.writeInt(2003);
-        } else {
-            throw new IllegalStateException("Unsupported class: " + data.getClass());
-        }
-
-        data.writeMarshallable(bytes);
         final int longsPerMessage = 5;
-        long[] longArray = Utils.bytesToLongArray(bytes, longsPerMessage);
-
+        long[] longArray = Utils.bytesToLongArray(BinaryCommandsProcessor.serializeObject(apiCmd.data), longsPerMessage);
 
         int i = 0;
         int n = longArray.length / longsPerMessage;
@@ -129,8 +110,6 @@ public final class ExchangeApi {
 
         try {
             for (long seq = lowSeq; seq <= highSeq; seq++) {
-
-                // TODO process few longs at one time
 
                 OrderCommand cmd = ringBuffer.get(seq);
                 cmd.command = OrderCommandType.BINARY_DATA;
@@ -154,7 +133,6 @@ public final class ExchangeApi {
             log.error("Binary commands processing exception: ", ex);
 
         } finally {
-            //System.out.println("publish " + lowSeq + "-" + highSeq);
             endSeqConsumer.accept(highSeq);
             ringBuffer.publish(lowSeq, highSeq);
         }

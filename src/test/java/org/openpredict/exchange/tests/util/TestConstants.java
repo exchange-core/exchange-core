@@ -46,9 +46,9 @@ public final class TestConstants {
     public static final int CURRENECY_XAU = 959;
     public static final int CURRENECY_ZAR = 710;
 
-    public static final int CURRENECY_XBT = 3762; // satoshi, 10-8
-    public static final int CURRENECY_ETH = 3928; // szabo, 10-6
-    public static final int CURRENECY_LTC = 4141;
+    public static final int CURRENECY_XBT = 3762; // satoshi, 1E-8
+    public static final int CURRENECY_ETH = 3928; // szabo, 1E-6
+    public static final int CURRENECY_LTC = 4141; // litoshi, 1E-8
     public static final int CURRENECY_XDG = 4142;
     public static final int CURRENECY_GRC = 4143;
     public static final int CURRENECY_XPM = 4144;
@@ -136,5 +136,16 @@ public final class TestConstants {
             .makerFee(0)
             .build();
 
+    // symbol with fees
+    public static final CoreSymbolSpecification SYMBOLSPECFEE_XBT_LTC = CoreSymbolSpecification.builder()
+            .symbolId(SYMBOL_EXCHANGE)
+            .type(SymbolType.CURRENCY_EXCHANGE_PAIR)
+            .baseCurrency(CURRENECY_XBT)    // base = satoshi
+            .quoteCurrency(CURRENECY_LTC)   // quote = litoshi
+            .baseScaleK(1_000_000)          // 1 lot = 1M satoshi (0.01 BTC)
+            .quoteScaleK(10_000)            // 1 step = 10K litoshi
+            .takerFee(1900)                 // taker fee 1900 litoshi per 1 lot
+            .makerFee(700)                  // maker fee 700 litoshi per 1 lot
+            .build();
 
 }

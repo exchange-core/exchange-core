@@ -3,14 +3,15 @@ package org.openpredict.exchange.core;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.*;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
-import org.openpredict.exchange.beans.api.binary.BatchAddAccountsCommand;
-import org.openpredict.exchange.beans.api.binary.BatchAddSymbolsCommand;
+import org.jetbrains.annotations.NotNull;
 import org.openpredict.exchange.beans.MatcherTradeEvent;
 import org.openpredict.exchange.beans.StateHash;
-import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.beans.api.binary.BatchAddAccountsCommand;
+import org.openpredict.exchange.beans.api.binary.BatchAddSymbolsCommand;
 import org.openpredict.exchange.beans.api.reports.SingleUserReportQuery;
 import org.openpredict.exchange.beans.api.reports.StateHashReportQuery;
 import org.openpredict.exchange.beans.api.reports.TotalCurrencyBalanceReportQuery;
+import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.core.orderbook.OrderBookEventsHelper;
 
 import java.util.Arrays;
@@ -65,29 +66,9 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
             incomingData.removeKey(transferId);
 
             final BytesIn bytesIn = Utils.longsToWire(record.dataArray).bytes();
-            final Object obj;
-            int classCode = bytesIn.readInt();
-            switch (classCode) {
-                case 1002:
-                    obj = new BatchAddSymbolsCommand(bytesIn);
-                    break;
-                case 1003:
-                    obj = new BatchAddAccountsCommand(bytesIn);
-                    break;
-                case 2001:
-                    obj = new StateHashReportQuery(bytesIn);
-                    break;
-                case 2002:
-                    obj = new SingleUserReportQuery(bytesIn);
-                    break;
-                case 2003:
-                    obj = new TotalCurrencyBalanceReportQuery(bytesIn);
-                    break;
-                default:
-                    throw new IllegalStateException("Unsupported classCode: " + classCode);
-            }
 
-            completeMessagesHandler.apply(obj).ifPresent(res -> {
+
+            completeMessagesHandler.apply(deserializeObject(bytesIn)).ifPresent(res -> {
                 final NativeBytes<Void> bytes = Bytes.allocateElasticDirect(128);
                 res.writeMarshallable(bytes);
                 final MatcherTradeEvent binaryEventsChain = OrderBookEventsHelper.createBinaryEventsChain(cmd.timestamp, section, bytes);
@@ -101,6 +82,46 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
 
     }
 
+    @NotNull
+    public static Object deserializeObject(BytesIn bytesIn) {
+
+        int classCode = bytesIn.readInt();
+
+        switch (classCode) {
+            case 1002:
+                return new BatchAddSymbolsCommand(bytesIn);
+            case 1003:
+                return new BatchAddAccountsCommand(bytesIn);
+            case 2001:
+                return new StateHashReportQuery(bytesIn);
+            case 2002:
+                return new SingleUserReportQuery(bytesIn);
+            case 2003:
+                return new TotalCurrencyBalanceReportQuery(bytesIn);
+            default:
+                throw new IllegalStateException("Unsupported classCode: " + classCode);
+        }
+    }
+
+    @NotNull
+    public static NativeBytes<Void> serializeObject(WriteBytesMarshallable data) {
+        final NativeBytes<Void> bytes = Bytes.allocateElasticDirect(128);
+        if (data instanceof BatchAddSymbolsCommand) {
+            bytes.writeInt(1002);
+        } else if (data instanceof BatchAddAccountsCommand) {
+            bytes.writeInt(1003);
+        } else if (data instanceof StateHashReportQuery) {
+            bytes.writeInt(2001);
+        } else if (data instanceof SingleUserReportQuery) {
+            bytes.writeInt(2002);
+        } else if (data instanceof TotalCurrencyBalanceReportQuery) {
+            bytes.writeInt(2003);
+        } else {
+            throw new IllegalStateException("Unsupported class: " + data.getClass());
+        }
+        data.writeMarshallable(bytes);
+        return bytes;
+    }
 
     public void reset() {
         incomingData.clear();

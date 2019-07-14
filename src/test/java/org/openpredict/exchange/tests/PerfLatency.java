@@ -35,7 +35,7 @@ public final class PerfLatency {
     /**
      * This is latency test for simplified conditions
      * - one symbol
-     * - 1K active users (~2K currency accounts)
+     * - ~1K active users (2K currency accounts)
      * - 1K pending limit-orders (in one order book)
      * 6-threads CPU can run this test
      */
@@ -48,7 +48,7 @@ public final class PerfLatency {
                     container,
                     3_000_000,
                     1_000,
-                    1_000,
+                    2_000,
                     CURRENCIES_FUTURES,
                     1,
                     AllowedSymbolTypes.FUTURES_CONTRACT,
@@ -64,7 +64,7 @@ public final class PerfLatency {
                     container,
                     3_000_000,
                     1_000,
-                    1_000,
+                    2_000,
                     CURRENCIES_EXCHANGE,
                     1,
                     AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR,

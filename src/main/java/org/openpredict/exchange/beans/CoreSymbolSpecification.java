@@ -30,7 +30,7 @@ public final class CoreSymbolSpecification implements WriteBytesMarshallable, St
     public final long depositSell;  // sell margin (quote currency)
 
     // fees per lot in quote? currency units
-    public final long takerFee;
+    public final long takerFee; // TODO check invariant: taker fee is not less than maker fee
     public final long makerFee;
     // TODO public final int feeCurrency; //  if type=CURRENCY_EXCHANGE_PAIR - should be the same as quoteCurrency
 

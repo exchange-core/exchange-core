@@ -369,7 +369,7 @@ public final class Utils {
     }
 
     public static long calculateAmountBid(long size, long price, CoreSymbolSpecification spec) {
-        return size * price * spec.quoteScaleK;
+        return size * (price * spec.quoteScaleK + spec.takerFee);
     }
 
     public static long calculateAmountAsk(long size, CoreSymbolSpecification spec) {

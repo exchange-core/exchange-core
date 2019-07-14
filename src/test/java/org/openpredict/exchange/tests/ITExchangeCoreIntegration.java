@@ -505,7 +505,7 @@ public final class ITExchangeCoreIntegration {
         }
     }
 
-    @Test(timeout = 30_000)
+    @Test(timeout = 10_000)
     public void exchangeCancelBid() throws Exception {
 
         try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
@@ -554,6 +554,27 @@ public final class ITExchangeCoreIntegration {
         }
     }
 
+    @Test(timeout = 10_000)
+    public void exchangePlaceFee() throws Exception {
+
+        try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
+            container.initFeeSymbols();
+
+            // create user
+            container.createUserWithMoney(UID_2, CURRENECY_LTC, 3_420_000_000L); // 3.42B litoshi (34.2 LTC)
+
+            // submit BID order for 1000 lots - should be rejected because of the fee
+            final ApiPlaceOrder order203 = ApiPlaceOrder.builder().uid(UID_2).id(203).price(11_400).reservePrice(11_400).size(30).action(OrderAction.BID).orderType(GTC).symbol(SYMBOL_EXCHANGE).build();
+            container.submitCommandSync(order203, CommandResultCode.RISK_NSF);
+
+            container.addMoneyToUser(UID_2, CURRENECY_LTC, SYMBOLSPECFEE_XBT_LTC.takerFee * 30 - 1);
+            container.submitCommandSync(order203, CommandResultCode.RISK_NSF);
+
+            container.addMoneyToUser(UID_2, CURRENECY_LTC, 1);
+            container.submitCommandSync(order203, CommandResultCode.SUCCESS);
+        }
+    }
+
     @Test(timeout = 60_000)
     public void manyOperationsMargin() throws Exception {
 
@@ -575,7 +596,15 @@ public final class ITExchangeCoreIntegration {
             int targetOrderBookOrders = 1000;
             int numUsers = 1000;
 
-            final TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, TestOrdersGenerator.UID_PLAIN_MAPPER, symbolSpec.getSymbolId(), false);
+            final TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(
+                    numOrders,
+                    targetOrderBookOrders,
+                    numUsers,
+                    TestOrdersGenerator.UID_PLAIN_MAPPER,
+                    symbolSpec.getSymbolId(),
+                    false,
+                    TestOrdersGenerator.createAsyncProgressLogger(numOrders));
+
             final List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
 
             final Set<Integer> allowedCurrencies = Stream.of(symbolSpec.quoteCurrency, symbolSpec.baseCurrency).collect(Collectors.toSet());
