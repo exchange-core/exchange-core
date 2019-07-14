@@ -35,19 +35,19 @@ public abstract class ITOrdersBucketBase {
         bucket = createNewOrdersBucket();
         bucket.setPrice(PRICE);
 
-        bucket.put(Order.orderBuilder().orderId(1).uid(UID_1).size(100).build());
+        bucket.put(Order.builder().orderId(1).uid(UID_1).size(100).build());
         assertThat(bucket.getNumOrders(), is(1));
         assertThat(bucket.getTotalVolume(), is(100L));
 
         bucket.validate();
 
-        bucket.put(Order.orderBuilder().orderId(2).uid(UID_2).size(40).build());
+        bucket.put(Order.builder().orderId(2).uid(UID_2).size(40).build());
         assertThat(bucket.getNumOrders(), is(2));
         assertThat(bucket.getTotalVolume(), is(140L));
 
         bucket.validate();
 
-        bucket.put(Order.orderBuilder().orderId(3).uid(UID_1).size(1).build());
+        bucket.put(Order.builder().orderId(3).uid(UID_1).size(1).build());
         assertThat(bucket.getNumOrders(), is(3));
         assertThat(bucket.getTotalVolume(), is(141L));
 
@@ -59,7 +59,7 @@ public abstract class ITOrdersBucketBase {
 
         bucket.validate();
 
-        bucket.put(Order.orderBuilder().orderId(4).uid(UID_1).size(200).build());
+        bucket.put(Order.builder().orderId(4).uid(UID_1).size(200).build());
         assertThat(bucket.getNumOrders(), is(3));
         assertThat(bucket.getTotalVolume(), is(301L));
     }
@@ -77,7 +77,7 @@ public abstract class ITOrdersBucketBase {
         for (int j = 0; j < 300; j++) {
             List<Order> orders = new ArrayList<>(numOrdersToAdd);
             for (int i = 0; i < numOrdersToAdd; i++) {
-                Order order = Order.orderBuilder().orderId(orderId++).uid(UID_2).size(i).build();
+                Order order = Order.builder().orderId(orderId++).uid(UID_2).size(i).build();
                 orders.add(order);
 
                 bucket.put(order);
@@ -138,7 +138,7 @@ public abstract class ITOrdersBucketBase {
         int expectedNumOrders = bucket.getNumOrders() + numOrdersToAdd;
         Order[] orders = new Order[numOrdersToAdd];
         for (int i = 0; i < numOrdersToAdd; i++) {
-            orders[i] = Order.orderBuilder().orderId(i + 5).uid(UID_2).size(i).build();
+            orders[i] = Order.builder().orderId(i + 5).uid(UID_2).size(i).build();
             expectedVolume += i;
         }
 
@@ -169,7 +169,7 @@ public abstract class ITOrdersBucketBase {
 
             long s = System.nanoTime();
             for (int i = 0; i < numOrdersToAdd; i++) {
-                Order order = Order.orderBuilder().orderId(orderId++).uid(UID_2).size(i).build();
+                Order order = Order.builder().orderId(orderId++).uid(UID_2).size(i).build();
                 orders.add(order);
 
                 bucket.put(order);

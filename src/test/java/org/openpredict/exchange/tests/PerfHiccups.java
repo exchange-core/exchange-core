@@ -30,7 +30,7 @@ public final class PerfHiccups {
 
         final int numOrders = 3_000_000;
         final int targetOrderBookOrders = 1000;
-        final int numUsers = 1000;
+        final int numUsers = 2000;
 
         // will print each occurrence if latency>0.2ms
         final long hiccupThresholdNs = 200_000;
@@ -38,10 +38,18 @@ public final class PerfHiccups {
         final int targetTps = 500_000; // transactions per second
 
         try (final ExchangeTestContainer container = new ExchangeTestContainer(16 * 1024, 1, 1, 512, null);
-             final AffinityLock cpuLock = AffinityLock.acquireCore()) {
+             final AffinityLock cpuLock = AffinityLock.acquireLock()) {
 
-            TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, numUsers, SYMBOL_MARGIN, false);
-            List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
+            final TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(
+                    numOrders,
+                    targetOrderBookOrders,
+                    numUsers,
+                    TestOrdersGenerator.UID_PLAIN_MAPPER,
+                    SYMBOL_MARGIN,
+                    false,
+                    TestOrdersGenerator.createAsyncProgressLogger(numOrders));
+
+            final List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
 
             IntFunction<TreeMap<Instant, Long>> testIteration = tps -> {
                 try {
@@ -52,7 +60,7 @@ public final class PerfHiccups {
                     container.initBasicSymbols();
                     container.usersInit(numUsers, CURRENCIES_FUTURES);
 
-                    LongLongHashMap hiccupTimestampsNs = new LongLongHashMap(10000);
+                    final LongLongHashMap hiccupTimestampsNs = new LongLongHashMap(10000);
 
                     final CountDownLatch latch = new CountDownLatch(apiCommands.size());
                     container.setConsumer(cmd -> {
@@ -89,7 +97,7 @@ public final class PerfHiccups {
                         plannedTimestamp += nanosPerCmd;
                     }
 
-                    TreeMap<Instant, Long> sorted = new TreeMap<>();
+                    final TreeMap<Instant, Long> sorted = new TreeMap<>();
                     // convert nanosecond timestamp into Instant
                     // not very precise, but for 1ms resolution is ok (0,05% accuracy is required)...
                     // delay (nanoseconds) merging as max value

@@ -49,8 +49,8 @@ public class OrdersBucketFastImplTest extends OrdersBucketBaseTest {
 
                 int size = rnd.nextInt(Integer.MAX_VALUE);
                 orderId++;
-                Order order1 = Order.orderBuilder().price(1).orderId(orderId).uid(UID_2).size(size).build();
-                Order order2 = Order.orderBuilder().price(1).orderId(orderId).uid(UID_2).size(size).build();
+                Order order1 = Order.builder().price(1).orderId(orderId).uid(UID_2).size(size).build();
+                Order order2 = Order.builder().price(1).orderId(orderId).uid(UID_2).size(size).build();
                 orders.add(order1);
 
                 bucket.put(order1);

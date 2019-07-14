@@ -8,13 +8,14 @@ import org.junit.Test;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.beans.api.ApiCommand;
 import org.openpredict.exchange.beans.api.ApiPersistState;
-import org.openpredict.exchange.beans.api.ApiStateHashRequest;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.ExchangeApi;
 import org.openpredict.exchange.tests.util.ExchangeTestContainer;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
+import org.openpredict.exchange.tests.util.UserCurrencyAccountsGenerator;
 
+import java.util.BitSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -35,7 +36,7 @@ public final class PerfPersistence {
     /**
      * This is serialization test for simplified conditions
      * - one symbol
-     * - 1K active users (~2K currency accounts)
+     * - ~1K active users (2K currency accounts)
      * - 1K pending limit-orders (in one order book)
      * 6-threads CPU can run this test
      */
@@ -44,7 +45,7 @@ public final class PerfPersistence {
         persistenceTestImpl(
                 3_000_000,
                 1000,
-                1000,
+                2000,
                 10,
                 CURRENCIES_FUTURES,
                 1,
@@ -60,7 +61,7 @@ public final class PerfPersistence {
         persistenceTestImpl(
                 3_000_000,
                 1000,
-                1000,
+                2000,
                 10,
                 CURRENCIES_EXCHANGE,
                 1,
@@ -83,7 +84,7 @@ public final class PerfPersistence {
                 1_000_000, // 10
                 25,
                 ALL_CURRENCIES,
-                1000,
+                1_000,
                 BOTH,
                 4,
                 4,
@@ -93,7 +94,7 @@ public final class PerfPersistence {
 
     private void persistenceTestImpl(final int totalTransactionsNumber,
                                      final int targetOrderBookOrdersTotal,
-                                     final int numUsers,
+                                     final int numAccounts,
                                      final int iterations,
                                      final Set<Integer> currenciesAllowed,
                                      final int numSymbols,
@@ -114,27 +115,35 @@ public final class PerfPersistence {
             final float originalPerfMt;
 
             // validate total balance as a sum of loaded funds
-            final Consumer<IntLongHashMap> balancesValidator = balances -> currenciesAllowed.forEach(
-                    cur -> assertThat(balances.get(cur), Is.is(10_0000_0000L * numUsers)));
+            final Consumer<IntLongHashMap> balancesValidator;
 
             try (final ExchangeTestContainer container = new ExchangeTestContainer(bufferSize, matchingEngines, riskEngines, msgsInGroupLimit, null)) {
 
-                try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
+                try (AffinityLock cpuLock = AffinityLock.acquireLock()) {
 
-                    coreSymbolSpecifications = container.generateAndAddSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
+                    coreSymbolSpecifications = ExchangeTestContainer.generateRandomSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
+
+                    final List<BitSet> usersAccounts = UserCurrencyAccountsGenerator.generateUsers(numAccounts, currenciesAllowed);
+
+                    final IntLongHashMap globalAmountPerCurrency = new IntLongHashMap();
+                    usersAccounts.forEach(user -> user.stream().forEach(cur -> globalAmountPerCurrency.addToValue(cur, 10_0000_0000L)));
+                    balancesValidator = balances -> currenciesAllowed.forEach(cur -> {
+                        assertThat(balances.get(cur), Is.is(globalAmountPerCurrency.get(cur)));
+                    });
 
                     genResult = TestOrdersGenerator.generateMultipleSymbols(coreSymbolSpecifications,
                             totalTransactionsNumber,
-                            numUsers,
+                            usersAccounts,
                             targetOrderBookOrdersTotal);
 
                     final ExchangeApi api = container.api;
 
-                    log.info("Load symbols...");
+                    log.info("Init symbols...");
                     container.initBasicSymbols();
-                    coreSymbolSpecifications.forEach(container::addSymbol);
+                    log.info("Load symbols...");
+                    container.addSymbols(coreSymbolSpecifications);
                     log.info("Load users...");
-                    container.usersInit(numUsers, currenciesAllowed);
+                    container.userAccountsInit(usersAccounts);
 
                     log.info("Pre-fill...");
                     final List<ApiCommand> apiCommandsFill = genResult.getApiCommandsFill();
@@ -162,11 +171,13 @@ public final class PerfPersistence {
                     final float persistTimeSec = (float) (System.currentTimeMillis() - tc) / 1000.0f;
                     log.debug("Persisting time: {}s", String.format("%.3f", persistTimeSec));
 
-                    originalPrefillStateHash = container.submitCommandSync(ApiStateHashRequest.builder().build(), res -> {
-                        assertThat(res.command, is(OrderCommandType.STATE_HASH_REQUEST));
-                        assertThat(res.resultCode, is(CommandResultCode.SUCCESS));
-                        return res.orderId;
-                    });
+
+                    originalPrefillStateHash = container.requestStateHash();
+//                    originalPrefillStateHash = container.submitCommandSync(ApiStateHashRequest.builder().build(), res -> {
+//                        assertThat(res.command, is(OrderCommandType.STATE_HASH_REQUEST));
+//                        assertThat(res.resultCode, is(CommandResultCode.SUCCESS));
+//                        return res.orderId;
+//                    });
 
                     log.info("Benchmarking original state...");
                     List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
@@ -192,15 +203,16 @@ public final class PerfPersistence {
             final long tLoad = System.currentTimeMillis();
             try (final ExchangeTestContainer recreatedContainer = new ExchangeTestContainer(bufferSize, matchingEngines, riskEngines, msgsInGroupLimit, stateId)) {
                 float loadTimeSec = (float) (System.currentTimeMillis() - tLoad) / 1000.0f;
-                log.debug("Load time: {}s", String.format("%.3f", loadTimeSec));
+                log.debug("Load+start time: {}s", String.format("%.3f", loadTimeSec));
 
                 try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
 
-                    final long restoredPrefillStateHash = recreatedContainer.submitCommandSync(ApiStateHashRequest.builder().build(), res -> {
-                        assertThat(res.command, is(OrderCommandType.STATE_HASH_REQUEST));
-                        assertThat(res.resultCode, is(CommandResultCode.SUCCESS));
-                        return res.orderId;
-                    });
+//                    final long restoredPrefillStateHash = recreatedContainer.submitCommandSync(ApiStateHashRequest.builder().build(), res -> {
+//                        assertThat(res.command, is(OrderCommandType.STATE_HASH_REQUEST));
+//                        assertThat(res.resultCode, is(CommandResultCode.SUCCESS));
+//                        return res.orderId;
+//                    });
+                    final long restoredPrefillStateHash = recreatedContainer.requestStateHash();
                     assertThat(restoredPrefillStateHash, is(originalPrefillStateHash));
 
                     recreatedContainer.validateTotalBalance(balancesValidator);

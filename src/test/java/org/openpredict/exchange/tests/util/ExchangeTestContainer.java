@@ -1,37 +1,37 @@
 package org.openpredict.exchange.tests.util;
 
+import com.google.common.collect.Lists;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
+import org.hamcrest.core.Is;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.api.*;
+import org.openpredict.exchange.beans.api.binary.BatchAddAccountsCommand;
+import org.openpredict.exchange.beans.api.binary.BatchAddSymbolsCommand;
+import org.openpredict.exchange.beans.api.reports.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
-import org.openpredict.exchange.beans.reports.SingleUserReportQuery;
-import org.openpredict.exchange.beans.reports.SingleUserReportResult;
-import org.openpredict.exchange.beans.reports.TotalCurrencyBalanceReportQuery;
-import org.openpredict.exchange.beans.reports.TotalCurrencyBalanceReportResult;
 import org.openpredict.exchange.core.ExchangeApi;
 import org.openpredict.exchange.core.ExchangeCore;
 import org.openpredict.exchange.core.Utils;
 import org.openpredict.exchange.core.journalling.DiskSerializationProcessor;
 import org.openpredict.exchange.core.orderbook.OrderBookFastImpl;
+import org.openpredict.exchange.core.orderbook.OrderBookNaiveImpl;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Random;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.openpredict.exchange.core.ExchangeCore.DisruptorWaitStrategy.BUSY_SPIN;
@@ -98,6 +98,11 @@ public final class ExchangeTestContainer implements AutoCloseable {
         addSymbol(SYMBOLSPEC_ETH_XBT);
     }
 
+    public void initFeeSymbols() {
+
+        addSymbol(SYMBOLSPECFEE_XBT_LTC);
+    }
+
     public void initBasicUsers() throws InterruptedException {
 
         final List<ApiCommand> cmds = new ArrayList<>();
@@ -118,13 +123,60 @@ public final class ExchangeTestContainer implements AutoCloseable {
     public void createUserWithMoney(long uid, int currency, long amount) throws InterruptedException {
         final List<ApiCommand> cmds = new ArrayList<>();
         cmds.add(ApiAddUser.builder().uid(uid).build());
-        cmds.add(ApiAdjustUserBalance.builder().uid(uid).transactionId(1L).amount(amount).currency(currency).build());
+        cmds.add(ApiAdjustUserBalance.builder().uid(uid).transactionId(getRandomTransactionId()).amount(amount).currency(currency).build());
+        submitCommandsSync(cmds);
+    }
+
+    public void addMoneyToUser(long uid, int currency, long amount) throws InterruptedException {
+        final List<ApiCommand> cmds = new ArrayList<>();
+        cmds.add(ApiAdjustUserBalance.builder().uid(uid).transactionId(getRandomTransactionId()).amount(amount).currency(currency).build());
         submitCommandsSync(cmds);
     }
 
 
-    public void addSymbol(CoreSymbolSpecification symbol) {
-        submitMultiCommandSync(ApiBinaryDataCommand.builder().transferId(System.nanoTime()).data(symbol).build());
+    public void addSymbol(final CoreSymbolSpecification symbol) {
+        addSymbols(new BatchAddSymbolsCommand(symbol));
+    }
+
+    public void addSymbols(final List<CoreSymbolSpecification> symbols) {
+        Lists.partition(symbols, 1024).forEach(partition -> addSymbols(new BatchAddSymbolsCommand(partition)));
+    }
+
+    public void addSymbols(final BatchAddSymbolsCommand symbols) {
+        submitMultiCommandSync(ApiBinaryDataCommand.builder().transferId(getRandomTransactionId()).data(symbols).build());
+    }
+
+    private int getRandomTransactionId() {
+        return (int) (System.nanoTime() & Integer.MAX_VALUE);
+    }
+
+    public void userAccountsInit(List<BitSet> userCurrencies) throws InterruptedException {
+
+        final int totalAccounts = userCurrencies.stream().skip(1).mapToInt(BitSet::cardinality).sum();
+        final int numUsers = userCurrencies.size() - 1;
+        final CountDownLatch usersLatch = new CountDownLatch(totalAccounts + numUsers);
+        consumer = cmd -> {
+            if (cmd.resultCode == CommandResultCode.SUCCESS
+                    && (cmd.command == OrderCommandType.ADD_USER || cmd.command == OrderCommandType.BALANCE_ADJUSTMENT)) {
+                usersLatch.countDown();
+            } else {
+                throw new IllegalStateException("Unexpected command" + cmd);
+            }
+        };
+
+        IntStream.rangeClosed(1, numUsers).forEach(uid -> {
+            api.submitCommand(ApiAddUser.builder().uid(uid).build());
+            userCurrencies.get(uid).stream().forEach(currency ->
+                    api.submitCommand(ApiAdjustUserBalance.builder().uid(uid).transactionId(uid * 1000 + currency).amount(10_0000_0000L).currency(currency).build()));
+
+            if (uid > 1000000 && uid % 1000000 == 0) {
+                log.debug("uid: {} usersLatch: {}", uid, usersLatch.getCount());
+            }
+        });
+        usersLatch.await();
+
+        consumer = cmd -> {
+        };
     }
 
     public void usersInit(int numUsers, Set<Integer> currencies) throws InterruptedException {
@@ -140,16 +192,13 @@ public final class ExchangeTestContainer implements AutoCloseable {
             }
         };
 
-        LongAdder c = new LongAdder();
 
         LongStream.rangeClosed(1, numUsers)
                 .forEach(uid -> {
                     api.submitCommand(ApiAddUser.builder().uid(uid).build());
-                    c.increment();
                     currencies.forEach(currency -> {
                         int transactionId = currency;
                         api.submitCommand(ApiAdjustUserBalance.builder().uid(uid).transactionId(transactionId).amount(10_0000_0000L).currency(currency).build());
-                        c.increment();
                     });
                     if (uid > 1000000 && uid % 1000000 == 0) {
                         log.debug("uid: {} usersLatch: {}", uid, usersLatch.getCount());
@@ -160,12 +209,54 @@ public final class ExchangeTestContainer implements AutoCloseable {
         consumer = cmd -> {
         };
 
-//        log.debug("commands sent: {} totalCommands:{}", c, totalCommands);
     }
+
+    // TODO slow (due allocations)
+    public void usersInitBatch(int numUsers, Set<Integer> currencies) {
+        int fromUid = 0;
+        final int batchSize = 1024;
+        while (usersInitBatch(fromUid, Math.min(fromUid + batchSize, numUsers + 1), currencies)) {
+            fromUid += batchSize;
+        }
+    }
+
+    public boolean usersInitBatch(int uidStartIncl, int uidStartExcl, Set<Integer> currencies) {
+
+        if (uidStartIncl > uidStartExcl) {
+            return false;
+        }
+
+        final LongObjectHashMap<IntLongHashMap> users = new LongObjectHashMap<>();
+        for (int uid = uidStartIncl; uid < uidStartExcl; uid++) {
+            final IntLongHashMap accounts = new IntLongHashMap();
+            currencies.forEach(currency -> accounts.put(currency, 10_0000_0000L));
+            users.put(uid, accounts);
+            if (uid > 100000 && uid % 100000 == 0) {
+                log.debug("uid: {}", uid);
+            }
+        }
+        submitMultiCommandSync(ApiBinaryDataCommand.builder().transferId(getRandomTransactionId()).data(new BatchAddAccountsCommand(users)).build());
+
+        return true;
+    }
+
 
     public void resetExchangeCore() throws InterruptedException {
         submitCommandSync(ApiReset.builder().build(), CHECK_SUCCESS);
     }
+
+    public void submitCommandSync(ApiCommand apiCommand, CommandResultCode expectedResultCode) throws InterruptedException {
+        final CountDownLatch latch = new CountDownLatch(1);
+        consumer = cmd -> {
+            assertThat(cmd.resultCode, Is.is(expectedResultCode));
+            latch.countDown();
+        };
+        api.submitCommand(apiCommand);
+        latch.await();
+        consumer = cmd -> {
+        };
+    }
+
 
     public void submitCommandSync(ApiCommand apiCommand, Consumer<OrderCommand> validator) throws InterruptedException {
         final CountDownLatch latch = new CountDownLatch(1);
@@ -230,7 +321,6 @@ public final class ExchangeTestContainer implements AutoCloseable {
         };
     }
 
-
     public L2MarketData requestCurrentOrderBook(final int symbol) {
         BlockingQueue<OrderCommand> queue = attachNewConsumerQueue();
         api.submitCommand(ApiOrderBookRequest.builder().symbol(symbol).size(-1).build());
@@ -262,14 +352,13 @@ public final class ExchangeTestContainer implements AutoCloseable {
     public void validateUserState(long uid,
                                   Consumer<UserProfile> riskEngineStateConsumer,
                                   Consumer<LongObjectHashMap<Order>> matchingEngineStateConsumer) throws InterruptedException, ExecutionException {
-
-        final SingleUserReportResult res = api.processReport(new SingleUserReportQuery(uid)).get();
+        final SingleUserReportResult res = api.processReport(new SingleUserReportQuery(uid), getRandomTransactionId()).get();
         riskEngineStateConsumer.accept(res.getUserProfile());
         matchingEngineStateConsumer.accept(res.getOrders());
     }
 
     public void validateTotalBalance(Consumer<IntLongHashMap> balancesValidator) throws InterruptedException, ExecutionException {
-        final TotalCurrencyBalanceReportResult res = api.processReport(new TotalCurrencyBalanceReportQuery()).get();
+        final TotalCurrencyBalanceReportResult res = api.processReport(new TotalCurrencyBalanceReportQuery(), getRandomTransactionId()).get();
         log.debug("accBal : {}", res.getAccountBalances());
         log.debug("ordBal : {}", res.getOrdersBalances());
         final IntLongHashMap totalBalances = Utils.mergeSum(res.getAccountBalances(), res.getOrdersBalances());
@@ -277,9 +366,13 @@ public final class ExchangeTestContainer implements AutoCloseable {
         balancesValidator.accept(totalBalances);
     }
 
-    public List<CoreSymbolSpecification> generateAndAddSymbols(final int num,
-                                                               final Set<Integer> currenciesAllowed,
-                                                               final AllowedSymbolTypes allowedSymbolTypes) {
+    public int requestStateHash() throws InterruptedException, ExecutionException {
+        return api.processReport(new StateHashReportQuery(), getRandomTransactionId()).get().getStateHash();
+    }
+
+    public static List<CoreSymbolSpecification> generateRandomSymbols(final int num,
+                                                                      final Collection<Integer> currenciesAllowed,
+                                                                      final AllowedSymbolTypes allowedSymbolTypes) {
         final Random random = new Random(1L);
 
         final Supplier<SymbolType> symbolTypeSupplier;

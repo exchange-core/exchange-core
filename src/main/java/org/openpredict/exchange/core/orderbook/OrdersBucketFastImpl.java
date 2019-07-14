@@ -10,6 +10,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.eclipse.collections.api.map.primitive.MutableLongIntMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongIntHashMap;
+import org.openpredict.exchange.beans.IOrder;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.core.Utils;
@@ -171,7 +172,7 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
      * Completely matching orders will be removed, partially matched order kept in the bucked.
      */
     @Override
-    public long match(long volumeToCollect, OrderCommand activeOrder, OrderCommand triggerCmd, Consumer<Order> removeOrderCallback) {
+    public long match(long volumeToCollect, IOrder activeOrder, OrderCommand triggerCmd, Consumer<Order> removeOrderCallback) {
 
         //validate();
 
@@ -180,7 +181,7 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
         int ptr = head;
         int numOrdersToScan = realSize;
         int ownOrderBarrier = -1;
-        final long ignoreUid = activeOrder.uid;
+        final long ignoreUid = activeOrder.getUid();
 
         while (numOrdersToScan > 0 && volumeToCollect > 0) {
             // fast-forward head pointer until non-empty element found

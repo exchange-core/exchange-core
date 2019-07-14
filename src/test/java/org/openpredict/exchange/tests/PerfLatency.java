@@ -12,10 +12,12 @@ import org.openpredict.exchange.tests.util.ExchangeTestContainer;
 import org.openpredict.exchange.tests.util.ExchangeTestContainer.AllowedSymbolTypes;
 import org.openpredict.exchange.tests.util.LatencyTools;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
+import org.openpredict.exchange.tests.util.UserCurrencyAccountsGenerator;
 
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.PrintStream;
+import java.util.BitSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -23,9 +25,7 @@ import java.util.function.BiFunction;
 import java.util.stream.IntStream;
 
 import static org.junit.Assert.assertEquals;
-import static org.openpredict.exchange.tests.util.TestConstants.ALL_CURRENCIES;
-import static org.openpredict.exchange.tests.util.TestConstants.CURRENCIES_EXCHANGE;
-import static org.openpredict.exchange.tests.util.TestConstants.CURRENCIES_FUTURES;
+import static org.openpredict.exchange.tests.util.TestConstants.*;
 
 @Slf4j
 public final class PerfLatency {
@@ -35,20 +35,20 @@ public final class PerfLatency {
     /**
      * This is latency test for simplified conditions
      * - one symbol
-     * - 1K active users (~2K currency accounts)
+     * - ~1K active users (2K currency accounts)
      * - 1K pending limit-orders (in one order book)
      * 6-threads CPU can run this test
      */
 
     @Test
-    public void latencyTest() {
+    public void latencyTestMargin() {
 
         try (final ExchangeTestContainer container = new ExchangeTestContainer(2 * 1024, 1, 1, 512, null)) {
             latencyTestImpl(
                     container,
                     3_000_000,
                     1_000,
-                    1_000,
+                    2_000,
                     CURRENCIES_FUTURES,
                     1,
                     AllowedSymbolTypes.FUTURES_CONTRACT,
@@ -57,14 +57,14 @@ public final class PerfLatency {
     }
 
     @Test
-    public void latencyExchangeTest() {
+    public void latencyTestExchange() {
 
         try (final ExchangeTestContainer container = new ExchangeTestContainer(2 * 1024, 1, 1, 512, null)) {
             latencyTestImpl(
                     container,
                     3_000_000,
                     1_000,
-                    1_000,
+                    2_000,
                     CURRENCIES_EXCHANGE,
                     1,
                     AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR,
@@ -80,7 +80,7 @@ public final class PerfLatency {
      * 12-threads CPU is required for running this test in 4+4 configuration.
      */
     @Test
-    public void latencyMultiSymbol() {
+    public void latencyTestMultiSymbol() {
         try (final ExchangeTestContainer container = new ExchangeTestContainer(64 * 1024, 4, 4, 2048, null)) {
             latencyTestImpl(
                     container,
@@ -98,7 +98,7 @@ public final class PerfLatency {
     private void latencyTestImpl(final ExchangeTestContainer container,
                                  final int totalTransactionsNumber,
                                  final int targetOrderBookOrdersTotal,
-                                 final int numUsers,
+                                 final int numAccounts,
                                  final Set<Integer> currenciesAllowed,
                                  final int numSymbols,
                                  final AllowedSymbolTypes allowedSymbolTypes,
@@ -109,17 +109,19 @@ public final class PerfLatency {
 
         final int warmupTps = 1_000_000;
 
-        try (final AffinityLock cpuLock = AffinityLock.acquireCore()) {
+        try (final AffinityLock cpuLock = AffinityLock.acquireLock()) {
 
             final ExchangeApi api = container.api;
 
-            final List<CoreSymbolSpecification> coreSymbolSpecifications = container.generateAndAddSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
+            final List<CoreSymbolSpecification> coreSymbolSpecifications = ExchangeTestContainer.generateRandomSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
 
-            final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(coreSymbolSpecifications,
+            final List<BitSet> usersAccounts = UserCurrencyAccountsGenerator.generateUsers(numAccounts, currenciesAllowed);
+
+            final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(
+                    coreSymbolSpecifications,
                     totalTransactionsNumber,
-                    numUsers,
+                    usersAccounts,
                     targetOrderBookOrdersTotal);
-
 
             final SingleWriterRecorder hdrRecorder = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
 
@@ -129,8 +131,8 @@ public final class PerfLatency {
                 try {
 
                     container.initBasicSymbols();
-                    coreSymbolSpecifications.forEach(container::addSymbol);
-                    container.usersInit(numUsers, currenciesAllowed);
+                    container.addSymbols(coreSymbolSpecifications);
+                    container.userAccountsInit(usersAccounts);
 
                     hdrRecorder.reset();
                     final CountDownLatch latchFill = new CountDownLatch(genResult.getApiCommandsFill().size());

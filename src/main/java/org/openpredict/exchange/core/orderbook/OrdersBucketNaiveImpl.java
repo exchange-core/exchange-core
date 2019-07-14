@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.apache.commons.lang3.builder.EqualsBuilder;
+import org.openpredict.exchange.beans.IOrder;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.core.Utils;
@@ -66,10 +67,10 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
      * @return
      */
     @Override
-    public long match(long volumeToCollect, OrderCommand activeOrder, OrderCommand triggerCmd, Consumer<Order> removeOrderCallback) {
+    public long match(long volumeToCollect, IOrder activeOrder, OrderCommand triggerCmd, Consumer<Order> removeOrderCallback) {
 
 //        log.debug("---- match: {}", volumeToCollect);
-        final long ignoreUid = activeOrder.uid;
+        final long ignoreUid = activeOrder.getUid();
 
         Iterator<Map.Entry<Long, Order>> iterator = entries.entrySet().iterator();
 

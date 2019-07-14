@@ -1,13 +1,13 @@
 package org.openpredict.exchange.beans;
 
+import lombok.AllArgsConstructor;
 import lombok.Builder;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.apache.commons.lang3.builder.EqualsBuilder;
-import org.openpredict.exchange.beans.cmd.OrderCommand;
-import org.openpredict.exchange.beans.cmd.OrderCommandType;
 
 import java.util.Objects;
 
@@ -19,65 +19,74 @@ import java.util.Objects;
  * No external references allowed to such object - order objects only live inside OrderBook.
  */
 @NoArgsConstructor
-public final class Order extends OrderCommand implements WriteBytesMarshallable {
+@AllArgsConstructor
+@Builder
+public final class Order implements WriteBytesMarshallable, IOrder {
+
+    @Getter
+    public long orderId;
+
+    @Getter
+    public long price;
+
+    @Getter
+    public long size;
 
     public long filled;
 
-    @Builder(builderMethodName = "orderBuilder", builderClassName = "OrderBuilder")
-//    public Order(OrderCommandType command, long orderId, int symbol, long price, long size, long price2, OrderAction action, OrderType orderType,
-    public Order(OrderCommandType command, long orderId, int symbol, long price, long size, long price2, OrderAction action, OrderType orderType,
-                 long uid, long timestamp, int userCookie, long filled) {
-        //super(command, orderId, symbol, price, size, price2, action, orderType, uid, timestamp, 0, null, null);
-        super(command, orderId, symbol, price, size, price2, action, orderType, uid, timestamp, userCookie, 0, 0, null, null, null);
-        this.filled = filled;
-    }
+    // new orders - reserved price for fast moves of GTC bid orders in exchange mode
+    @Getter
+    public long reserveBidPrice;
+
+    // required for PLACE_ORDER only;
+    @Getter
+    public OrderAction action;
+
+    @Getter
+    public long uid;
+
+    @Getter
+    public long timestamp;
+
+    public int userCookie;
 
     public Order(BytesIn bytes) {
 
-        super(OrderCommandType.PLACE_ORDER, // always same type
-                bytes.readLong(), // orderId
-                bytes.readInt(),  // symbol
-                bytes.readLong(),  // price
-                bytes.readLong(), // size
-                bytes.readLong(), // price2
-                OrderAction.of(bytes.readByte()),
-                OrderType.of(bytes.readByte()),
-                bytes.readLong(), // uid
-                bytes.readLong(), // timestamp
-                bytes.readInt(),  // userCookie
-                0,
-                0,
-                null,
-                null,
-                null);
 
-        this.filled = bytes.readLong();
+        this.orderId = bytes.readLong(); // orderId
+        this.price = bytes.readLong();  // price
+        this.size = bytes.readLong(); // size
+        this.filled = bytes.readLong(); // filled
+        this.reserveBidPrice = bytes.readLong(); // price2
+        this.action = OrderAction.of(bytes.readByte());
+        this.uid = bytes.readLong(); // uid
+        this.timestamp = bytes.readLong(); // timestamp
+        this.userCookie = bytes.readInt();  // userCookie
+
     }
 
     @Override
     public void writeMarshallable(BytesOut bytes) {
         bytes.writeLong(orderId);
-        bytes.writeInt(symbol);
         bytes.writeLong(price);
         bytes.writeLong(size);
+        bytes.writeLong(filled);
         bytes.writeLong(reserveBidPrice);
         bytes.writeByte(action.getCode());
-        bytes.writeByte(orderType.getCode());
         bytes.writeLong(uid);
         bytes.writeLong(timestamp);
         bytes.writeInt(userCookie);
-        bytes.writeLong(filled);
     }
 
     @Override
     public String toString() {
-        return "[" + orderId + " " + (action == OrderAction.ASK ? 'A' : 'B') + " " + (orderType == OrderType.IOC ? "IOC" : "GTC")
-                + price + ":" + size + "F" + filled + " S" + symbol + " C" + userCookie + " U" + uid + "]";
+        return "[" + orderId + " " + (action == OrderAction.ASK ? 'A' : 'B')
+                + price + ":" + size + "F" + filled + " C" + userCookie + " U" + uid + "]";
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(orderId, action, orderType, price, size, reserveBidPrice, filled, symbol, userCookie, uid);
+        return Objects.hash(orderId, action, price, size, reserveBidPrice, filled, userCookie, uid);
     }
 
 
@@ -94,12 +103,10 @@ public final class Order extends OrderCommand implements WriteBytesMarshallable 
         return new EqualsBuilder()
                 .append(orderId, other.orderId)
                 .append(action, other.action)
-                .append(orderType, other.orderType)
                 .append(price, other.price)
                 .append(size, other.size)
                 .append(reserveBidPrice, other.reserveBidPrice)
                 .append(filled, other.filled)
-                .append(symbol, other.symbol)
                 .append(userCookie, other.userCookie)
                 .append(uid, other.uid)
                 //.append(timestamp, other.timestamp)

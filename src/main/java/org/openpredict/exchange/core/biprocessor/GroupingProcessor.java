@@ -30,6 +30,9 @@ public final class GroupingProcessor implements EventProcessor {
 
     private static final int GROUP_SPIN_LIMIT = 1000;
 
+    private static final int L2_PUBLISH_INTERVAL_NS = 10_000_000;
+    private static final int GROUP_MAX_DURATION_NS = 10_000;
+
     private final AtomicInteger running = new AtomicInteger(IDLE);
     private final RingBuffer<OrderCommand> ringBuffer;
     private final SequenceBarrier sequenceBarrier;
@@ -114,8 +117,7 @@ public final class GroupingProcessor implements EventProcessor {
                         // some commands should trigger R2 stage to avoid unprocessed state in events
                         if (cmd.command == OrderCommandType.RESET
                                 || cmd.command == OrderCommandType.PERSIST_STATE_MATCHING
-                                || cmd.command == OrderCommandType.BINARY_DATA
-                                || cmd.command == OrderCommandType.STATE_HASH_REQUEST) {
+                                || cmd.command == OrderCommandType.BINARY_DATA) {
                             groupCounter++;
                             msgsInGroup = 0;
                         }
@@ -148,7 +150,7 @@ public final class GroupingProcessor implements EventProcessor {
 
                     }
                     sequence.set(availableSequence);
-                    groupLastNs = System.nanoTime() + 10_000;
+                    groupLastNs = System.nanoTime() + GROUP_MAX_DURATION_NS;
 
                 } else {
                     final long t = System.nanoTime();
@@ -159,7 +161,7 @@ public final class GroupingProcessor implements EventProcessor {
                     }
 
                     if (t > l2dataLastNs) {
-                        l2dataLastNs = t + 10_000_000; // trigger L2 data every 10ms
+                        l2dataLastNs = t + L2_PUBLISH_INTERVAL_NS; // trigger L2 data every 10ms
                         triggerL2DataRequest = true;
                     }
                 }

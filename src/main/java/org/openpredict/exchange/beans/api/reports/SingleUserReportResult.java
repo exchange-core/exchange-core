@@ -1,4 +1,4 @@
-package org.openpredict.exchange.beans.reports;
+package org.openpredict.exchange.beans.api.reports;
 
 
 import lombok.AllArgsConstructor;
@@ -7,7 +7,6 @@ import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.beans.Order;
-import org.openpredict.exchange.beans.ReportType;
 import org.openpredict.exchange.beans.UserProfile;
 import org.openpredict.exchange.core.Utils;
 
@@ -30,11 +29,6 @@ public class SingleUserReportResult implements ReportResult {
         this.userProfile = bytesIn.readBoolean() ? new UserProfile(bytesIn) : null;
         this.orders = bytesIn.readBoolean() ? Utils.readLongHashMap(bytesIn, Order::new) : null;
         this.status = ExecutionStatus.of(bytesIn.readInt());
-    }
-
-    @Override
-    public ReportType getReportType() {
-        return ReportType.SINGLE_USER_REPORT;
     }
 
     @Override

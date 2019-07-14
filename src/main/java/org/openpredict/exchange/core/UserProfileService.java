@@ -100,13 +100,13 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
      * @param uid
      * @return
      */
-    public CommandResultCode addEmptyUserProfile(long uid) {
+    public boolean addEmptyUserProfile(long uid) {
         if (userProfiles.get(uid) == null) {
             userProfiles.put(uid, new UserProfile(uid));
-            return CommandResultCode.SUCCESS;
+            return true;
         } else {
             log.debug("Can not add user, already exists: {}", uid);
-            return CommandResultCode.USER_MGMT_USER_ALREADY_EXISTS;
+            return false;
         }
     }
 

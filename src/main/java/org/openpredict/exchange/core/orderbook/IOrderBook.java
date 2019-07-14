@@ -9,6 +9,7 @@ import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
+import org.openpredict.exchange.core.Utils;
 
 import java.util.Arrays;
 import java.util.List;
@@ -55,26 +56,6 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
     Order getOrderById(long orderId);
 
-    @Deprecated
-    List<IOrdersBucket> getAllAskBuckets();
-
-    @Deprecated
-    List<IOrdersBucket> getAllBidBuckets();
-
-    /**
-     * Request best ask price.
-     *
-     * @return best ask price, or Long.MAX_VALUE if there are no asks
-     */
-    long getBestAsk();
-
-    /**
-     * Request best bid price.
-     *
-     * @return best ask price, or 0 if there are no bids
-     */
-    long getBestBid();
-
     // testing only - validateInternalState without changing state
     void validateInternalState();
 
@@ -110,32 +91,20 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
         return hashCode();
     }
 
-    // TODO to default?
     static int hash(final IOrdersBucket[] askBuckets, final IOrdersBucket[] bidBuckets, final CoreSymbolSpecification symbolSpec) {
         final int a = Arrays.hashCode(askBuckets);
         final int b = Arrays.hashCode(bidBuckets);
         return Objects.hash(a, b, symbolSpec.stateHash());
     }
 
-    // TODO to default?
     static boolean equals(IOrderBook me, Object o) {
         if (o == me) return true;
         if (o == null) return false;
         if (!(o instanceof IOrderBook)) return false;
         IOrderBook other = (IOrderBook) o;
-        return new EqualsBuilder()
-                // TODO compare symbol?
-                .append(me.getAllAskBuckets(), other.getAllAskBuckets())
-                .append(me.getAllBidBuckets(), other.getAllBidBuckets())
-                .isEquals();
-
+        return Utils.checkStreamsEqual(me.askOrdersStream(true), other.askOrdersStream(true)) &&
+                Utils.checkStreamsEqual(me.bidOrdersStream(true), other.bidOrdersStream(true));
     }
-
-    default void printFullOrderBook() {
-        getAllAskBuckets().forEach(a -> System.out.println(String.format("ASK %s", a.dumpToSingleLine())));
-        getAllBidBuckets().forEach(b -> System.out.println(String.format("BID %s", b.dumpToSingleLine())));
-    }
-
 
     /**
      * @param size max size for each part (ask, bid)
@@ -214,17 +183,6 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
     }
 
-//    static IOrderBook create(OrderBookImplType type, final SymbolType symbolType) {
-//        switch (type) {
-//            case NAIVE:
-//                return new OrderBookNaiveImpl(symbolType);
-//            case FAST:
-//                return new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH, symbolType);
-//            default:
-//                throw new IllegalArgumentException();
-//        }
-//    }
-
     static IOrderBook create(BytesIn bytes) {
         switch (OrderBookImplType.of(bytes.readByte())) {
             case NAIVE:
@@ -235,7 +193,6 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
                 throw new IllegalArgumentException();
         }
     }
-
 
     @Getter
     enum OrderBookImplType {

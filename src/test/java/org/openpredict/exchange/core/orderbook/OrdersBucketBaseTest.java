@@ -40,19 +40,19 @@ public abstract class OrdersBucketBaseTest {
 
         bucket = createNewBucket();
 
-        bucket.put(Order.orderBuilder().orderId(1).uid(UID_1).size(100).build());
+        bucket.put(Order.builder().orderId(1).uid(UID_1).size(100).build());
         assertThat(bucket.getNumOrders(), is(1));
         assertThat(bucket.getTotalVolume(), is(100L));
 
         bucket.validate();
 
-        bucket.put(Order.orderBuilder().orderId(2).uid(UID_2).size(40).build());
+        bucket.put(Order.builder().orderId(2).uid(UID_2).size(40).build());
         assertThat(bucket.getNumOrders(), is(2));
         assertThat(bucket.getTotalVolume(), is(140L));
 
         bucket.validate();
 
-        bucket.put(Order.orderBuilder().orderId(3).uid(UID_1).size(1).build());
+        bucket.put(Order.builder().orderId(3).uid(UID_1).size(1).build());
         assertThat(bucket.getNumOrders(), is(3));
         assertThat(bucket.getTotalVolume(), is(141L));
 
@@ -64,14 +64,14 @@ public abstract class OrdersBucketBaseTest {
 
         bucket.validate();
 
-        bucket.put(Order.orderBuilder().orderId(4).uid(UID_1).size(200).build());
+        bucket.put(Order.builder().orderId(4).uid(UID_1).size(200).build());
         assertThat(bucket.getNumOrders(), is(3));
         assertThat(bucket.getTotalVolume(), is(301L));
     }
 
     @Test
     public void shouldAddOrder() {
-        bucket.put(Order.orderBuilder().orderId(5).uid(UID_2).size(240).build());
+        bucket.put(Order.builder().orderId(5).uid(UID_2).size(240).build());
 
         assertThat(bucket.getNumOrders(), is(4));
         assertThat(bucket.getTotalVolume(), is(541L));
@@ -110,7 +110,7 @@ public abstract class OrdersBucketBaseTest {
         long expectedVolume = bucket.getTotalVolume();
         int expectedNumOrders = bucket.getNumOrders() + numOrdersToAdd;
         for (int i = 0; i < numOrdersToAdd; i++) {
-            bucket.put(Order.orderBuilder().orderId(i + 5).uid(UID_2).size(i).build());
+            bucket.put(Order.builder().orderId(i + 5).uid(UID_2).size(i).build());
             expectedVolume += i;
         }
 
@@ -126,7 +126,7 @@ public abstract class OrdersBucketBaseTest {
 
         List<Order> orders = new ArrayList<>(numOrdersToAdd);
         for (int i = 0; i < numOrdersToAdd; i++) {
-            Order order = Order.orderBuilder().orderId(i + 5).uid(UID_2).size(i).build();
+            Order order = Order.builder().orderId(i + 5).uid(UID_2).size(i).build();
             orders.add(order);
             bucket.put(order);
             expectedVolume += i;
@@ -158,7 +158,7 @@ public abstract class OrdersBucketBaseTest {
 
         List<Order> orders = new ArrayList<>(numOrdersToAdd);
         for (int i = 0; i < numOrdersToAdd; i++) {
-            Order order = Order.orderBuilder().orderId(orderId++).uid(UID_2).size(i).build();
+            Order order = Order.builder().orderId(orderId++).uid(UID_2).size(i).build();
             orders.add(order);
             bucket.put(order);
             expectedVolume += i;
@@ -202,7 +202,7 @@ public abstract class OrdersBucketBaseTest {
         for (int j = 0; j < 100; j++) {
             List<Order> orders = new ArrayList<>(numOrdersToAdd);
             for (int i = 0; i < numOrdersToAdd; i++) {
-                Order order = Order.orderBuilder().orderId(orderId++).uid(UID_2).size(i).build();
+                Order order = Order.builder().orderId(orderId++).uid(UID_2).size(i).build();
                 orders.add(order);
 
                 bucket.put(order);

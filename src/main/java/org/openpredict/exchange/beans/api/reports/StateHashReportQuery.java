@@ -1,4 +1,4 @@
-package org.openpredict.exchange.beans.reports;
+package org.openpredict.exchange.beans.api.reports;
 
 import lombok.NoArgsConstructor;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -9,20 +9,20 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 
 @NoArgsConstructor
-public class TotalCurrencyBalanceReportQuery implements ReportQuery<TotalCurrencyBalanceReportResult> {
+public class StateHashReportQuery implements ReportQuery<StateHashReportResult> {
 
-    public TotalCurrencyBalanceReportQuery(BytesIn bytesIn) {
+    public StateHashReportQuery(BytesIn bytesIn) {
         // do nothing
     }
 
     @Override
     public ReportType getReportType() {
-        return ReportType.TOTAL_CURRENCY_BALANCE;
+        return ReportType.STATE_HASH;
     }
 
     @Override
-    public Function<Stream<BytesIn>, TotalCurrencyBalanceReportResult> getResultBuilder() {
-        return TotalCurrencyBalanceReportResult::merge;
+    public Function<Stream<BytesIn>, StateHashReportResult> getResultBuilder() {
+        return StateHashReportResult::merge;
     }
 
     @Override

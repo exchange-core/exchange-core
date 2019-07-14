@@ -5,6 +5,8 @@ import lombok.Getter;
 @Getter
 public enum ReportType {
 
+    STATE_HASH(101),
+
     SINGLE_USER_REPORT(201),
 
     TOTAL_CURRENCY_BALANCE(601);
@@ -18,6 +20,8 @@ public enum ReportType {
     public static ReportType of(int code) {
 
         switch (code) {
+            case 101:
+                return STATE_HASH;
             case 201:
                 return SINGLE_USER_REPORT;
             case 601:

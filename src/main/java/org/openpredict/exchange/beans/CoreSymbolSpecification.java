@@ -6,14 +6,13 @@ import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 
-import java.io.Serializable;
 import java.util.Objects;
 
 @Builder
 @AllArgsConstructor
 @Getter
 @ToString
-public final class CoreSymbolSpecification implements Serializable, WriteBytesMarshallable, StateHash {
+public final class CoreSymbolSpecification implements WriteBytesMarshallable, StateHash {
 
     public final int symbolId;
 
@@ -31,7 +30,7 @@ public final class CoreSymbolSpecification implements Serializable, WriteBytesMa
     public final long depositSell;  // sell margin (quote currency)
 
     // fees per lot in quote? currency units
-    public final long takerFee;
+    public final long takerFee; // TODO check invariant: taker fee is not less than maker fee
     public final long makerFee;
     // TODO public final int feeCurrency; //  if type=CURRENCY_EXCHANGE_PAIR - should be the same as quoteCurrency
 

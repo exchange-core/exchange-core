@@ -1,4 +1,4 @@
-package org.openpredict.exchange.beans.reports;
+package org.openpredict.exchange.beans.api.reports;
 
 
 import lombok.AllArgsConstructor;
@@ -6,7 +6,6 @@ import lombok.Getter;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
-import org.openpredict.exchange.beans.ReportType;
 import org.openpredict.exchange.core.Utils;
 
 import java.util.stream.Stream;
@@ -24,11 +23,6 @@ public class TotalCurrencyBalanceReportResult implements ReportResult {
     private TotalCurrencyBalanceReportResult(final BytesIn bytesIn) {
         this.accountBalances = bytesIn.readBoolean() ? Utils.readIntLongHashMap(bytesIn) : null;
         this.ordersBalances = bytesIn.readBoolean() ? Utils.readIntLongHashMap(bytesIn) : null;
-    }
-
-    @Override
-    public ReportType getReportType() {
-        return ReportType.TOTAL_CURRENCY_BALANCE;
     }
 
     @Override

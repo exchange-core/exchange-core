@@ -7,8 +7,10 @@ import org.openpredict.exchange.beans.CoreSymbolSpecification;
 import org.openpredict.exchange.core.ExchangeApi;
 import org.openpredict.exchange.tests.util.ExchangeTestContainer;
 import org.openpredict.exchange.tests.util.TestOrdersGenerator;
+import org.openpredict.exchange.tests.util.UserCurrencyAccountsGenerator;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -26,7 +28,7 @@ public final class PerfThroughput {
     /**
      * This is throughput test for simplified conditions
      * - one symbol
-     * - 1K active users (~2K currency accounts)
+     * - ~1K active users (2K currency accounts)
      * - 1K pending limit-orders (in one order book)
      * 6-threads CPU can run this test
      */
@@ -37,7 +39,7 @@ public final class PerfThroughput {
                     container,
                     3_000_000,
                     1000,
-                    1000,
+                    2000,
                     50,
                     CURRENCIES_FUTURES,
                     1,
@@ -52,7 +54,7 @@ public final class PerfThroughput {
                     container,
                     3_000_000,
                     1000,
-                    1000,
+                    2000,
                     50,
                     CURRENCIES_EXCHANGE,
                     1,
@@ -85,29 +87,32 @@ public final class PerfThroughput {
     private void throughputTestImpl(final ExchangeTestContainer container,
                                     final int totalTransactionsNumber,
                                     final int targetOrderBookOrdersTotal,
-                                    final int numUsers,
+                                    final int numAccounts,
                                     final int iterations,
                                     final Set<Integer> currenciesAllowed,
                                     final int numSymbols,
                                     final ExchangeTestContainer.AllowedSymbolTypes allowedSymbolTypes) throws InterruptedException {
 
-        try (final AffinityLock cpuLock = AffinityLock.acquireCore()) {
+        try (final AffinityLock cpuLock = AffinityLock.acquireLock()) {
 
             final ExchangeApi api = container.api;
 
-            final List<CoreSymbolSpecification> coreSymbolSpecifications = container.generateAndAddSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
+            final List<CoreSymbolSpecification> coreSymbolSpecifications = ExchangeTestContainer.generateRandomSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
 
-            final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(coreSymbolSpecifications,
+            final List<BitSet> usersAccounts = UserCurrencyAccountsGenerator.generateUsers(numAccounts, currenciesAllowed);
+
+            final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(
+                    coreSymbolSpecifications,
                     totalTransactionsNumber,
-                    numUsers,
+                    usersAccounts,
                     targetOrderBookOrdersTotal);
 
             List<Float> perfResults = new ArrayList<>();
             for (int j = 0; j < iterations; j++) {
 
                 container.initBasicSymbols();
-                coreSymbolSpecifications.forEach(container::addSymbol);
-                container.usersInit(numUsers, currenciesAllowed);
+                container.addSymbols(coreSymbolSpecifications);
+                container.userAccountsInit(usersAccounts);
 
                 final CountDownLatch latchFill = new CountDownLatch(genResult.getApiCommandsFill().size());
                 container.setConsumer(cmd -> latchFill.countDown());

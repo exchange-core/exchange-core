@@ -9,7 +9,6 @@ import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
-import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.Utils;
 
 import java.util.*;
@@ -50,8 +49,8 @@ public final class OrderBookFastImpl implements IOrderBook {
     private final LongObjectHashMap<IOrdersBucket> idMapToBucket = new LongObjectHashMap<>();
 
     // Object pools
-    private final ArrayDeque<Order> ordersPool = new ArrayDeque<>(65536);
-    private final ArrayDeque<IOrdersBucket> bucketsPool = new ArrayDeque<>(65536);
+    private final ArrayDeque<Order> ordersPool = new ArrayDeque<>(16384);
+    private final ArrayDeque<IOrdersBucket> bucketsPool = new ArrayDeque<>(16384);
 
     public OrderBookFastImpl(final int hotPricesRange, final CoreSymbolSpecification symbolSpec) {
         // must be aligned by 64 bit, can not be lower than 1024
@@ -152,14 +151,11 @@ public final class OrderBookFastImpl implements IOrderBook {
             orderRecord = new Order();
         }
 
-        orderRecord.command = OrderCommandType.PLACE_ORDER;
         orderRecord.orderId = orderId;
-        orderRecord.symbol = cmd.symbol;
         orderRecord.price = price;
         orderRecord.size = size;
         orderRecord.reserveBidPrice = cmd.reserveBidPrice;
         orderRecord.action = cmd.action;
-        orderRecord.orderType = cmd.orderType;
         orderRecord.uid = cmd.uid;
         orderRecord.timestamp = cmd.timestamp;
         orderRecord.filled = filledSize;
@@ -278,45 +274,49 @@ public final class OrderBookFastImpl implements IOrderBook {
      * @return matched size (filled - if nothing is matching to the activeOrder)
      */
     private long tryMatchInstantly(
-            final OrderCommand activeOrder,
+            final IOrder activeOrder,
             long filled,
             final OrderCommand triggerCmd) {
 
         long nextPrice;
-        if (activeOrder.action == BID) {
-            if (minAskPrice > activeOrder.price) {
+
+        final long limitPrice = activeOrder.getPrice();
+        final OrderAction action = activeOrder.getAction();
+
+        if (action == BID) {
+            if (minAskPrice > limitPrice) {
                 // no orders to match
                 return filled;
             }
             nextPrice = minAskPrice;
         } else {
-            if (maxBidPrice < activeOrder.price) {
+            if (maxBidPrice < limitPrice) {
                 // no orders to match
                 return filled;
             }
             nextPrice = maxBidPrice;
         }
 
-        while (filled < activeOrder.size) {
+        while (filled < activeOrder.getSize()) {
 
             // search for next available bucket
-            final IOrdersBucket bucket = (activeOrder.action == BID) ? nextAvailableBucketAsk(nextPrice, activeOrder.price) : nextAvailableBucketBid(nextPrice, activeOrder.price);
+            final IOrdersBucket bucket = (action == BID) ? nextAvailableBucketAsk(nextPrice, limitPrice) : nextAvailableBucketBid(nextPrice, limitPrice);
             if (bucket == null) {
                 break;
             }
 
             final long tradePrice = bucket.getPrice();
             // next iteration price
-            nextPrice = (activeOrder.action == BID) ? tradePrice + 1 : tradePrice - 1;
+            nextPrice = (action == BID) ? tradePrice + 1 : tradePrice - 1;
 
             // matching orders within bucket
-            final long sizeLeft = activeOrder.size - filled;
+            final long sizeLeft = activeOrder.getSize() - filled;
             // log.debug("bucket {} match size: {}", bucket.getPrice(), sizeLeft);
             filled += bucket.match(sizeLeft, activeOrder, triggerCmd, this::removeFullyMatchedOrder);
 
             // remove bucket if its empty
             if (bucket.getTotalVolume() == 0) {
-                removeBucket(activeOrder.action.opposite(), tradePrice);
+                removeBucket(action.opposite(), tradePrice);
             }
         }
         return filled;
@@ -724,16 +724,6 @@ public final class OrderBookFastImpl implements IOrderBook {
     }
 
     @Override
-    public List<IOrdersBucket> getAllAskBuckets() {
-        return Arrays.asList(getAsksAsArray());
-    }
-
-    @Override
-    public List<IOrdersBucket> getAllBidBuckets() {
-        return Arrays.asList(getBidsAsArray());
-    }
-
-    @Override
     public void fillAsks(final int size, L2MarketData data) {
         if (minAskPrice == Long.MAX_VALUE || size == 0) {
             data.askSize = 0;
@@ -818,16 +808,6 @@ public final class OrderBookFastImpl implements IOrderBook {
     @Override
     public int getTotalBidBuckets() {
         return hotBidBuckets.size() + farBidBuckets.size();
-    }
-
-    @Override
-    public long getBestAsk() {
-        return minAskPrice;
-    }
-
-    @Override
-    public long getBestBid() {
-        return maxBidPrice;
     }
 
     @Override
@@ -981,22 +961,18 @@ public final class OrderBookFastImpl implements IOrderBook {
 
     @Override
     public Stream<Order> askOrdersStream(final boolean sorted) {
-        if (sorted) {
-            throw new UnsupportedOperationException();
-        } else {
-            return Stream.concat(hotAskBuckets.stream(), farAskBuckets.values().stream())
-                    .flatMap(bucket -> bucket.getAllOrders().stream());
-        }
+        // TODO sorted version is slow
+        final Stream<IOrdersBucket> hotStream = sorted ? hotAskBuckets.toSortedList().stream() : hotAskBuckets.stream();
+        return Stream.concat(hotStream, farAskBuckets.values().stream())
+                .flatMap(bucket -> bucket.getAllOrders().stream());
     }
 
     @Override
     public Stream<Order> bidOrdersStream(final boolean sorted) {
-        if (sorted) {
-            throw new UnsupportedOperationException();
-        } else {
-            return Stream.concat(hotBidBuckets.stream(), farBidBuckets.values().stream())
-                    .flatMap(bucket -> bucket.getAllOrders().stream());
-        }
+        // TODO sorted version is slow
+        final Stream<IOrdersBucket> hotStream = sorted ? hotBidBuckets.toSortedList().reverseThis().stream() : hotBidBuckets.stream();
+        return Stream.concat(hotStream, farBidBuckets.values().stream())
+                .flatMap(bucket -> bucket.getAllOrders().stream());
     }
 
 

@@ -10,7 +10,7 @@ public final class ApiBinaryDataCommand extends ApiCommand {
 
     // transfer unique id
     // can be constant unless going to push data concurrently
-    public final long transferId;
+    public final int transferId;
 
     // serializable object
     public final WriteBytesMarshallable data;

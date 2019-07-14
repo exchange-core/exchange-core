@@ -1,19 +1,16 @@
 package org.openpredict.exchange.core.orderbook;
 
 import lombok.extern.slf4j.Slf4j;
-import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.bytes.NativeBytes;
 import net.openhft.chronicle.wire.Wire;
-import net.openhft.chronicle.wire.WireType;
-import org.openpredict.exchange.beans.MatcherEventType;
-import org.openpredict.exchange.beans.MatcherTradeEvent;
-import org.openpredict.exchange.beans.Order;
-import org.openpredict.exchange.beans.OrderAction;
+import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.core.Utils;
 
-import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.List;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -22,7 +19,7 @@ public final class OrderBookEventsHelper {
 
     //private OrderCommand currentCmd;
 
-    public static void sendTradeEvent(OrderCommand cmd, OrderCommand activeOrder, Order matchingOrder, boolean fm, boolean fma, long price, long v) {
+    public static void sendTradeEvent(OrderCommand cmd, IOrder activeOrder, Order matchingOrder, boolean fm, boolean fma, long price, long v) {
 
 //        log.debug("** sendTradeEvent: active id:{} matched id:{}", activeOrder.orderId, matchingOrder.orderId);
 //        log.debug("** sendTradeEvent: price:{} v:{}", price, v);
@@ -31,10 +28,10 @@ public final class OrderBookEventsHelper {
 
         event.eventType = MatcherEventType.TRADE;
 
-        event.activeOrderId = activeOrder.orderId;
-        event.activeOrderUid = activeOrder.uid;
+        event.activeOrderId = activeOrder.getOrderId();
+        event.activeOrderUid = activeOrder.getUid();
         event.activeOrderCompleted = fma;
-        event.activeOrderAction = activeOrder.action;
+        event.activeOrderAction = activeOrder.getAction();
 //        event.activeOrderSeq = activeOrder.seq;
 
         event.matchedOrderId = matchingOrder.orderId;
@@ -43,11 +40,11 @@ public final class OrderBookEventsHelper {
 
         event.price = price;
         event.size = v;
-        event.timestamp = activeOrder.timestamp;
-        event.symbol = activeOrder.symbol;
+        event.timestamp = activeOrder.getTimestamp();
+        event.symbol = cmd.symbol;
 
         // set order reserved price for correct released EBids
-        event.bidderHoldPrice = activeOrder.action == OrderAction.BID ? activeOrder.reserveBidPrice : matchingOrder.reserveBidPrice;
+        event.bidderHoldPrice = activeOrder.getAction() == OrderAction.BID ? activeOrder.getReserveBidPrice() : matchingOrder.reserveBidPrice;
 
         event.nextEvent = cmd.matcherEvent;
         cmd.matcherEvent = event;
@@ -69,7 +66,7 @@ public final class OrderBookEventsHelper {
         event.price = order.price;
         event.size = order.size - order.filled;
         event.timestamp = cmd.timestamp;
-        event.symbol = order.symbol;
+        event.symbol = cmd.symbol;
 
         event.bidderHoldPrice = order.reserveBidPrice; // set order reserved price for correct released EBids
 
@@ -176,7 +173,6 @@ public final class OrderBookEventsHelper {
 
         return result;
     }
-
 
 
     private static MatcherTradeEvent newMatcherEvent() {

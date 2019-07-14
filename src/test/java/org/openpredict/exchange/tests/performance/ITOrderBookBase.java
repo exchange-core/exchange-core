@@ -85,7 +85,14 @@ public abstract class ITOrderBookBase {
 
         try (AffinityLock cpuLock = AffinityLock.acquireLock()) {
 
-            TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(numOrders, targetOrderBookOrders, 1000, 0, false);
+            TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(
+                    numOrders,
+                    targetOrderBookOrders,
+                    1000,
+                    TestOrdersGenerator.UID_PLAIN_MAPPER,
+                    0,
+                    false,
+                    TestOrdersGenerator.createAsyncProgressLogger(numOrders));
             List<OrderCommand> orderCommands = genResult.getCommands();
             log.debug("orderCommands size: {}", orderCommands.size());
 

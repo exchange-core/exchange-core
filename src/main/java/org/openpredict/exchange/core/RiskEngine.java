@@ -11,22 +11,19 @@ import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.openpredict.exchange.beans.*;
+import org.openpredict.exchange.beans.api.binary.BatchAddAccountsCommand;
+import org.openpredict.exchange.beans.api.binary.BatchAddSymbolsCommand;
+import org.openpredict.exchange.beans.api.reports.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
-import org.openpredict.exchange.beans.reports.ReportQuery;
-import org.openpredict.exchange.beans.reports.SingleUserReportQuery;
-import org.openpredict.exchange.beans.reports.SingleUserReportResult;
-import org.openpredict.exchange.beans.reports.TotalCurrencyBalanceReportResult;
 import org.openpredict.exchange.core.journalling.ISerializationProcessor;
 
 import java.util.Objects;
 import java.util.Optional;
 
-import static net.openhft.chronicle.core.UnsafeMemory.UNSAFE;
 import static org.openpredict.exchange.beans.MatcherEventType.*;
 import static org.openpredict.exchange.beans.cmd.OrderCommandType.*;
-import static org.openpredict.exchange.core.Utils.OFFSET_ORDER_ID;
 
 /**
  * Stateful risk engine
@@ -150,7 +147,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             }
         } else if (command == ADD_USER) {
             if (uidForThisHandler(cmd.uid)) {
-                cmd.resultCode = userProfileService.addEmptyUserProfile(cmd.uid);
+                cmd.resultCode = userProfileService.addEmptyUserProfile(cmd.uid) ? CommandResultCode.SUCCESS : CommandResultCode.USER_MGMT_USER_ALREADY_EXISTS;
             }
         } else if (command == BALANCE_ADJUSTMENT) {
             if (uidForThisHandler(cmd.uid)) {
@@ -176,17 +173,10 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
             }
             return true; // true = publish sequence before finishing processing whole batch
+
         } else if (command == PERSIST_STATE_RISK) {
             final boolean isSuccess = serializationProcessor.storeData(cmd.orderId, ISerializationProcessor.SerializedModuleType.RISK_ENGINE, shardId, this);
             Utils.setResultVolatile(cmd, isSuccess, CommandResultCode.SUCCESS, CommandResultCode.STATE_PERSIST_RISK_ENGINE_FAILED);
-
-        } else if (command == STATE_HASH_REQUEST) {
-            // common hash as sum of each module hash (for simplicity)
-            UNSAFE.getAndAddLong(cmd, OFFSET_ORDER_ID, stateHash());
-
-            if (shardId == 0) {
-                cmd.resultCode = CommandResultCode.ACCEPTED;
-            }
         }
 
         return false;
@@ -194,9 +184,20 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
     private Optional<? extends WriteBytesMarshallable> handleBinaryMessage(Object message) {
 
-        if (message instanceof CoreSymbolSpecification) {
+        if (message instanceof BatchAddSymbolsCommand) {
             // TODO return status object
-            symbolSpecificationProvider.addSymbol((CoreSymbolSpecification) message);
+            final IntObjectHashMap<CoreSymbolSpecification> symbols = ((BatchAddSymbolsCommand) message).getSymbols();
+            symbols.forEach(symbolSpecificationProvider::addSymbol);
+            return Optional.empty();
+        } else if (message instanceof BatchAddAccountsCommand) {
+            // TODO return status object
+            ((BatchAddAccountsCommand) message).getUsers().forEachKeyValue((u, a) -> {
+                if (userProfileService.addEmptyUserProfile(u)) {
+                    a.forEachKeyValue((cur, bal) -> userProfileService.balanceAdjustment(u, cur, bal, 1_000_000_000 + cur));
+                } else {
+                    log.debug("User already exist: {}", u);
+                }
+            });
             return Optional.empty();
         } else if (message instanceof ReportQuery) {
             return processReport((ReportQuery) message);
@@ -211,9 +212,11 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
         switch (reportQuery.getReportType()) {
 
+            case STATE_HASH:
+                return reportStateHash();
+
             case SINGLE_USER_REPORT:
                 return reportSingleUser((SingleUserReportQuery) reportQuery);
-
 
             case TOTAL_CURRENCY_BALANCE:
                 return reportGlobalBalance();
@@ -221,6 +224,10 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             default:
                 throw new IllegalStateException("Report not implemented");
         }
+    }
+
+    private Optional<StateHashReportResult> reportStateHash() {
+        return Optional.of(new StateHashReportResult(stateHash()));
     }
 
     private Optional<SingleUserReportResult> reportSingleUser(final SingleUserReportQuery query) {
@@ -354,8 +361,6 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 //        log.debug("serProfile.accounts.get(currency)={}", userProfile.accounts.get(currency));
 //        log.debug("freeFuturesMargin={}", freeFuturesMargin);
 //        log.debug("orderAmount={}", orderAmount);
-//        log.debug("pendingAmount={}", pendingAmount);
-
 
         final boolean canPlace = userProfile.accounts.get(currency) + freeFuturesMargin >= orderAmount;
 
@@ -490,12 +495,12 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             // perform account-to-account transfers
             if (uidForThisHandler(ev.activeOrderUid)) {
 //                log.debug("Processing release for taker");
-                processExchangeHoldRelease2(ev.activeOrderUid, ev.activeOrderAction == OrderAction.ASK, ev, spec);
+                processExchangeHoldRelease2(ev.activeOrderUid, ev.activeOrderAction == OrderAction.ASK, ev, spec, true);
             }
 
             if (uidForThisHandler(ev.matchedOrderUid)) {
 //                log.debug("Processing release for maker");
-                processExchangeHoldRelease2(ev.matchedOrderUid, ev.activeOrderAction != OrderAction.ASK, ev, spec);
+                processExchangeHoldRelease2(ev.matchedOrderUid, ev.activeOrderAction != OrderAction.ASK, ev, spec, false);
             }
 
         } else if (ev.eventType == REJECTION || ev.eventType == CANCEL) {
@@ -505,35 +510,37 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
                 // for cancel/rejection only one party is involved
                 final UserProfile up = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
-                if (ev.activeOrderAction == OrderAction.ASK) {
-                    final long amountToReleaseInBaseCurrency = Utils.calculateAmountAsk(ev.size, spec);
-                    up.accounts.addToValue(spec.baseCurrency, amountToReleaseInBaseCurrency);
+                final int currency = (ev.activeOrderAction == OrderAction.ASK)?spec.baseCurrency:spec.quoteCurrency;
+                final long amountForRelease = Utils.calculateAmount(ev.activeOrderAction, ev.size, ev.bidderHoldPrice, spec);
+                up.accounts.addToValue(currency, amountForRelease);
+
+//                if (ev.activeOrderAction == OrderAction.ASK) {
 //                    log.debug("REJ/CAN ASK: amountToRelease = {}  ACC:{}", amountToReleaseInBaseCurrency, userProfileService.getUserProfile(ev.activeOrderUid).accounts);
-                } else {
-                    final long amountToRelease = Utils.calculateAmountBid(ev.size, ev.bidderHoldPrice, spec);
-                    up.accounts.addToValue(spec.quoteCurrency, amountToRelease);
+//                } else {
 //                    log.debug("REJ/CAN BID: amountToRelease = {}  ACC:{}", amountToRelease, userProfileService.getUserProfile(ev.activeOrderUid).accounts);
-                }
+//                }
             }
         } else {
             log.error("unsupported eventType: {}", ev.eventType);
         }
     }
 
-    private void processExchangeHoldRelease2(long uid, boolean isSelling, MatcherTradeEvent ev, CoreSymbolSpecification spec) {
+    private void processExchangeHoldRelease2(long uid, boolean isSelling, MatcherTradeEvent ev, CoreSymbolSpecification spec, boolean isTaker) {
         final long size = ev.size;
         final UserProfile up = userProfileService.getUserProfileOrThrowEx(uid);
 
+        // d
+        final long makerFeeCorrection = isTaker ? 0 : (spec.makerFee - spec.takerFee) * size;
+
         if (isSelling) {
             // selling
-
             final long obtainedAmountInQuoteCurrency = Utils.calculateAmountBid(size, ev.price, spec);
-            up.accounts.addToValue(spec.quoteCurrency, obtainedAmountInQuoteCurrency);
-//            log.debug("{} sells - getting {} (in quote cur={}) size={} ACCOUNTS:{}", up.uid, obtainedAmountInQuoteCurrency, spec.quoteCurrency, size, userProfileService.getUserProfile(uid).accounts);
+            up.accounts.addToValue(spec.quoteCurrency, obtainedAmountInQuoteCurrency + makerFeeCorrection);
+///           log.debug("{} sells - getting {} (in quote cur={}) size={} ACCOUNTS:{}", up.uid, obtainedAmountInQuoteCurrency + makerCorrection, spec.quoteCurrency, size, userProfileService.getUserProfile(uid).accounts);
         } else {
             // buying, use bidderHoldPrice to calculate released amount based on price difference
             final long amountDiffToReleaseInQuoteCurrency = Utils.calculateAmountBid(size, ev.bidderHoldPrice - ev.price, spec);
-            up.accounts.addToValue(spec.quoteCurrency, amountDiffToReleaseInQuoteCurrency);
+            up.accounts.addToValue(spec.quoteCurrency, amountDiffToReleaseInQuoteCurrency + makerFeeCorrection);
 
             final long obtainedAmountInBaseCurrency = Utils.calculateAmountAsk(size, spec);
             up.accounts.addToValue(spec.baseCurrency, obtainedAmountInBaseCurrency);
