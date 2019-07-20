@@ -364,18 +364,25 @@ public final class Utils {
     }
 
 
-    public static long calculateAmount(OrderAction action, long size, long price, CoreSymbolSpecification spec) {
-        return action == OrderAction.BID ? calculateAmountBid(size, price, spec) : calculateAmountAsk(size, spec);
-    }
-
-    public static long calculateAmountBid(long size, long price, CoreSymbolSpecification spec) {
-        return size * (price * spec.quoteScaleK + spec.takerFee);
+    public static long calculateHoldAmount(OrderAction action, long size, long price, CoreSymbolSpecification spec) {
+        return action == OrderAction.BID ? calculateAmountBidTakerFee(size, price, spec) : calculateAmountAsk(size, spec);
     }
 
     public static long calculateAmountAsk(long size, CoreSymbolSpecification spec) {
         return size * spec.baseScaleK;
     }
 
+    public static long calculateAmountBid(long size, long price, CoreSymbolSpecification spec) {
+        return size * (price * spec.quoteScaleK);
+    }
+
+    public static long calculateAmountBidTakerFee(long size, long price, CoreSymbolSpecification spec) {
+        return size * (price * spec.quoteScaleK + spec.takerFee);
+    }
+
+    public static long calculateAmountBidReleaseCorr(long size, long priceDiff, CoreSymbolSpecification spec, boolean isTaker) {
+        return size * (priceDiff * spec.quoteScaleK + (isTaker ? 0 : (spec.takerFee - spec.makerFee)));
+    }
 
     public static <V> LongObjectHashMap<V> mergeOverride(final LongObjectHashMap<V> a, final LongObjectHashMap<V> b) {
         final LongObjectHashMap<V> res = a == null ? new LongObjectHashMap<>() : new LongObjectHashMap<>(a);

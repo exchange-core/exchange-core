@@ -16,12 +16,12 @@ public class TotalCurrencyBalanceReportResult implements ReportResult {
 
     // currency -> balance
     private IntLongHashMap accountBalances;
-
-    // currency -> balance
+    private IntLongHashMap fees;
     private IntLongHashMap ordersBalances;
 
     private TotalCurrencyBalanceReportResult(final BytesIn bytesIn) {
         this.accountBalances = bytesIn.readBoolean() ? Utils.readIntLongHashMap(bytesIn) : null;
+        this.fees = bytesIn.readBoolean() ? Utils.readIntLongHashMap(bytesIn) : null;
         this.ordersBalances = bytesIn.readBoolean() ? Utils.readIntLongHashMap(bytesIn) : null;
     }
 
@@ -32,18 +32,30 @@ public class TotalCurrencyBalanceReportResult implements ReportResult {
             Utils.marshallIntLongHashMap(accountBalances, bytes);
         }
 
+        bytes.writeBoolean(fees != null);
+        if (fees != null) {
+            Utils.marshallIntLongHashMap(fees, bytes);
+        }
+
         bytes.writeBoolean(ordersBalances != null);
         if (ordersBalances != null) {
             Utils.marshallIntLongHashMap(ordersBalances, bytes);
         }
     }
 
+    public IntLongHashMap getSum() {
+        return Utils.mergeSum(Utils.mergeSum(accountBalances, ordersBalances), fees);
+    }
+
     public static TotalCurrencyBalanceReportResult merge(final Stream<BytesIn> pieces) {
         return pieces
                 .map(TotalCurrencyBalanceReportResult::new)
                 .reduce(
-                        new TotalCurrencyBalanceReportResult(null, null),
-                        (a, b) -> new TotalCurrencyBalanceReportResult(Utils.mergeSum(a.accountBalances, b.accountBalances), Utils.mergeSum(a.ordersBalances, b.ordersBalances)));
+                        new TotalCurrencyBalanceReportResult(null, null, null),
+                        (a, b) -> new TotalCurrencyBalanceReportResult(
+                                Utils.mergeSum(a.accountBalances, b.accountBalances),
+                                Utils.mergeSum(a.fees, b.fees),
+                                Utils.mergeSum(a.ordersBalances, b.ordersBalances)));
     }
 
 }

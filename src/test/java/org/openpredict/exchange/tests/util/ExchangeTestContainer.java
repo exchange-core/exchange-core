@@ -16,10 +16,8 @@ import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.ExchangeApi;
 import org.openpredict.exchange.core.ExchangeCore;
-import org.openpredict.exchange.core.Utils;
 import org.openpredict.exchange.core.journalling.DiskSerializationProcessor;
 import org.openpredict.exchange.core.orderbook.OrderBookFastImpl;
-import org.openpredict.exchange.core.orderbook.OrderBookNaiveImpl;
 
 import java.util.*;
 import java.util.concurrent.*;
@@ -270,20 +268,6 @@ public final class ExchangeTestContainer implements AutoCloseable {
         };
     }
 
-    public <T> T submitCommandSync(ApiCommand apiCommand, Function<OrderCommand, T> resultBuilder) throws InterruptedException {
-        final CompletableFuture<T> future = new CompletableFuture<>();
-        consumer = cmd -> future.complete(resultBuilder.apply(cmd));
-        api.submitCommand(apiCommand);
-        try {
-            return future.get();
-        } catch (ExecutionException ex) {
-            throw new IllegalStateException(ex);
-        } finally {
-            consumer = cmd -> {
-            };
-        }
-    }
-
     public void submitMultiCommandSync(ApiCommand dataCommand) {
         final CountDownLatch latch = new CountDownLatch(1);
         consumer = cmd -> {
@@ -360,11 +344,21 @@ public final class ExchangeTestContainer implements AutoCloseable {
     public void validateTotalBalance(Consumer<IntLongHashMap> balancesValidator) throws InterruptedException, ExecutionException {
         final TotalCurrencyBalanceReportResult res = api.processReport(new TotalCurrencyBalanceReportQuery(), getRandomTransactionId()).get();
         log.debug("accBal : {}", res.getAccountBalances());
+        log.debug("fees   : {}", res.getFees());
         log.debug("ordBal : {}", res.getOrdersBalances());
-        final IntLongHashMap totalBalances = Utils.mergeSum(res.getAccountBalances(), res.getOrdersBalances());
-        log.debug("totalBalances : {}", totalBalances);
-        balancesValidator.accept(totalBalances);
+        log.debug("totalBalances : {}", res.getSum());
+        balancesValidator.accept(res.getSum());
     }
+
+
+    public TotalCurrencyBalanceReportResult totalBalanceReport() throws InterruptedException, ExecutionException {
+        final TotalCurrencyBalanceReportResult res = api.processReport(new TotalCurrencyBalanceReportQuery(), getRandomTransactionId()).get();
+        log.debug("accBal : {}", res.getAccountBalances());
+        log.debug("fees   : {}", res.getFees());
+        log.debug("ordBal : {}", res.getOrdersBalances());
+        return res;
+    }
+
 
     public int requestStateHash() throws InterruptedException, ExecutionException {
         return api.processReport(new StateHashReportQuery(), getRandomTransactionId()).get().getStateHash();

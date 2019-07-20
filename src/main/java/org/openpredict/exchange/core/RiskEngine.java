@@ -36,6 +36,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
     private final UserProfileService userProfileService;
     private final BinaryCommandsProcessor binaryCommandsProcessor;
     private final IntObjectHashMap<LastPriceCacheRecord> lastPriceCache;
+    private final IntLongHashMap fees;
 
     // configuration
     private final int shardId;
@@ -56,6 +57,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             this.userProfileService = new UserProfileService();
             this.binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, shardId);
             this.lastPriceCache = new IntObjectHashMap<>();
+            this.fees = new IntLongHashMap();
 
         } else {
             // TODO change to creator (simpler init)
@@ -74,13 +76,15 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                         final UserProfileService userProfileService = new UserProfileService(bytesIn);
                         final BinaryCommandsProcessor binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, bytesIn, shardId);
                         final IntObjectHashMap<LastPriceCacheRecord> lastPriceCache = Utils.readIntHashMap(bytesIn, LastPriceCacheRecord::new);
-                        return new State(symbolSpecificationProvider, userProfileService, binaryCommandsProcessor, lastPriceCache);
+                        final IntLongHashMap fees = Utils.readIntLongHashMap(bytesIn);
+                        return new State(symbolSpecificationProvider, userProfileService, binaryCommandsProcessor, lastPriceCache, fees);
                     });
 
             this.symbolSpecificationProvider = state.symbolSpecificationProvider;
             this.userProfileService = state.userProfileService;
             this.binaryCommandsProcessor = state.binaryCommandsProcessor;
             this.lastPriceCache = state.lastPriceCache;
+            this.fees = state.fees;
         }
     }
 
@@ -259,7 +263,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             });
         });
 
-        return Optional.of(new TotalCurrencyBalanceReportResult(currencyBalance, null));
+        return Optional.of(new TotalCurrencyBalanceReportResult(currencyBalance, new IntLongHashMap(fees), null));
     }
 
     /**
@@ -355,17 +359,22 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             return false;
         }
 
-        final long orderAmount = Utils.calculateAmount(cmd.action, cmd.size, cmd.action == OrderAction.BID ? cmd.reserveBidPrice : cmd.price, spec);
+        final long orderAmount = Utils.calculateHoldAmount(cmd.action, cmd.size, cmd.action == OrderAction.BID ? cmd.reserveBidPrice : cmd.price, spec);
 
 //        log.debug("--------- {} -----------", cmd.orderId);
 //        log.debug("serProfile.accounts.get(currency)={}", userProfile.accounts.get(currency));
 //        log.debug("freeFuturesMargin={}", freeFuturesMargin);
 //        log.debug("orderAmount={}", orderAmount);
 
-        final boolean canPlace = userProfile.accounts.get(currency) + freeFuturesMargin >= orderAmount;
+        // speculative change balance
+        long newBalance = userProfile.accounts.addToValue(currency, -orderAmount);
 
-        if (canPlace) {
-            userProfile.accounts.addToValue(currency, -orderAmount);
+        final boolean canPlace = newBalance + freeFuturesMargin >= 0;
+
+        if (!canPlace) {
+            // revert balance change
+            userProfile.accounts.addToValue(currency, orderAmount);
+//            log.warn("orderAmount={} > userProfile.accounts.get({})={}", orderAmount, currency, userProfile.accounts.get(currency));
         }
 
         return canPlace;
@@ -510,15 +519,13 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
                 // for cancel/rejection only one party is involved
                 final UserProfile up = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
-                final int currency = (ev.activeOrderAction == OrderAction.ASK)?spec.baseCurrency:spec.quoteCurrency;
-                final long amountForRelease = Utils.calculateAmount(ev.activeOrderAction, ev.size, ev.bidderHoldPrice, spec);
+                final int currency = (ev.activeOrderAction == OrderAction.ASK) ? spec.baseCurrency : spec.quoteCurrency;
+                final long amountForRelease = Utils.calculateHoldAmount(ev.activeOrderAction, ev.size, ev.bidderHoldPrice, spec);
                 up.accounts.addToValue(currency, amountForRelease);
 
-//                if (ev.activeOrderAction == OrderAction.ASK) {
-//                    log.debug("REJ/CAN ASK: amountToRelease = {}  ACC:{}", amountToReleaseInBaseCurrency, userProfileService.getUserProfile(ev.activeOrderUid).accounts);
-//                } else {
-//                    log.debug("REJ/CAN BID: amountToRelease = {}  ACC:{}", amountToRelease, userProfileService.getUserProfile(ev.activeOrderUid).accounts);
-//                }
+//                log.debug("REJ/CAN ASK: uid={} amountToRelease = {}  ACC:{}",
+//                        ev.activeOrderUid, amountForRelease, userProfileService.getUserProfile(ev.activeOrderUid).accounts);
+
             }
         } else {
             log.error("unsupported eventType: {}", ev.eventType);
@@ -529,23 +536,31 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         final long size = ev.size;
         final UserProfile up = userProfileService.getUserProfileOrThrowEx(uid);
 
-        // d
-        final long makerFeeCorrection = isTaker ? 0 : (spec.makerFee - spec.takerFee) * size;
+        long feeForSize = (isTaker ? spec.takerFee : spec.makerFee) * size;
+        fees.addToValue(spec.quoteCurrency, feeForSize);
 
         if (isSelling) {
+
             // selling
             final long obtainedAmountInQuoteCurrency = Utils.calculateAmountBid(size, ev.price, spec);
-            up.accounts.addToValue(spec.quoteCurrency, obtainedAmountInQuoteCurrency + makerFeeCorrection);
-///           log.debug("{} sells - getting {} (in quote cur={}) size={} ACCOUNTS:{}", up.uid, obtainedAmountInQuoteCurrency + makerCorrection, spec.quoteCurrency, size, userProfileService.getUserProfile(uid).accounts);
+            up.accounts.addToValue(spec.quoteCurrency, obtainedAmountInQuoteCurrency - feeForSize);
+//            log.debug("{} sells - getting {} -fee:{} (in quote cur={}) size={} ACCOUNTS:{}", up.uid, obtainedAmountInQuoteCurrency, feeForSize, spec.quoteCurrency, size, userProfileService.getUserProfile(uid).accounts);
         } else {
+
+            //final long makerFeeCorrection = isTaker ? 0 : (spec.takerFee - spec.makerFee) * size;
+            //log.debug("makerFeeCorrection={} ....(   - makerFee {} ) * {}", makerFeeCorrection, spec.makerFee, size);
+
             // buying, use bidderHoldPrice to calculate released amount based on price difference
-            final long amountDiffToReleaseInQuoteCurrency = Utils.calculateAmountBid(size, ev.bidderHoldPrice - ev.price, spec);
-            up.accounts.addToValue(spec.quoteCurrency, amountDiffToReleaseInQuoteCurrency + makerFeeCorrection);
+            final long amountDiffToReleaseInQuoteCurrency = Utils.calculateAmountBidReleaseCorr(size, ev.bidderHoldPrice - ev.price, spec, isTaker);
+            up.accounts.addToValue(spec.quoteCurrency, amountDiffToReleaseInQuoteCurrency);
 
             final long obtainedAmountInBaseCurrency = Utils.calculateAmountAsk(size, spec);
             up.accounts.addToValue(spec.baseCurrency, obtainedAmountInBaseCurrency);
-//            log.debug("{} buys - amountDiffToReleaseInQuoteCurrency={} ({}-{}) (in quote cur={})", up.uid, amountDiffToReleaseInQuoteCurrency, ev.bidderHoldPrice, ev.price, spec.quoteCurrency);
-//            log.debug("{} buys - getting {} (in base cur={}) size={} ACCOUNTS:{}", up.uid, obtainedAmountInBaseCurrency, spec.baseCurrency, size, userProfileService.getUserProfile(uid).accounts);
+
+//            log.debug("{} buys - amountDiffToReleaseInQuoteCurrency={} ({}-{}) (in quote cur={})",
+//                    up.uid, amountDiffToReleaseInQuoteCurrency, ev.bidderHoldPrice, ev.price, spec.quoteCurrency);
+//            log.debug("{} buys - getting {} (in base cur={}) size={} ACCOUNTS:{}",
+//                    up.uid, obtainedAmountInBaseCurrency, spec.baseCurrency, size, userProfileService.getUserProfile(uid).accounts);
         }
     }
 
@@ -558,6 +573,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         userProfileService.writeMarshallable(bytes);
         binaryCommandsProcessor.writeMarshallable(bytes);
         Utils.marshallIntHashMap(lastPriceCache, bytes);
+        Utils.marshallIntLongHashMap(fees, bytes);
     }
 
     public void reset() {
@@ -565,6 +581,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         symbolSpecificationProvider.reset();
         binaryCommandsProcessor.reset();
         lastPriceCache.clear();
+        fees.clear();
     }
 
     @Override
@@ -576,7 +593,8 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 symbolSpecificationProvider.stateHash(),
                 userProfileService.stateHash(),
                 binaryCommandsProcessor.stateHash(),
-                Utils.stateHash(lastPriceCache));
+                Utils.stateHash(lastPriceCache),
+                fees.hashCode());
 
         //log.debug("HASH RE{}/{} hash={} -- ssp={} ups={} bcp={} lpc={}", shardId, shardMask, hash, symbolSpecificationProvider.stateHash(), userProfileService.stateHash(), binaryCommandsProcessor.stateHash(), lastPriceCache.hashCode());
     }
@@ -588,5 +606,6 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         private final UserProfileService userProfileService;
         private final BinaryCommandsProcessor binaryCommandsProcessor;
         private final IntObjectHashMap<LastPriceCacheRecord> lastPriceCache;
+        private final IntLongHashMap fees;
     }
 }
