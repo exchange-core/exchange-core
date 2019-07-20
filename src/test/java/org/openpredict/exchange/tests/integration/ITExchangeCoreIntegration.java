@@ -1,4 +1,4 @@
-package org.openpredict.exchange.tests;
+package org.openpredict.exchange.tests.integration;
 
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;

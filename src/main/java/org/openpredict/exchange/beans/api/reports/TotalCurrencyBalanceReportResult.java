@@ -14,6 +14,8 @@ import java.util.stream.Stream;
 @Getter
 public class TotalCurrencyBalanceReportResult implements ReportResult {
 
+    // TODO exposure (open interest)
+
     // currency -> balance
     private IntLongHashMap accountBalances;
     private IntLongHashMap fees;

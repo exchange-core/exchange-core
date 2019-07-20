@@ -120,11 +120,25 @@ public final class TestConstants {
             .quoteCurrency(CURRENECY_USD)
             .baseScaleK(1)
             .quoteScaleK(1)
-            .depositBuy(2200)
-            .depositSell(3210)
+            .marginBuy(2200)
+            .marginSell(3210)
             .takerFee(0)
             .makerFee(0)
             .build();
+
+    public static final CoreSymbolSpecification SYMBOLSPECFEE_USD_JPY = CoreSymbolSpecification.builder()
+            .symbolId(SYMBOL_MARGIN)
+            .type(SymbolType.FUTURES_CONTRACT)
+            .baseCurrency(CURRENECY_USD)
+            .quoteCurrency(CURRENECY_JPY)
+            .baseScaleK(1_000_00) // 1K USD "micro" lot
+            .quoteScaleK(10) // 10 JPY step
+            .marginBuy(5_000) // effective leverage ~21
+            .marginSell(6_000) // effective leverage ~18
+            .takerFee(3)
+            .makerFee(2)
+            .build();
+
 
     public static final CoreSymbolSpecification SYMBOLSPEC_ETH_XBT = CoreSymbolSpecification.builder()
             .symbolId(SYMBOL_EXCHANGE)

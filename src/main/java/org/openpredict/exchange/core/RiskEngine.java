@@ -319,7 +319,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         } else if (spec.type == SymbolType.FUTURES_CONTRACT) {
 
             final SymbolPortfolioRecord portfolio = userProfile.getOrCreatePortfolioRecord(spec);
-            final boolean canPlaceOrder = canPlaceFuturesOrder(cmd, userProfile, spec, portfolio);
+            final boolean canPlaceOrder = canPlaceMarginOrder(cmd, userProfile, spec, portfolio);
             if (canPlaceOrder) {
                 portfolio.pendingHold(cmd.action, cmd.size);
                 return true;
@@ -349,7 +349,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 final CoreSymbolSpecification spec2 = symbolSpecificationProvider.getSymbolSpecification(recSymbol);
                 // add P&L subtract margin
                 freeFuturesMargin += portfolioRecord.estimateProfit(spec2, lastPriceCache.get(recSymbol));
-                freeFuturesMargin -= portfolioRecord.calculateRequiredDepositForFutures(spec2);
+                freeFuturesMargin -= portfolioRecord.calculateRequiredMarginForFutures(spec2);
             }
         }
 
@@ -389,18 +389,18 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
      * <p>
      * NOTE: Current implementation does not care about accounts and positions quoted in different currencies
      */
-    private boolean canPlaceFuturesOrder(final OrderCommand cmd,
-                                         final UserProfile userProfile,
-                                         final CoreSymbolSpecification spec,
-                                         final SymbolPortfolioRecord portfolio) {
+    private boolean canPlaceMarginOrder(final OrderCommand cmd,
+                                        final UserProfile userProfile,
+                                        final CoreSymbolSpecification spec,
+                                        final SymbolPortfolioRecord portfolio) {
 
-        final long newRequiredDepositForSymbol = portfolio.calculateRequiredDepositForOrder(spec, cmd.action, cmd.size);
-        if (newRequiredDepositForSymbol == -1) {
+        final long newRequiredMarginForSymbol = portfolio.calculateRequiredMarginForOrder(spec, cmd.action, cmd.size);
+        if (newRequiredMarginForSymbol == -1) {
             // always allow placing a new order if it would not increase exposure
             return true;
         }
 
-        // extra deposit is required
+        // extra margin is required
 
         final int symbol = cmd.symbol;
         // calculate free margin for all positions same currency
@@ -412,15 +412,18 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                     final CoreSymbolSpecification spec2 = symbolSpecificationProvider.getSymbolSpecification(recSymbol);
                     // add P&L subtract margin
                     freeMargin += portfolioRecord.estimateProfit(spec2, lastPriceCache.get(recSymbol));
-                    freeMargin -= portfolioRecord.calculateRequiredDepositForFutures(spec2);
+                    freeMargin -= portfolioRecord.calculateRequiredMarginForFutures(spec2);
                 }
             } else {
                 freeMargin = portfolio.estimateProfit(spec, lastPriceCache.get(spec.symbolId));
             }
         }
 
+//        log.debug("newMargin={} <= account({})={} + free {}",
+//                newRequiredMarginForSymbol, portfolio.currency, userProfile.accounts.get(portfolio.currency), freeMargin);
+
         // check if current balance and margin can cover new required margin for symbol position
-        return newRequiredDepositForSymbol <= userProfile.accounts.get(portfolio.currency) + freeMargin;
+        return newRequiredMarginForSymbol <= userProfile.accounts.get(portfolio.currency) + freeMargin;
     }
 
     public void handlerRiskRelease(final int symbol,
@@ -463,11 +466,16 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
         if (ev.eventType == TRADE) {
             // TODO group by user profile ??
+            int quoteCurrency = spec.quoteCurrency;
+
             if (uidForThisHandler(ev.activeOrderUid)) {
                 // update taker's portfolio
                 final UserProfile taker = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
                 final SymbolPortfolioRecord takerSpr = taker.getPortfolioRecordOrThrowEx(ev.symbol);
-                takerSpr.updatePortfolioForMarginTrade(ev.activeOrderAction, size, ev.price, spec.takerFee);
+                long sizeOpen = takerSpr.updatePortfolioForMarginTrade(ev.activeOrderAction, size, ev.price);
+                final long fee = spec.takerFee * sizeOpen;
+                taker.accounts.addToValue(quoteCurrency, -fee);
+                fees.addToValue(quoteCurrency, fee);
                 taker.removeRecordIfEmpty(takerSpr);
             }
 
@@ -475,7 +483,10 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 // update maker's portfolio
                 final UserProfile maker = userProfileService.getUserProfileOrThrowEx(ev.matchedOrderUid);
                 final SymbolPortfolioRecord makerSpr = maker.getPortfolioRecordOrThrowEx(ev.symbol);
-                makerSpr.updatePortfolioForMarginTrade(ev.activeOrderAction.opposite(), size, ev.price, spec.makerFee);
+                long sizeOpen = makerSpr.updatePortfolioForMarginTrade(ev.activeOrderAction.opposite(), size, ev.price);
+                final long fee = spec.makerFee * sizeOpen;
+                maker.accounts.addToValue(quoteCurrency, -fee);
+                fees.addToValue(quoteCurrency, fee);
                 maker.removeRecordIfEmpty(makerSpr);
             }
 

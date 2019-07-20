@@ -1,4 +1,4 @@
-package org.openpredict.exchange.tests.performance;
+package org.openpredict.exchange.tests.perf.modules;
 
 
 import lombok.extern.slf4j.Slf4j;

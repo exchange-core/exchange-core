@@ -1,4 +1,4 @@
-package org.openpredict.exchange.tests;
+package org.openpredict.exchange.tests.perf;
 
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
@@ -41,7 +41,7 @@ public final class PerfLatency {
      */
 
     @Test
-    public void latencyTestMargin() {
+    public void testLatencyMargin() {
 
         try (final ExchangeTestContainer container = new ExchangeTestContainer(2 * 1024, 1, 1, 512, null)) {
             latencyTestImpl(
@@ -57,7 +57,7 @@ public final class PerfLatency {
     }
 
     @Test
-    public void latencyTestExchange() {
+    public void testLatencyExchange() {
 
         try (final ExchangeTestContainer container = new ExchangeTestContainer(2 * 1024, 1, 1, 512, null)) {
             latencyTestImpl(
@@ -80,7 +80,7 @@ public final class PerfLatency {
      * 12-threads CPU is required for running this test in 4+4 configuration.
      */
     @Test
-    public void latencyTestMultiSymbol() {
+    public void testLatencyMultiSymbol() {
         try (final ExchangeTestContainer container = new ExchangeTestContainer(64 * 1024, 4, 4, 2048, null)) {
             latencyTestImpl(
                     container,
