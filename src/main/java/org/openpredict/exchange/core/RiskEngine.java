@@ -36,6 +36,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
     private final UserProfileService userProfileService;
     private final BinaryCommandsProcessor binaryCommandsProcessor;
     private final IntObjectHashMap<LastPriceCacheRecord> lastPriceCache;
+    private final IntLongHashMap fees;
 
     // configuration
     private final int shardId;
@@ -56,6 +57,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             this.userProfileService = new UserProfileService();
             this.binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, shardId);
             this.lastPriceCache = new IntObjectHashMap<>();
+            this.fees = new IntLongHashMap();
 
         } else {
             // TODO change to creator (simpler init)
@@ -74,13 +76,15 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                         final UserProfileService userProfileService = new UserProfileService(bytesIn);
                         final BinaryCommandsProcessor binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, bytesIn, shardId);
                         final IntObjectHashMap<LastPriceCacheRecord> lastPriceCache = Utils.readIntHashMap(bytesIn, LastPriceCacheRecord::new);
-                        return new State(symbolSpecificationProvider, userProfileService, binaryCommandsProcessor, lastPriceCache);
+                        final IntLongHashMap fees = Utils.readIntLongHashMap(bytesIn);
+                        return new State(symbolSpecificationProvider, userProfileService, binaryCommandsProcessor, lastPriceCache, fees);
                     });
 
             this.symbolSpecificationProvider = state.symbolSpecificationProvider;
             this.userProfileService = state.userProfileService;
             this.binaryCommandsProcessor = state.binaryCommandsProcessor;
             this.lastPriceCache = state.lastPriceCache;
+            this.fees = state.fees;
         }
     }
 
@@ -250,16 +254,25 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
         final IntLongHashMap currencyBalance = new IntLongHashMap();
 
+        final IntLongHashMap symbolOpenInterestLong = new IntLongHashMap();
+        final IntLongHashMap symbolOpenInterestShort = new IntLongHashMap();
+
         userProfileService.getUserProfiles().forEach(userProfile -> {
             userProfile.accounts.forEachKeyValue(currencyBalance::addToValue);
             userProfile.portfolio.forEachKeyValue((symbolId, portfolioRecord) -> {
                 final CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(symbolId);
                 final LastPriceCacheRecord avgPrice = dummyLastPriceCache.getIfAbsentPut(symbolId, LastPriceCacheRecord.dummy);
                 currencyBalance.addToValue(portfolioRecord.currency, portfolioRecord.estimateProfit(spec, avgPrice));
+
+                if (portfolioRecord.position == PortfolioPosition.LONG) {
+                    symbolOpenInterestLong.addToValue(symbolId, portfolioRecord.openVolume);
+                } else if (portfolioRecord.position == PortfolioPosition.SHORT) {
+                    symbolOpenInterestShort.addToValue(symbolId, portfolioRecord.openVolume);
+                }
             });
         });
 
-        return Optional.of(new TotalCurrencyBalanceReportResult(currencyBalance, null));
+        return Optional.of(new TotalCurrencyBalanceReportResult(currencyBalance, new IntLongHashMap(fees), null, symbolOpenInterestLong, symbolOpenInterestShort));
     }
 
     /**
@@ -315,7 +328,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         } else if (spec.type == SymbolType.FUTURES_CONTRACT) {
 
             final SymbolPortfolioRecord portfolio = userProfile.getOrCreatePortfolioRecord(spec);
-            final boolean canPlaceOrder = canPlaceFuturesOrder(cmd, userProfile, spec, portfolio);
+            final boolean canPlaceOrder = canPlaceMarginOrder(cmd, userProfile, spec, portfolio);
             if (canPlaceOrder) {
                 portfolio.pendingHold(cmd.action, cmd.size);
                 return true;
@@ -345,7 +358,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 final CoreSymbolSpecification spec2 = symbolSpecificationProvider.getSymbolSpecification(recSymbol);
                 // add P&L subtract margin
                 freeFuturesMargin += portfolioRecord.estimateProfit(spec2, lastPriceCache.get(recSymbol));
-                freeFuturesMargin -= portfolioRecord.calculateRequiredDepositForFutures(spec2);
+                freeFuturesMargin -= portfolioRecord.calculateRequiredMarginForFutures(spec2);
             }
         }
 
@@ -355,17 +368,22 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             return false;
         }
 
-        final long orderAmount = Utils.calculateAmount(cmd.action, cmd.size, cmd.action == OrderAction.BID ? cmd.reserveBidPrice : cmd.price, spec);
+        final long orderAmount = Utils.calculateHoldAmount(cmd.action, cmd.size, cmd.action == OrderAction.BID ? cmd.reserveBidPrice : cmd.price, spec);
 
 //        log.debug("--------- {} -----------", cmd.orderId);
 //        log.debug("serProfile.accounts.get(currency)={}", userProfile.accounts.get(currency));
 //        log.debug("freeFuturesMargin={}", freeFuturesMargin);
 //        log.debug("orderAmount={}", orderAmount);
 
-        final boolean canPlace = userProfile.accounts.get(currency) + freeFuturesMargin >= orderAmount;
+        // speculative change balance
+        long newBalance = userProfile.accounts.addToValue(currency, -orderAmount);
 
-        if (canPlace) {
-            userProfile.accounts.addToValue(currency, -orderAmount);
+        final boolean canPlace = newBalance + freeFuturesMargin >= 0;
+
+        if (!canPlace) {
+            // revert balance change
+            userProfile.accounts.addToValue(currency, orderAmount);
+//            log.warn("orderAmount={} > userProfile.accounts.get({})={}", orderAmount, currency, userProfile.accounts.get(currency));
         }
 
         return canPlace;
@@ -380,18 +398,18 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
      * <p>
      * NOTE: Current implementation does not care about accounts and positions quoted in different currencies
      */
-    private boolean canPlaceFuturesOrder(final OrderCommand cmd,
-                                         final UserProfile userProfile,
-                                         final CoreSymbolSpecification spec,
-                                         final SymbolPortfolioRecord portfolio) {
+    private boolean canPlaceMarginOrder(final OrderCommand cmd,
+                                        final UserProfile userProfile,
+                                        final CoreSymbolSpecification spec,
+                                        final SymbolPortfolioRecord portfolio) {
 
-        final long newRequiredDepositForSymbol = portfolio.calculateRequiredDepositForOrder(spec, cmd.action, cmd.size);
-        if (newRequiredDepositForSymbol == -1) {
+        final long newRequiredMarginForSymbol = portfolio.calculateRequiredMarginForOrder(spec, cmd.action, cmd.size);
+        if (newRequiredMarginForSymbol == -1) {
             // always allow placing a new order if it would not increase exposure
             return true;
         }
 
-        // extra deposit is required
+        // extra margin is required
 
         final int symbol = cmd.symbol;
         // calculate free margin for all positions same currency
@@ -403,15 +421,18 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                     final CoreSymbolSpecification spec2 = symbolSpecificationProvider.getSymbolSpecification(recSymbol);
                     // add P&L subtract margin
                     freeMargin += portfolioRecord.estimateProfit(spec2, lastPriceCache.get(recSymbol));
-                    freeMargin -= portfolioRecord.calculateRequiredDepositForFutures(spec2);
+                    freeMargin -= portfolioRecord.calculateRequiredMarginForFutures(spec2);
                 }
             } else {
                 freeMargin = portfolio.estimateProfit(spec, lastPriceCache.get(spec.symbolId));
             }
         }
 
+//        log.debug("newMargin={} <= account({})={} + free {}",
+//                newRequiredMarginForSymbol, portfolio.currency, userProfile.accounts.get(portfolio.currency), freeMargin);
+
         // check if current balance and margin can cover new required margin for symbol position
-        return newRequiredDepositForSymbol <= userProfile.accounts.get(portfolio.currency) + freeMargin;
+        return newRequiredMarginForSymbol <= userProfile.accounts.get(portfolio.currency) + freeMargin;
     }
 
     public void handlerRiskRelease(final int symbol,
@@ -454,11 +475,16 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
         if (ev.eventType == TRADE) {
             // TODO group by user profile ??
+            int quoteCurrency = spec.quoteCurrency;
+
             if (uidForThisHandler(ev.activeOrderUid)) {
                 // update taker's portfolio
                 final UserProfile taker = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
                 final SymbolPortfolioRecord takerSpr = taker.getPortfolioRecordOrThrowEx(ev.symbol);
-                takerSpr.updatePortfolioForMarginTrade(ev.activeOrderAction, size, ev.price, spec.takerFee);
+                long sizeOpen = takerSpr.updatePortfolioForMarginTrade(ev.activeOrderAction, size, ev.price);
+                final long fee = spec.takerFee * sizeOpen;
+                taker.accounts.addToValue(quoteCurrency, -fee);
+                fees.addToValue(quoteCurrency, fee);
                 taker.removeRecordIfEmpty(takerSpr);
             }
 
@@ -466,7 +492,10 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 // update maker's portfolio
                 final UserProfile maker = userProfileService.getUserProfileOrThrowEx(ev.matchedOrderUid);
                 final SymbolPortfolioRecord makerSpr = maker.getPortfolioRecordOrThrowEx(ev.symbol);
-                makerSpr.updatePortfolioForMarginTrade(ev.activeOrderAction.opposite(), size, ev.price, spec.makerFee);
+                long sizeOpen = makerSpr.updatePortfolioForMarginTrade(ev.activeOrderAction.opposite(), size, ev.price);
+                final long fee = spec.makerFee * sizeOpen;
+                maker.accounts.addToValue(quoteCurrency, -fee);
+                fees.addToValue(quoteCurrency, fee);
                 maker.removeRecordIfEmpty(makerSpr);
             }
 
@@ -510,15 +539,13 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
                 // for cancel/rejection only one party is involved
                 final UserProfile up = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
-                final int currency = (ev.activeOrderAction == OrderAction.ASK)?spec.baseCurrency:spec.quoteCurrency;
-                final long amountForRelease = Utils.calculateAmount(ev.activeOrderAction, ev.size, ev.bidderHoldPrice, spec);
+                final int currency = (ev.activeOrderAction == OrderAction.ASK) ? spec.baseCurrency : spec.quoteCurrency;
+                final long amountForRelease = Utils.calculateHoldAmount(ev.activeOrderAction, ev.size, ev.bidderHoldPrice, spec);
                 up.accounts.addToValue(currency, amountForRelease);
 
-//                if (ev.activeOrderAction == OrderAction.ASK) {
-//                    log.debug("REJ/CAN ASK: amountToRelease = {}  ACC:{}", amountToReleaseInBaseCurrency, userProfileService.getUserProfile(ev.activeOrderUid).accounts);
-//                } else {
-//                    log.debug("REJ/CAN BID: amountToRelease = {}  ACC:{}", amountToRelease, userProfileService.getUserProfile(ev.activeOrderUid).accounts);
-//                }
+//                log.debug("REJ/CAN ASK: uid={} amountToRelease = {}  ACC:{}",
+//                        ev.activeOrderUid, amountForRelease, userProfileService.getUserProfile(ev.activeOrderUid).accounts);
+
             }
         } else {
             log.error("unsupported eventType: {}", ev.eventType);
@@ -529,23 +556,31 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         final long size = ev.size;
         final UserProfile up = userProfileService.getUserProfileOrThrowEx(uid);
 
-        // d
-        final long makerFeeCorrection = isTaker ? 0 : (spec.makerFee - spec.takerFee) * size;
+        long feeForSize = (isTaker ? spec.takerFee : spec.makerFee) * size;
+        fees.addToValue(spec.quoteCurrency, feeForSize);
 
         if (isSelling) {
+
             // selling
             final long obtainedAmountInQuoteCurrency = Utils.calculateAmountBid(size, ev.price, spec);
-            up.accounts.addToValue(spec.quoteCurrency, obtainedAmountInQuoteCurrency + makerFeeCorrection);
-///           log.debug("{} sells - getting {} (in quote cur={}) size={} ACCOUNTS:{}", up.uid, obtainedAmountInQuoteCurrency + makerCorrection, spec.quoteCurrency, size, userProfileService.getUserProfile(uid).accounts);
+            up.accounts.addToValue(spec.quoteCurrency, obtainedAmountInQuoteCurrency - feeForSize);
+//            log.debug("{} sells - getting {} -fee:{} (in quote cur={}) size={} ACCOUNTS:{}", up.uid, obtainedAmountInQuoteCurrency, feeForSize, spec.quoteCurrency, size, userProfileService.getUserProfile(uid).accounts);
         } else {
+
+            //final long makerFeeCorrection = isTaker ? 0 : (spec.takerFee - spec.makerFee) * size;
+            //log.debug("makerFeeCorrection={} ....(   - makerFee {} ) * {}", makerFeeCorrection, spec.makerFee, size);
+
             // buying, use bidderHoldPrice to calculate released amount based on price difference
-            final long amountDiffToReleaseInQuoteCurrency = Utils.calculateAmountBid(size, ev.bidderHoldPrice - ev.price, spec);
-            up.accounts.addToValue(spec.quoteCurrency, amountDiffToReleaseInQuoteCurrency + makerFeeCorrection);
+            final long amountDiffToReleaseInQuoteCurrency = Utils.calculateAmountBidReleaseCorr(size, ev.bidderHoldPrice - ev.price, spec, isTaker);
+            up.accounts.addToValue(spec.quoteCurrency, amountDiffToReleaseInQuoteCurrency);
 
             final long obtainedAmountInBaseCurrency = Utils.calculateAmountAsk(size, spec);
             up.accounts.addToValue(spec.baseCurrency, obtainedAmountInBaseCurrency);
-//            log.debug("{} buys - amountDiffToReleaseInQuoteCurrency={} ({}-{}) (in quote cur={})", up.uid, amountDiffToReleaseInQuoteCurrency, ev.bidderHoldPrice, ev.price, spec.quoteCurrency);
-//            log.debug("{} buys - getting {} (in base cur={}) size={} ACCOUNTS:{}", up.uid, obtainedAmountInBaseCurrency, spec.baseCurrency, size, userProfileService.getUserProfile(uid).accounts);
+
+//            log.debug("{} buys - amountDiffToReleaseInQuoteCurrency={} ({}-{}) (in quote cur={})",
+//                    up.uid, amountDiffToReleaseInQuoteCurrency, ev.bidderHoldPrice, ev.price, spec.quoteCurrency);
+//            log.debug("{} buys - getting {} (in base cur={}) size={} ACCOUNTS:{}",
+//                    up.uid, obtainedAmountInBaseCurrency, spec.baseCurrency, size, userProfileService.getUserProfile(uid).accounts);
         }
     }
 
@@ -558,6 +593,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         userProfileService.writeMarshallable(bytes);
         binaryCommandsProcessor.writeMarshallable(bytes);
         Utils.marshallIntHashMap(lastPriceCache, bytes);
+        Utils.marshallIntLongHashMap(fees, bytes);
     }
 
     public void reset() {
@@ -565,6 +601,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         symbolSpecificationProvider.reset();
         binaryCommandsProcessor.reset();
         lastPriceCache.clear();
+        fees.clear();
     }
 
     @Override
@@ -576,7 +613,8 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 symbolSpecificationProvider.stateHash(),
                 userProfileService.stateHash(),
                 binaryCommandsProcessor.stateHash(),
-                Utils.stateHash(lastPriceCache));
+                Utils.stateHash(lastPriceCache),
+                fees.hashCode());
 
         //log.debug("HASH RE{}/{} hash={} -- ssp={} ups={} bcp={} lpc={}", shardId, shardMask, hash, symbolSpecificationProvider.stateHash(), userProfileService.stateHash(), binaryCommandsProcessor.stateHash(), lastPriceCache.hashCode());
     }
@@ -588,5 +626,6 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         private final UserProfileService userProfileService;
         private final BinaryCommandsProcessor binaryCommandsProcessor;
         private final IntObjectHashMap<LastPriceCacheRecord> lastPriceCache;
+        private final IntLongHashMap fees;
     }
 }

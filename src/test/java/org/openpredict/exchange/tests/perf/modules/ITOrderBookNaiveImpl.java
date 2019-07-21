@@ -1,4 +1,4 @@
-package org.openpredict.exchange.tests.performance;
+package org.openpredict.exchange.tests.perf.modules;
 
 import org.openpredict.exchange.core.orderbook.IOrderBook;
 import org.openpredict.exchange.core.orderbook.OrderBookNaiveImpl;

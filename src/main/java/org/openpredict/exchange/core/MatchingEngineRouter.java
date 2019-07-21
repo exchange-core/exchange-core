@@ -177,10 +177,10 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
 
                     currencyBalance.addToValue(
                             spec.getQuoteCurrency(),
-                            ob.bidOrdersStream(false).mapToLong(ord -> Utils.calculateAmountBid(ord.size - ord.filled, ord.reserveBidPrice, spec)).sum());
+                            ob.bidOrdersStream(false).mapToLong(ord -> Utils.calculateAmountBidTakerFee(ord.size - ord.filled, ord.reserveBidPrice, spec)).sum());
                 });
 
-        return Optional.of(new TotalCurrencyBalanceReportResult(null, currencyBalance));
+        return Optional.of(new TotalCurrencyBalanceReportResult(null, null, currencyBalance, null, null));
     }
 
 

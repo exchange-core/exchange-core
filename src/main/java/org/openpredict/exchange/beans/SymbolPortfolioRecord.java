@@ -88,68 +88,68 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable, Stat
             case LONG:
                 return profit + ((lastPriceCacheRecord != null && lastPriceCacheRecord.bidPrice != 0)
                         ? (openVolume * lastPriceCacheRecord.bidPrice - openPriceSum)
-                        : spec.depositBuy * openVolume); // unknown price - no liquidity - require extra margin
+                        : spec.marginBuy * openVolume); // unknown price - no liquidity - require extra margin
             case SHORT:
                 return profit + ((lastPriceCacheRecord != null && lastPriceCacheRecord.askPrice != Long.MAX_VALUE)
                         ? (openPriceSum - openVolume * lastPriceCacheRecord.askPrice)
-                        : spec.depositSell * openVolume); // unknown price - no liquidity - require extra margin
+                        : spec.marginSell * openVolume); // unknown price - no liquidity - require extra margin
             default:
                 throw new IllegalStateException();
         }
     }
 
     /**
-     * Calculate required deposit based on specification and current position/orders
+     * Calculate required margin based on specification and current position/orders
      *
      * @param spec
      * @return
      */
-    public long calculateRequiredDepositForFutures(CoreSymbolSpecification spec) {
-        final long specDepositBuy = spec.depositBuy;
-        final long specDepositSell = spec.depositSell;
+    public long calculateRequiredMarginForFutures(CoreSymbolSpecification spec) {
+        final long specMarginBuy = spec.marginBuy;
+        final long specMarginSell = spec.marginSell;
 
         final long signedPosition = openVolume * position.getMultiplier();
         final long currentRiskBuySize = pendingBuySize + signedPosition;
         final long currentRiskSellSize = pendingSellSize - signedPosition;
 
-        final long depositBuy = specDepositBuy * currentRiskBuySize;
-        final long depositSell = specDepositSell * currentRiskSellSize;
-        // depositBuy or depositSell can be negative, but not both of them
-        return Math.max(depositBuy, depositSell);
+        final long marginBuy = specMarginBuy * currentRiskBuySize;
+        final long marginSell = specMarginSell * currentRiskSellSize;
+        // marginBuy or marginSell can be negative, but not both of them
+        return Math.max(marginBuy, marginSell);
     }
 
     /**
-     * Calculate required deposit based on specification and current position/orders
+     * Calculate required margin based on specification and current position/orders
      * considering extra size added to current position (or outstanding orders)
      *
      * @param spec   symbols specification
      * @param action order action
      * @param size   order size
-     * @return -1 if order will reduce current exposure (no additional margin required), otherwise full deposit for symbol position if order placed/executed
+     * @return -1 if order will reduce current exposure (no additional margin required), otherwise full margin for symbol position if order placed/executed
      */
-    public long calculateRequiredDepositForOrder(final CoreSymbolSpecification spec, final OrderAction action, final long size) {
-        final long specDepositBuy = spec.depositBuy;
-        final long specDepositSell = spec.depositSell;
+    public long calculateRequiredMarginForOrder(final CoreSymbolSpecification spec, final OrderAction action, final long size) {
+        final long specMarginBuy = spec.marginBuy;
+        final long specMarginSell = spec.marginSell;
 
         final long signedPosition = openVolume * position.getMultiplier();
         final long currentRiskBuySize = pendingBuySize + signedPosition;
         final long currentRiskSellSize = pendingSellSize - signedPosition;
 
-        long depositBuy = specDepositBuy * currentRiskBuySize;
-        long depositSell = specDepositSell * currentRiskSellSize;
-        // either depositBuy or depositSell can be negative (because of signedPosition), but not both of them
-        final long currentDeposit = Math.max(depositBuy, depositSell);
+        long marginBuy = specMarginBuy * currentRiskBuySize;
+        long marginSell = specMarginSell * currentRiskSellSize;
+        // either marginBuy or marginSell can be negative (because of signedPosition), but not both of them
+        final long currentMargin = Math.max(marginBuy, marginSell);
 
         if (action == OrderAction.BID) {
-            depositBuy += spec.depositBuy * size;
+            marginBuy += spec.marginBuy * size;
         } else {
-            depositSell += spec.depositSell * size;
+            marginSell += spec.marginSell * size;
         }
 
-        // depositBuy or depositSell can be negative, but not both of them
-        final long newDeposit = Math.max(depositBuy, depositSell);
+        // marginBuy or marginSell can be negative, but not both of them
+        final long newMargin = Math.max(marginBuy, marginSell);
 
-        return (newDeposit <= currentDeposit) ? -1 : newDeposit;
+        return (newMargin <= currentMargin) ? -1 : newMargin;
     }
 
 
@@ -159,7 +159,7 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable, Stat
      * 2. Reduce opposite position accordingly (if exists)
      * 3. Increase forward position accordingly (if size left in the trading event)
      */
-    public void updatePortfolioForMarginTrade(OrderAction action, long size, long price, final long commission) {
+    public long updatePortfolioForMarginTrade(OrderAction action, long size, long price) {
 
         // 1. Un-hold pending size
         pendingRelease(action, size);
@@ -169,8 +169,9 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable, Stat
 
         // 3. Increase forward position accordingly (if size left in the trading event)
         if (sizeToOpen > 0) {
-            openPositionFutures(action, sizeToOpen, price, commission);
+            openPositionFutures(action, sizeToOpen, price);
         }
+        return sizeToOpen;
     }
 
     private long closeCurrentPositionFutures(final OrderAction action, final long tradeSize, final long tradePrice) {
@@ -201,11 +202,10 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable, Stat
         return sizeToOpen;
     }
 
-    private void openPositionFutures(OrderAction action, long sizeToOpen, long tradePrice, long commission) {
+    private void openPositionFutures(OrderAction action, long sizeToOpen, long tradePrice) {
         openVolume += sizeToOpen;
         openPriceSum += tradePrice * sizeToOpen;
         position = PortfolioPosition.of(action);
-        profit -= commission * sizeToOpen;
 
         // validateInternalState();
     }

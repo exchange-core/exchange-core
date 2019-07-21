@@ -25,9 +25,9 @@ public final class CoreSymbolSpecification implements WriteBytesMarshallable, St
     public final long baseScaleK;   // base currency amount multiplier (lot size in base currency units)
     public final long quoteScaleK;  // quote currency amount multiplier (step size in quote currency units)
 
-    // deposit settings (for type=FUTURES_CONTRACT only)
-    public final long depositBuy;   // buy margin (quote currency)
-    public final long depositSell;  // sell margin (quote currency)
+    // margin settings (for type=FUTURES_CONTRACT only)
+    public final long marginBuy;   // buy margin (quote currency)
+    public final long marginSell;  // sell margin (quote currency)
 
     // fees per lot in quote? currency units
     public final long takerFee; // TODO check invariant: taker fee is not less than maker fee
@@ -41,8 +41,8 @@ public final class CoreSymbolSpecification implements WriteBytesMarshallable, St
         this.quoteCurrency = bytes.readInt();
         this.baseScaleK = bytes.readLong();
         this.quoteScaleK = bytes.readLong();
-        this.depositBuy = bytes.readLong();
-        this.depositSell = bytes.readLong();
+        this.marginBuy = bytes.readLong();
+        this.marginSell = bytes.readLong();
         this.takerFee = bytes.readLong();
         this.makerFee = bytes.readLong();
     }
@@ -73,8 +73,8 @@ public final class CoreSymbolSpecification implements WriteBytesMarshallable, St
         bytes.writeInt(quoteCurrency);
         bytes.writeLong(baseScaleK);
         bytes.writeLong(quoteScaleK);
-        bytes.writeLong(depositBuy);
-        bytes.writeLong(depositSell);
+        bytes.writeLong(marginBuy);
+        bytes.writeLong(marginSell);
         bytes.writeLong(takerFee);
         bytes.writeLong(makerFee);
     }
@@ -88,8 +88,8 @@ public final class CoreSymbolSpecification implements WriteBytesMarshallable, St
                 quoteCurrency,
                 baseScaleK,
                 quoteScaleK,
-                depositBuy,
-                depositSell,
+                marginBuy,
+                marginSell,
                 takerFee,
                 makerFee);
     }

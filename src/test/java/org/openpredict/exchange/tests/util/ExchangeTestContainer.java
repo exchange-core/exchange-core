@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.hamcrest.core.Is;
+import org.junit.Assert;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.api.*;
 import org.openpredict.exchange.beans.api.binary.BatchAddAccountsCommand;
@@ -16,15 +17,12 @@ import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.ExchangeApi;
 import org.openpredict.exchange.core.ExchangeCore;
-import org.openpredict.exchange.core.Utils;
 import org.openpredict.exchange.core.journalling.DiskSerializationProcessor;
 import org.openpredict.exchange.core.orderbook.OrderBookFastImpl;
-import org.openpredict.exchange.core.orderbook.OrderBookNaiveImpl;
 
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -150,7 +148,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
         return (int) (System.nanoTime() & Integer.MAX_VALUE);
     }
 
-    public void userAccountsInit(List<BitSet> userCurrencies) throws InterruptedException {
+    public final IntLongHashMap userAccountsInit(List<BitSet> userCurrencies) throws InterruptedException {
 
         final int totalAccounts = userCurrencies.stream().skip(1).mapToInt(BitSet::cardinality).sum();
         final int numUsers = userCurrencies.size() - 1;
@@ -164,19 +162,25 @@ public final class ExchangeTestContainer implements AutoCloseable {
             }
         };
 
+        final long amountToAdd = 1_000_000_000_000L;
+
         IntStream.rangeClosed(1, numUsers).forEach(uid -> {
             api.submitCommand(ApiAddUser.builder().uid(uid).build());
             userCurrencies.get(uid).stream().forEach(currency ->
-                    api.submitCommand(ApiAdjustUserBalance.builder().uid(uid).transactionId(uid * 1000 + currency).amount(10_0000_0000L).currency(currency).build()));
+                    api.submitCommand(ApiAdjustUserBalance.builder().uid(uid).transactionId(uid * 1000 + currency).amount(amountToAdd).currency(currency).build()));
 
-            if (uid > 1000000 && uid % 1000000 == 0) {
-                log.debug("uid: {} usersLatch: {}", uid, usersLatch.getCount());
-            }
+//            if (uid > 1000000 && uid % 1000000 == 0) {
+//                log.debug("uid: {} usersLatch: {}", uid, usersLatch.getCount());
+//            }
         });
         usersLatch.await();
 
         consumer = cmd -> {
         };
+
+        final IntLongHashMap globalAmountPerCurrency = new IntLongHashMap();
+        userCurrencies.forEach(user -> user.stream().forEach(cur -> globalAmountPerCurrency.addToValue(cur, amountToAdd)));
+        return globalAmountPerCurrency;
     }
 
     public void usersInit(int numUsers, Set<Integer> currencies) throws InterruptedException {
@@ -270,20 +274,6 @@ public final class ExchangeTestContainer implements AutoCloseable {
         };
     }
 
-    public <T> T submitCommandSync(ApiCommand apiCommand, Function<OrderCommand, T> resultBuilder) throws InterruptedException {
-        final CompletableFuture<T> future = new CompletableFuture<>();
-        consumer = cmd -> future.complete(resultBuilder.apply(cmd));
-        api.submitCommand(apiCommand);
-        try {
-            return future.get();
-        } catch (ExecutionException ex) {
-            throw new IllegalStateException(ex);
-        } finally {
-            consumer = cmd -> {
-            };
-        }
-    }
-
     public void submitMultiCommandSync(ApiCommand dataCommand) {
         final CountDownLatch latch = new CountDownLatch(1);
         consumer = cmd -> {
@@ -349,22 +339,34 @@ public final class ExchangeTestContainer implements AutoCloseable {
     }
 
 
-    public void validateUserState(long uid,
-                                  Consumer<UserProfile> riskEngineStateConsumer,
-                                  Consumer<LongObjectHashMap<Order>> matchingEngineStateConsumer) throws InterruptedException, ExecutionException {
+    public void validateUserState(
+            long uid,
+            Consumer<UserProfile> riskEngineStateConsumer,
+            Consumer<LongObjectHashMap<Order>> matchingEngineStateConsumer) throws InterruptedException, ExecutionException {
+
         final SingleUserReportResult res = api.processReport(new SingleUserReportQuery(uid), getRandomTransactionId()).get();
         riskEngineStateConsumer.accept(res.getUserProfile());
         matchingEngineStateConsumer.accept(res.getOrders());
     }
 
-    public void validateTotalBalance(Consumer<IntLongHashMap> balancesValidator) throws InterruptedException, ExecutionException {
+    public TotalCurrencyBalanceReportResult totalBalanceReport() throws InterruptedException, ExecutionException {
         final TotalCurrencyBalanceReportResult res = api.processReport(new TotalCurrencyBalanceReportQuery(), getRandomTransactionId()).get();
-        log.debug("accBal : {}", res.getAccountBalances());
-        log.debug("ordBal : {}", res.getOrdersBalances());
-        final IntLongHashMap totalBalances = Utils.mergeSum(res.getAccountBalances(), res.getOrdersBalances());
-        log.debug("totalBalances : {}", totalBalances);
-        balancesValidator.accept(totalBalances);
+        final IntLongHashMap openInterestLong = res.getOpenInterestLong();
+        final IntLongHashMap openInterestShort = res.getOpenInterestShort();
+//        log.debug("accBal : {}", res.getAccountBalances());
+//        log.debug("fees   : {}", res.getFees());
+//        log.debug("ordBal : {}", res.getOrdersBalances());
+//        log.debug("OpenIntLong: {}", openInterestLong);
+//        log.debug("OpenIntShort: {}", openInterestShort);
+        final IntLongHashMap openInterestDiff = new IntLongHashMap(openInterestLong);
+        openInterestShort.forEachKeyValue((k, v) -> openInterestDiff.addToValue(k, -v));
+        if (openInterestDiff.anySatisfy(vol -> vol != 0)) {
+            throw new IllegalStateException("Open Interest balance check failed");
+        }
+
+        return res;
     }
+
 
     public int requestStateHash() throws InterruptedException, ExecutionException {
         return api.processReport(new StateHashReportQuery(), getRandomTransactionId()).get().getStateHash();
@@ -398,15 +400,18 @@ public final class ExchangeTestContainer implements AutoCloseable {
             int baseCurrency = currencies.get(random.nextInt(currencies.size()));
             int quoteCurrency = currencies.get(random.nextInt(currencies.size()));
             if (baseCurrency != quoteCurrency) {
+                final SymbolType type = symbolTypeSupplier.get();
+                final long makerFee = random.nextInt(1000);
+                final long takerFee = makerFee + random.nextInt(500);
                 final CoreSymbolSpecification symbol = CoreSymbolSpecification.builder()
                         .symbolId(SYMBOL_AUTOGENERATED_RANGE_START + i)
-                        .type(symbolTypeSupplier.get())
+                        .type(type)
                         .baseCurrency(baseCurrency) // TODO for futures can be any value
                         .quoteCurrency(quoteCurrency)
-                        .baseScaleK(1)
-                        .quoteScaleK(1)
-                        .takerFee(0)
-                        .makerFee(0)
+                        .baseScaleK(100)
+                        .quoteScaleK(10)
+                        .takerFee(takerFee)
+                        .makerFee(makerFee)
                         .build();
 
                 result.add(symbol);

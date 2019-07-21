@@ -1,4 +1,4 @@
-package org.openpredict.exchange.tests;
+package org.openpredict.exchange.tests.perf;
 
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
@@ -41,7 +41,7 @@ public final class PerfLatency {
      */
 
     @Test
-    public void latencyTestMargin() {
+    public void testLatencyMargin() {
 
         try (final ExchangeTestContainer container = new ExchangeTestContainer(2 * 1024, 1, 1, 512, null)) {
             latencyTestImpl(
@@ -57,7 +57,7 @@ public final class PerfLatency {
     }
 
     @Test
-    public void latencyTestExchange() {
+    public void testLatencyExchange() {
 
         try (final ExchangeTestContainer container = new ExchangeTestContainer(2 * 1024, 1, 1, 512, null)) {
             latencyTestImpl(
@@ -74,19 +74,19 @@ public final class PerfLatency {
 
     /**
      * This is high load latency test for verifying "triple million" capability:
-     * - 1M active users (~5M currency accounts)
+     * - 10M currency accounts 3M active users
      * - 1M pending limit-orders (in 1K order books)
      * - at least 1M messages per second throughput
      * 12-threads CPU is required for running this test in 4+4 configuration.
      */
     @Test
-    public void latencyTestMultiSymbol() {
-        try (final ExchangeTestContainer container = new ExchangeTestContainer(64 * 1024, 4, 4, 2048, null)) {
+    public void testLatencyMultiSymbol() {
+        try (final ExchangeTestContainer container = new ExchangeTestContainer(16 * 1024, 2, 2, 2048, null)) {
             latencyTestImpl(
                     container,
                     5_000_000,
                     1_000_000,
-                    1_000_000,
+                    10_000_000,
                     ALL_CURRENCIES,
                     1_000,
                     AllowedSymbolTypes.BOTH,

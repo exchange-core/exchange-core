@@ -1,4 +1,4 @@
-package org.openpredict.exchange.tests;
+package org.openpredict.exchange.tests.perf;
 
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
@@ -25,8 +25,7 @@ public final class PerfHiccups {
     private long nextHiccupAcceptTimestampNs = 0;
 
     @Test
-    public void hiccupsTest() {
-
+    public void testHiccups() {
 
         final int numOrders = 3_000_000;
         final int targetOrderBookOrders = 1000;

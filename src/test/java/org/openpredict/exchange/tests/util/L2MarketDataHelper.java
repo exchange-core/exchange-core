@@ -9,10 +9,10 @@ import java.util.Arrays;
 @NoArgsConstructor
 public class L2MarketDataHelper {
 
-    private long askPrices[];
-    private long askVolumes[];
-    private long bidPrices[];
-    private long bidVolumes[];
+    private long[] askPrices;
+    private long[] askVolumes;
+    private long[] bidPrices;
+    private long[] bidVolumes;
 
     public L2MarketDataHelper(L2MarketData l2) {
         askPrices = Arrays.copyOf(l2.askPrices, l2.askPrices.length);
@@ -22,17 +22,12 @@ public class L2MarketDataHelper {
     }
 
     public L2MarketData build() {
-        L2MarketData l2MarketData = new L2MarketData(
+        return new L2MarketData(
                 askPrices,
                 askVolumes,
                 bidPrices,
                 bidVolumes
         );
-
-//        l2MarketData.totalVolumeAsk = Arrays.stream(askVolumes).sum();
-//        l2MarketData.totalVolumeBid = Arrays.stream(bidVolumes).sum();
-
-        return l2MarketData;
     }
 
 
