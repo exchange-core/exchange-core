@@ -14,17 +14,23 @@ import java.util.stream.Stream;
 @Getter
 public class TotalCurrencyBalanceReportResult implements ReportResult {
 
-    // TODO exposure (open interest)
-
     // currency -> balance
     private IntLongHashMap accountBalances;
     private IntLongHashMap fees;
     private IntLongHashMap ordersBalances;
 
+    // symbol -> volume
+    // We have to keep shorts and longs separately because for multi-core processing different risk engine instances will give non-matching results.
+    // They should match when aggregated though.
+    private IntLongHashMap openInterestLong;
+    private IntLongHashMap openInterestShort;
+
     private TotalCurrencyBalanceReportResult(final BytesIn bytesIn) {
         this.accountBalances = bytesIn.readBoolean() ? Utils.readIntLongHashMap(bytesIn) : null;
         this.fees = bytesIn.readBoolean() ? Utils.readIntLongHashMap(bytesIn) : null;
         this.ordersBalances = bytesIn.readBoolean() ? Utils.readIntLongHashMap(bytesIn) : null;
+        this.openInterestLong = bytesIn.readBoolean() ? Utils.readIntLongHashMap(bytesIn) : null;
+        this.openInterestShort = bytesIn.readBoolean() ? Utils.readIntLongHashMap(bytesIn) : null;
     }
 
     @Override
@@ -43,6 +49,16 @@ public class TotalCurrencyBalanceReportResult implements ReportResult {
         if (ordersBalances != null) {
             Utils.marshallIntLongHashMap(ordersBalances, bytes);
         }
+
+        bytes.writeBoolean(openInterestLong != null);
+        if (openInterestLong != null) {
+            Utils.marshallIntLongHashMap(openInterestLong, bytes);
+        }
+
+        bytes.writeBoolean(openInterestShort != null);
+        if (openInterestShort != null) {
+            Utils.marshallIntLongHashMap(openInterestShort, bytes);
+        }
     }
 
     public IntLongHashMap getSum() {
@@ -53,11 +69,13 @@ public class TotalCurrencyBalanceReportResult implements ReportResult {
         return pieces
                 .map(TotalCurrencyBalanceReportResult::new)
                 .reduce(
-                        new TotalCurrencyBalanceReportResult(null, null, null),
+                        new TotalCurrencyBalanceReportResult(null, null, null, null, null),
                         (a, b) -> new TotalCurrencyBalanceReportResult(
                                 Utils.mergeSum(a.accountBalances, b.accountBalances),
                                 Utils.mergeSum(a.fees, b.fees),
-                                Utils.mergeSum(a.ordersBalances, b.ordersBalances)));
+                                Utils.mergeSum(a.ordersBalances, b.ordersBalances),
+                                Utils.mergeSum(a.openInterestLong, b.openInterestLong),
+                                Utils.mergeSum(a.openInterestShort, b.openInterestShort)));
     }
 
 }

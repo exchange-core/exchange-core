@@ -57,7 +57,7 @@ public class ThroughputTestsModule {
             for (int j = 0; j < iterations; j++) {
 
                 container.addSymbols(coreSymbolSpecifications);
-                IntLongHashMap globalBalancesExpected = container.userAccountsInit(usersAccounts);
+                final IntLongHashMap globalBalancesExpected = container.userAccountsInit(usersAccounts);
 
                 assertThat(container.totalBalanceReport().getSum(), is(globalBalancesExpected));
 

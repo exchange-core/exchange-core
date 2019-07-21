@@ -16,8 +16,6 @@ import java.util.stream.Stream;
 @Getter
 public class SingleUserReportResult implements ReportResult {
 
-    // TODO exposure
-
     // risk engine: user profile from
     private final UserProfile userProfile;
 

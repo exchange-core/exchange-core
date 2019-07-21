@@ -593,7 +593,7 @@ public final class ITExchangeCoreIntegration {
             final Consumer<IntLongHashMap> balancesValidator = balances -> allowedCurrencies.forEach(
                     cur -> assertThat(balances.get(cur), is(10_0000_0000L * numUsers)));
 
-            container.validateTotalBalance(balancesValidator);
+            balancesValidator.accept(container.totalBalanceReport().getSum());
 
             final CountDownLatch ordersLatch = new CountDownLatch(apiCommands.size());
             container.setConsumer(cmd -> ordersLatch.countDown());
@@ -611,7 +611,7 @@ public final class ITExchangeCoreIntegration {
             assertThat(l2MarketData.bidSize, greaterThan(10));
 
             // verify that total balance was not changed
-            container.validateTotalBalance(balancesValidator);
+            balancesValidator.accept(container.totalBalanceReport().getSum());
         }
     }
 

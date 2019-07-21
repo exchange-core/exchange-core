@@ -254,16 +254,25 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
         final IntLongHashMap currencyBalance = new IntLongHashMap();
 
+        final IntLongHashMap symbolOpenInterestLong = new IntLongHashMap();
+        final IntLongHashMap symbolOpenInterestShort = new IntLongHashMap();
+
         userProfileService.getUserProfiles().forEach(userProfile -> {
             userProfile.accounts.forEachKeyValue(currencyBalance::addToValue);
             userProfile.portfolio.forEachKeyValue((symbolId, portfolioRecord) -> {
                 final CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(symbolId);
                 final LastPriceCacheRecord avgPrice = dummyLastPriceCache.getIfAbsentPut(symbolId, LastPriceCacheRecord.dummy);
                 currencyBalance.addToValue(portfolioRecord.currency, portfolioRecord.estimateProfit(spec, avgPrice));
+
+                if (portfolioRecord.position == PortfolioPosition.LONG) {
+                    symbolOpenInterestLong.addToValue(symbolId, portfolioRecord.openVolume);
+                } else if (portfolioRecord.position == PortfolioPosition.SHORT) {
+                    symbolOpenInterestShort.addToValue(symbolId, portfolioRecord.openVolume);
+                }
             });
         });
 
-        return Optional.of(new TotalCurrencyBalanceReportResult(currencyBalance, new IntLongHashMap(fees), null));
+        return Optional.of(new TotalCurrencyBalanceReportResult(currencyBalance, new IntLongHashMap(fees), null, symbolOpenInterestLong, symbolOpenInterestShort));
     }
 
     /**

@@ -349,21 +349,21 @@ public final class ExchangeTestContainer implements AutoCloseable {
         matchingEngineStateConsumer.accept(res.getOrders());
     }
 
-    public void validateTotalBalance(Consumer<IntLongHashMap> balancesValidator) throws InterruptedException, ExecutionException {
-        final TotalCurrencyBalanceReportResult res = api.processReport(new TotalCurrencyBalanceReportQuery(), getRandomTransactionId()).get();
-        log.debug("accBal : {}", res.getAccountBalances());
-        log.debug("fees   : {}", res.getFees());
-        log.debug("ordBal : {}", res.getOrdersBalances());
-        log.debug("totalBalances : {}", res.getSum());
-        balancesValidator.accept(res.getSum());
-    }
-
-
     public TotalCurrencyBalanceReportResult totalBalanceReport() throws InterruptedException, ExecutionException {
         final TotalCurrencyBalanceReportResult res = api.processReport(new TotalCurrencyBalanceReportQuery(), getRandomTransactionId()).get();
+        final IntLongHashMap openInterestLong = res.getOpenInterestLong();
+        final IntLongHashMap openInterestShort = res.getOpenInterestShort();
 //        log.debug("accBal : {}", res.getAccountBalances());
 //        log.debug("fees   : {}", res.getFees());
 //        log.debug("ordBal : {}", res.getOrdersBalances());
+//        log.debug("OpenIntLong: {}", openInterestLong);
+//        log.debug("OpenIntShort: {}", openInterestShort);
+        final IntLongHashMap openInterestDiff = new IntLongHashMap(openInterestLong);
+        openInterestShort.forEachKeyValue((k, v) -> openInterestDiff.addToValue(k, -v));
+        if (openInterestDiff.anySatisfy(vol -> vol != 0)) {
+            throw new IllegalStateException("Open Interest balance check failed");
+        }
+
         return res;
     }
 
