@@ -53,8 +53,9 @@ public final class PerfThroughput {
      * This is high load throughput test for verifying "triple million" capability:
      * - 10M currency accounts (~3M active users)
      * - 1M pending limit-orders (in 1K order books)
+     * - 1K symbols
      * - at least 1M messages per second throughput
-     * 12-threads CPU is required for running this test in 4+4 configuration.
+     * 12-threads CPU and 32GiB RAM is required for running this test in 4+4 configuration.
      */
     @Test
     public void testThroughputMultiSymbol() throws Exception {

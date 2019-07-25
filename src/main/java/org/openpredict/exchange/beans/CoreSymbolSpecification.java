@@ -25,14 +25,13 @@ public final class CoreSymbolSpecification implements WriteBytesMarshallable, St
     public final long baseScaleK;   // base currency amount multiplier (lot size in base currency units)
     public final long quoteScaleK;  // quote currency amount multiplier (step size in quote currency units)
 
-    // margin settings (for type=FUTURES_CONTRACT only)
-    public final long marginBuy;   // buy margin (quote currency)
-    public final long marginSell;  // sell margin (quote currency)
-
     // fees per lot in quote? currency units
     public final long takerFee; // TODO check invariant: taker fee is not less than maker fee
     public final long makerFee;
-    // TODO public final int feeCurrency; //  if type=CURRENCY_EXCHANGE_PAIR - should be the same as quoteCurrency
+
+    // margin settings (for type=FUTURES_CONTRACT only)
+    public final long marginBuy;   // buy margin (quote currency)
+    public final long marginSell;  // sell margin (quote currency)
 
     public CoreSymbolSpecification(BytesIn bytes) {
         this.symbolId = bytes.readInt();
@@ -41,23 +40,19 @@ public final class CoreSymbolSpecification implements WriteBytesMarshallable, St
         this.quoteCurrency = bytes.readInt();
         this.baseScaleK = bytes.readLong();
         this.quoteScaleK = bytes.readLong();
-        this.marginBuy = bytes.readLong();
-        this.marginSell = bytes.readLong();
         this.takerFee = bytes.readLong();
         this.makerFee = bytes.readLong();
+        this.marginBuy = bytes.readLong();
+        this.marginSell = bytes.readLong();
     }
 
 /* NOT SUPPORTED YET:
 
-//  lot size -- validated by gates
-//    public final long lotSize;
-//    public final int stepSize;
-
-    // order book limits -- for FUTURES only
+//    order book limits -- for FUTURES only
 //    public final long highLimit;
 //    public final long lowLimit;
 
-    // swaps -- not by
+//    swaps -- not by
 //    public final long longSwap;
 //    public final long shortSwap;
 
@@ -73,10 +68,10 @@ public final class CoreSymbolSpecification implements WriteBytesMarshallable, St
         bytes.writeInt(quoteCurrency);
         bytes.writeLong(baseScaleK);
         bytes.writeLong(quoteScaleK);
-        bytes.writeLong(marginBuy);
-        bytes.writeLong(marginSell);
         bytes.writeLong(takerFee);
         bytes.writeLong(makerFee);
+        bytes.writeLong(marginBuy);
+        bytes.writeLong(marginSell);
     }
 
     @Override
@@ -88,9 +83,9 @@ public final class CoreSymbolSpecification implements WriteBytesMarshallable, St
                 quoteCurrency,
                 baseScaleK,
                 quoteScaleK,
-                marginBuy,
-                marginSell,
                 takerFee,
-                makerFee);
+                makerFee,
+                marginBuy,
+                marginSell);
     }
 }

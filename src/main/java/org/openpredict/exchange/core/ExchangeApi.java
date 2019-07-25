@@ -7,6 +7,8 @@ import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import net.openhft.chronicle.wire.Wire;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
+import org.openpredict.exchange.beans.OrderAction;
+import org.openpredict.exchange.beans.OrderType;
 import org.openpredict.exchange.beans.api.*;
 import org.openpredict.exchange.beans.api.reports.ReportQuery;
 import org.openpredict.exchange.beans.api.reports.ReportResult;
@@ -259,4 +261,117 @@ public final class ExchangeApi {
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
     };
+
+
+    public void createUser(int ticket, long userId) {
+
+        ringBuffer.publishEvent(((cmd, seq) -> {
+            cmd.command = OrderCommandType.ADD_USER;
+            cmd.orderId = -1;
+            cmd.symbol = -1;
+            cmd.uid = userId;
+            cmd.timestamp = System.currentTimeMillis();
+            cmd.resultCode = CommandResultCode.NEW;
+            cmd.userCookie = ticket;
+        }));
+
+    }
+
+    public void balanceAdjustment(int ticket, long userId, long transactionId, long longAmount) {
+
+        ringBuffer.publishEvent(((cmd, seq) -> {
+            cmd.command = OrderCommandType.BALANCE_ADJUSTMENT;
+            cmd.orderId = transactionId;
+            cmd.symbol = -1;
+            cmd.uid = userId;
+            cmd.price = longAmount;
+            cmd.size = 0;
+            cmd.timestamp = System.currentTimeMillis();
+            cmd.resultCode = CommandResultCode.NEW;
+            cmd.userCookie = ticket;
+        }));
+
+    }
+
+    public void orderBookRequest(int ticket, int symbolId) {
+
+        ringBuffer.publishEvent(((cmd, seq) -> {
+            cmd.command = OrderCommandType.ORDER_BOOK_REQUEST;
+            cmd.orderId = -1;
+            cmd.symbol = symbolId;
+            cmd.uid = -1;
+            cmd.timestamp = System.currentTimeMillis();
+            cmd.resultCode = CommandResultCode.NEW;
+            cmd.userCookie = ticket;
+        }));
+
+    }
+
+
+    public void placeNewOrder(
+            int ticket,
+            long price,
+            long size,
+            OrderAction action,
+            OrderType orderType,
+            int symbol,
+            long uid) {
+
+        ringBuffer.publishEvent((cmd, seq) -> {
+            cmd.command = OrderCommandType.PLACE_ORDER;
+            cmd.resultCode = CommandResultCode.NEW;
+
+            cmd.price = price;
+            cmd.size = size;
+            cmd.orderId = seq;
+            cmd.timestamp = System.currentTimeMillis();
+            cmd.action = action;
+            cmd.orderType = orderType;
+            cmd.symbol = symbol;
+            cmd.uid = uid;
+            cmd.userCookie = ticket;
+        });
+    }
+
+    public void moveOrder(
+            int ticket,
+            long price,
+            long size,
+            long orderId,
+            int symbol,
+            long uid) {
+
+        ringBuffer.publishEvent((cmd, seq) -> {
+            cmd.command = OrderCommandType.MOVE_ORDER;
+            cmd.resultCode = CommandResultCode.NEW;
+
+            cmd.price = price;
+            cmd.size = size;
+            cmd.orderId = orderId;
+            cmd.timestamp = System.currentTimeMillis();
+            cmd.symbol = symbol;
+            cmd.uid = uid;
+            cmd.userCookie = ticket;
+        });
+    }
+
+    public void cancelOrder(
+            int ticket,
+            long orderId,
+            int symbol,
+            long uid) {
+
+        ringBuffer.publishEvent((cmd, seq) -> {
+            cmd.command = OrderCommandType.CANCEL_ORDER;
+            cmd.resultCode = CommandResultCode.NEW;
+
+            cmd.orderId = orderId;
+            cmd.timestamp = System.currentTimeMillis();
+            cmd.symbol = symbol;
+            cmd.uid = uid;
+            cmd.userCookie = ticket;
+        });
+
+    }
+
 }

@@ -6,7 +6,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.hamcrest.core.Is;
-import org.junit.Assert;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.api.*;
 import org.openpredict.exchange.beans.api.binary.BatchAddAccountsCommand;
