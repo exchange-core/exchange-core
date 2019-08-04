@@ -1,12 +1,12 @@
 package org.openpredict.exchange.core;
 
 import com.google.common.collect.Streams;
-import com.lmax.disruptor.*;
+import com.lmax.disruptor.EventHandler;
+import com.lmax.disruptor.EventTranslator;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.EventHandlerGroup;
 import com.lmax.disruptor.dsl.ProducerType;
 import lombok.Builder;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ArrayUtils;
 import org.openpredict.exchange.beans.CoreSymbolSpecification;
@@ -22,9 +22,8 @@ import org.openpredict.exchange.core.orderbook.IOrderBook;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -33,12 +32,14 @@ public final class ExchangeCore {
 
     private final Disruptor<OrderCommand> disruptor;
 
-//    private final RingBuffer<OrderCommand> cmdRingBuffer;
-
     private final ExchangeApi api;
 
+    // core can be started and stopped only once
+    private boolean started = false;
+    private boolean stopped = false;
+
     @Builder
-    public ExchangeCore(final Consumer<OrderCommand> resultsConsumer,
+    public ExchangeCore(final BiConsumer<Long, OrderCommand> resultsConsumer,
                         final JournallingProcessor journallingHandler,
                         final ISerializationProcessor serializationProcessor,
                         final int ringBufferSize,
@@ -46,7 +47,7 @@ public final class ExchangeCore {
                         final int riskEnginesNum,
                         final int msgsInGroupLimit,
                         final Utils.ThreadAffityMode threadAffityMode,
-                        final DisruptorWaitStrategy waitStrategy,
+                        final CoreWaitStrategy waitStrategy,
                         final Function<CoreSymbolSpecification, IOrderBook> orderBookFactory,
                         final Long loadStateId) {
 
@@ -87,7 +88,7 @@ public final class ExchangeCore {
 
         // 1. grouping processor (G)
         final EventHandlerGroup<OrderCommand> afterGrouping =
-                disruptor.handleEventsWith((rb, bs) -> new GroupingProcessor(rb, rb.newBarrier(bs), msgsInGroupLimit));
+                disruptor.handleEventsWith((rb, bs) -> new GroupingProcessor(rb, rb.newBarrier(bs), msgsInGroupLimit, waitStrategy));
 
         // 2. [journalling (J)] in parallel with risk hold (R1) + matching engine (ME)
         if (journallingHandler != null) {
@@ -96,7 +97,7 @@ public final class ExchangeCore {
 
         riskEngines.forEach(riskEngine -> afterGrouping.handleEventsWith(
                 (rb, bs) -> {
-                    final MasterProcessor r1 = new MasterProcessor(rb, rb.newBarrier(bs), riskEngine::preProcessCommand, exceptionHandler);
+                    final MasterProcessor r1 = new MasterProcessor(rb, rb.newBarrier(bs), riskEngine::preProcessCommand, exceptionHandler, waitStrategy);
                     procR1.add(r1);
                     return r1;
                 }));
@@ -116,8 +117,8 @@ public final class ExchangeCore {
         // 4. results handler (E) after matching engine (ME) + [journalling (J)]
         (journallingHandler != null ? disruptor.after(ArrayUtils.add(matchingEngineHandlers, journallingHandler::onEvent)) : afterMatchingEngine)
                 .handleEventsWith((cmd, seq, eob) -> {
-                    resultsConsumer.accept(cmd);
-                    api.processResult(seq, cmd);
+                    resultsConsumer.accept(seq, cmd);
+                    api.processResult(seq, cmd); // TODO SLOW ?(volatile operations)
                 });
 
         // attach slave processors to master processor
@@ -125,9 +126,12 @@ public final class ExchangeCore {
 
     }
 
-    public void startup() {
-        log.debug("Starting disruptor...");
-        disruptor.start();
+    public synchronized void startup() {
+        if (!started) {
+            log.debug("Starting disruptor...");
+            disruptor.start();
+            started = true;
+        }
     }
 
     public ExchangeApi getApi() {
@@ -139,30 +143,19 @@ public final class ExchangeCore {
         cmd.resultCode = CommandResultCode.NEW;
     };
 
-    public void shutdown() {
-        // TODO stop accepting new events first
-        log.info("Shutdown disruptor...");
-        disruptor.getRingBuffer().publishEvent(SHUTDOWN_SIGNAL_TRANSLATOR);
-        disruptor.shutdown();
-        log.info("Disruptor stopped");
+    public synchronized void shutdown() {
+        if (!stopped) {
+            stopped = true;
+            // TODO stop accepting new events first
+            log.info("Shutdown disruptor...");
+            disruptor.getRingBuffer().publishEvent(SHUTDOWN_SIGNAL_TRANSLATOR);
+            disruptor.shutdown();
+            log.info("Disruptor stopped");
+        }
     }
 
     @SuppressWarnings(value = {"unchecked"})
     private static EventHandler<OrderCommand>[] newEventHandlersArray(int size) {
         return new EventHandler[size];
     }
-
-    @RequiredArgsConstructor
-    public enum DisruptorWaitStrategy {
-        BUSY_SPIN(BusySpinWaitStrategy::new),
-        YIELDING(YieldingWaitStrategy::new),
-        SLEEPING(SleepingWaitStrategy::new);
-
-        private final Supplier<WaitStrategy> supplier;
-
-        public WaitStrategy create() {
-            return supplier.get();
-        }
-    }
-
 }

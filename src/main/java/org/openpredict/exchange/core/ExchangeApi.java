@@ -6,7 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import net.openhft.chronicle.wire.Wire;
-import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
+import org.eclipse.collections.impl.map.mutable.ConcurrentHashMap;
 import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.OrderType;
 import org.openpredict.exchange.beans.api.*;
@@ -17,6 +17,7 @@ import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.orderbook.OrderBookEventsHelper;
 
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.function.Consumer;
@@ -30,7 +31,7 @@ public final class ExchangeApi {
     private final RingBuffer<OrderCommand> ringBuffer;
 
     // promises cache (TODO can be changed to queue)
-    private final LongObjectHashMap<Consumer<OrderCommand>> promises = new LongObjectHashMap<>();
+    private final Map<Long, Consumer<OrderCommand>> promises = new ConcurrentHashMap<>();
 
     public ExchangeApi(RingBuffer<OrderCommand> ringBuffer) {
         this.ringBuffer = ringBuffer;
@@ -88,6 +89,17 @@ public final class ExchangeApi {
         return future;
     }
 
+    public void submitBinaryCommandAsync(
+            final WriteBytesMarshallable data,
+            final int transferId,
+            final Consumer<OrderCommand> consumer) {
+
+        publishBinaryData(
+                ApiBinaryDataCommand.builder().data(data).transferId(transferId).build(),
+                seq -> promises.put(seq, consumer));
+    }
+
+
     public <Q extends ReportQuery<R>, R extends ReportResult> Future<R> processReport(final Q query, final int transferId) {
         return submitBinaryCommandAsync(
                 query,
@@ -98,7 +110,7 @@ public final class ExchangeApi {
                 });
     }
 
-    private void publishBinaryData(final ApiBinaryDataCommand apiCmd, final LongConsumer endSeqConsumer) {
+    public void publishBinaryData(final ApiBinaryDataCommand apiCmd, final LongConsumer endSeqConsumer) {
 
         final int longsPerMessage = 5;
         long[] longArray = Utils.bytesToLongArray(BinaryCommandsProcessor.serializeObject(apiCmd.data), longsPerMessage);
@@ -135,6 +147,7 @@ public final class ExchangeApi {
             log.error("Binary commands processing exception: ", ex);
 
         } finally {
+            // report last sequence before actually publishing data
             endSeqConsumer.accept(highSeq);
             ringBuffer.publish(lowSeq, highSeq);
         }
@@ -263,7 +276,7 @@ public final class ExchangeApi {
     };
 
 
-    public void createUser(int ticket, long userId) {
+    public void createUser(long userId, Consumer<OrderCommand> callback) {
 
         ringBuffer.publishEvent(((cmd, seq) -> {
             cmd.command = OrderCommandType.ADD_USER;
@@ -272,12 +285,13 @@ public final class ExchangeApi {
             cmd.uid = userId;
             cmd.timestamp = System.currentTimeMillis();
             cmd.resultCode = CommandResultCode.NEW;
-            cmd.userCookie = ticket;
+
+            promises.put(seq, callback);
         }));
 
     }
 
-    public void balanceAdjustment(int ticket, long userId, long transactionId, long longAmount) {
+    public void balanceAdjustment(long userId, long transactionId, long longAmount, Consumer<OrderCommand> callback) {
 
         ringBuffer.publishEvent(((cmd, seq) -> {
             cmd.command = OrderCommandType.BALANCE_ADJUSTMENT;
@@ -288,12 +302,13 @@ public final class ExchangeApi {
             cmd.size = 0;
             cmd.timestamp = System.currentTimeMillis();
             cmd.resultCode = CommandResultCode.NEW;
-            cmd.userCookie = ticket;
+
+            promises.put(seq, callback);
         }));
 
     }
 
-    public void orderBookRequest(int ticket, int symbolId) {
+    public void orderBookRequest(int symbolId, Consumer<OrderCommand> callback) {
 
         ringBuffer.publishEvent(((cmd, seq) -> {
             cmd.command = OrderCommandType.ORDER_BOOK_REQUEST;
@@ -302,20 +317,22 @@ public final class ExchangeApi {
             cmd.uid = -1;
             cmd.timestamp = System.currentTimeMillis();
             cmd.resultCode = CommandResultCode.NEW;
-            cmd.userCookie = ticket;
+
+            promises.put(seq, callback);
         }));
 
     }
 
 
     public void placeNewOrder(
-            int ticket,
+            int userCookie,
             long price,
             long size,
             OrderAction action,
             OrderType orderType,
             int symbol,
-            long uid) {
+            long uid,
+            Consumer<OrderCommand> callback) {
 
         ringBuffer.publishEvent((cmd, seq) -> {
             cmd.command = OrderCommandType.PLACE_ORDER;
@@ -329,29 +346,32 @@ public final class ExchangeApi {
             cmd.orderType = orderType;
             cmd.symbol = symbol;
             cmd.uid = uid;
-            cmd.userCookie = ticket;
+            cmd.userCookie = userCookie;
+
+            promises.put(seq, callback);
         });
     }
 
     public void moveOrder(
-            int ticket,
+            int userCookie,
             long price,
-            long size,
             long orderId,
             int symbol,
-            long uid) {
+            long uid,
+            Consumer<OrderCommand> callback) {
 
         ringBuffer.publishEvent((cmd, seq) -> {
             cmd.command = OrderCommandType.MOVE_ORDER;
             cmd.resultCode = CommandResultCode.NEW;
 
             cmd.price = price;
-            cmd.size = size;
             cmd.orderId = orderId;
             cmd.timestamp = System.currentTimeMillis();
             cmd.symbol = symbol;
             cmd.uid = uid;
-            cmd.userCookie = ticket;
+            cmd.userCookie = userCookie;
+
+            promises.put(seq, callback);
         });
     }
 
@@ -359,7 +379,8 @@ public final class ExchangeApi {
             int ticket,
             long orderId,
             int symbol,
-            long uid) {
+            long uid,
+            Consumer<OrderCommand> callback) {
 
         ringBuffer.publishEvent((cmd, seq) -> {
             cmd.command = OrderCommandType.CANCEL_ORDER;
@@ -370,6 +391,8 @@ public final class ExchangeApi {
             cmd.symbol = symbol;
             cmd.uid = uid;
             cmd.userCookie = ticket;
+
+            promises.put(seq, callback);
         });
 
     }

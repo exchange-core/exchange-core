@@ -19,6 +19,7 @@ import com.lmax.disruptor.*;
 import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
+import org.openpredict.exchange.core.CoreWaitStrategy;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -41,10 +42,10 @@ public final class GroupingProcessor implements EventProcessor {
 
     private final long msgsInGroupLimit;
 
-    public GroupingProcessor(final RingBuffer<OrderCommand> ringBuffer, final SequenceBarrier sequenceBarrier, final long msgsInGroupLimit) {
+    public GroupingProcessor(RingBuffer<OrderCommand> ringBuffer, SequenceBarrier sequenceBarrier, long msgsInGroupLimit, CoreWaitStrategy coreWaitStrategy) {
         this.ringBuffer = ringBuffer;
         this.sequenceBarrier = sequenceBarrier;
-        this.waitSpinningHelper = new WaitSpinningHelper(ringBuffer, sequenceBarrier, GROUP_SPIN_LIMIT);
+        this.waitSpinningHelper = new WaitSpinningHelper(ringBuffer, sequenceBarrier, GROUP_SPIN_LIMIT, coreWaitStrategy);
         this.msgsInGroupLimit = msgsInGroupLimit;
     }
 

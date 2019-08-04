@@ -20,6 +20,7 @@ import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
+import org.openpredict.exchange.core.CoreWaitStrategy;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -45,10 +46,11 @@ public final class MasterProcessor implements EventProcessor {
     public MasterProcessor(final RingBuffer<OrderCommand> ringBuffer,
                            final SequenceBarrier sequenceBarrier,
                            final SimpleEventHandler<OrderCommand> eventHandler,
-                           final ExceptionHandler<OrderCommand> exceptionHandler) {
+                           final ExceptionHandler<OrderCommand> exceptionHandler,
+                           final CoreWaitStrategy coreWaitStrategy) {
         this.dataProvider = ringBuffer;
         this.sequenceBarrier = sequenceBarrier;
-        this.waitSpinningHelper = new WaitSpinningHelper(ringBuffer, sequenceBarrier, MASTER_SPIN_LIMIT);
+        this.waitSpinningHelper = new WaitSpinningHelper(ringBuffer, sequenceBarrier, MASTER_SPIN_LIMIT, coreWaitStrategy);
         this.eventHandler = eventHandler;
         this.exceptionHandler = exceptionHandler;
     }

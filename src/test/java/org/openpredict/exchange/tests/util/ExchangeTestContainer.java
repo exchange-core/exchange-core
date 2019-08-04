@@ -14,6 +14,7 @@ import org.openpredict.exchange.beans.api.reports.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
+import org.openpredict.exchange.core.CoreWaitStrategy;
 import org.openpredict.exchange.core.ExchangeApi;
 import org.openpredict.exchange.core.ExchangeCore;
 import org.openpredict.exchange.core.journalling.DiskSerializationProcessor;
@@ -31,7 +32,6 @@ import java.util.stream.Stream;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.openpredict.exchange.core.ExchangeCore.DisruptorWaitStrategy.BUSY_SPIN;
 import static org.openpredict.exchange.core.Utils.ThreadAffityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE;
 import static org.openpredict.exchange.tests.util.TestConstants.*;
 
@@ -64,14 +64,14 @@ public final class ExchangeTestContainer implements AutoCloseable {
                                  final Long stateId) {
 
         this.exchangeCore = ExchangeCore.builder()
-                .resultsConsumer(cmd -> consumer.accept(cmd))
+                .resultsConsumer((seq, cmd) -> consumer.accept(cmd))
                 .serializationProcessor(new DiskSerializationProcessor("./dumps"))
                 .ringBufferSize(bufferSize)
                 .matchingEnginesNum(matchingEnginesNum)
                 .riskEnginesNum(riskEnginesNum)
                 .msgsInGroupLimit(msgsInGroupLimit)
                 .threadAffityMode(THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE)
-                .waitStrategy(BUSY_SPIN)
+                .waitStrategy(CoreWaitStrategy.BUSY_SPIN)
                 .orderBookFactory(symbolType -> new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH, symbolType))
 //                .orderBookFactory(OrderBookNaiveImpl::new)
                 .loadStateId(stateId) // Loading from persisted state
