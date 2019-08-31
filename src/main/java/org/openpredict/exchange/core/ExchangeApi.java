@@ -291,12 +291,12 @@ public final class ExchangeApi {
 
     }
 
-    public void balanceAdjustment(long userId, long transactionId, long longAmount, Consumer<OrderCommand> callback) {
+    public void balanceAdjustment(long userId, long transactionId, int currency, long longAmount, Consumer<OrderCommand> callback) {
 
         ringBuffer.publishEvent(((cmd, seq) -> {
             cmd.command = OrderCommandType.BALANCE_ADJUSTMENT;
             cmd.orderId = transactionId;
-            cmd.symbol = -1;
+            cmd.symbol = currency;
             cmd.uid = userId;
             cmd.price = longAmount;
             cmd.size = 0;
@@ -323,10 +323,10 @@ public final class ExchangeApi {
 
     }
 
-
-    public void placeNewOrder(
+    public long placeNewOrder(
             int userCookie,
             long price,
+            long reservedBidPrice,
             long size,
             OrderAction action,
             OrderType orderType,
@@ -334,11 +334,14 @@ public final class ExchangeApi {
             long uid,
             Consumer<OrderCommand> callback) {
 
-        ringBuffer.publishEvent((cmd, seq) -> {
+        final long seq = ringBuffer.next();
+        try {
+            OrderCommand cmd = ringBuffer.get(seq);
             cmd.command = OrderCommandType.PLACE_ORDER;
             cmd.resultCode = CommandResultCode.NEW;
 
             cmd.price = price;
+            cmd.reserveBidPrice = reservedBidPrice;
             cmd.size = size;
             cmd.orderId = seq;
             cmd.timestamp = System.currentTimeMillis();
@@ -347,13 +350,15 @@ public final class ExchangeApi {
             cmd.symbol = symbol;
             cmd.uid = uid;
             cmd.userCookie = userCookie;
-
             promises.put(seq, callback);
-        });
+
+        } finally {
+            ringBuffer.publish(seq);
+        }
+        return seq;
     }
 
     public void moveOrder(
-            int userCookie,
             long price,
             long orderId,
             int symbol,
@@ -369,14 +374,12 @@ public final class ExchangeApi {
             cmd.timestamp = System.currentTimeMillis();
             cmd.symbol = symbol;
             cmd.uid = uid;
-            cmd.userCookie = userCookie;
 
             promises.put(seq, callback);
         });
     }
 
     public void cancelOrder(
-            int ticket,
             long orderId,
             int symbol,
             long uid,
@@ -390,7 +393,6 @@ public final class ExchangeApi {
             cmd.timestamp = System.currentTimeMillis();
             cmd.symbol = symbol;
             cmd.uid = uid;
-            cmd.userCookie = ticket;
 
             promises.put(seq, callback);
         });
