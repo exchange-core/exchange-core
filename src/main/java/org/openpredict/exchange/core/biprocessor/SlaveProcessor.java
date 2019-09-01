@@ -18,6 +18,7 @@ package org.openpredict.exchange.core.biprocessor;
 import com.lmax.disruptor.*;
 import lombok.extern.slf4j.Slf4j;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
+import org.openpredict.exchange.core.CoreWaitStrategy;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -42,7 +43,7 @@ public final class SlaveProcessor implements EventProcessor {
                           final ExceptionHandler<? super OrderCommand> exceptionHandler) {
         this.dataProvider = ringBuffer;
         this.sequenceBarrier = sequenceBarrier;
-        this.waitSpinningHelper = new WaitSpinningHelper(ringBuffer, sequenceBarrier, 0);
+        this.waitSpinningHelper = new WaitSpinningHelper(ringBuffer, sequenceBarrier, 0, CoreWaitStrategy.NO_WAIT);
         this.eventHandler = eventHandler;
         this.exceptionHandler = exceptionHandler;
     }

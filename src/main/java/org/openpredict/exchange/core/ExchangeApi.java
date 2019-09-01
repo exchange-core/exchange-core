@@ -6,7 +6,9 @@ import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import net.openhft.chronicle.wire.Wire;
-import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
+import org.eclipse.collections.impl.map.mutable.ConcurrentHashMap;
+import org.openpredict.exchange.beans.OrderAction;
+import org.openpredict.exchange.beans.OrderType;
 import org.openpredict.exchange.beans.api.*;
 import org.openpredict.exchange.beans.api.reports.ReportQuery;
 import org.openpredict.exchange.beans.api.reports.ReportResult;
@@ -15,6 +17,7 @@ import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
 import org.openpredict.exchange.core.orderbook.OrderBookEventsHelper;
 
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.function.Consumer;
@@ -28,7 +31,7 @@ public final class ExchangeApi {
     private final RingBuffer<OrderCommand> ringBuffer;
 
     // promises cache (TODO can be changed to queue)
-    private final LongObjectHashMap<Consumer<OrderCommand>> promises = new LongObjectHashMap<>();
+    private final Map<Long, Consumer<OrderCommand>> promises = new ConcurrentHashMap<>();
 
     public ExchangeApi(RingBuffer<OrderCommand> ringBuffer) {
         this.ringBuffer = ringBuffer;
@@ -86,6 +89,17 @@ public final class ExchangeApi {
         return future;
     }
 
+    public void submitBinaryCommandAsync(
+            final WriteBytesMarshallable data,
+            final int transferId,
+            final Consumer<OrderCommand> consumer) {
+
+        publishBinaryData(
+                ApiBinaryDataCommand.builder().data(data).transferId(transferId).build(),
+                seq -> promises.put(seq, consumer));
+    }
+
+
     public <Q extends ReportQuery<R>, R extends ReportResult> Future<R> processReport(final Q query, final int transferId) {
         return submitBinaryCommandAsync(
                 query,
@@ -96,7 +110,7 @@ public final class ExchangeApi {
                 });
     }
 
-    private void publishBinaryData(final ApiBinaryDataCommand apiCmd, final LongConsumer endSeqConsumer) {
+    public void publishBinaryData(final ApiBinaryDataCommand apiCmd, final LongConsumer endSeqConsumer) {
 
         final int longsPerMessage = 5;
         long[] longArray = Utils.bytesToLongArray(BinaryCommandsProcessor.serializeObject(apiCmd.data), longsPerMessage);
@@ -133,6 +147,7 @@ public final class ExchangeApi {
             log.error("Binary commands processing exception: ", ex);
 
         } finally {
+            // report last sequence before actually publishing data
             endSeqConsumer.accept(highSeq);
             ringBuffer.publish(lowSeq, highSeq);
         }
@@ -259,4 +274,130 @@ public final class ExchangeApi {
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
     };
+
+
+    public void createUser(long userId, Consumer<OrderCommand> callback) {
+
+        ringBuffer.publishEvent(((cmd, seq) -> {
+            cmd.command = OrderCommandType.ADD_USER;
+            cmd.orderId = -1;
+            cmd.symbol = -1;
+            cmd.uid = userId;
+            cmd.timestamp = System.currentTimeMillis();
+            cmd.resultCode = CommandResultCode.NEW;
+
+            promises.put(seq, callback);
+        }));
+
+    }
+
+    public void balanceAdjustment(long userId, long transactionId, int currency, long longAmount, Consumer<OrderCommand> callback) {
+
+        ringBuffer.publishEvent(((cmd, seq) -> {
+            cmd.command = OrderCommandType.BALANCE_ADJUSTMENT;
+            cmd.orderId = transactionId;
+            cmd.symbol = currency;
+            cmd.uid = userId;
+            cmd.price = longAmount;
+            cmd.size = 0;
+            cmd.timestamp = System.currentTimeMillis();
+            cmd.resultCode = CommandResultCode.NEW;
+
+            promises.put(seq, callback);
+        }));
+
+    }
+
+    public void orderBookRequest(int symbolId, int depth, Consumer<OrderCommand> callback) {
+
+        ringBuffer.publishEvent(((cmd, seq) -> {
+            cmd.command = OrderCommandType.ORDER_BOOK_REQUEST;
+            cmd.orderId = -1;
+            cmd.symbol = symbolId;
+            cmd.uid = -1;
+            cmd.size = depth;
+            cmd.timestamp = System.currentTimeMillis();
+            cmd.resultCode = CommandResultCode.NEW;
+
+            promises.put(seq, callback);
+        }));
+
+    }
+
+    public long placeNewOrder(
+            int userCookie,
+            long price,
+            long reservedBidPrice,
+            long size,
+            OrderAction action,
+            OrderType orderType,
+            int symbol,
+            long uid,
+            Consumer<OrderCommand> callback) {
+
+        final long seq = ringBuffer.next();
+        try {
+            OrderCommand cmd = ringBuffer.get(seq);
+            cmd.command = OrderCommandType.PLACE_ORDER;
+            cmd.resultCode = CommandResultCode.NEW;
+
+            cmd.price = price;
+            cmd.reserveBidPrice = reservedBidPrice;
+            cmd.size = size;
+            cmd.orderId = seq;
+            cmd.timestamp = System.currentTimeMillis();
+            cmd.action = action;
+            cmd.orderType = orderType;
+            cmd.symbol = symbol;
+            cmd.uid = uid;
+            cmd.userCookie = userCookie;
+            promises.put(seq, callback);
+
+        } finally {
+            ringBuffer.publish(seq);
+        }
+        return seq;
+    }
+
+    public void moveOrder(
+            long price,
+            long orderId,
+            int symbol,
+            long uid,
+            Consumer<OrderCommand> callback) {
+
+        ringBuffer.publishEvent((cmd, seq) -> {
+            cmd.command = OrderCommandType.MOVE_ORDER;
+            cmd.resultCode = CommandResultCode.NEW;
+
+            cmd.price = price;
+            cmd.orderId = orderId;
+            cmd.timestamp = System.currentTimeMillis();
+            cmd.symbol = symbol;
+            cmd.uid = uid;
+
+            promises.put(seq, callback);
+        });
+    }
+
+    public void cancelOrder(
+            long orderId,
+            int symbol,
+            long uid,
+            Consumer<OrderCommand> callback) {
+
+        ringBuffer.publishEvent((cmd, seq) -> {
+            cmd.command = OrderCommandType.CANCEL_ORDER;
+            cmd.resultCode = CommandResultCode.NEW;
+
+            cmd.orderId = orderId;
+            cmd.timestamp = System.currentTimeMillis();
+            cmd.symbol = symbol;
+            cmd.uid = uid;
+
+            promises.put(seq, callback);
+        });
+
+    }
+
 }

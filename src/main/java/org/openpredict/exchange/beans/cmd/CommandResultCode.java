@@ -43,6 +43,8 @@ public enum CommandResultCode {
 
     DROP(-9999);
 
+    // codes below -10000 are reserved for gateways
+
 
     private int code;
 

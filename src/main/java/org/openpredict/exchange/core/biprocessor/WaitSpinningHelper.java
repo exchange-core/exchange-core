@@ -4,31 +4,44 @@ import com.lmax.disruptor.AlertException;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.SequenceBarrier;
 import com.lmax.disruptor.Sequencer;
+import org.openpredict.exchange.core.CoreWaitStrategy;
 
 import java.lang.reflect.Field;
+import java.util.concurrent.locks.LockSupport;
 
 public final class WaitSpinningHelper {
+
+    private static final long SLEEP_NS = 200;
 
     private final SequenceBarrier sequenceBarrier;
     private final Sequencer sequencer;
 
     private final int spinLimit;
+    private final int yieldLimit;
+    private final boolean park;
 
-    public <T> WaitSpinningHelper(RingBuffer<T> ringBuffer, SequenceBarrier sequenceBarrier, int spinLimit) {
+    public <T> WaitSpinningHelper(RingBuffer<T> ringBuffer, SequenceBarrier sequenceBarrier, int spinLimit, CoreWaitStrategy waitStrategy) {
         this.sequenceBarrier = sequenceBarrier;
         this.spinLimit = spinLimit;
         this.sequencer = extractSequencer(ringBuffer);
+        this.yieldLimit = waitStrategy.isYield() ? spinLimit / 2 : 0;
+        this.park = waitStrategy.isPark();
     }
 
     public long tryWaitFor(final long seq) throws AlertException {
         sequenceBarrier.checkAlert();
 
-        // TODO optimize
         long spin = spinLimit;
         long availableSequence;
-        do {
-            availableSequence = sequenceBarrier.getCursor();
-        } while (availableSequence < seq && spin-- > 0);
+        while ((availableSequence = sequenceBarrier.getCursor()) < seq && spin > 0) {
+            if (spin < yieldLimit && spin > 1) {
+                Thread.yield();
+            } else if (park) {
+                LockSupport.parkNanos(SLEEP_NS);
+            }
+
+            spin--;
+        }
 
         return (availableSequence < seq)
                 ? availableSequence

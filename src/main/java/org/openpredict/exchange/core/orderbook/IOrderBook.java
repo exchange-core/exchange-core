@@ -3,8 +3,6 @@ package org.openpredict.exchange.core.orderbook;
 import lombok.Getter;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
-import org.apache.commons.lang3.builder.EqualsBuilder;
-import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.openpredict.exchange.beans.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
@@ -172,12 +170,10 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
         } else if (commandType == OrderCommandType.ORDER_BOOK_REQUEST) {
 
-            //log.debug("ORDER_BOOK_REQUEST {}", cmd.size);
             cmd.marketData = orderBook.getL2MarketDataSnapshot((int) cmd.size);
             return CommandResultCode.SUCCESS;
 
         } else {
-            //log.warn("unsupported command {}", cmd.command);
             return CommandResultCode.MATCHING_UNSUPPORTED_COMMAND;
         }
 

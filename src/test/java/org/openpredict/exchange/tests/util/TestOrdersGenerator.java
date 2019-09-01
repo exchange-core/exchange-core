@@ -468,7 +468,7 @@ public final class TestOrdersGenerator {
         final Map<Integer, Long> perSymbols = allCommands.stream().skip(readyAtSequenceApproximate).collect(Collectors.groupingBy(cmd -> cmd.symbol, Collectors.counting()));
         final LongSummaryStatistics symbolStat = perSymbols.values().stream().collect(Collectors.summarizingLong(n -> n));
         log.debug("max commands per symbol: {} ({}%)", symbolStat.getMax(), (float) symbolStat.getMax() / (float) commandsListSize * 100.0f);
-        log.debug("avg commands per symbol: {} ({}%)", symbolStat.getAverage(), (float) symbolStat.getAverage() / (float) commandsListSize * 100.0f);
+        log.debug("avg commands per symbol: {} ({}%)", (int) symbolStat.getAverage(), (float) symbolStat.getAverage() / (float) commandsListSize * 100.0f);
         log.debug("min commands per symbol: {} ({}%)", symbolStat.getMin(), (float) symbolStat.getMin() / (float) commandsListSize * 100.0f);
     }
 
