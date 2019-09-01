@@ -308,13 +308,14 @@ public final class ExchangeApi {
 
     }
 
-    public void orderBookRequest(int symbolId, Consumer<OrderCommand> callback) {
+    public void orderBookRequest(int symbolId, int depth, Consumer<OrderCommand> callback) {
 
         ringBuffer.publishEvent(((cmd, seq) -> {
             cmd.command = OrderCommandType.ORDER_BOOK_REQUEST;
             cmd.orderId = -1;
             cmd.symbol = symbolId;
             cmd.uid = -1;
+            cmd.size = depth;
             cmd.timestamp = System.currentTimeMillis();
             cmd.resultCode = CommandResultCode.NEW;
 
