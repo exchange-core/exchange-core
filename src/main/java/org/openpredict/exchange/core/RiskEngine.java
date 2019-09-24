@@ -236,7 +236,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
     private Optional<SingleUserReportResult> reportSingleUser(final SingleUserReportQuery query) {
         if (uidForThisHandler(query.getUid())) {
-            UserProfile userProfile = userProfileService.getUserProfile(query.getUid());
+            final UserProfile userProfile = userProfileService.getUserProfile(query.getUid());
             return Optional.of(new SingleUserReportResult(
                     userProfile,
                     null,
@@ -259,15 +259,15 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
         userProfileService.getUserProfiles().forEach(userProfile -> {
             userProfile.accounts.forEachKeyValue(currencyBalance::addToValue);
-            userProfile.portfolio.forEachKeyValue((symbolId, portfolioRecord) -> {
+            userProfile.positions.forEachKeyValue((symbolId, positionRecord) -> {
                 final CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(symbolId);
                 final LastPriceCacheRecord avgPrice = dummyLastPriceCache.getIfAbsentPut(symbolId, LastPriceCacheRecord.dummy);
-                currencyBalance.addToValue(portfolioRecord.currency, portfolioRecord.estimateProfit(spec, avgPrice));
+                currencyBalance.addToValue(positionRecord.currency, positionRecord.estimateProfit(spec, avgPrice));
 
-                if (portfolioRecord.position == PortfolioPosition.LONG) {
-                    symbolOpenInterestLong.addToValue(symbolId, portfolioRecord.openVolume);
-                } else if (portfolioRecord.position == PortfolioPosition.SHORT) {
-                    symbolOpenInterestShort.addToValue(symbolId, portfolioRecord.openVolume);
+                if (positionRecord.direction == PositionDirection.LONG) {
+                    symbolOpenInterestLong.addToValue(symbolId, positionRecord.openVolume);
+                } else if (positionRecord.direction == PositionDirection.SHORT) {
+                    symbolOpenInterestShort.addToValue(symbolId, positionRecord.openVolume);
                 }
             });
         });
@@ -327,14 +327,14 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
         } else if (spec.type == SymbolType.FUTURES_CONTRACT) {
 
-            final SymbolPortfolioRecord portfolio = userProfile.getOrCreatePortfolioRecord(spec);
-            final boolean canPlaceOrder = canPlaceMarginOrder(cmd, userProfile, spec, portfolio);
+            final SymbolPositionRecord position = userProfile.getOrCreatePositionRecord(spec);
+            final boolean canPlaceOrder = canPlaceMarginOrder(cmd, userProfile, spec, position);
             if (canPlaceOrder) {
-                portfolio.pendingHold(cmd.action, cmd.size);
+                position.pendingHold(cmd.action, cmd.size);
                 return true;
             } else {
-                // try to cleanup portfolio if refusing to place
-                userProfile.removeRecordIfEmpty(portfolio);
+                // try to cleanup position if refusing to place
+                userProfile.removeRecordIfEmpty(position);
                 return false;
             }
 
@@ -352,13 +352,13 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
         // futures positions check for this currency
         long freeFuturesMargin = 0L;
-        for (final SymbolPortfolioRecord portfolioRecord : userProfile.portfolio) {
-            if (portfolioRecord.currency == currency) {
-                final int recSymbol = portfolioRecord.symbol;
+        for (final SymbolPositionRecord position : userProfile.positions) {
+            if (position.currency == currency) {
+                final int recSymbol = position.symbol;
                 final CoreSymbolSpecification spec2 = symbolSpecificationProvider.getSymbolSpecification(recSymbol);
                 // add P&L subtract margin
-                freeFuturesMargin += portfolioRecord.estimateProfit(spec2, lastPriceCache.get(recSymbol));
-                freeFuturesMargin -= portfolioRecord.calculateRequiredMarginForFutures(spec2);
+                freeFuturesMargin += position.estimateProfit(spec2, lastPriceCache.get(recSymbol));
+                freeFuturesMargin -= position.calculateRequiredMarginForFutures(spec2);
             }
         }
 
@@ -401,9 +401,9 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
     private boolean canPlaceMarginOrder(final OrderCommand cmd,
                                         final UserProfile userProfile,
                                         final CoreSymbolSpecification spec,
-                                        final SymbolPortfolioRecord portfolio) {
+                                        final SymbolPositionRecord position) {
 
-        final long newRequiredMarginForSymbol = portfolio.calculateRequiredMarginForOrder(spec, cmd.action, cmd.size);
+        final long newRequiredMarginForSymbol = position.calculateRequiredMarginForOrder(spec, cmd.action, cmd.size);
         if (newRequiredMarginForSymbol == -1) {
             // always allow placing a new order if it would not increase exposure
             return true;
@@ -414,25 +414,25 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         final int symbol = cmd.symbol;
         // calculate free margin for all positions same currency
         long freeMargin = 0L;
-        for (final SymbolPortfolioRecord portfolioRecord : userProfile.portfolio) {
-            final int recSymbol = portfolioRecord.symbol;
+        for (final SymbolPositionRecord positionRecord : userProfile.positions) {
+            final int recSymbol = positionRecord.symbol;
             if (recSymbol != symbol) {
-                if (portfolioRecord.currency == spec.quoteCurrency) {
+                if (positionRecord.currency == spec.quoteCurrency) {
                     final CoreSymbolSpecification spec2 = symbolSpecificationProvider.getSymbolSpecification(recSymbol);
                     // add P&L subtract margin
-                    freeMargin += portfolioRecord.estimateProfit(spec2, lastPriceCache.get(recSymbol));
-                    freeMargin -= portfolioRecord.calculateRequiredMarginForFutures(spec2);
+                    freeMargin += positionRecord.estimateProfit(spec2, lastPriceCache.get(recSymbol));
+                    freeMargin -= positionRecord.calculateRequiredMarginForFutures(spec2);
                 }
             } else {
-                freeMargin = portfolio.estimateProfit(spec, lastPriceCache.get(spec.symbolId));
+                freeMargin = position.estimateProfit(spec, lastPriceCache.get(spec.symbolId));
             }
         }
 
 //        log.debug("newMargin={} <= account({})={} + free {}",
-//                newRequiredMarginForSymbol, portfolio.currency, userProfile.accounts.get(portfolio.currency), freeMargin);
+//                newRequiredMarginForSymbol, position.currency, userProfile.accounts.get(position.currency), freeMargin);
 
         // check if current balance and margin can cover new required margin for symbol position
-        return newRequiredMarginForSymbol <= userProfile.accounts.get(portfolio.currency) + freeMargin;
+        return newRequiredMarginForSymbol <= userProfile.accounts.get(position.currency) + freeMargin;
     }
 
     public void handlerRiskRelease(final int symbol,
@@ -478,10 +478,10 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             int quoteCurrency = spec.quoteCurrency;
 
             if (uidForThisHandler(ev.activeOrderUid)) {
-                // update taker's portfolio
+                // update taker's position
                 final UserProfile taker = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
-                final SymbolPortfolioRecord takerSpr = taker.getPortfolioRecordOrThrowEx(ev.symbol);
-                long sizeOpen = takerSpr.updatePortfolioForMarginTrade(ev.activeOrderAction, size, ev.price);
+                final SymbolPositionRecord takerSpr = taker.getPositionRecordOrThrowEx(ev.symbol);
+                long sizeOpen = takerSpr.updatePositionForMarginTrade(ev.activeOrderAction, size, ev.price);
                 final long fee = spec.takerFee * sizeOpen;
                 taker.accounts.addToValue(quoteCurrency, -fee);
                 fees.addToValue(quoteCurrency, fee);
@@ -489,10 +489,10 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             }
 
             if (uidForThisHandler(ev.matchedOrderUid)) {
-                // update maker's portfolio
+                // update maker's position
                 final UserProfile maker = userProfileService.getUserProfileOrThrowEx(ev.matchedOrderUid);
-                final SymbolPortfolioRecord makerSpr = maker.getPortfolioRecordOrThrowEx(ev.symbol);
-                long sizeOpen = makerSpr.updatePortfolioForMarginTrade(ev.activeOrderAction.opposite(), size, ev.price);
+                final SymbolPositionRecord makerSpr = maker.getPositionRecordOrThrowEx(ev.symbol);
+                long sizeOpen = makerSpr.updatePositionForMarginTrade(ev.activeOrderAction.opposite(), size, ev.price);
                 final long fee = spec.makerFee * sizeOpen;
                 maker.accounts.addToValue(quoteCurrency, -fee);
                 fees.addToValue(quoteCurrency, fee);
@@ -504,7 +504,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             if (uidForThisHandler(ev.activeOrderUid)) {
                 // for cancel/rejection only one party is involved
                 final UserProfile up = userProfileService.getUserProfileOrThrowEx(ev.activeOrderUid);
-                final SymbolPortfolioRecord spr = up.getPortfolioRecordOrThrowEx(ev.symbol);
+                final SymbolPositionRecord spr = up.getPositionRecordOrThrowEx(ev.symbol);
                 spr.pendingRelease(ev.activeOrderAction, size);
                 up.removeRecordIfEmpty(spr);
             }

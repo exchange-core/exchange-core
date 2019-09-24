@@ -10,7 +10,7 @@ import org.openpredict.exchange.core.RiskEngine;
 import java.util.Objects;
 
 @Slf4j
-public final class SymbolPortfolioRecord implements WriteBytesMarshallable, StateHash {
+public final class SymbolPositionRecord implements WriteBytesMarshallable, StateHash {
 
     public final long uid;
 
@@ -18,7 +18,7 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable, Stat
     public final int currency;
 
     // open positions state (for margin trades only)
-    public PortfolioPosition position = PortfolioPosition.EMPTY;
+    public PositionDirection direction = PositionDirection.EMPTY;
     public long openVolume = 0;
     public long openPriceSum = 0; //
     public long profit = 0;
@@ -29,19 +29,19 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable, Stat
     public long pendingSellSize = 0;
     public long pendingBuySize = 0;
 
-    public SymbolPortfolioRecord(long uid, int symbol, int currency) {
+    public SymbolPositionRecord(long uid, int symbol, int currency) {
         this.uid = uid;
 
         this.symbol = symbol;
         this.currency = currency;
     }
 
-    public SymbolPortfolioRecord(long uid, BytesIn bytes) {
+    public SymbolPositionRecord(long uid, BytesIn bytes) {
         this.uid = uid;
 
         this.symbol = bytes.readInt();
         this.currency = bytes.readInt();
-        this.position = PortfolioPosition.of(bytes.readByte());
+        this.direction = PositionDirection.of(bytes.readByte());
         this.openVolume = bytes.readLong();
         this.openPriceSum = bytes.readLong();
         this.profit = bytes.readLong();
@@ -51,12 +51,12 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable, Stat
 
 
     /**
-     * Check if portfolio is empty (no pending orders, no open trades) - can remove it from hashmap
+     * Check if position is empty (no pending orders, no open trades) - can remove it from hashmap
      *
-     * @return true if portfolio is empty (no pending orders, no open trades)
+     * @return true if position is empty (no pending orders, no open trades)
      */
     public boolean isEmpty() {
-        return position == PortfolioPosition.EMPTY
+        return direction == PositionDirection.EMPTY
                 && pendingSellSize == 0
                 && pendingBuySize == 0;
     }
@@ -82,7 +82,7 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable, Stat
     }
 
     public long estimateProfit(final CoreSymbolSpecification spec, final RiskEngine.LastPriceCacheRecord lastPriceCacheRecord) {
-        switch (position) {
+        switch (direction) {
             case EMPTY:
                 return profit;
             case LONG:
@@ -108,7 +108,7 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable, Stat
         final long specMarginBuy = spec.marginBuy;
         final long specMarginSell = spec.marginSell;
 
-        final long signedPosition = openVolume * position.getMultiplier();
+        final long signedPosition = openVolume * direction.getMultiplier();
         final long currentRiskBuySize = pendingBuySize + signedPosition;
         final long currentRiskSellSize = pendingSellSize - signedPosition;
 
@@ -131,7 +131,7 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable, Stat
         final long specMarginBuy = spec.marginBuy;
         final long specMarginSell = spec.marginSell;
 
-        final long signedPosition = openVolume * position.getMultiplier();
+        final long signedPosition = openVolume * direction.getMultiplier();
         final long currentRiskBuySize = pendingBuySize + signedPosition;
         final long currentRiskSellSize = pendingSellSize - signedPosition;
 
@@ -154,12 +154,12 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable, Stat
 
 
     /**
-     * Update portfolio for one user
+     * Update position for one user
      * 1. Un-hold pending size
      * 2. Reduce opposite position accordingly (if exists)
      * 3. Increase forward position accordingly (if size left in the trading event)
      */
-    public long updatePortfolioForMarginTrade(OrderAction action, long size, long price) {
+    public long updatePositionForMarginTrade(OrderAction action, long size, long price) {
 
         // 1. Un-hold pending size
         pendingRelease(action, size);
@@ -178,7 +178,7 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable, Stat
 
         // log.debug("{} {} {} {} cur:{}-{} profit={}", uid, action, tradeSize, tradePrice, position, totalSize, profit);
 
-        if (position == PortfolioPosition.EMPTY || position == PortfolioPosition.of(action)) {
+        if (direction == PositionDirection.EMPTY || direction == PositionDirection.of(action)) {
             // nothing to close
             return tradeSize;
         }
@@ -191,9 +191,9 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable, Stat
         }
 
         // current position smaller than trade size, can close completely and calculate profit
-        profit += (openVolume * tradePrice - openPriceSum) * position.getMultiplier();
+        profit += (openVolume * tradePrice - openPriceSum) * direction.getMultiplier();
         openPriceSum = 0;
-        position = PortfolioPosition.EMPTY;
+        direction = PositionDirection.EMPTY;
         final long sizeToOpen = tradeSize - openVolume;
         openVolume = 0;
 
@@ -205,7 +205,7 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable, Stat
     private void openPositionFutures(OrderAction action, long sizeToOpen, long tradePrice) {
         openVolume += sizeToOpen;
         openPriceSum += tradePrice * sizeToOpen;
-        position = PortfolioPosition.of(action);
+        direction = PositionDirection.of(action);
 
         // validateInternalState();
     }
@@ -214,7 +214,7 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable, Stat
     public void writeMarshallable(BytesOut bytes) {
         bytes.writeInt(symbol);
         bytes.writeInt(currency);
-        bytes.writeByte((byte) position.getMultiplier());
+        bytes.writeByte((byte) direction.getMultiplier());
         bytes.writeLong(openVolume);
         bytes.writeLong(openPriceSum);
         bytes.writeLong(profit);
@@ -231,16 +231,16 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable, Stat
 
         openVolume = 0;
         openPriceSum = 0;
-        position = PortfolioPosition.EMPTY;
+        direction = PositionDirection.EMPTY;
     }
 
     public void validateInternalState() {
-        if (position == PortfolioPosition.EMPTY && (openVolume != 0 || openPriceSum != 0)) {
-            log.error("uid {} : position:{} totalSize:{} openPriceSum:{}", uid, position, openVolume, openPriceSum);
+        if (direction == PositionDirection.EMPTY && (openVolume != 0 || openPriceSum != 0)) {
+            log.error("uid {} : position:{} totalSize:{} openPriceSum:{}", uid, direction, openVolume, openPriceSum);
             throw new IllegalStateException();
         }
-        if (position != PortfolioPosition.EMPTY && (openVolume <= 0 || openPriceSum <= 0)) {
-            log.error("uid {} : position:{} totalSize:{} openPriceSum:{}", uid, position, openVolume, openPriceSum);
+        if (direction != PositionDirection.EMPTY && (openVolume <= 0 || openPriceSum <= 0)) {
+            log.error("uid {} : position:{} totalSize:{} openPriceSum:{}", uid, direction, openVolume, openPriceSum);
             throw new IllegalStateException();
         }
 
@@ -252,7 +252,7 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable, Stat
 
     @Override
     public int stateHash() {
-        return Objects.hash(symbol, currency, position.getMultiplier(), openVolume, openPriceSum, profit, pendingSellSize, pendingBuySize);
+        return Objects.hash(symbol, currency, direction.getMultiplier(), openVolume, openPriceSum, profit, pendingSellSize, pendingBuySize);
     }
 
     @Override
@@ -261,7 +261,7 @@ public final class SymbolPortfolioRecord implements WriteBytesMarshallable, Stat
                 "u" + uid +
                 " sym" + symbol +
                 " cur" + currency +
-                " pos" + position +
+                " pos" + direction +
                 " Σv=" + openVolume +
                 " Σp=" + openPriceSum +
                 " pnl=" + profit +

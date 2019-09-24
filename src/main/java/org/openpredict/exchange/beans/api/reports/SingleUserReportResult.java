@@ -20,6 +20,7 @@ public class SingleUserReportResult implements ReportResult {
     private final UserProfile userProfile;
 
     // matching engine: orders placed by user
+    // TODO add symbol map
     private final LongObjectHashMap<Order> orders;
 
     // status
@@ -80,4 +81,12 @@ public class SingleUserReportResult implements ReportResult {
                                 a.status != ExecutionStatus.OK ? a.status : b.status));
     }
 
+    @Override
+    public String toString() {
+        return "SingleUserReportResult{" +
+                "userProfile=" + userProfile +
+                ", orders=" + orders +
+                ", status=" + status +
+                '}';
+    }
 }

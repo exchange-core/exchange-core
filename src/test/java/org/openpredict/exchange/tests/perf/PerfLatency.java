@@ -171,7 +171,7 @@ public final class PerfLatency {
                     log.info("{} {}", tag, LatencyTools.createLatencyReportFast(histogram));
 
                     // compare orderBook final state just to make sure all commands executed same way
-                    // TODO compare events, balances, portfolios
+                    // TODO compare events, balances, positions
                     coreSymbolSpecifications.forEach(
                             symbol -> assertEquals(genResult.getGenResults().get(symbol.symbolId).getFinalOrderBookSnapshot(), container.requestCurrentOrderBook(symbol.symbolId)));
 

@@ -4,7 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 import org.openpredict.exchange.beans.OrderAction;
 import org.openpredict.exchange.beans.OrderType;
-import org.openpredict.exchange.beans.PortfolioPosition;
+import org.openpredict.exchange.beans.PositionDirection;
 import org.openpredict.exchange.beans.api.ApiCancelOrder;
 import org.openpredict.exchange.beans.api.ApiPlaceOrder;
 import org.openpredict.exchange.beans.api.reports.TotalCurrencyBalanceReportResult;
@@ -85,10 +85,10 @@ public final class ITFeesMargin {
                     userProfile -> {
                         assertThat(userProfile.accounts.get(CURRENECY_JPY), is(240_000L - makerFee * 30));
                         assertThat(userProfile.accounts.get(CURRENECY_USD), is(0L));
-                        assertThat(userProfile.portfolio.get(symbolId).position, is(PortfolioPosition.SHORT));
-                        assertThat(userProfile.portfolio.get(symbolId).openVolume, is(30L));
-                        assertThat(userProfile.portfolio.get(symbolId).pendingBuySize, is(0L));
-                        assertThat(userProfile.portfolio.get(symbolId).pendingSellSize, is(10L));
+                        assertThat(userProfile.positions.get(symbolId).direction, is(PositionDirection.SHORT));
+                        assertThat(userProfile.positions.get(symbolId).openVolume, is(30L));
+                        assertThat(userProfile.positions.get(symbolId).pendingBuySize, is(0L));
+                        assertThat(userProfile.positions.get(symbolId).pendingSellSize, is(10L));
                     },
                     orders -> assertFalse(orders.isEmpty()));
 
@@ -98,10 +98,10 @@ public final class ITFeesMargin {
                     userProfile -> {
                         assertThat(userProfile.accounts.get(CURRENECY_JPY), is(150_000L - takerFee * 30));
                         assertThat(userProfile.accounts.get(CURRENECY_USD), is(0L));
-                        assertThat(userProfile.portfolio.get(symbolId).position, is(PortfolioPosition.LONG));
-                        assertThat(userProfile.portfolio.get(symbolId).openVolume, is(30L));
-                        assertThat(userProfile.portfolio.get(symbolId).pendingBuySize, is(0L));
-                        assertThat(userProfile.portfolio.get(symbolId).pendingSellSize, is(0L));
+                        assertThat(userProfile.positions.get(symbolId).direction, is(PositionDirection.LONG));
+                        assertThat(userProfile.positions.get(symbolId).openVolume, is(30L));
+                        assertThat(userProfile.positions.get(symbolId).pendingBuySize, is(0L));
+                        assertThat(userProfile.positions.get(symbolId).pendingSellSize, is(0L));
                     },
                     orders -> assertTrue(orders.isEmpty()));
 
@@ -173,10 +173,10 @@ public final class ITFeesMargin {
                     userProfile -> {
                         assertThat(userProfile.accounts.get(CURRENECY_JPY), is(250_000L - makerFee * 30));
                         assertThat(userProfile.accounts.get(CURRENECY_USD), is(0L));
-                        assertThat(userProfile.portfolio.get(symbolId).position, is(PortfolioPosition.LONG));
-                        assertThat(userProfile.portfolio.get(symbolId).openVolume, is(30L));
-                        assertThat(userProfile.portfolio.get(symbolId).pendingBuySize, is(20L));
-                        assertThat(userProfile.portfolio.get(symbolId).pendingSellSize, is(0L));
+                        assertThat(userProfile.positions.get(symbolId).direction, is(PositionDirection.LONG));
+                        assertThat(userProfile.positions.get(symbolId).openVolume, is(30L));
+                        assertThat(userProfile.positions.get(symbolId).pendingBuySize, is(20L));
+                        assertThat(userProfile.positions.get(symbolId).pendingSellSize, is(0L));
                     },
                     orders -> assertFalse(orders.isEmpty()));
 
@@ -186,10 +186,10 @@ public final class ITFeesMargin {
                     userProfile -> {
                         assertThat(userProfile.accounts.get(CURRENECY_JPY), is(200_000L - takerFee * 30));
                         assertThat(userProfile.accounts.get(CURRENECY_USD), is(0L));
-                        assertThat(userProfile.portfolio.get(symbolId).position, is(PortfolioPosition.SHORT));
-                        assertThat(userProfile.portfolio.get(symbolId).openVolume, is(30L));
-                        assertThat(userProfile.portfolio.get(symbolId).pendingBuySize, is(0L));
-                        assertThat(userProfile.portfolio.get(symbolId).pendingSellSize, is(0L));
+                        assertThat(userProfile.positions.get(symbolId).direction, is(PositionDirection.SHORT));
+                        assertThat(userProfile.positions.get(symbolId).openVolume, is(30L));
+                        assertThat(userProfile.positions.get(symbolId).pendingBuySize, is(0L));
+                        assertThat(userProfile.positions.get(symbolId).pendingSellSize, is(0L));
                     },
                     orders -> assertTrue(orders.isEmpty()));
 
@@ -239,10 +239,10 @@ public final class ITFeesMargin {
                     userProfile -> {
                         assertThat(userProfile.accounts.get(CURRENECY_JPY), is(240_000L));
                         assertThat(userProfile.accounts.get(CURRENECY_USD), is(0L));
-                        assertThat(userProfile.portfolio.get(symbolId).position, is(PortfolioPosition.EMPTY));
-                        assertThat(userProfile.portfolio.get(symbolId).openVolume, is(0L));
-                        assertThat(userProfile.portfolio.get(symbolId).pendingBuySize, is(0L));
-                        assertThat(userProfile.portfolio.get(symbolId).pendingSellSize, is(40L));
+                        assertThat(userProfile.positions.get(symbolId).direction, is(PositionDirection.EMPTY));
+                        assertThat(userProfile.positions.get(symbolId).openVolume, is(0L));
+                        assertThat(userProfile.positions.get(symbolId).pendingBuySize, is(0L));
+                        assertThat(userProfile.positions.get(symbolId).pendingSellSize, is(40L));
                     },
                     orders -> assertFalse(orders.isEmpty()));
 
@@ -258,7 +258,7 @@ public final class ITFeesMargin {
                     userProfile -> {
                         assertThat(userProfile.accounts.get(CURRENECY_JPY), is(240_000L));
                         assertThat(userProfile.accounts.get(CURRENECY_USD), is(0L));
-                        assertTrue(userProfile.portfolio.isEmpty());
+                        assertTrue(userProfile.positions.isEmpty());
                     },
                     orders -> assertTrue(orders.isEmpty()));
 

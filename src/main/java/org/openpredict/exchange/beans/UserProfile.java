@@ -16,8 +16,8 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
 
     public final long uid;
 
-    // symbol -> portfolio records
-    public final IntObjectHashMap<SymbolPortfolioRecord> portfolio;
+    // symbol -> margin position records
+    public final IntObjectHashMap<SymbolPositionRecord> positions;
 
     // set of applied transactionId
     public final LongHashSet externalTransactions;
@@ -28,17 +28,12 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
     // currency -> balance
     public final IntLongHashMap accounts;
 
-
-    // collected from portfolio
-    // TODO change to cached guaranteed available funds based on current position?
-    // public long fastMargin = 0L;
-
     public long commandsCounter = 0L;
 
     public UserProfile(long uid) {
         //log.debug("New {}", uid);
         this.uid = uid;
-        this.portfolio = new IntObjectHashMap<>();
+        this.positions = new IntObjectHashMap<>();
         this.externalTransactions = new LongHashSet();
         this.accounts = new IntLongHashMap();
     }
@@ -48,7 +43,7 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
         this.uid = bytesIn.readLong();
 
         // positions
-        this.portfolio = Utils.readIntHashMap(bytesIn, b -> new SymbolPortfolioRecord(uid, b));
+        this.positions = Utils.readIntHashMap(bytesIn, b -> new SymbolPositionRecord(uid, b));
 
         // externalTransactions
         this.externalTransactions = Utils.readLongHashSet(bytesIn);
@@ -57,28 +52,28 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
         this.accounts = Utils.readIntLongHashMap(bytesIn);
     }
 
-    public SymbolPortfolioRecord getOrCreatePortfolioRecord(CoreSymbolSpecification spec) {
+    public SymbolPositionRecord getOrCreatePositionRecord(CoreSymbolSpecification spec) {
         final int symbol = spec.symbolId;
-        SymbolPortfolioRecord record = portfolio.get(symbol);
+        SymbolPositionRecord record = positions.get(symbol);
         if (record == null) {
-            record = new SymbolPortfolioRecord(uid, symbol, spec.quoteCurrency);
-            portfolio.put(symbol, record);
+            record = new SymbolPositionRecord(uid, symbol, spec.quoteCurrency);
+            positions.put(symbol, record);
         }
         return record;
     }
 
-    public SymbolPortfolioRecord getPortfolioRecordOrThrowEx(int symbol) {
-        final SymbolPortfolioRecord record = portfolio.get(symbol);
+    public SymbolPositionRecord getPositionRecordOrThrowEx(int symbol) {
+        final SymbolPositionRecord record = positions.get(symbol);
         if (record == null) {
-            throw new IllegalStateException("not found portfolio for symbol " + symbol);
+            throw new IllegalStateException("not found position for symbol " + symbol);
         }
         return record;
     }
 
-    public void removeRecordIfEmpty(SymbolPortfolioRecord record) {
+    public void removeRecordIfEmpty(SymbolPositionRecord record) {
         if (record.isEmpty()) {
             accounts.addToValue(record.currency, record.profit);
-            portfolio.removeKey(record.symbol);
+            positions.removeKey(record.symbol);
         }
     }
 
@@ -88,7 +83,7 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
         bytes.writeLong(uid);
 
         // positions
-        Utils.marshallIntHashMap(portfolio, bytes);
+        Utils.marshallIntHashMap(positions, bytes);
 
         // externalTransactions
         Utils.marshallLongHashSet(externalTransactions, bytes);
@@ -102,7 +97,7 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
     public String toString() {
         return "UserProfile{" +
                 "uid=" + uid +
-                ", portfolios=" + portfolio.size() +
+                ", positions=" + positions.size() +
                 ", accounts=" + accounts +
                 ", commandsCounter=" + commandsCounter +
                 '}';
@@ -112,7 +107,7 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
     public int stateHash() {
         return Objects.hash(
                 uid,
-                Utils.stateHash(portfolio),
+                Utils.stateHash(positions),
                 externalTransactions.hashCode(),
                 accounts.hashCode());
     }
