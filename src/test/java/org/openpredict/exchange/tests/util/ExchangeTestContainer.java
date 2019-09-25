@@ -341,12 +341,15 @@ public final class ExchangeTestContainer implements AutoCloseable {
     public void validateUserState(
             long uid,
             Consumer<UserProfile> riskEngineStateConsumer,
-            Consumer<LongObjectHashMap<Order>> matchingEngineStateConsumer) throws InterruptedException, ExecutionException {
+            Consumer<Map<Long, Order>> matchingEngineStateConsumer) throws InterruptedException, ExecutionException {
 
         final SingleUserReportResult res = api.processReport(new SingleUserReportQuery(uid), getRandomTransactionId()).get();
         riskEngineStateConsumer.accept(res.getUserProfile());
-        matchingEngineStateConsumer.accept(res.getOrders());
+        matchingEngineStateConsumer.accept(res.getOrders().stream()
+                .flatMap(Collection::stream)
+                .collect(Collectors.toMap(Order::getOrderId, ord -> ord)));
     }
+
 
     public TotalCurrencyBalanceReportResult totalBalanceReport() throws InterruptedException, ExecutionException {
         final TotalCurrencyBalanceReportResult res = api.processReport(new TotalCurrencyBalanceReportQuery(), getRandomTransactionId()).get();

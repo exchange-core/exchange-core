@@ -25,6 +25,7 @@ import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -289,7 +290,7 @@ public final class Utils {
 
     }
 
-    public static <T> LongObjectHashMap<T> readLongHashMap(final BytesIn bytes, Function<BytesIn, T> creator) {
+    public static <T> LongObjectHashMap<T> readLongHashMap(final BytesIn bytes, final Function<BytesIn, T> creator) {
         int length = bytes.readInt();
         final LongObjectHashMap<T> hashMap = new LongObjectHashMap<>(length);
         for (int i = 0; i < length; i++) {
@@ -299,17 +300,23 @@ public final class Utils {
     }
 
     public static <T extends WriteBytesMarshallable> void marshallIntHashMap(final IntObjectHashMap<T> hashMap, final BytesOut bytes) {
-
         bytes.writeInt(hashMap.size());
-
         hashMap.forEachKeyValue((k, v) -> {
             bytes.writeInt(k);
             v.writeMarshallable(bytes);
         });
     }
 
+    public static <T> void marshallIntHashMap(final IntObjectHashMap<T> hashMap, final BytesOut bytes, final Consumer<T> elementMarshaller) {
+        bytes.writeInt(hashMap.size());
+        hashMap.forEachKeyValue((k, v) -> {
+            bytes.writeInt(k);
+            elementMarshaller.accept(v);
+        });
+    }
 
-    public static <T> IntObjectHashMap<T> readIntHashMap(final BytesIn bytes, Function<BytesIn, T> creator) {
+
+    public static <T> IntObjectHashMap<T> readIntHashMap(final BytesIn bytes, final Function<BytesIn, T> creator) {
         int length = bytes.readInt();
         final IntObjectHashMap<T> hashMap = new IntObjectHashMap<>(length);
         for (int i = 0; i < length; i++) {
@@ -328,13 +335,27 @@ public final class Utils {
         });
     }
 
-    public static <T, M extends Map<Long, T>> M readLongMap(final BytesIn bytes, Supplier<M> mapSupplier, Function<BytesIn, T> creator) {
+    public static <T, M extends Map<Long, T>> M readLongMap(final BytesIn bytes, final Supplier<M> mapSupplier, final Function<BytesIn, T> creator) {
         int length = bytes.readInt();
         final M map = mapSupplier.get();
         for (int i = 0; i < length; i++) {
             map.put(bytes.readLong(), creator.apply(bytes));
         }
         return map;
+    }
+
+    public static <T extends WriteBytesMarshallable> void marshallList(final List<T> list, final BytesOut bytes) {
+        bytes.writeInt(list.size());
+        list.forEach(v -> v.writeMarshallable(bytes));
+    }
+
+    public static <T> List<T> readList(final BytesIn bytes, final Function<BytesIn, T> creator) {
+        final int length = bytes.readInt();
+        final List<T> list = new ArrayList<>(length);
+        for (int i = 0; i < length; i++) {
+            list.add(creator.apply(bytes));
+        }
+        return list;
     }
 
 
@@ -392,6 +413,14 @@ public final class Utils {
         return res;
     }
 
+    public static <V> IntObjectHashMap<V> mergeOverride(final IntObjectHashMap<V> a, final IntObjectHashMap<V> b) {
+        final IntObjectHashMap<V> res = a == null ? new IntObjectHashMap<>() : new IntObjectHashMap<>(a);
+        if (b != null) {
+            res.putAll(b);
+        }
+        return res;
+    }
+
     public static IntLongHashMap mergeSum(final IntLongHashMap a, final IntLongHashMap b) {
         final IntLongHashMap res = a == null ? new IntLongHashMap() : new IntLongHashMap(a);
         if (b != null) {
@@ -400,8 +429,8 @@ public final class Utils {
         return res;
     }
 
-    public static boolean checkStreamsEqual(Stream<?> s1, Stream<?> s2) {
-        Iterator<?> iter1 = s1.iterator(), iter2 = s2.iterator();
+    public static boolean checkStreamsEqual(final Stream<?> s1, final Stream<?> s2) {
+        final Iterator<?> iter1 = s1.iterator(), iter2 = s2.iterator();
         while (iter1.hasNext() && iter2.hasNext()) {
             if (!iter1.next().equals(iter2.next())) {
                 return false;

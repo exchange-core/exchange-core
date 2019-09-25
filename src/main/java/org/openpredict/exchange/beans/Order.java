@@ -48,7 +48,7 @@ public final class Order implements WriteBytesMarshallable, IOrder {
     @Getter
     public long timestamp;
 
-    public int userCookie;
+//    public int userCookie;
 
     public Order(BytesIn bytes) {
 
@@ -61,7 +61,7 @@ public final class Order implements WriteBytesMarshallable, IOrder {
         this.action = OrderAction.of(bytes.readByte());
         this.uid = bytes.readLong(); // uid
         this.timestamp = bytes.readLong(); // timestamp
-        this.userCookie = bytes.readInt();  // userCookie
+//        this.userCookie = bytes.readInt();  // userCookie
 
     }
 
@@ -75,18 +75,22 @@ public final class Order implements WriteBytesMarshallable, IOrder {
         bytes.writeByte(action.getCode());
         bytes.writeLong(uid);
         bytes.writeLong(timestamp);
-        bytes.writeInt(userCookie);
+//        bytes.writeInt(userCookie);
     }
 
     @Override
     public String toString() {
         return "[" + orderId + " " + (action == OrderAction.ASK ? 'A' : 'B')
-                + price + ":" + size + "F" + filled + " C" + userCookie + " U" + uid + "]";
+                + price + ":" + size + "F" + filled
+                // + " C" + userCookie
+                + " U" + uid + "]";
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(orderId, action, price, size, reserveBidPrice, filled, userCookie, uid);
+        return Objects.hash(orderId, action, price, size, reserveBidPrice, filled,
+                //userCookie,
+                uid);
     }
 
 
@@ -107,7 +111,7 @@ public final class Order implements WriteBytesMarshallable, IOrder {
                 .append(size, other.size)
                 .append(reserveBidPrice, other.reserveBidPrice)
                 .append(filled, other.filled)
-                .append(userCookie, other.userCookie)
+//                .append(userCookie, other.userCookie)
                 .append(uid, other.uid)
                 //.append(timestamp, other.timestamp)
                 .isEquals();

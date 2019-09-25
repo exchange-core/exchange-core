@@ -5,11 +5,12 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
-import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
+import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.openpredict.exchange.beans.Order;
 import org.openpredict.exchange.beans.UserProfile;
 import org.openpredict.exchange.core.Utils;
 
+import java.util.List;
 import java.util.stream.Stream;
 
 @AllArgsConstructor
@@ -20,15 +21,15 @@ public class SingleUserReportResult implements ReportResult {
     private final UserProfile userProfile;
 
     // matching engine: orders placed by user
-    // TODO add symbol map
-    private final LongObjectHashMap<Order> orders;
+    // symbol -> orders
+    private final IntObjectHashMap<List<Order>> orders;
 
     // status
     private final ExecutionStatus status;
 
     private SingleUserReportResult(final BytesIn bytesIn) {
         this.userProfile = bytesIn.readBoolean() ? new UserProfile(bytesIn) : null;
-        this.orders = bytesIn.readBoolean() ? Utils.readLongHashMap(bytesIn, Order::new) : null;
+        this.orders = bytesIn.readBoolean() ? Utils.readIntHashMap(bytesIn, b -> Utils.readList(b, Order::new)) : null;
         this.status = ExecutionStatus.of(bytesIn.readInt());
     }
 
@@ -42,7 +43,7 @@ public class SingleUserReportResult implements ReportResult {
 
         bytes.writeBoolean(orders != null);
         if (orders != null) {
-            Utils.marshallLongHashMap(orders, bytes);
+            Utils.marshallIntHashMap(orders, bytes, symbolOrders -> Utils.marshallList(symbolOrders, bytes));
         }
         bytes.writeInt(status.code);
 

@@ -6,17 +6,20 @@ import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.apache.commons.lang3.tuple.Pair;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
-import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
-import org.openpredict.exchange.beans.*;
+import org.openpredict.exchange.beans.CoreSymbolSpecification;
+import org.openpredict.exchange.beans.Order;
+import org.openpredict.exchange.beans.StateHash;
+import org.openpredict.exchange.beans.SymbolType;
 import org.openpredict.exchange.beans.api.binary.BatchAddAccountsCommand;
 import org.openpredict.exchange.beans.api.binary.BatchAddSymbolsCommand;
+import org.openpredict.exchange.beans.api.reports.*;
 import org.openpredict.exchange.beans.cmd.CommandResultCode;
 import org.openpredict.exchange.beans.cmd.OrderCommand;
 import org.openpredict.exchange.beans.cmd.OrderCommandType;
-import org.openpredict.exchange.beans.api.reports.*;
 import org.openpredict.exchange.core.journalling.ISerializationProcessor;
 import org.openpredict.exchange.core.orderbook.IOrderBook;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
@@ -153,10 +156,8 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
     }
 
     private Optional<SingleUserReportResult> reportSingleUser(final SingleUserReportQuery query) {
-        final LongObjectHashMap<Order> orders = new LongObjectHashMap<>();
-        orderBooks.stream()
-                .flatMap(ob -> ob.findUserOrders(query.getUid()).stream())
-                .forEach(order -> orders.put(order.orderId, order));
+        final IntObjectHashMap<List<Order>> orders = new IntObjectHashMap<>();
+        orderBooks.forEach(ob -> orders.put(ob.getSymbolSpec().symbolId, ob.findUserOrders(query.getUid())));
 
         //log.debug("orders: {}", orders.size());
         return Optional.of(new SingleUserReportResult(null, orders, SingleUserReportResult.ExecutionStatus.OK));
