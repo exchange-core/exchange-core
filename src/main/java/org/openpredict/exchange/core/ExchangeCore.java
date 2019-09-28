@@ -22,8 +22,8 @@ import org.openpredict.exchange.core.orderbook.IOrderBook;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.BiConsumer;
 import java.util.function.Function;
+import java.util.function.ObjLongConsumer;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -39,7 +39,7 @@ public final class ExchangeCore {
     private boolean stopped = false;
 
     @Builder
-    public ExchangeCore(final BiConsumer<Long, OrderCommand> resultsConsumer,
+    public ExchangeCore(final ObjLongConsumer<OrderCommand> resultsConsumer,
                         final JournallingProcessor journallingHandler,
                         final ISerializationProcessor serializationProcessor,
                         final int ringBufferSize,
@@ -117,7 +117,7 @@ public final class ExchangeCore {
         // 4. results handler (E) after matching engine (ME) + [journalling (J)]
         (journallingHandler != null ? disruptor.after(ArrayUtils.add(matchingEngineHandlers, journallingHandler::onEvent)) : afterMatchingEngine)
                 .handleEventsWith((cmd, seq, eob) -> {
-                    resultsConsumer.accept(seq, cmd);
+                    resultsConsumer.accept(cmd, seq);
                     api.processResult(seq, cmd); // TODO SLOW ?(volatile operations)
                 });
 

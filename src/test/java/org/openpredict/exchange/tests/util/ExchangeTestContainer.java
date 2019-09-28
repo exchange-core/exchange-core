@@ -64,7 +64,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
                                  final Long stateId) {
 
         this.exchangeCore = ExchangeCore.builder()
-                .resultsConsumer((seq, cmd) -> consumer.accept(cmd))
+                .resultsConsumer((cmd, seq) -> consumer.accept(cmd))
                 .serializationProcessor(new DiskSerializationProcessor("./dumps"))
                 .ringBufferSize(bufferSize)
                 .matchingEnginesNum(matchingEnginesNum)
