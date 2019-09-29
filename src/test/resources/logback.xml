@@ -12,7 +12,7 @@
     <logger name="net" level="INFO"/>
     <logger name="com" level="INFO"/>
 
-    <logger name="org.openpredict" level="DEBUG"/>
+    <logger name="exchange.core2" level="DEBUG"/>
     <!--<logger name="net.openhft.affinity" level="WARN"/>-->
 
     <root level="INFO">
