@@ -198,7 +198,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
                             ob.bidOrdersStream(false).mapToLong(ord -> CoreArithmeticUtils.calculateAmountBidTakerFee(ord.size - ord.filled, ord.reserveBidPrice, spec)).sum());
                 });
 
-        return Optional.of(new TotalCurrencyBalanceReportResult(null, null, currencyBalance, null, null));
+        return Optional.of(TotalCurrencyBalanceReportResult.ofOrderBalances(currencyBalance));
     }
 
 

@@ -26,7 +26,8 @@ import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 
 @AllArgsConstructor
 @Getter
-public class BatchAddAccountsCommand implements WriteBytesMarshallable {
+public class
+BatchAddAccountsCommand implements WriteBytesMarshallable {
 
     private final LongObjectHashMap<IntLongHashMap> users;
 

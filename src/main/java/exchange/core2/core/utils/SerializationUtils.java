@@ -280,6 +280,17 @@ public class SerializationUtils {
         return list;
     }
 
+    public static <T> void marshallNullable(final T object, final BytesOut bytes, final BiConsumer<T, BytesOut> marshaller) {
+        bytes.writeBoolean(object != null);
+        if (object != null) {
+            marshaller.accept(object, bytes);
+        }
+    }
+
+    public static <T> T readNullable(final BytesIn bytesIn, Function<BytesIn, T> creator) {
+        return bytesIn.readBoolean() ? creator.apply(bytesIn) : null;
+    }
+
     public static <V> LongObjectHashMap<V> mergeOverride(final LongObjectHashMap<V> a, final LongObjectHashMap<V> b) {
         final LongObjectHashMap<V> res = a == null ? new LongObjectHashMap<>() : new LongObjectHashMap<>(a);
         if (b != null) {
@@ -296,13 +307,18 @@ public class SerializationUtils {
         return res;
     }
 
-    public static IntLongHashMap mergeSum(final IntLongHashMap a, final IntLongHashMap b) {
-        final IntLongHashMap res = a == null ? new IntLongHashMap() : new IntLongHashMap(a);
-        if (b != null) {
-            b.forEachKeyValue(res::addToValue);
+    public static IntLongHashMap mergeSum(final IntLongHashMap... maps) {
+        IntLongHashMap res = null;
+        for (IntLongHashMap map : maps) {
+            if (map != null) {
+                if (res == null) {
+                    res = new IntLongHashMap(map);
+                } else {
+                    map.forEachKeyValue(res::addToValue);
+                }
+            }
         }
-        return res;
+        return res != null ? res : new IntLongHashMap();
     }
-
 
 }

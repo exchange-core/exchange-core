@@ -6,3 +6,6 @@ target/
 *.iws
 *.iml
 *.ipr
+
+# dumps #
+dumps/state_*

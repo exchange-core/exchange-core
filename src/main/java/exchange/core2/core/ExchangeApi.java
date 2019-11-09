@@ -17,6 +17,7 @@ package exchange.core2.core;
 
 import com.lmax.disruptor.EventTranslatorOneArg;
 import com.lmax.disruptor.RingBuffer;
+import exchange.core2.core.common.BalanceAdjustmentType;
 import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.OrderType;
 import exchange.core2.core.common.api.*;
@@ -78,6 +79,10 @@ public final class ExchangeApi {
             ringBuffer.publishEvent(ADD_USER_TRANSLATOR, (ApiAddUser) cmd);
         } else if (cmd instanceof ApiAdjustUserBalance) {
             ringBuffer.publishEvent(ADJUST_USER_BALANCE_TRANSLATOR, (ApiAdjustUserBalance) cmd);
+        } else if (cmd instanceof ApiResumeUser) {
+            ringBuffer.publishEvent(RESUME_USER_TRANSLATOR, (ApiResumeUser) cmd);
+        } else if (cmd instanceof ApiSuspendUser) {
+            ringBuffer.publishEvent(SUSPEND_USER_TRANSLATOR, (ApiSuspendUser) cmd);
         } else if (cmd instanceof ApiBinaryDataCommand) {
             publishBinaryData((ApiBinaryDataCommand) cmd, seq -> {
             });
@@ -262,12 +267,31 @@ public final class ExchangeApi {
         cmd.resultCode = CommandResultCode.NEW;
     };
 
+    private static final EventTranslatorOneArg<OrderCommand, ApiSuspendUser> SUSPEND_USER_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.SUSPEND_USER;
+        cmd.orderId = -1;
+        cmd.symbol = -1;
+        cmd.uid = api.uid;
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+    };
+
+    private static final EventTranslatorOneArg<OrderCommand, ApiResumeUser> RESUME_USER_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.RESUME_USER;
+        cmd.orderId = -1;
+        cmd.symbol = -1;
+        cmd.uid = api.uid;
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+    };
+
     private static final EventTranslatorOneArg<OrderCommand, ApiAdjustUserBalance> ADJUST_USER_BALANCE_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.BALANCE_ADJUSTMENT;
         cmd.orderId = api.transactionId;
         cmd.symbol = api.currency;
         cmd.uid = api.uid;
         cmd.price = api.amount;
+        cmd.orderType = OrderType.of(api.adjustmentType.getCode());
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
     };
@@ -294,7 +318,6 @@ public final class ExchangeApi {
 
 
     public void createUser(long userId, Consumer<OrderCommand> callback) {
-
         ringBuffer.publishEvent(((cmd, seq) -> {
             cmd.command = OrderCommandType.ADD_USER;
             cmd.orderId = -1;
@@ -305,10 +328,40 @@ public final class ExchangeApi {
 
             promises.put(seq, callback);
         }));
-
     }
 
-    public void balanceAdjustment(long userId, long transactionId, int currency, long longAmount, Consumer<OrderCommand> callback) {
+    public void suspendUser(long userId, Consumer<OrderCommand> callback) {
+        ringBuffer.publishEvent(((cmd, seq) -> {
+            cmd.command = OrderCommandType.SUSPEND_USER;
+            cmd.orderId = -1;
+            cmd.symbol = -1;
+            cmd.uid = userId;
+            cmd.timestamp = System.currentTimeMillis();
+            cmd.resultCode = CommandResultCode.NEW;
+
+            promises.put(seq, callback);
+        }));
+    }
+
+    public void resumeUser(long userId, Consumer<OrderCommand> callback) {
+        ringBuffer.publishEvent(((cmd, seq) -> {
+            cmd.command = OrderCommandType.RESUME_USER;
+            cmd.orderId = -1;
+            cmd.symbol = -1;
+            cmd.uid = userId;
+            cmd.timestamp = System.currentTimeMillis();
+            cmd.resultCode = CommandResultCode.NEW;
+
+            promises.put(seq, callback);
+        }));
+    }
+
+    public void balanceAdjustment(long userId,
+                                  long transactionId,
+                                  int currency,
+                                  long longAmount,
+                                  BalanceAdjustmentType adjustmentType,
+                                  Consumer<OrderCommand> callback) {
 
         ringBuffer.publishEvent(((cmd, seq) -> {
             cmd.command = OrderCommandType.BALANCE_ADJUSTMENT;
@@ -316,6 +369,7 @@ public final class ExchangeApi {
             cmd.symbol = currency;
             cmd.uid = userId;
             cmd.price = longAmount;
+            cmd.orderType = OrderType.of(adjustmentType.getCode());
             cmd.size = 0;
             cmd.timestamp = System.currentTimeMillis();
             cmd.resultCode = CommandResultCode.NEW;

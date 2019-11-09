@@ -184,7 +184,7 @@ public final class SymbolPositionRecord implements WriteBytesMarshallable, State
 
         // 3. Increase forward position accordingly (if size left in the trading event)
         if (sizeToOpen > 0) {
-            openPositionFutures(action, sizeToOpen, price);
+            openPositionMargin(action, sizeToOpen, price);
         }
         return sizeToOpen;
     }
@@ -217,7 +217,7 @@ public final class SymbolPositionRecord implements WriteBytesMarshallable, State
         return sizeToOpen;
     }
 
-    private void openPositionFutures(OrderAction action, long sizeToOpen, long tradePrice) {
+    private void openPositionMargin(OrderAction action, long sizeToOpen, long tradePrice) {
         openVolume += sizeToOpen;
         openPriceSum += tradePrice * sizeToOpen;
         direction = PositionDirection.of(action);
