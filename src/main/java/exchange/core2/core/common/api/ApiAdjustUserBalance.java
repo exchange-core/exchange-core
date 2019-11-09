@@ -16,6 +16,7 @@
 package exchange.core2.core.common.api;
 
 
+import exchange.core2.core.common.BalanceAdjustmentType;
 import lombok.Builder;
 
 @Builder
@@ -27,10 +28,12 @@ public final class ApiAdjustUserBalance extends ApiCommand {
     public final long amount;
     public final long transactionId;
 
+    public final BalanceAdjustmentType adjustmentType = BalanceAdjustmentType.ADJUSTMENT; // TODO support suspend
+
     @Override
     public String toString() {
         String amountFmt = String.format("%s%d c%d", amount >= 0 ? "+" : "-", Math.abs(amount), currency);
-        return "[ADJUST_BALANCE " + uid + " id:" + transactionId + " " + amountFmt + "]";
+        return "[ADJUST_BALANCE " + uid + " id:" + transactionId + " " + amountFmt + " " + adjustmentType + "]";
 
     }
 }

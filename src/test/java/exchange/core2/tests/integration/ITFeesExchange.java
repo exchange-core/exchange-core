@@ -15,8 +15,6 @@
  */
 package exchange.core2.tests.integration;
 
-import lombok.extern.slf4j.Slf4j;
-import org.junit.Test;
 import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.OrderType;
 import exchange.core2.core.common.api.ApiCancelOrder;
@@ -24,11 +22,13 @@ import exchange.core2.core.common.api.ApiPlaceOrder;
 import exchange.core2.core.common.api.reports.TotalCurrencyBalanceReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.tests.util.ExchangeTestContainer;
+import lombok.extern.slf4j.Slf4j;
+import org.junit.Test;
 
-import static org.hamcrest.core.Is.is;
-import static org.junit.Assert.*;
 import static exchange.core2.core.common.OrderType.GTC;
 import static exchange.core2.tests.util.TestConstants.*;
+import static org.hamcrest.core.Is.is;
+import static org.junit.Assert.*;
 
 /**
  * TODO IOC reject tests
@@ -79,7 +79,8 @@ public final class ITFeesExchange {
                     orders -> assertTrue(orders.isEmpty()));
 
             TotalCurrencyBalanceReportResult totalBal1 = container.totalBalanceReport();
-            assertThat(totalBal1.getSum().get(CURRENECY_LTC), is(ltcAmount + takerFee * 30));
+            assertTrue(totalBal1.isGlobalBalancesAllZero());
+            assertThat(totalBal1.getClientsBalancesSum().get(CURRENECY_LTC), is(ltcAmount + takerFee * 30));
             assertThat(totalBal1.getFees().get(CURRENECY_LTC), is(0L));
 
             // ----------------- 2 test GTC ASK cancel ------------------
@@ -104,8 +105,9 @@ public final class ITFeesExchange {
 
             // no fees collected
             TotalCurrencyBalanceReportResult totalBal2 = container.totalBalanceReport();
-            assertThat(totalBal2.getSum().get(CURRENECY_LTC), is(ltcAmount + takerFee * 30));
-            assertThat(totalBal2.getSum().get(CURRENECY_XBT), is(btcAmount));
+            assertTrue(totalBal2.isGlobalBalancesAllZero());
+            assertThat(totalBal2.getClientsBalancesSum().get(CURRENECY_LTC), is(ltcAmount + takerFee * 30));
+            assertThat(totalBal2.getClientsBalancesSum().get(CURRENECY_XBT), is(btcAmount));
             assertThat(totalBal2.getFees().get(CURRENECY_LTC), is(0L));
             assertThat(totalBal2.getFees().get(CURRENECY_XBT), is(0L));
         }
@@ -147,8 +149,9 @@ public final class ITFeesExchange {
 
             // no fees collected
             TotalCurrencyBalanceReportResult totalBal1 = container.totalBalanceReport();
-            assertThat(totalBal1.getSum().get(CURRENECY_LTC), is(ltcAmount));
-            assertThat(totalBal1.getSum().get(CURRENECY_XBT), is(btcAmount));
+            assertTrue(totalBal1.isGlobalBalancesAllZero());
+            assertThat(totalBal1.getClientsBalancesSum().get(CURRENECY_LTC), is(ltcAmount));
+            assertThat(totalBal1.getClientsBalancesSum().get(CURRENECY_XBT), is(btcAmount));
             assertThat(totalBal1.getFees().get(CURRENECY_LTC), is(0L));
 
             // submit an IoC order - sell 2,000 lots, price 114,930K (11,493 x10,000 step)
@@ -184,9 +187,11 @@ public final class ITFeesExchange {
 
             // total balance remains the same
             final TotalCurrencyBalanceReportResult totalBal2 = container.totalBalanceReport();
-            assertThat(totalBal2.getSum().get(CURRENECY_LTC), is(ltcAmount));
-            assertThat(totalBal2.getSum().get(CURRENECY_XBT), is(btcAmount));
-            assertThat(totalBal2.getFees().get(CURRENECY_LTC), is((makerFee + takerFee) * 1731L));
+            final long ltcFees = (makerFee + takerFee) * 1731L;
+            assertTrue(totalBal2.isGlobalBalancesAllZero());
+            assertThat(totalBal2.getFees().get(CURRENECY_LTC), is(ltcFees));
+            assertThat(totalBal2.getClientsBalancesSum().get(CURRENECY_LTC), is(ltcAmount - ltcFees));
+            assertThat(totalBal2.getClientsBalancesSum().get(CURRENECY_XBT), is(btcAmount));
         }
 
     }
@@ -227,8 +232,9 @@ public final class ITFeesExchange {
 
             // no fees collected
             TotalCurrencyBalanceReportResult totalBal1 = container.totalBalanceReport();
-            assertThat(totalBal1.getSum().get(CURRENECY_LTC), is(ltcAmount));
-            assertThat(totalBal1.getSum().get(CURRENECY_XBT), is(btcAmount));
+            assertTrue(totalBal1.isGlobalBalancesAllZero());
+            assertThat(totalBal1.getClientsBalancesSum().get(CURRENECY_LTC), is(ltcAmount));
+            assertThat(totalBal1.getClientsBalancesSum().get(CURRENECY_XBT), is(btcAmount));
             assertThat(totalBal1.getFees().get(CURRENECY_LTC), is(0L));
 
             // submit an IoC order - sell 1,000 lots, price 114,930K (11,493 x10,000 step)
@@ -265,9 +271,11 @@ public final class ITFeesExchange {
 
             // total balance remains the same
             final TotalCurrencyBalanceReportResult totalBal2 = container.totalBalanceReport();
-            assertThat(totalBal2.getSum().get(CURRENECY_LTC), is(ltcAmount));
-            assertThat(totalBal2.getSum().get(CURRENECY_XBT), is(btcAmount));
-            assertThat(totalBal2.getFees().get(CURRENECY_LTC), is((makerFee + takerFee) * 1000L));
+            assertTrue(totalBal2.isGlobalBalancesAllZero());
+            final long ltcFees = (makerFee + takerFee) * 1000L;
+            assertThat(totalBal2.getFees().get(CURRENECY_LTC), is(ltcFees));
+            assertThat(totalBal2.getClientsBalancesSum().get(CURRENECY_LTC), is(ltcAmount - ltcFees));
+            assertThat(totalBal2.getClientsBalancesSum().get(CURRENECY_XBT), is(btcAmount));
         }
 
     }
@@ -306,8 +314,9 @@ public final class ITFeesExchange {
             container.createUserWithMoney(UID_2, CURRENECY_LTC, ltcAmount);
 
             TotalCurrencyBalanceReportResult totalBal1 = container.totalBalanceReport();
-            assertThat(totalBal1.getSum().get(CURRENECY_LTC), is(ltcAmount));
-            assertThat(totalBal1.getSum().get(CURRENECY_XBT), is(btcAmount));
+            assertTrue(totalBal1.isGlobalBalancesAllZero());
+            assertThat(totalBal1.getClientsBalancesSum().get(CURRENECY_LTC), is(ltcAmount));
+            assertThat(totalBal1.getClientsBalancesSum().get(CURRENECY_XBT), is(btcAmount));
             assertThat(totalBal1.getFees().get(CURRENECY_LTC), is(0L));
 
             // submit an IoC order - ASK 2,197 lots, price 115,210K (11,521 x10,000 step) for each lot 1M satoshi
@@ -344,9 +353,11 @@ public final class ITFeesExchange {
 
             // total balance remains the same
             final TotalCurrencyBalanceReportResult totalBal2 = container.totalBalanceReport();
-            assertThat(totalBal2.getSum().get(CURRENECY_LTC), is(ltcAmount));
-            assertThat(totalBal2.getSum().get(CURRENECY_XBT), is(btcAmount));
-            assertThat(totalBal2.getFees().get(CURRENECY_LTC), is((makerFee + takerFee) * 2000L));
+            final long ltcFees = (makerFee + takerFee) * 2000L;
+            assertTrue(totalBal2.isGlobalBalancesAllZero());
+            assertThat(totalBal2.getFees().get(CURRENECY_LTC), is(ltcFees));
+            assertThat(totalBal2.getClientsBalancesSum().get(CURRENECY_LTC), is(ltcAmount - ltcFees));
+            assertThat(totalBal2.getClientsBalancesSum().get(CURRENECY_XBT), is(btcAmount));
         }
 
     }
@@ -385,9 +396,10 @@ public final class ITFeesExchange {
             container.createUserWithMoney(UID_2, CURRENECY_LTC, ltcAmount);
 
             TotalCurrencyBalanceReportResult totalBal1 = container.totalBalanceReport();
-            assertThat(totalBal1.getSum().get(CURRENECY_LTC), is(ltcAmount));
-            assertThat(totalBal1.getSum().get(CURRENECY_XBT), is(btcAmount));
             assertThat(totalBal1.getFees().get(CURRENECY_LTC), is(0L));
+            assertTrue(totalBal1.isGlobalBalancesAllZero());
+            assertThat(totalBal1.getClientsBalancesSum().get(CURRENECY_LTC), is(ltcAmount));
+            assertThat(totalBal1.getClientsBalancesSum().get(CURRENECY_XBT), is(btcAmount));
 
             // submit an IoC order - ASK 1,997 lots, price 115,210K (11,521 x10,000 step) for each lot 1M satoshi
             final ApiPlaceOrder order102 = ApiPlaceOrder.builder()
@@ -422,10 +434,12 @@ public final class ITFeesExchange {
                     orders -> assertTrue(orders.isEmpty()));
 
             // total balance remains the same
+            final long ltcFees = (makerFee + takerFee) * 1997L;
             final TotalCurrencyBalanceReportResult totalBal2 = container.totalBalanceReport();
-            assertThat(totalBal2.getSum().get(CURRENECY_LTC), is(ltcAmount));
-            assertThat(totalBal2.getSum().get(CURRENECY_XBT), is(btcAmount));
-            assertThat(totalBal2.getFees().get(CURRENECY_LTC), is((makerFee + takerFee) * 1997L));
+            assertTrue(totalBal2.isGlobalBalancesAllZero());
+            assertThat(totalBal2.getClientsBalancesSum().get(CURRENECY_LTC), is(ltcAmount - ltcFees));
+            assertThat(totalBal2.getClientsBalancesSum().get(CURRENECY_XBT), is(btcAmount));
+            assertThat(totalBal2.getFees().get(CURRENECY_LTC), is(ltcFees));
         }
     }
 

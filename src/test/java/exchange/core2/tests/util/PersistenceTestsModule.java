@@ -17,7 +17,6 @@ package exchange.core2.tests.util;
 
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
-import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.api.ApiCommand;
 import exchange.core2.core.common.api.ApiPersistState;
@@ -31,6 +30,7 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 
+import static junit.framework.TestCase.assertTrue;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 
@@ -59,9 +59,6 @@ public class PersistenceTestsModule {
 
             final float originalPerfMt;
 
-            // validate total balance as a sum of loaded funds
-            final IntLongHashMap globalBalancesExpected;
-
             try (final ExchangeTestContainer container = new ExchangeTestContainer(bufferSize, matchingEngines, riskEngines, msgsInGroupLimit, null)) {
 
                 try (AffinityLock cpuLock = AffinityLock.acquireLock()) {
@@ -82,7 +79,7 @@ public class PersistenceTestsModule {
                     log.info("Load symbols...");
                     container.addSymbols(coreSymbolSpecifications);
                     log.info("Load users...");
-                    globalBalancesExpected = container.userAccountsInit(usersAccounts);
+                    container.userAccountsInit(usersAccounts);
 
                     log.info("Pre-fill...");
                     final List<ApiCommand> apiCommandsFill = genResult.getApiCommandsFill();
@@ -101,7 +98,7 @@ public class PersistenceTestsModule {
                     container.setConsumer(cmd -> {
                     });
 
-                    assertThat(container.totalBalanceReport().getSum(), is(globalBalancesExpected));
+                    assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
 
                     log.info("Persisting...");
                     final long tc = System.currentTimeMillis();
@@ -121,7 +118,7 @@ public class PersistenceTestsModule {
                     latchBenchmark.await();
                     t = System.currentTimeMillis() - t;
 
-                    assertThat(container.totalBalanceReport().getSum(), is(globalBalancesExpected));
+                    assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
 
                     originalPerfMt = (float) apiCommandsBenchmark.size() / (float) t / 1000.0f;
                     log.info("{}. original speed: {} MT/s", iteration, String.format("%.3f", originalPerfMt));
@@ -143,7 +140,7 @@ public class PersistenceTestsModule {
                     final long restoredPrefillStateHash = recreatedContainer.requestStateHash();
                     assertThat(restoredPrefillStateHash, is(originalPrefillStateHash));
 
-                    assertThat(recreatedContainer.totalBalanceReport().getSum(), is(globalBalancesExpected));
+                    assertTrue(recreatedContainer.totalBalanceReport().isGlobalBalancesAllZero());
 
                     log.info("Restored snapshot is valid, benchmarking original state...");
                     final ExchangeApi api = recreatedContainer.api;
@@ -155,7 +152,7 @@ public class PersistenceTestsModule {
                     latchBenchmark.await();
                     t = System.currentTimeMillis() - t;
 
-                    assertThat(recreatedContainer.totalBalanceReport().getSum(), is(globalBalancesExpected));
+                    assertTrue(recreatedContainer.totalBalanceReport().isGlobalBalancesAllZero());
 
                     final float perfMt = (float) apiCommandsBenchmark.size() / (float) t / 1000.0f;
                     final float perfRatioPerc = perfMt / originalPerfMt * 100f;

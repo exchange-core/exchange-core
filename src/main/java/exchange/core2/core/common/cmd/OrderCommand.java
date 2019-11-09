@@ -168,6 +168,7 @@ public final class OrderCommand implements IOrder {
         cmd2.orderType = this.orderType;
     }
 
+    // slow - testing only
     public OrderCommand copy() {
 
         OrderCommand newCmd = new OrderCommand();

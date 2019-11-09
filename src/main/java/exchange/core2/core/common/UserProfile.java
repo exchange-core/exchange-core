@@ -23,7 +23,6 @@ import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
-import org.eclipse.collections.impl.set.mutable.primitive.LongHashSet;
 
 import java.util.Objects;
 
@@ -33,25 +32,25 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
     public final long uid;
 
     // symbol -> margin position records
+    // TODO initialize lazily (only needed if margin trading allowed)
     public final IntObjectHashMap<SymbolPositionRecord> positions;
 
-    // set of applied transactionId
-    public final LongHashSet externalTransactions;
-
-    // collected from accounts
+    // protects from double adjustment
+    public long adjustmentsCounter;
 
     // currency accounts
     // currency -> balance
     public final IntLongHashMap accounts;
 
-    public long commandsCounter = 0L;
+    public boolean suspended;
 
-    public UserProfile(long uid) {
+    public UserProfile(long uid, boolean suspended) {
         //log.debug("New {}", uid);
         this.uid = uid;
         this.positions = new IntObjectHashMap<>();
-        this.externalTransactions = new LongHashSet();
+        this.adjustmentsCounter = 0L;
         this.accounts = new IntLongHashMap();
+        this.suspended = suspended;
     }
 
     public UserProfile(BytesIn bytesIn) {
@@ -61,11 +60,14 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
         // positions
         this.positions = SerializationUtils.readIntHashMap(bytesIn, b -> new SymbolPositionRecord(uid, b));
 
-        // externalTransactions
-        this.externalTransactions = SerializationUtils.readLongHashSet(bytesIn);
+        // adjustmentsCounter
+        this.adjustmentsCounter = bytesIn.readLong();
 
         // account balances
         this.accounts = SerializationUtils.readIntLongHashMap(bytesIn);
+
+        // suspended
+        this.suspended = bytesIn.readBoolean();
     }
 
     public SymbolPositionRecord getOrCreatePositionRecord(CoreSymbolSpecification spec) {
@@ -101,11 +103,14 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
         // positions
         SerializationUtils.marshallIntHashMap(positions, bytes);
 
-        // externalTransactions
-        SerializationUtils.marshallLongHashSet(externalTransactions, bytes);
+        // adjustmentsCounter
+        bytes.writeLong(adjustmentsCounter);
 
         // account balances
         SerializationUtils.marshallIntLongHashMap(accounts, bytes);
+
+        // suspended
+        bytes.writeBoolean(suspended);
     }
 
 
@@ -115,7 +120,8 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
                 "uid=" + uid +
                 ", positions=" + positions.size() +
                 ", accounts=" + accounts +
-                ", commandsCounter=" + commandsCounter +
+                ", adjustmentsCounter=" + adjustmentsCounter +
+                ", suspended=" + suspended +
                 '}';
     }
 
@@ -124,7 +130,8 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
         return Objects.hash(
                 uid,
                 HashingUtils.stateHash(positions),
-                externalTransactions.hashCode(),
-                accounts.hashCode());
+                adjustmentsCounter,
+                accounts.hashCode(),
+                Boolean.hashCode(suspended));
     }
 }

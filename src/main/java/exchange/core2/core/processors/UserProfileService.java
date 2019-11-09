@@ -61,15 +61,8 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
         return userProfiles.get(uid);
     }
 
-    public UserProfile getUserProfileOrThrowEx(long uid) {
-
-        final UserProfile userProfile = userProfiles.get(uid);
-
-        if (userProfile == null) {
-            throw new IllegalStateException("User profile not found, uid=" + uid);
-        }
-
-        return userProfile;
+    public UserProfile getUserProfileOrAddSuspended(long uid) {
+        return userProfiles.getIfAbsentPut(uid, () -> new UserProfile(uid, true));
     }
 
 
@@ -90,21 +83,24 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
             return CommandResultCode.AUTH_INVALID_USER;
         }
 
-        if (amount == 0) {
-            return CommandResultCode.USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_ZERO;
-        }
+//        if (amount == 0) {
+//            return CommandResultCode.USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_ZERO;
+//        }
 
         // double settlement protection
-        if (userProfile.externalTransactions.contains(fundingTransactionId)) {
-            return CommandResultCode.USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_ALREADY_APPLIED;
+        if (userProfile.adjustmentsCounter == fundingTransactionId) {
+            return CommandResultCode.USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_ALREADY_APPLIED_SAME;
+        }
+        if (userProfile.adjustmentsCounter > fundingTransactionId) {
+            return CommandResultCode.USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_ALREADY_APPLIED_MANY;
         }
 
-        // validate balance for withdrowals
+        // validate balance for withdrawals
         if (amount < 0 && (userProfile.accounts.get(currency) + amount < 0)) {
             return CommandResultCode.USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_NSF;
         }
 
-        userProfile.externalTransactions.add(fundingTransactionId);
+        userProfile.adjustmentsCounter = fundingTransactionId;
         userProfile.accounts.addToValue(currency, amount);
 
         //log.debug("FUND: {}", userProfile);
@@ -119,7 +115,7 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
      */
     public boolean addEmptyUserProfile(long uid) {
         if (userProfiles.get(uid) == null) {
-            userProfiles.put(uid, new UserProfile(uid));
+            userProfiles.put(uid, new UserProfile(uid, false));
             return true;
         } else {
             log.debug("Can not add user, already exists: {}", uid);
@@ -127,6 +123,60 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
         }
     }
 
+    /**
+     * Suspend removes inactive clients profile from the core in order to increase performance.
+     * Account balances should be first adjusted to zero with BalanceAdjustmentType=SUSPEND.
+     * No open margin positions allowed in the suspended profile.
+     * However in some cases profile can come back with positions and non-zero balances,
+     * if pending orders or pending commands was not processed yet.
+     * Therefore resume operation must be able to merge profile.
+     *
+     * @param uid client id
+     * @return result code
+     */
+    public CommandResultCode suspendUserProfile(long uid) {
+        final UserProfile userProfile = userProfiles.get(uid);
+        if (userProfile == null) {
+            return CommandResultCode.USER_MGMT_USER_NOT_FOUND;
+
+        } else if (userProfile.suspended) {
+            return CommandResultCode.USER_MGMT_USER_ALREADY_SUSPENDED;
+
+        } else if (userProfile.positions.anySatisfy(pos -> !pos.isEmpty())) {
+            return CommandResultCode.USER_MGMT_USER_NOT_SUSPENDABLE_HAS_POSITIONS;
+
+        } else if (userProfile.accounts.anySatisfy(acc -> acc != 0)) {
+            return CommandResultCode.USER_MGMT_USER_NOT_SUSPENDABLE_NON_EMPTY_ACCOUNTS;
+
+        } else {
+            log.debug("Suspended user profile: {}", userProfile);
+            userProfiles.remove(uid);
+            // TODO pool UserProfile objects
+            return CommandResultCode.SUCCESS;
+        }
+    }
+
+    public CommandResultCode resumeUserProfile(long uid) {
+        final UserProfile userProfile = userProfiles.get(uid);
+        if (userProfile == null) {
+            // create new empty user profile
+            // account balance adjustments should be applied later
+            userProfiles.put(uid, new UserProfile(uid, false));
+            return CommandResultCode.SUCCESS;
+        } else if (!userProfile.suspended) {
+            // attempt to resume non-suspended account (or resume twice)
+            return CommandResultCode.USER_MGMT_USER_NOT_SUSPENDED;
+        } else {
+            // resume existing suspended profile (can contain non empty positions or accounts)
+            userProfile.suspended = false;
+            log.debug("Resumed user profile: {}", userProfile);
+            return CommandResultCode.SUCCESS;
+        }
+    }
+
+    /**
+     * Reset module - for testing only
+     */
     public void reset() {
         userProfiles.clear();
     }

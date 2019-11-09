@@ -13,38 +13,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package exchange.core2.core.common.cmd;
+package exchange.core2.core.common;
 
 import lombok.Getter;
 
 @Getter
-public enum OrderCommandType {
-    PLACE_ORDER(1),
-    CANCEL_ORDER(2),
-    MOVE_ORDER(3),
-
-    ORDER_BOOK_REQUEST(6),
-
-    ADD_USER(10),
-    BALANCE_ADJUSTMENT(11),
-    SUSPEND_USER(12),
-    RESUME_USER(13),
-
-    CLEARING_OPERATION(30),
-
-    BINARY_DATA(90),
-
-    PERSIST_STATE_MATCHING(110),
-    PERSIST_STATE_RISK(111),
-
-    NOP(120),
-    RESET(124),
-    SHUTDOWN_SIGNAL(127);
+public enum BalanceAdjustmentType {
+    ADJUSTMENT(0),
+    SUSPEND(1);
 
     private byte code;
 
-    OrderCommandType(int code) {
+    BalanceAdjustmentType(int code) {
         this.code = (byte) code;
     }
 
+    public static BalanceAdjustmentType of(byte code) {
+        switch (code) {
+            case 0:
+                return ADJUSTMENT;
+            case 1:
+                return SUSPEND;
+            default:
+                throw new IllegalArgumentException("unknown BalanceAdjustmentType:" + code);
+        }
+    }
 }

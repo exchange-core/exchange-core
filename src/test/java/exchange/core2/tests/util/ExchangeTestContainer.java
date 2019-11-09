@@ -208,15 +208,18 @@ public final class ExchangeTestContainer implements AutoCloseable {
             }
         };
 
-
         LongStream.rangeClosed(1, numUsers)
                 .forEach(uid -> {
                     api.submitCommand(ApiAddUser.builder().uid(uid).build());
-                    currencies.forEach(currency -> {
-                        int transactionId = currency;
-                        api.submitCommand(ApiAdjustUserBalance.builder().uid(uid).transactionId(transactionId).amount(10_0000_0000L).currency(currency).build());
-                    });
-                    if (uid > 1000000 && uid % 1000000 == 0) {
+                    long transactionId = 1L;
+                    for (int currency : currencies) {
+                        api.submitCommand(ApiAdjustUserBalance.builder()
+                                .uid(uid)
+                                .transactionId(transactionId++)
+                                .amount(10_0000_0000L)
+                                .currency(currency).build());
+                    }
+                    if (uid > 1_000_000 && uid % 1_000_000 == 0) {
                         log.debug("uid: {} usersLatch: {}", uid, usersLatch.getCount());
                     }
                 });

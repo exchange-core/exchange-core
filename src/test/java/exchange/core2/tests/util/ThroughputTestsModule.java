@@ -15,11 +15,10 @@
  */
 package exchange.core2.tests.util;
 
+import exchange.core2.core.ExchangeApi;
+import exchange.core2.core.common.CoreSymbolSpecification;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
-import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
-import exchange.core2.core.common.CoreSymbolSpecification;
-import exchange.core2.core.ExchangeApi;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -27,9 +26,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 
-import static org.hamcrest.Matchers.is;
+import static junit.framework.TestCase.assertTrue;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThat;
 
 @Slf4j
 public class ThroughputTestsModule {
@@ -62,9 +60,9 @@ public class ThroughputTestsModule {
             for (int j = 0; j < iterations; j++) {
 
                 container.addSymbols(coreSymbolSpecifications);
-                final IntLongHashMap globalBalancesExpected = container.userAccountsInit(usersAccounts);
+                container.userAccountsInit(usersAccounts);
 
-                assertThat(container.totalBalanceReport().getSum(), is(globalBalancesExpected));
+                assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
 
                 final CountDownLatch latchFill = new CountDownLatch(genResult.getApiCommandsFill().size());
                 container.setConsumer(cmd -> latchFill.countDown());
@@ -81,7 +79,7 @@ public class ThroughputTestsModule {
                 log.info("{}. {} MT/s", j, String.format("%.3f", perfMt));
                 perfResults.add(perfMt);
 
-                assertThat(container.totalBalanceReport().getSum(), is(globalBalancesExpected));
+                assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
 
                 // compare orderBook final state just to make sure all commands executed same way
                 // TODO compare events, balances, positions
