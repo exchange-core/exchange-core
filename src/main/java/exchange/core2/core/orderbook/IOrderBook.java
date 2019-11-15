@@ -15,10 +15,7 @@
  */
 package exchange.core2.core.orderbook;
 
-import exchange.core2.core.common.CoreSymbolSpecification;
-import exchange.core2.core.common.L2MarketData;
-import exchange.core2.core.common.Order;
-import exchange.core2.core.common.StateHash;
+import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
@@ -67,10 +64,11 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
      */
     CommandResultCode moveOrder(OrderCommand cmd);
 
-
+    // testing only ?
     int getOrdersNum();
 
-    Order getOrderById(long orderId);
+    // testing only ?
+    IOrder getOrderById(long orderId);
 
     // testing only - validateInternalState without changing state
     void validateInternalState();
@@ -79,7 +77,6 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
      * @return actual implementation
      */
     OrderBookImplType getImplementationType();
-
 
     /**
      * Search for all orders for specified user.<br/>
@@ -94,9 +91,9 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
     CoreSymbolSpecification getSymbolSpec();
 
-    Stream<Order> askOrdersStream(boolean sorted);
+    Stream<? extends IOrder> askOrdersStream(boolean sorted);
 
-    Stream<Order> bidOrdersStream(boolean sorted);
+    Stream<? extends IOrder> bidOrdersStream(boolean sorted);
 
     /**
      * State hash for order books is implementation-agnostic
@@ -107,6 +104,7 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
         return hashCode();
     }
 
+    // TODO get rid of buckets
     static int hash(final IOrdersBucket[] askBuckets, final IOrdersBucket[] bidBuckets, final CoreSymbolSpecification symbolSpec) {
         final int a = Arrays.hashCode(askBuckets);
         final int b = Arrays.hashCode(bidBuckets);
@@ -122,6 +120,13 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
                 checkStreamsEqual(me.bidOrdersStream(true), other.bidOrdersStream(true));
     }
 
+    /**
+     * Checks if both streams contain same elements in same order
+     *
+     * @param s1 stream 1
+     * @param s2 stream 2
+     * @return true if streams contain same elements in same order
+     */
     static boolean checkStreamsEqual(final Stream<?> s1, final Stream<?> s2) {
         final Iterator<?> iter1 = s1.iterator(), iter2 = s2.iterator();
         while (iter1.hasNext() && iter2.hasNext()) {
@@ -213,6 +218,8 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
                 return new OrderBookNaiveImpl(bytes);
             case FAST:
                 return new OrderBookFastImpl(bytes);
+            case DIRECT:
+                return new OrderBookDirectImpl(bytes);
             default:
                 throw new IllegalArgumentException();
         }
@@ -221,7 +228,8 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     @Getter
     enum OrderBookImplType {
         NAIVE(0),
-        FAST(1);
+        FAST(1),
+        DIRECT(2);
 
         private byte code;
 
@@ -235,6 +243,8 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
                     return NAIVE;
                 case 1:
                     return FAST;
+                case 2:
+                    return DIRECT;
                 default:
                     throw new IllegalArgumentException("unknown OrderBookImplType:" + code);
             }

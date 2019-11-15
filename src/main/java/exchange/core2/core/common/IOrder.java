@@ -21,6 +21,8 @@ public interface IOrder {
 
     long getSize();
 
+    long getFilled();
+
     long getUid();
 
     OrderAction getAction();

@@ -15,7 +15,10 @@
  */
 package exchange.core2.core.orderbook;
 
-import exchange.core2.core.common.*;
+import exchange.core2.core.common.IOrder;
+import exchange.core2.core.common.MatcherEventType;
+import exchange.core2.core.common.MatcherTradeEvent;
+import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.utils.SerializationUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -34,7 +37,13 @@ public final class OrderBookEventsHelper {
 
     //private OrderCommand currentCmd;
 
-    public static void sendTradeEvent(OrderCommand cmd, IOrder activeOrder, Order matchingOrder, boolean fm, boolean fma, long price, long v) {
+    public static void sendTradeEvent(
+            OrderCommand cmd,
+            IOrder activeOrder,
+            IOrder matchingOrder,
+            boolean makerCompleted,
+            boolean takerCompleted,
+            long size) {
 
 //        log.debug("** sendTradeEvent: active id:{} matched id:{}", activeOrder.orderId, matchingOrder.orderId);
 //        log.debug("** sendTradeEvent: price:{} v:{}", price, v);
@@ -45,21 +54,21 @@ public final class OrderBookEventsHelper {
 
         event.activeOrderId = activeOrder.getOrderId();
         event.activeOrderUid = activeOrder.getUid();
-        event.activeOrderCompleted = fma;
+        event.activeOrderCompleted = takerCompleted;
         event.activeOrderAction = activeOrder.getAction();
 //        event.activeOrderSeq = activeOrder.seq;
 
-        event.matchedOrderId = matchingOrder.orderId;
-        event.matchedOrderUid = matchingOrder.uid;
-        event.matchedOrderCompleted = fm;
+        event.matchedOrderId = matchingOrder.getOrderId();
+        event.matchedOrderUid = matchingOrder.getUid();
+        event.matchedOrderCompleted = makerCompleted;
 
-        event.price = price;
-        event.size = v;
+        event.price = matchingOrder.getPrice();
+        event.size = size;
         event.timestamp = activeOrder.getTimestamp();
         event.symbol = cmd.symbol;
 
         // set order reserved price for correct released EBids
-        event.bidderHoldPrice = activeOrder.getAction() == OrderAction.BID ? activeOrder.getReserveBidPrice() : matchingOrder.reserveBidPrice;
+        event.bidderHoldPrice = activeOrder.getAction() == OrderAction.BID ? activeOrder.getReserveBidPrice() : matchingOrder.getReserveBidPrice();
 
         event.nextEvent = cmd.matcherEvent;
         cmd.matcherEvent = event;
@@ -67,23 +76,23 @@ public final class OrderBookEventsHelper {
 //        log.debug(" currentCmd.matcherEvent={}", currentCmd.matcherEvent);
     }
 
-    public static void sendCancelEvent(OrderCommand cmd, Order order) {
+    public static void sendCancelEvent(OrderCommand cmd, IOrder order) {
 //        log.debug("Cancel ");
         final MatcherTradeEvent event = newMatcherEvent();
         event.eventType = MatcherEventType.CANCEL;
-        event.activeOrderId = order.orderId;
-        event.activeOrderUid = order.uid;
+        event.activeOrderId = order.getOrderId();
+        event.activeOrderUid = order.getUid();
         event.activeOrderCompleted = false;
-        event.activeOrderAction = order.action;
+        event.activeOrderAction = order.getAction();
 //        event.activeOrderSeq = order.seq;
         event.matchedOrderId = 0;
         event.matchedOrderCompleted = false;
-        event.price = order.price;
-        event.size = order.size - order.filled;
+        event.price = order.getPrice();
+        event.size = order.getSize() - order.getFilled();
         event.timestamp = cmd.timestamp;
         event.symbol = cmd.symbol;
 
-        event.bidderHoldPrice = order.reserveBidPrice; // set order reserved price for correct released EBids
+        event.bidderHoldPrice = order.getReserveBidPrice(); // set order reserved price for correct released EBids
 
         event.nextEvent = cmd.matcherEvent;
         cmd.matcherEvent = event;

@@ -730,7 +730,7 @@ public final class OrderBookFastImpl implements IOrderBook {
      * @return - order
      */
     @Override
-    public Order getOrderById(long orderId) {
+    public IOrder getOrderById(long orderId) {
         IOrdersBucket bucket = idMapToBucket.get(orderId);
         return (bucket != null) ? bucket.findOrder(orderId) : null;
     }
@@ -972,7 +972,7 @@ public final class OrderBookFastImpl implements IOrderBook {
     }
 
     @Override
-    public Stream<Order> askOrdersStream(final boolean sorted) {
+    public Stream<IOrder> askOrdersStream(final boolean sorted) {
         // TODO sorted version is slow
         final Stream<IOrdersBucket> hotStream = sorted ? hotAskBuckets.toSortedList().stream() : hotAskBuckets.stream();
         return Stream.concat(hotStream, farAskBuckets.values().stream())
@@ -980,7 +980,7 @@ public final class OrderBookFastImpl implements IOrderBook {
     }
 
     @Override
-    public Stream<Order> bidOrdersStream(final boolean sorted) {
+    public Stream<IOrder> bidOrdersStream(final boolean sorted) {
         // TODO sorted version is slow
         final Stream<IOrdersBucket> hotStream = sorted ? hotBidBuckets.toSortedList().reverseThis().stream() : hotBidBuckets.stream();
         return Stream.concat(hotStream, farBidBuckets.values().stream())

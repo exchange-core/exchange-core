@@ -299,7 +299,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
      * @return order
      */
     @Override
-    public Order getOrderById(long orderId) {
+    public IOrder getOrderById(long orderId) {
         return idMap.get(orderId);
     }
 
@@ -379,12 +379,12 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     }
 
     @Override
-    public Stream<Order> askOrdersStream(final boolean sorted) {
+    public Stream<IOrder> askOrdersStream(final boolean sorted) {
         return askBuckets.values().stream().flatMap(bucket -> bucket.getAllOrders().stream());
     }
 
     @Override
-    public Stream<Order> bidOrdersStream(final boolean sorted) {
+    public Stream<IOrder> bidOrdersStream(final boolean sorted) {
         return bidBuckets.values().stream().flatMap(bucket -> bucket.getAllOrders().stream());
     }
 

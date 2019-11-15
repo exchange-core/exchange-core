@@ -193,4 +193,8 @@ public final class OrderCommand implements IOrder {
         return newCmd;
     }
 
+    @Override
+    public long getFilled() {
+        return  0;
+    }
 }
