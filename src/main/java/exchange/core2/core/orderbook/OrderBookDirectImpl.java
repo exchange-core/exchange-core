@@ -27,6 +27,7 @@ import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
+import org.eclipse.collections.impl.set.mutable.primitive.LongHashSet;
 
 import java.util.*;
 import java.util.stream.Stream;
@@ -392,7 +393,76 @@ public class OrderBookDirectImpl implements IOrderBook {
 
     @Override
     public void validateInternalState() {
-        // TODO
+        final LongHashSet ordersInChain = new LongHashSet(orderIdIndex.size());
+        validateChain(this.bestAskOrder, true, ordersInChain);
+        validateChain(this.bestBidOrder, false, ordersInChain);
+
+        if (!orderIdIndex.keySet().equals(ordersInChain)) {
+            thrw("orderIdIndex does not match to the chained orders");
+        }
+    }
+
+    private void validateChain(DirectOrder order, boolean asksChain, LongHashSet ordersInChain) {
+
+        if (order != null && order.next != null) {
+            thrw("best order has not-null next reference");
+        }
+
+        long lastPrice = -1;
+        long expectedBucketVolume = 0;
+        DirectOrder lastOrder = null;
+
+        while (order != null) {
+
+            if (ordersInChain.contains(order.orderId)) {
+                thrw("duplicate orderid in the chain");
+            }
+            ordersInChain.add(order.orderId);
+
+            expectedBucketVolume += order.size - order.filled;
+
+            if (lastOrder != null && order.next != lastOrder) {
+                thrw("incorrect next reference");
+            }
+            if (order.parent.tail.price != order.price) {
+                thrw("price of parent.tail differs");
+            }
+            if (lastPrice != -1 && order.price != lastPrice) {
+                if (asksChain ^ order.price > lastPrice) {
+                    thrw("unexpected price change direction");
+                }
+                if (order.next.parent == order.parent) {
+                    thrw("unexpected price change within same bucket");
+                }
+            }
+
+            if (order.parent.tail == order) {
+                if (order.parent.volume != expectedBucketVolume) {
+                    thrw("bucket volume does not match orders chain sizes");
+                }
+                if (order.prev != null && order.prev.price == order.price) {
+                    thrw("previous bucket has the same price");
+                }
+                expectedBucketVolume = 0;
+            }
+
+            if (asksChain ^ order.action == OrderAction.ASK) {
+                thrw("not expected order action");
+            }
+
+            lastPrice = order.price;
+            lastOrder = order;
+            order = order.prev;
+        }
+
+        // validate last order
+        if (lastOrder != null && lastOrder.parent.tail != lastOrder) {
+            thrw("last order is not a tail");
+        }
+    }
+
+    public void thrw(final String msg) {
+        throw new IllegalStateException(msg);
     }
 
     @Override

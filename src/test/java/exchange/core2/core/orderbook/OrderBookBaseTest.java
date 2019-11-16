@@ -112,7 +112,7 @@ public abstract class OrderBookBaseTest {
      * In the end of each test remove all orders by sending market orders wit proper size.
      * Check order book is empty.
      */
-    @After
+  //  @After
     public void after() {
         clearOrderBook();
     }
@@ -125,7 +125,7 @@ public abstract class OrderBookBaseTest {
         long askSum = Arrays.stream(snapshot.askVolumes).sum();
         IOrderBook.processCommand(orderBook, OrderCommand.newOrder(IOC, 100000000000L, -1, MAX_PRICE, MAX_PRICE, askSum, BID));
 
-//        log.debug("{}", dumpOrderBook(orderBook.getL2MarketDataSnapshot(100000)));
+        log.debug("{}", orderBook.getL2MarketDataSnapshot(-1).dumpOrderBook());
 
         orderBook.validateInternalState();
 
@@ -133,7 +133,7 @@ public abstract class OrderBookBaseTest {
         long bidSum = Arrays.stream(snapshot.bidVolumes).sum();
         IOrderBook.processCommand(orderBook, OrderCommand.newOrder(IOC, 100000000001L, -2, 1, 0, bidSum, ASK));
 
-//        log.debug("{}", dumpOrderBook(orderBook.getL2MarketDataSnapshot(100000)));
+        log.debug("{}", orderBook.getL2MarketDataSnapshot(-1).dumpOrderBook());
 
         assertThat(orderBook.getL2MarketDataSnapshot(-1).askSize, is(0));
         assertThat(orderBook.getL2MarketDataSnapshot(-1).bidSize, is(0));
