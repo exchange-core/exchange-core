@@ -18,10 +18,8 @@ package exchange.core2.core.orderbook;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
+import lombok.*;
+import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
@@ -33,6 +31,7 @@ import java.util.*;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
+@Slf4j
 public class OrderBookDirectImpl implements IOrderBook {
 
     // buckets
@@ -52,6 +51,8 @@ public class OrderBookDirectImpl implements IOrderBook {
     // Object pools
     private final ArrayDeque<DirectOrder> ordersPool = new ArrayDeque<>(4096);
     // private final ArrayDeque<Bucket> bucketsPool = new ArrayDeque<>(4096);
+
+    private List<DirectOrder> skipOwnOrdersBuffer = new ArrayList<>();
 
     public OrderBookDirectImpl(final CoreSymbolSpecification symbolSpec) {
         this.symbolSpec = symbolSpec;
@@ -131,15 +132,8 @@ public class OrderBookDirectImpl implements IOrderBook {
     }
 
 
-    private long tryMatchInstantly(
-            final IOrder takerOrder,
-            final OrderCommand triggerCmd) {
-
-        long remainingSize = takerOrder.getSize() - takerOrder.getFilled();
-
-        if (remainingSize == 0) {
-            return takerOrder.getFilled();
-        }
+    private long tryMatchInstantly(final IOrder takerOrder,
+                                   final OrderCommand triggerCmd) {
 
         final long limitPrice = takerOrder.getPrice();
 
@@ -157,17 +151,28 @@ public class OrderBookDirectImpl implements IOrderBook {
             }
         }
 
-        DirectOrder takerOwnOrders = null;
+        long remainingSize = takerOrder.getSize() - takerOrder.getFilled();
+
+        if (remainingSize == 0) {
+            return takerOrder.getFilled();
+        }
+
         DirectOrder priceBucketTail = makerOrder.parent.tail;
+
+        log.debug("MATCHING taker: {} remainingSize={}", takerOrder, remainingSize);
 
         // iterate through all orders
         do {
+
+            log.debug("  matching from maker order: {}", makerOrder);
 
             if (makerOrder.uid != takerOrder.getUid()) {
                 // calculate exact volume can fill for this order
                 // log.debug("volumeToCollect={} order: s{} f{}", volumeToCollect, order.size, order.filled);
                 final long tradeSize = Math.min(remainingSize, makerOrder.size - makerOrder.filled);
                 // log.debug("totalMatchingVolume={} v={}", totalMatchingVolume, v);
+
+                log.debug("  tradeSize: {} MIN(remainingSize={}, makerOrder={})", tradeSize, remainingSize, makerOrder.size - makerOrder.filled);
 
                 makerOrder.filled += tradeSize;
                 makerOrder.parent.volume -= tradeSize;
@@ -179,6 +184,8 @@ public class OrderBookDirectImpl implements IOrderBook {
                 OrderBookEventsHelper.sendTradeEvent(triggerCmd, takerOrder, makerOrder, makerCompleted, remainingSize == 0, tradeSize);
 
                 if (!makerCompleted) {
+                    // maker not completed -> no unmatched volume left, can exit matching loop
+                    log.debug("  not completed, exit");
                     break;
                 }
 
@@ -186,11 +193,12 @@ public class OrderBookDirectImpl implements IOrderBook {
                 orderIdIndex.remove(makerOrder.orderId);
                 ordersPool.add(makerOrder);
 
+
             } else {
+                log.debug("  self UID");
                 // attach own orders to separate chain for later processing
-                makerOrder.next = takerOwnOrders;
-                takerOwnOrders = makerOrder;
-                // TODO remove price
+                // for now just pretend order is gone
+                skipOwnOrdersBuffer.add(makerOrder);
             }
 
             if (makerOrder == priceBucketTail) {
@@ -198,32 +206,42 @@ public class OrderBookDirectImpl implements IOrderBook {
                 final NavigableMap<Long, Bucket> buckets = isBidAction ? askPriceBuckets : bidPriceBuckets;
                 buckets.remove(makerOrder.price);
 
-                // set next price tail
-                priceBucketTail = makerOrder.parent.tail;
+                log.debug("  removed price bucket for {}", makerOrder.price);
+
+                // set next price tail (if there is next price)
+                if (makerOrder.prev != null) {
+                    priceBucketTail = makerOrder.prev.parent.tail;
+                }
             }
 
             // switch to next order
             makerOrder = makerOrder.prev; // can be null
 
-        } while (makerOrder != null && remainingSize > 0);
+        } while (makerOrder != null
+                && remainingSize > 0
+                && (isBidAction ? makerOrder.price <= limitPrice : makerOrder.price >= limitPrice));
 
         // break chain after last order
         if (makerOrder != null) {
             makerOrder.next = null;
         }
 
-        // update best orders order
+        log.debug("makerOrder = {}", makerOrder);
+        log.debug("makerOrder.parent = {}", makerOrder != null ? makerOrder.parent : null);
+
+        // update best orders reference
         if (isBidAction) {
             bestAskOrder = makerOrder;
         } else {
             bestBidOrder = makerOrder;
         }
 
-        // process chain of own orders
-        while (takerOwnOrders != null) {
+        // process skipped own orders
+        if (!skipOwnOrdersBuffer.isEmpty()) {
             // TODO not always correct because will insert into the end of the queue
-            insertOrder(takerOwnOrders);
-            takerOwnOrders = takerOwnOrders.next;
+            skipOwnOrdersBuffer.forEach(this::insertOrder);
+            skipOwnOrdersBuffer.clear();
+            //log.debug("self uid insert back: {}", skipOwnOrders);
         }
 
         // return filled amount
@@ -234,13 +252,12 @@ public class OrderBookDirectImpl implements IOrderBook {
     @Override
     public boolean cancelOrder(OrderCommand cmd) {
 
-        final long orderId = cmd.orderId;
-
-        final DirectOrder order = orderIdIndex.get(orderId);
+        // TODO avoid double lookup ?
+        final DirectOrder order = orderIdIndex.get(cmd.orderId);
         if (order == null || order.uid != cmd.uid) {
             return false;
         }
-
+        orderIdIndex.remove(cmd.orderId);
         removeOrder(order);
 
         OrderBookEventsHelper.sendCancelEvent(cmd, order);
@@ -325,11 +342,13 @@ public class OrderBookDirectImpl implements IOrderBook {
 
         if (toBucket != null) {
             // update tail if bucket already exists
+//            log.debug(">>>> increment bucket {} from {} to {}", toBucket.tail.price, toBucket.volume, toBucket.volume +  order.size - order.filled);
+
             toBucket.volume += order.size - order.filled;
-            toBucket.tail = order;
             final DirectOrder oldTail = toBucket.tail; // always exists, not null
             final DirectOrder prevOrder = oldTail.prev; // can be null
             // update neighbors
+            toBucket.tail = order;
             oldTail.prev = order;
             if (prevOrder != null) {
                 prevOrder.next = order;
@@ -345,19 +364,19 @@ public class OrderBookDirectImpl implements IOrderBook {
             final Bucket newBucket = new Bucket(order);
             order.parent = newBucket;
             buckets.put(order.price, newBucket);
-            final Map.Entry<Long, Bucket> floorEntry = buckets.floorEntry(order.price);
-            if (floorEntry != null) {
-                // update tail
-                final Bucket floorBucket = floorEntry.getValue();
-                DirectOrder floorTail = floorBucket.tail;
-                final DirectOrder prevOrder = floorTail.prev; // can be null
+            final Map.Entry<Long, Bucket> lowerEntry = buckets.lowerEntry(order.price);
+            if (lowerEntry != null) {
+                // attache ne bucket and event to the lower entry
+                final Bucket lowerBucket = lowerEntry.getValue();
+                DirectOrder lowerTail = lowerBucket.tail;
+                final DirectOrder prevOrder = lowerTail.prev; // can be null
                 // update neighbors
-                floorTail.prev = order;
+                lowerTail.prev = order;
                 if (prevOrder != null) {
                     prevOrder.next = order;
                 }
                 // update self
-                order.next = floorTail;
+                order.next = lowerTail;
                 order.prev = prevOrder;
             } else {
 
@@ -394,19 +413,31 @@ public class OrderBookDirectImpl implements IOrderBook {
     @Override
     public void validateInternalState() {
         final LongHashSet ordersInChain = new LongHashSet(orderIdIndex.size());
-        validateChain(this.bestAskOrder, true, ordersInChain);
-        validateChain(this.bestBidOrder, false, ordersInChain);
+        validateChain(true, ordersInChain);
+        validateChain(false, ordersInChain);
+//        log.debug("ordersInChain={}", ordersInChain);
+//        log.debug("orderIdIndex={}", orderIdIndex);
 
+        log.debug("orderIdIndex.keySet()={}", orderIdIndex.keySet().toSortedArray());
+        log.debug("ordersInChain=        {}", ordersInChain.toSortedArray());
         if (!orderIdIndex.keySet().equals(ordersInChain)) {
             thrw("orderIdIndex does not match to the chained orders");
         }
     }
 
-    private void validateChain(DirectOrder order, boolean asksChain, LongHashSet ordersInChain) {
+    private void validateChain(boolean asksChain, LongHashSet ordersInChain) {
+
+        // buckets index
+        final NavigableMap<Long, Bucket> buckets = asksChain ? askPriceBuckets : bidPriceBuckets;
+        final LongObjectHashMap<Bucket> bucketsFoundInChain = new LongObjectHashMap<>(buckets.size());
+
+        DirectOrder order = asksChain ? bestAskOrder : bestBidOrder;
 
         if (order != null && order.next != null) {
             thrw("best order has not-null next reference");
         }
+
+//        log.debug("----------- validating {} --------- ", asksChain ? OrderAction.ASK : OrderAction.BID);
 
         long lastPrice = -1;
         long expectedBucketVolume = 0;
@@ -419,6 +450,7 @@ public class OrderBookDirectImpl implements IOrderBook {
             }
             ordersInChain.add(order.orderId);
 
+            //log.debug("id:{} p={} +{}", order.orderId, order.price, order.size - order.filled);
             expectedBucketVolume += order.size - order.filled;
 
             if (lastOrder != null && order.next != lastOrder) {
@@ -446,6 +478,13 @@ public class OrderBookDirectImpl implements IOrderBook {
                 expectedBucketVolume = 0;
             }
 
+            final Bucket knownBucket = bucketsFoundInChain.get(order.price);
+            if (knownBucket == null) {
+                bucketsFoundInChain.put(order.price, order.parent);
+            } else if (knownBucket != order.parent) {
+                thrw("found two different buckets having same price");
+            }
+
             if (asksChain ^ order.action == OrderAction.ASK) {
                 thrw("not expected order action");
             }
@@ -458,6 +497,15 @@ public class OrderBookDirectImpl implements IOrderBook {
         // validate last order
         if (lastOrder != null && lastOrder.parent.tail != lastOrder) {
             thrw("last order is not a tail");
+        }
+
+        buckets.forEach((price, bucket) -> {
+            if (bucketsFoundInChain.remove(price) != bucket) {
+                thrw("bucket in the price-tree not found in the chain");
+            }
+        });
+        if (!bucketsFoundInChain.isEmpty()) {
+            thrw("found buckets in the chain that not discoverable from the price-tree");
         }
     }
 
@@ -693,6 +741,7 @@ public class OrderBookDirectImpl implements IOrderBook {
 
     }
 
+    @ToString
     private static class Bucket {
         long volume;
         DirectOrder tail;
