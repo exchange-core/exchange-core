@@ -109,7 +109,7 @@ public abstract class OrderBookBaseTest {
      */
     @After
     public void after() {
-        //clearOrderBook();
+        clearOrderBook();
     }
 
     void clearOrderBook() {

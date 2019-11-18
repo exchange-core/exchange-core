@@ -52,8 +52,6 @@ public class OrderBookDirectImpl implements IOrderBook {
     private final ArrayDeque<DirectOrder> ordersPool = new ArrayDeque<>(4096);
     // private final ArrayDeque<Bucket> bucketsPool = new ArrayDeque<>(4096);
 
-    private List<DirectOrder> skipOwnOrdersBuffer = new ArrayList<>();
-
     public OrderBookDirectImpl(final CoreSymbolSpecification symbolSpec) {
         this.symbolSpec = symbolSpec;
     }
@@ -159,20 +157,20 @@ public class OrderBookDirectImpl implements IOrderBook {
 
         DirectOrder priceBucketTail = makerOrder.parent.tail;
 
-        log.debug("MATCHING taker: {} remainingSize={}", takerOrder, remainingSize);
+        // stack of own orders
+        Deque<DirectOrder> skipOwnOrdersBuffer = new ArrayDeque<>(4);
+
+//        log.debug("MATCHING taker: {} remainingSize={}", takerOrder, remainingSize);
 
         // iterate through all orders
         do {
 
-            log.debug("  matching from maker order: {}", makerOrder);
+//            log.debug("  matching from maker order: {}", makerOrder);
 
             if (makerOrder.uid != takerOrder.getUid()) {
                 // calculate exact volume can fill for this order
-                // log.debug("volumeToCollect={} order: s{} f{}", volumeToCollect, order.size, order.filled);
                 final long tradeSize = Math.min(remainingSize, makerOrder.size - makerOrder.filled);
-                // log.debug("totalMatchingVolume={} v={}", totalMatchingVolume, v);
-
-                log.debug("  tradeSize: {} MIN(remainingSize={}, makerOrder={})", tradeSize, remainingSize, makerOrder.size - makerOrder.filled);
+//                log.debug("  tradeSize: {} MIN(remainingSize={}, makerOrder={})", tradeSize, remainingSize, makerOrder.size - makerOrder.filled);
 
                 makerOrder.filled += tradeSize;
                 makerOrder.parent.volume -= tradeSize;
@@ -185,7 +183,7 @@ public class OrderBookDirectImpl implements IOrderBook {
 
                 if (!makerCompleted) {
                     // maker not completed -> no unmatched volume left, can exit matching loop
-                    log.debug("  not completed, exit");
+//                    log.debug("  not completed, exit");
                     break;
                 }
 
@@ -195,10 +193,12 @@ public class OrderBookDirectImpl implements IOrderBook {
 
 
             } else {
-                log.debug("  self UID");
+//                log.debug("  self UID");
                 // attach own orders to separate chain for later processing
                 // for now just pretend order is gone
-                skipOwnOrdersBuffer.add(makerOrder);
+                skipOwnOrdersBuffer.addFirst(makerOrder);
+                // for consistency remove size from the bucket
+                makerOrder.parent.volume -= makerOrder.size - makerOrder.filled;
             }
 
             if (makerOrder == priceBucketTail) {
@@ -206,7 +206,7 @@ public class OrderBookDirectImpl implements IOrderBook {
                 final NavigableMap<Long, Bucket> buckets = isBidAction ? askPriceBuckets : bidPriceBuckets;
                 buckets.remove(makerOrder.price);
 
-                log.debug("  removed price bucket for {}", makerOrder.price);
+//                log.debug("  removed price bucket for {}", makerOrder.price);
 
                 // set next price tail (if there is next price)
                 if (makerOrder.prev != null) {
@@ -226,8 +226,8 @@ public class OrderBookDirectImpl implements IOrderBook {
             makerOrder.next = null;
         }
 
-        log.debug("makerOrder = {}", makerOrder);
-        log.debug("makerOrder.parent = {}", makerOrder != null ? makerOrder.parent : null);
+//        log.debug("makerOrder = {}", makerOrder);
+//        log.debug("makerOrder.parent = {}", makerOrder != null ? makerOrder.parent : null);
 
         // update best orders reference
         if (isBidAction) {
@@ -237,15 +237,55 @@ public class OrderBookDirectImpl implements IOrderBook {
         }
 
         // process skipped own orders
+        // the order processing is reversed
         if (!skipOwnOrdersBuffer.isEmpty()) {
-            // TODO not always correct because will insert into the end of the queue
-            skipOwnOrdersBuffer.forEach(this::insertOrder);
+            if (isBidAction) {
+                skipOwnOrdersBuffer.forEach(this::insertOwnAskOrderIntoFront);
+            } else {
+                skipOwnOrdersBuffer.forEach(this::insertOwnBidOrderIntoFront);
+            }
             skipOwnOrdersBuffer.clear();
             //log.debug("self uid insert back: {}", skipOwnOrders);
         }
 
         // return filled amount
         return takerOrder.getSize() - remainingSize;
+    }
+
+    private void insertOwnAskOrderIntoFront(DirectOrder selfOrder) {
+        //                log.debug("+ insert  self uid order {}", selfOrder);
+        selfOrder.next = null;
+        selfOrder.prev = bestAskOrder;
+        if (bestAskOrder != null) {
+            bestAskOrder.next = selfOrder;
+        }
+        bestAskOrder = selfOrder;
+        Bucket bucket = askPriceBuckets.get(selfOrder.price);
+        if (bucket == null) {
+            bucket = new Bucket(selfOrder);
+            askPriceBuckets.put(selfOrder.price, bucket);
+        } else {
+            bucket.volume += selfOrder.size - selfOrder.filled;
+        }
+        selfOrder.parent = bucket;
+    }
+
+    private void insertOwnBidOrderIntoFront(DirectOrder selfOrder) {
+        //                log.debug("+ insert  self uid order {}", selfOrder);
+        selfOrder.next = null;
+        selfOrder.prev = bestBidOrder;
+        if (bestBidOrder != null) {
+            bestBidOrder.next = selfOrder;
+        }
+        bestBidOrder = selfOrder;
+        Bucket bucket = bidPriceBuckets.get(selfOrder.price);
+        if (bucket == null) {
+            bucket = new Bucket(selfOrder);
+            bidPriceBuckets.put(selfOrder.price, bucket);
+        } else {
+            bucket.volume += selfOrder.size - selfOrder.filled;
+        }
+        selfOrder.parent = bucket;
     }
 
 
@@ -336,6 +376,8 @@ public class OrderBookDirectImpl implements IOrderBook {
 
     private void insertOrder(final DirectOrder order) {
 
+//        log.debug("   + insert order: {}", order);
+
         final boolean isAsk = order.action == OrderAction.ASK;
         final NavigableMap<Long, Bucket> buckets = isAsk ? askPriceBuckets : bidPriceBuckets;
         final Bucket toBucket = buckets.get(order.price);
@@ -400,6 +442,18 @@ public class OrderBookDirectImpl implements IOrderBook {
         }
     }
 
+    private void insertPriorityOrder(final DirectOrder order) {
+        log.debug("   + insert priority order: {}", order);
+
+        final boolean isAsk = order.action == OrderAction.ASK;
+        final NavigableMap<Long, Bucket> buckets = isAsk ? askPriceBuckets : bidPriceBuckets;
+        final Bucket toBucket = buckets.get(order.price);
+
+        if (toBucket != null) {
+
+        }
+    }
+
     @Override
     public int getOrdersNum() {
         return orderIdIndex.size();
@@ -418,8 +472,8 @@ public class OrderBookDirectImpl implements IOrderBook {
 //        log.debug("ordersInChain={}", ordersInChain);
 //        log.debug("orderIdIndex={}", orderIdIndex);
 
-        log.debug("orderIdIndex.keySet()={}", orderIdIndex.keySet().toSortedArray());
-        log.debug("ordersInChain=        {}", ordersInChain.toSortedArray());
+//        log.debug("orderIdIndex.keySet()={}", orderIdIndex.keySet().toSortedArray());
+//        log.debug("ordersInChain=        {}", ordersInChain.toSortedArray());
         if (!orderIdIndex.keySet().equals(ordersInChain)) {
             thrw("orderIdIndex does not match to the chained orders");
         }
@@ -508,6 +562,17 @@ public class OrderBookDirectImpl implements IOrderBook {
             thrw("found buckets in the chain that not discoverable from the price-tree");
         }
     }
+
+//    private void dumpNearOrders(final DirectOrder order, int maxNeighbors) {
+//        DirectOrder p = order;
+//        for (int i = 0; i < maxNeighbors && p.prev != null; i++) {
+//            p = p.prev;
+//        }
+//        for (int i = 0; i < maxNeighbors * 2 && p != null; i++) {
+//            log.debug(((p == order) ? "*" : " ") + "  {}\t -> \t{}", p, p.parent);
+//            p = p.next;
+//        }
+//    }
 
     public void thrw(final String msg) {
         throw new IllegalStateException(msg);
