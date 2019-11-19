@@ -118,18 +118,6 @@ public class OrderBookDirectImpl implements IOrderBook {
         return CommandResultCode.SUCCESS;
     }
 
-
-    /**
-     * Get bucket by order action
-     *
-     * @param action - action
-     * @return bucket - navigable map
-     */
-    private NavigableMap<Long, Bucket> getBucketsByAction(OrderAction action) {
-        return action == OrderAction.ASK ? askPriceBuckets : bidPriceBuckets;
-    }
-
-
     private long tryMatchInstantly(final IOrder takerOrder,
                                    final OrderCommand triggerCmd) {
 
@@ -158,7 +146,7 @@ public class OrderBookDirectImpl implements IOrderBook {
         DirectOrder priceBucketTail = makerOrder.parent.tail;
 
         // stack of own orders
-        Deque<DirectOrder> skipOwnOrdersBuffer = new ArrayDeque<>(4);
+        DirectOrder skipOwnOrders = null;
 
 //        log.debug("MATCHING taker: {} remainingSize={}", takerOrder, remainingSize);
 
@@ -196,7 +184,8 @@ public class OrderBookDirectImpl implements IOrderBook {
 //                log.debug("  self UID");
                 // attach own orders to separate chain for later processing
                 // for now just pretend order is gone
-                skipOwnOrdersBuffer.addFirst(makerOrder);
+                makerOrder.next = skipOwnOrders;
+                skipOwnOrders = makerOrder;
                 // for consistency remove size from the bucket
                 makerOrder.parent.volume -= makerOrder.size - makerOrder.filled;
             }
@@ -237,14 +226,15 @@ public class OrderBookDirectImpl implements IOrderBook {
         }
 
         // process skipped own orders
-        // the order processing is reversed
-        if (!skipOwnOrdersBuffer.isEmpty()) {
+        // the insertion order is naturally reversed (as expected)
+        while (skipOwnOrders != null) {
+            final DirectOrder toInsert = skipOwnOrders;
+            skipOwnOrders = skipOwnOrders.next;
             if (isBidAction) {
-                skipOwnOrdersBuffer.forEach(this::insertOwnAskOrderIntoFront);
+                insertOwnAskOrderIntoFront(toInsert);
             } else {
-                skipOwnOrdersBuffer.forEach(this::insertOwnBidOrderIntoFront);
+                insertOwnBidOrderIntoFront(toInsert);
             }
-            skipOwnOrdersBuffer.clear();
             //log.debug("self uid insert back: {}", skipOwnOrders);
         }
 
@@ -287,7 +277,6 @@ public class OrderBookDirectImpl implements IOrderBook {
         }
         selfOrder.parent = bucket;
     }
-
 
     @Override
     public boolean cancelOrder(OrderCommand cmd) {
@@ -442,18 +431,6 @@ public class OrderBookDirectImpl implements IOrderBook {
         }
     }
 
-    private void insertPriorityOrder(final DirectOrder order) {
-        log.debug("   + insert priority order: {}", order);
-
-        final boolean isAsk = order.action == OrderAction.ASK;
-        final NavigableMap<Long, Bucket> buckets = isAsk ? askPriceBuckets : bidPriceBuckets;
-        final Bucket toBucket = buckets.get(order.price);
-
-        if (toBucket != null) {
-
-        }
-    }
-
     @Override
     public int getOrdersNum() {
         return orderIdIndex.size();
@@ -564,6 +541,10 @@ public class OrderBookDirectImpl implements IOrderBook {
     }
 
 //    private void dumpNearOrders(final DirectOrder order, int maxNeighbors) {
+//        if (order == null) {
+//            log.debug("no orders");
+//            return;
+//        }
 //        DirectOrder p = order;
 //        for (int i = 0; i < maxNeighbors && p.prev != null; i++) {
 //            p = p.prev;
@@ -674,22 +655,6 @@ public class OrderBookDirectImpl implements IOrderBook {
         bidOrdersStream(true).forEach(order -> order.writeMarshallable(bytes));
     }
 
-    @Override
-    public int hashCode() {
-
-        // TODO wrong
-        IOrdersBucket[] a = this.askPriceBuckets.values().toArray(new IOrdersBucket[0]);
-        IOrdersBucket[] b = this.bidPriceBuckets.values().toArray(new IOrdersBucket[0]);
-//        for(IOrdersBucket ord: a) log.debug("ask {}", ord);
-//        for(IOrdersBucket ord: b) log.debug("bid {}", ord);
-        return IOrderBook.hash(a, b, symbolSpec);
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        return IOrderBook.equals(this, o);
-    }
-
 
     @NoArgsConstructor
     @AllArgsConstructor
@@ -729,7 +694,7 @@ public class OrderBookDirectImpl implements IOrderBook {
         // next order (towards the matching direction, price grows for asks)
         DirectOrder next;
 
-        // previous order (to the tail of the queue)
+        // previous order (to the tail of the queue, lower priority and worst price, towards the matching direction)
         DirectOrder prev;
 
 
@@ -804,6 +769,12 @@ public class OrderBookDirectImpl implements IOrderBook {
                     .isEquals();
         }
 
+        @Override
+        public int stateHash() {
+            return Objects.hash(orderId, action, price, size, reserveBidPrice, filled,
+                    //userCookie,
+                    uid);
+        }
     }
 
     @ToString

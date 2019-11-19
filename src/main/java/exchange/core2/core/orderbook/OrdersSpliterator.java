@@ -32,7 +32,7 @@ public class OrdersSpliterator implements Spliterator<OrderBookDirectImpl.Direct
             return false;
         } else {
             action.accept(pointer);
-            pointer = pointer.next;
+            pointer = pointer.prev;
             return true;
         }
     }

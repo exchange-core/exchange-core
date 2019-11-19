@@ -195,6 +195,11 @@ public final class OrderCommand implements IOrder {
 
     @Override
     public long getFilled() {
-        return  0;
+        return 0;
+    }
+
+    @Override
+    public int stateHash() {
+        throw new UnsupportedOperationException("Command does not represents state");
     }
 }

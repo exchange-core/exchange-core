@@ -409,19 +409,4 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         SerializationUtils.marshallLongMap(askBuckets, bytes);
         SerializationUtils.marshallLongMap(bidBuckets, bytes);
     }
-
-    @Override
-    public int hashCode() {
-        IOrdersBucket[] a = this.askBuckets.values().toArray(new IOrdersBucket[0]);
-        IOrdersBucket[] b = this.bidBuckets.values().toArray(new IOrdersBucket[0]);
-//        for(IOrdersBucket ord: a) log.debug("ask {}", ord);
-//        for(IOrdersBucket ord: b) log.debug("bid {}", ord);
-        return IOrderBook.hash(a, b, symbolSpec);
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        return IOrderBook.equals(this, o);
-    }
-
 }

@@ -23,4 +23,9 @@ public class OrderBookNaiveImplTest extends OrderBookBaseTest {
     protected IOrderBook createNewOrderBook() {
         return new OrderBookNaiveImpl(TestConstants.SYMBOLSPEC_ETH_XBT);
     }
+
+    @Override
+    public void multipleCommandsCompareTest() {
+        // no need to compare with same order book
+    }
 }

@@ -19,14 +19,12 @@ import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
+import exchange.core2.core.utils.HashingUtils;
 import lombok.Getter;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 
-import java.util.Arrays;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Objects;
 import java.util.stream.Stream;
 
 public interface IOrderBook extends WriteBytesMarshallable, StateHash {
@@ -97,44 +95,11 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
     /**
      * State hash for order books is implementation-agnostic
-     * Look {@link IOrderBook#validateInternalState} for complete state validation for de-serialized objects
+     * Look {@link IOrderBook#validateInternalState} for full internal state validation for de-serialized objects
      */
     @Override
     default int stateHash() {
-        return hashCode();
-    }
-
-    // TODO get rid of buckets
-    static int hash(final IOrdersBucket[] askBuckets, final IOrdersBucket[] bidBuckets, final CoreSymbolSpecification symbolSpec) {
-        final int a = Arrays.hashCode(askBuckets);
-        final int b = Arrays.hashCode(bidBuckets);
-        return Objects.hash(a, b, symbolSpec.stateHash());
-    }
-
-    static boolean equals(IOrderBook me, Object o) {
-        if (o == me) return true;
-        if (o == null) return false;
-        if (!(o instanceof IOrderBook)) return false;
-        IOrderBook other = (IOrderBook) o;
-        return checkStreamsEqual(me.askOrdersStream(true), other.askOrdersStream(true)) &&
-                checkStreamsEqual(me.bidOrdersStream(true), other.bidOrdersStream(true));
-    }
-
-    /**
-     * Checks if both streams contain same elements in same order
-     *
-     * @param s1 stream 1
-     * @param s2 stream 2
-     * @return true if streams contain same elements in same order
-     */
-    static boolean checkStreamsEqual(final Stream<?> s1, final Stream<?> s2) {
-        final Iterator<?> iter1 = s1.iterator(), iter2 = s2.iterator();
-        while (iter1.hasNext() && iter2.hasNext()) {
-            if (!iter1.next().equals(iter2.next())) {
-                return false;
-            }
-        }
-        return !iter1.hasNext() && !iter2.hasNext();
+        return HashingUtils.stateHash(this);
     }
 
     /**

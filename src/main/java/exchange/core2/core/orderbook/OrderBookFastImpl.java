@@ -1043,21 +1043,4 @@ public final class OrderBookFastImpl implements IOrderBook {
         SerializationUtils.marshallLongMap(farBidBuckets, bytes);
     }
 
-    @Override
-    public int hashCode() {
-        final IOrdersBucket[] a = getAsksAsArray();
-        final IOrdersBucket[] b = getBidsAsArray();
-//        for(IOrdersBucket ord: a) log.debug("ask {}", ord);
-//        for(IOrdersBucket ord: b) log.debug("bid {}", ord);
-        //log.debug("FAST A:{} B:{}", a, b);
-        return IOrderBook.hash(a, b, symbolSpec);
-        //log.debug("{} {} {} {} {}", hash, hotAskBuckets.size(), farAskBuckets.size(), hotBidBuckets.size(), farBidBuckets.size());
-    }
-
-
-    @Override
-    public boolean equals(Object o) {
-        return IOrderBook.equals(this, o);
-    }
-
 }

@@ -13,11 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package exchange.core2.core.orderbook;
+package exchange.core2.tests.perf.modules;
 
+import exchange.core2.core.orderbook.IOrderBook;
+import exchange.core2.core.orderbook.OrderBookDirectImpl;
 import exchange.core2.tests.util.TestConstants;
 
-public class OrderBookDirectImplTest extends OrderBookBaseTest {
+public class ITOrderBookDirectImpl extends ITOrderBookBase {
 
     @Override
     protected IOrderBook createNewOrderBook() {

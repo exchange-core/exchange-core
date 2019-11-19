@@ -16,11 +16,15 @@
 package exchange.core2.core.utils;
 
 import exchange.core2.core.common.StateHash;
+import exchange.core2.core.orderbook.IOrderBook;
+import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 
 import java.util.*;
+import java.util.stream.Stream;
 
+@Slf4j
 public class HashingUtils {
 
     public static int stateHash(final BitSet bitSet) {
@@ -46,6 +50,56 @@ public class HashingUtils {
         final SortedMap<Long, T> sortedMap = new TreeMap<>();
         map.forEach(sortedMap::put);
         return Arrays.hashCode(sortedMap.entrySet().stream().mapToInt(ent -> Objects.hash(ent.getKey(), ent.getValue().stateHash())).toArray());
+    }
+
+    public static int stateHash(IOrderBook orderBook) {
+        return Objects.hash(
+                stateHashStream(orderBook.askOrdersStream(true)),
+                stateHashStream(orderBook.bidOrdersStream(true)),
+                orderBook.getSymbolSpec().stateHash());
+    }
+
+    public static boolean checkSameOrders(IOrderBook ob1, IOrderBook ob2) {
+        return ob1.getSymbolSpec().equals(ob2.getSymbolSpec())
+                && checkStreamsEqual(ob1.askOrdersStream(true), ob2.askOrdersStream(true))
+                && checkStreamsEqual(ob1.bidOrdersStream(true), ob2.bidOrdersStream(true));
+    }
+
+
+    private static int stateHashStream(Stream<? extends StateHash> stream) {
+        int h = 0;
+        final Iterator<? extends StateHash> iterator = stream.iterator();
+        while (iterator.hasNext()) {
+            h = h * 31 + iterator.next().stateHash();
+        }
+        return h;
+    }
+
+    public static boolean eq(IOrderBook me, Object o) {
+        if (o == me) return true;
+        if (o == null) return false;
+        if (!(o instanceof IOrderBook)) return false;
+        IOrderBook other = (IOrderBook) o;
+        return me.getSymbolSpec().equals(((IOrderBook) o).getSymbolSpec())
+                && checkStreamsEqual(me.askOrdersStream(true), other.askOrdersStream(true))
+                && checkStreamsEqual(me.bidOrdersStream(true), other.bidOrdersStream(true));
+    }
+
+    /**
+     * Checks if both streams contain same elements in same order
+     *
+     * @param s1 stream 1
+     * @param s2 stream 2
+     * @return true if streams contain same elements in same order
+     */
+    public static boolean checkStreamsEqual(final Stream<?> s1, final Stream<?> s2) {
+        final Iterator<?> iter1 = s1.iterator(), iter2 = s2.iterator();
+        while (iter1.hasNext() && iter2.hasNext()) {
+            if (!iter1.next().equals(iter2.next())) {
+                return false;
+            }
+        }
+        return !iter1.hasNext() && !iter2.hasNext();
     }
 
 }

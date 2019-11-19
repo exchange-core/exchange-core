@@ -248,12 +248,11 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
 
     @Override
     public int stateHash() {
+//        log.debug("HASH ME{} : HashingUtils.stateHash(orderBooks)={}", shardId, HashingUtils.stateHash(orderBooks));
         return Objects.hash(
                 shardId,
                 shardMask,
                 binaryCommandsProcessor.stateHash(),
                 HashingUtils.stateHash(orderBooks));
-
-        //log.debug("HASH ME{} : hash={} a={} b={}", shardId, hash, a, b);
     }
 }

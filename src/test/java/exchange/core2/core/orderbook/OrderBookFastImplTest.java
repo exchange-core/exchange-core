@@ -15,25 +15,22 @@
  */
 package exchange.core2.core.orderbook;
 
+import exchange.core2.core.common.L2MarketData;
+import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.tests.util.TestConstants;
-import exchange.core2.tests.util.TestOrdersGenerator;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
-import exchange.core2.core.common.L2MarketData;
-import exchange.core2.core.common.cmd.CommandResultCode;
-import exchange.core2.core.common.cmd.OrderCommand;
 
 import java.util.HashMap;
 import java.util.Map;
 
-import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.notNullValue;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThat;
 import static exchange.core2.core.common.OrderAction.ASK;
 import static exchange.core2.core.common.OrderAction.BID;
 import static exchange.core2.core.common.OrderType.GTC;
 import static exchange.core2.core.common.cmd.CommandResultCode.SUCCESS;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.notNullValue;
+import static org.junit.Assert.assertThat;
 
 @Slf4j
 public class OrderBookFastImplTest extends OrderBookBaseTest {
@@ -44,77 +41,6 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
     protected IOrderBook createNewOrderBook() {
 
         return new OrderBookFastImpl(HOT_PRICES_RANGE, TestConstants.SYMBOLSPEC_EUR_USD);
-    }
-
-
-    @Test
-    public void multipleCommandsCompareTest() {
-
-        long nextUpdateTime = 0;
-
-        int tranNum = 100_000;
-        int targetOrderBookOrders = 500;
-        int numUsers = 500;
-
-        IOrderBook orderBook = new OrderBookFastImpl(4096, TestConstants.SYMBOLSPEC_EUR_USD);
-        //IOrderBook orderBook = new OrderBookNaiveImpl();
-        IOrderBook orderBookRef = new OrderBookNaiveImpl(TestConstants.SYMBOLSPEC_EUR_USD);
-
-        TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(
-                tranNum,
-                targetOrderBookOrders,
-                numUsers,
-                TestOrdersGenerator.UID_PLAIN_MAPPER,
-                0,
-                true,
-                TestOrdersGenerator.createAsyncProgressLogger(tranNum));
-
-        long i = 0;
-        for (OrderCommand cmd : genResult.getCommands()) {
-            i++;
-            cmd.orderId += 100;
-
-            //log.debug("{}. {}", i, cmd);
-
-            cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
-            IOrderBook.processCommand(orderBook, cmd);
-
-            cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
-            CommandResultCode commandResultCode = IOrderBook.processCommand(orderBookRef, cmd);
-
-            assertThat(commandResultCode, is(SUCCESS));
-
-//            if (!orderBook.equals(orderBookRef)) {
-//
-//                if (!orderBook.getAllAskBuckets().equals(orderBookRef.getAllAskBuckets())) {
-//                    log.warn("ASK FAST: {}", orderBook.getAllAskBuckets());
-//                    log.warn("ASK REF : {}", orderBookRef.getAllAskBuckets());
-//                } else {
-//                    log.info("ASK ok");
-//                }
-//
-//                if (!orderBook.getAllBidBuckets().equals(orderBookRef.getAllBidBuckets())) {
-//                    log.warn("BID FAST: {}", orderBook.getAllBidBuckets().stream().map(x -> x.getPrice() + " " + x.getTotalVolume()).toArray());
-//                    log.warn("BID REF : {}", orderBookRef.getAllBidBuckets().stream().map(x -> x.getPrice() + " " + x.getTotalVolume()).toArray());
-//                } else {
-//                    log.info("BID ok");
-//                }
-//
-//            }
-
-//            assertEquals(orderBook.hashCode(), orderBookRef.hashCode());
-            assertEquals(orderBook, orderBookRef);
-
-            // TODO compare events!
-            // TODO compare L2 marketdata
-
-            if (System.currentTimeMillis() > nextUpdateTime) {
-                log.debug("{}% done ({})", (i * 10000 / genResult.getCommands().size()) / 100f, i);
-                nextUpdateTime = System.currentTimeMillis() + 3000;
-            }
-
-        }
-
     }
 
 

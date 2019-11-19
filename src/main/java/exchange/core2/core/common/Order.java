@@ -133,4 +133,8 @@ public final class Order implements WriteBytesMarshallable, IOrder {
                 .isEquals();
     }
 
+    @Override
+    public int stateHash() {
+        return hashCode();
+    }
 }

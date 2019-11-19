@@ -264,7 +264,7 @@ public final class TestOrdersGenerator {
         //log.info("gen: {}", LatencyTools.createLatencyReportFast(session.hdrRecorder.getIntervalHistogram()));
 
         return GenResult.builder().commands(commands)
-                .finalOrderbookHash(orderBook.hashCode())
+                .finalOrderbookHash(orderBook.stateHash())
                 .finalOrderBookSnapshot(l2MarketData)
                 .orderbooksFilledAtSequence((int) session.orderbooksFilledAtSequence)
                 .build();
