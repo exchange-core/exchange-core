@@ -99,8 +99,10 @@ public abstract class OrderBookBaseTest {
                 new L2MarketData(
                         new long[]{81599, 81600, 200954, 201000},
                         new long[]{75, 100, 10, 60},
+                        new long[]{2, 1, 1, 2},
                         new long[]{81593, 81590, 81200, 10000, 9136},
-                        new long[]{40, 21, 20, 13, 2}
+                        new long[]{40, 21, 20, 13, 2},
+                        new long[]{1, 2, 1, 2, 1}
                 )
         );
 
@@ -183,7 +185,7 @@ public abstract class OrderBookBaseTest {
         OrderCommand cmd = OrderCommand.cancel(5, UID_1);
         processAndValidate(cmd, SUCCESS);
 
-        expectedState.setBidVolume(1, 1);
+        expectedState.setBidVolume(1, 1).rollBidOrder(1, false);
         assertEquals(expectedState.build(), orderBook.getL2MarketDataSnapshot(25));
 
         List<MatcherTradeEvent> events = cmd.extractEvents();
@@ -194,7 +196,7 @@ public abstract class OrderBookBaseTest {
         cmd = OrderCommand.cancel(2, UID_1);
         processAndValidate(cmd, SUCCESS);
 
-        expectedState.setAskVolume(0, 25);
+        expectedState.setAskVolume(0, 25).rollAskOrder(0, false);
         assertEquals(expectedState.build(), orderBook.getL2MarketDataSnapshot(25));
 
         events = cmd.extractEvents();
@@ -264,7 +266,7 @@ public abstract class OrderBookBaseTest {
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
 
         // moved
-        L2MarketData expected = expectedState.setBidVolume(1, 41).removeBid(2).build();
+        L2MarketData expected = expectedState.setBidVolume(1, 41).rollBidOrder(1, true).removeBid(2).build();
         assertEquals(expected, snapshot);
 
         List<MatcherTradeEvent> events = cmd.extractEvents();
@@ -486,7 +488,7 @@ public abstract class OrderBookBaseTest {
         List<MatcherTradeEvent> events = cmd.extractEvents();
         assertThat(events.size(), is(0));
 
-        L2MarketData expected = expectedState.setBidVolume(2, 40).build();
+        L2MarketData expected = expectedState.setBidVolume(2, 40).rollBidOrder(2, true).build();
         assertEquals(expected, orderBook.getL2MarketDataSnapshot(10));
 
         // move to marketable price area
@@ -494,7 +496,7 @@ public abstract class OrderBookBaseTest {
         processAndValidate(cmd, SUCCESS);
 
         // moved
-        expected = expectedState.setBidVolume(2, 20).setAskVolume(0, 55).build();
+        expected = expectedState.setBidVolume(2, 20).rollBidOrder(2, false).setAskVolume(0, 55).build();
         assertEquals(expected, orderBook.getL2MarketDataSnapshot(10));
 
         events = cmd.extractEvents();

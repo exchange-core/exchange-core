@@ -314,6 +314,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         for (IOrdersBucket bucket : askBuckets.values()) {
             data.askPrices[i] = bucket.getPrice();
             data.askVolumes[i] = bucket.getTotalVolume();
+            data.askOrders[i] = bucket.getNumOrders();
             if (++i == size) {
                 break;
             }
@@ -332,6 +333,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         for (IOrdersBucket bucket : bidBuckets.values()) {
             data.bidPrices[i] = bucket.getPrice();
             data.bidVolumes[i] = bucket.getTotalVolume();
+            data.bidOrders[i] = bucket.getNumOrders();
             if (++i == size) {
                 break;
             }

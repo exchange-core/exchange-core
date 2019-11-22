@@ -750,6 +750,7 @@ public final class OrderBookFastImpl implements IOrderBook {
                 IOrdersBucket bucket = hotAskBuckets.get(indexToPrice(next));
                 data.askPrices[i] = bucket.getPrice();
                 data.askVolumes[i] = bucket.getTotalVolume();
+                data.askOrders[i] = bucket.getNumOrders();
                 if (++i == size) {
                     data.askSize = size;
                     return;
@@ -762,6 +763,7 @@ public final class OrderBookFastImpl implements IOrderBook {
         for (IOrdersBucket bucket : farAskBuckets.values()) {
             data.askPrices[i] = bucket.getPrice();
             data.askVolumes[i] = bucket.getTotalVolume();
+            data.askOrders[i] = bucket.getNumOrders();
             if (++i == size) {
                 data.askSize = size;
                 return;
@@ -789,6 +791,7 @@ public final class OrderBookFastImpl implements IOrderBook {
                 IOrdersBucket bucket = hotBidBuckets.get(indexToPrice(next));
                 data.bidPrices[i] = bucket.getPrice();
                 data.bidVolumes[i] = bucket.getTotalVolume();
+                data.bidOrders[i] = bucket.getNumOrders();
                 if (++i == size) {
                     data.bidSize = size;
                     return;
@@ -802,6 +805,7 @@ public final class OrderBookFastImpl implements IOrderBook {
         for (IOrdersBucket bucket : farBidBuckets.values()) {
             data.bidPrices[i] = bucket.getPrice();
             data.bidVolumes[i] = bucket.getTotalVolume();
+            data.bidOrders[i] = bucket.getNumOrders();
             if (++i == size) {
                 data.bidSize = size;
                 return;
