@@ -43,10 +43,10 @@ public final class LongAdaptiveRadixTreeMap<V> {
     }
 
     public void put(final long key, final V value) {
-        final IArtNode<V> resizedNode = root.put(key, INITIAL_LEVEL, value);
-        if (resizedNode != root) {
+        final IArtNode<V> upSizedNode = root.put(key, INITIAL_LEVEL, value);
+        if (upSizedNode != null) {
             // TODO put old into the pool
-            root = resizedNode;
+            root = upSizedNode;
         }
     }
 
@@ -60,11 +60,21 @@ public final class LongAdaptiveRadixTreeMap<V> {
     }
 
     public void remove(final long key) {
-        final IArtNode<V> resizedNode = root.remove(key, INITIAL_LEVEL);
-        if (resizedNode != root) {
+        final IArtNode<V> downSizeNode = root.remove(key, INITIAL_LEVEL);
+        // ignore null because can not remove root
+        if (downSizeNode != null && downSizeNode != root) {
             // TODO put old into the pool
-            root = resizedNode;
+            root = downSizeNode;
         }
+    }
+
+    public void validateInternalState() {
+        root.validateInternalState();
+    }
+
+
+    String printDiagram(){
+        return root.printDiagram("", INITIAL_LEVEL);
     }
 
     // TODO remove based on leaf  (having reference) ?

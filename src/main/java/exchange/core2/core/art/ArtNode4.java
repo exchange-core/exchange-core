@@ -43,7 +43,7 @@ public final class ArtNode4<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public V getValue(final long key, final int level) {
-        final long nodeIndex = key >> level;
+        final short nodeIndex = toNodeIndex(key, level);
         for (int i = 0; i < numChildren; i++) {
             final short index = keys[i];
             if (index == nodeIndex) {
@@ -52,10 +52,6 @@ public final class ArtNode4<V> implements IArtNode<V> {
                         ? (V) node
                         : ((IArtNode<V>) node).getValue(key, level - 8);
             }
-            if (nodeIndex < index) {
-                // can give up searching because keys are in sorted order
-                break;
-            }
         }
         return null;
     }
@@ -63,7 +59,7 @@ public final class ArtNode4<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public IArtNode<V> put(final long key, final int level, final V value) {
-        final short nodeIndex = (short) (key >> level);
+        final short nodeIndex = toNodeIndex(key, level);
         for (int i = 0; i < numChildren; i++) {
             if (keys[i] == nodeIndex) {
                 if (level == 0) {
@@ -83,6 +79,7 @@ public final class ArtNode4<V> implements IArtNode<V> {
         // new element
         if (numChildren != 4) {
             // filled less than 4 - can simply insert node
+            keys[numChildren] = nodeIndex;
             if (level == 0) {
                 nodes[numChildren] = value;
             } else {
@@ -103,7 +100,7 @@ public final class ArtNode4<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public IArtNode<V> remove(long key, int level) {
-        final short nodeIndex = (short) (key >> level);
+        final short nodeIndex = toNodeIndex(key, level);
         Object node = null;
         int pos = 0;
         while (pos < numChildren) {
@@ -111,10 +108,6 @@ public final class ArtNode4<V> implements IArtNode<V> {
                 // found
                 node = nodes[pos];
                 break;
-            }
-            if (nodeIndex < keys[pos]) {
-                // can give up searching because keys are in sorted order
-                return this;
             }
             pos++;
         }
@@ -150,5 +143,49 @@ public final class ArtNode4<V> implements IArtNode<V> {
         }
         numChildren--;
         nodes[numChildren] = null;
+    }
+
+    @Override
+    public void validateInternalState() {
+        short last = -1;
+        for (int i = 0; i < 4; i++) {
+            if (i < numChildren) {
+                if (nodes[i] == null) throw new IllegalStateException("null node");
+                if (keys[i] < 0 || keys[i] >= 256) throw new IllegalStateException("key out of range");
+                if (keys[i] == last) throw new IllegalStateException("duplicate key");
+                if (keys[i] < last) throw new IllegalStateException("wrong key order");
+                last = keys[i];
+            } else {
+                if (nodes[i] != null) throw new IllegalStateException("not released node");
+            }
+
+        }
+
+    }
+
+    @Override
+    public String printDiagram(String prefix, int level) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < numChildren; i++) {
+            Object node = nodes[i];
+            String key = String.format("%02X", keys[i]);
+            String x = (i == 0 ? (numChildren == 1 ? "──" : "┬─") : (i + 1 == numChildren ? (prefix + "└─") : (prefix + "├─")));
+
+            if (level == 0) {
+                sb.append(x + key + " = " + node);
+            } else {
+                sb.append(x + key + "" + (((IArtNode<V>) node).printDiagram(prefix + (i + 1 == numChildren ? "    " : "│   "), level - 8)));
+            }
+            if (i < numChildren - 1) {
+                sb.append("\n");
+            } else if (level == 0) {
+                sb.append("\n" + prefix);
+            }
+        }
+        return sb.toString();
+    }
+
+    static short toNodeIndex(long key, int level) {
+        return (short) ((key >>> level) & 0xFF);
     }
 }

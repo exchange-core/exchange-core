@@ -23,4 +23,8 @@ public interface IArtNode<V> {
 
     IArtNode<V> remove(long key, int level);
 
+    void validateInternalState();
+
+    String printDiagram(String prefix, int level);
+
 }

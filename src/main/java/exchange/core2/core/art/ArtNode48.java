@@ -17,6 +17,8 @@ package exchange.core2.core.art;
 
 import java.util.Arrays;
 
+import static exchange.core2.core.art.ArtNode4.toNodeIndex;
+
 /**
  * As the number of entries in a node increases,
  * searching the key array becomes expensive. Therefore, nodes
@@ -72,8 +74,8 @@ public final class ArtNode48<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public V getValue(final long key, final int level) {
-        final long index = key >> level;
-        final byte nodeIndex = indexes[(int) index];
+        final short idx = toNodeIndex(key, level);
+        final byte nodeIndex = indexes[idx];
         if (nodeIndex != -1) {
             final Object node = nodes[nodeIndex];
             return level == 0
@@ -86,8 +88,8 @@ public final class ArtNode48<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public IArtNode<V> put(final long key, final int level, final V value) {
-        final short index = (short) (key >> level);
-        final byte nodeIndex = indexes[(int) index];
+        final short idx = toNodeIndex(key, level);
+        final byte nodeIndex = indexes[idx];
         if (nodeIndex != -1) {
             // found
             if (level == 0) {
@@ -107,7 +109,7 @@ public final class ArtNode48<V> implements IArtNode<V> {
 
         if (numChildren != 48) {
             // capacity less than 48 - can simply insert node
-            indexes[index] = numChildren;
+            indexes[idx] = numChildren;
 
             if (level == 0) {
                 nodes[numChildren] = value;
@@ -130,8 +132,7 @@ public final class ArtNode48<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public IArtNode<V> remove(long key, int level) {
-        final short idx = (short) (key >> level);
-
+        final short idx = toNodeIndex(key, level);
         final byte nodeIndex = indexes[idx];
         if (nodeIndex == -1) {
             return this;
@@ -155,5 +156,16 @@ public final class ArtNode48<V> implements IArtNode<V> {
         }
 
         return (numChildren == NODE16_SWITCH_THRESHOLD) ? new ArtNode16(this) : this;
+    }
+
+
+    @Override
+    public void validateInternalState() {
+
+    }
+
+    @Override
+    public String printDiagram(String prefix, int level) {
+        return null;
     }
 }

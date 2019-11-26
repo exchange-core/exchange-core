@@ -15,6 +15,8 @@
  */
 package exchange.core2.core.art;
 
+import static exchange.core2.core.art.ArtNode4.toNodeIndex;
+
 /**
  * The largest node type is simply an array of 256
  * pointers and is used for storing between 49 and 256 entries.
@@ -47,8 +49,8 @@ public final class ArtNode256<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public V getValue(final long key, final int level) {
-        final long nodeIndex = key >> level;
-        final Object node = nodes[(int) nodeIndex];
+        final short idx = toNodeIndex(key, level);
+        final Object node = nodes[idx];
         if (node != null) {
             return level == 0
                     ? (V) node
@@ -60,21 +62,20 @@ public final class ArtNode256<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public IArtNode<V> put(final long key, final int level, final V value) {
-        final short nodeIndex = (short) (key >> level);
-
-        if (nodes[nodeIndex] == null) {
+        final short idx = toNodeIndex(key, level);
+        if (nodes[idx] == null) {
             // new object will be inserted
             numChildren++;
         }
 
         if (level == 0) {
-            nodes[nodeIndex] = value;
+            nodes[idx] = value;
         } else {
-            final IArtNode<V> resizedNode = ((IArtNode<V>) nodes[nodeIndex]).put(key, level - 8, value);
+            final IArtNode<V> resizedNode = ((IArtNode<V>) nodes[idx]).put(key, level - 8, value);
             if (resizedNode != null) {
                 // TODO put old into the pool
                 // update resized node if capacity has increased
-                nodes[nodeIndex] = resizedNode;
+                nodes[idx] = resizedNode;
             }
         }
 
@@ -85,22 +86,22 @@ public final class ArtNode256<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public IArtNode<V> remove(long key, int level) {
-        final short nodeIndex = (short) (key >> level);
+        final short idx = toNodeIndex(key, level);
 
-        if (nodes[nodeIndex] == null) {
+        if (nodes[idx] == null) {
             return this;
         }
 
         if (level == 0) {
-            nodes[nodeIndex] = null;
+            nodes[idx] = null;
             numChildren--;
         } else {
-            final IArtNode<V> node = (IArtNode<V>) nodes[nodeIndex];
+            final IArtNode<V> node = (IArtNode<V>) nodes[idx];
             final IArtNode<V> resizedNode = node.remove(key, level - 8);
             if (resizedNode != node) {
                 // TODO put old into the pool
                 // update resized node if capacity has decreased
-                nodes[nodeIndex] = resizedNode;
+                nodes[idx] = resizedNode;
                 if (resizedNode == null) {
                     numChildren--;
                 }
@@ -108,5 +109,15 @@ public final class ArtNode256<V> implements IArtNode<V> {
         }
 
         return (numChildren == NODE48_SWITCH_THRESHOLD) ? new ArtNode48(this) : this;
+    }
+
+    @Override
+    public void validateInternalState() {
+
+    }
+
+    @Override
+    public String printDiagram(String prefix, int level) {
+        return null;
     }
 }

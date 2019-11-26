@@ -15,6 +15,8 @@
  */
 package exchange.core2.core.art;
 
+import static exchange.core2.core.art.ArtNode4.toNodeIndex;
+
 /**
  * This node type is used for storing between 5 and
  * 16 child pointers. Like the Node4, the keys and pointers
@@ -73,7 +75,7 @@ public final class ArtNode16<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public V getValue(final long key, final int level) {
-        final long nodeIndex = key >> level;
+        final short nodeIndex = toNodeIndex(key, level);
         for (int i = 0; i < numChildren; i++) {
             final short index = keys[i];
             if (index == nodeIndex) {
@@ -93,7 +95,7 @@ public final class ArtNode16<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public IArtNode<V> put(final long key, final int level, final V value) {
-        final short nodeIndex = (short) (key >> level);
+        final short nodeIndex = toNodeIndex(key, level);
         int pos = 0;
         while (pos < numChildren) {
             if (nodeIndex == keys[pos]) {
@@ -126,7 +128,7 @@ public final class ArtNode16<V> implements IArtNode<V> {
                 System.arraycopy(keys, pos, keys, pos + 1, copyLength);
                 System.arraycopy(nodes, pos, nodes, pos + 1, copyLength);
             }
-
+            keys[numChildren] = nodeIndex;
             if (level == 0) {
                 nodes[pos] = value;
             } else {
@@ -147,7 +149,7 @@ public final class ArtNode16<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public IArtNode<V> remove(long key, int level) {
-        final short nodeIndex = (short) (key >> level);
+        final short nodeIndex = toNodeIndex(key, level);
         Object node = null;
         int pos = 0;
         while (pos < numChildren) {
@@ -185,6 +187,16 @@ public final class ArtNode16<V> implements IArtNode<V> {
 
         // switch to ArtNode4 if too small
         return (numChildren == NODE4_SWITCH_THRESHOLD) ? new ArtNode4(this) : this;
+    }
+
+    @Override
+    public void validateInternalState() {
+
+    }
+
+    @Override
+    public String printDiagram(String prefix, int level) {
+        return null;
     }
 
     private void removeElementAtPos(final int pos) {
