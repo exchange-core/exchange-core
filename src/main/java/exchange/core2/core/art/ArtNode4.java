@@ -15,26 +15,36 @@
  */
 package exchange.core2.core.art;
 
+import lombok.extern.slf4j.Slf4j;
+
+import java.util.Arrays;
+
 /**
  * The smallest node type can store up to 4 child
  * pointers and uses an array of length 4 for keys and another
  * array of the same length for pointers. The keys and pointers
  * are stored at corresponding positions and the keys are sorted.
  */
+@Slf4j
 public final class ArtNode4<V> implements IArtNode<V> {
 
-    // store keys in unsorted order
+    // keys are ordered
     final short[] keys = new short[4];
     final Object[] nodes = new Object[4];
 
-    private byte numChildren;
+    byte numChildren;
 
-    public ArtNode4() {
-        this.numChildren = 0;
+
+    public ArtNode4(final long key, final int level, final V value) {
+        // TODO create compact node
+        this.numChildren = 1;
+        this.keys[0] = toNodeIndex(key, level);
+        this.nodes[0] = (level == 0) ? value : new ArtNode4<>(key, level - 8, value);
     }
 
 
     public ArtNode4(ArtNode16 artNode16) {
+        log.debug("Creating from 16->4");
         this.numChildren = artNode16.numChildren;
         System.arraycopy(artNode16.keys, 0, this.keys, 0, numChildren);
         System.arraycopy(artNode16.nodes, 0, this.nodes, 0, numChildren);
@@ -52,6 +62,10 @@ public final class ArtNode4<V> implements IArtNode<V> {
                         ? (V) node
                         : ((IArtNode<V>) node).getValue(key, level - 8);
             }
+            if (nodeIndex < index) {
+                // can give up searching because keys are in sorted order
+                break;
+            }
         }
         return null;
     }
@@ -59,41 +73,69 @@ public final class ArtNode4<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public IArtNode<V> put(final long key, final int level, final V value) {
+
+        log.debug("PUT key:{} level:{} value:{}", key, level, value);
+
         final short nodeIndex = toNodeIndex(key, level);
-        for (int i = 0; i < numChildren; i++) {
-            if (keys[i] == nodeIndex) {
+        int pos = 0;
+        while (pos < numChildren) {
+            if (nodeIndex == keys[pos]) {
+                // just update
                 if (level == 0) {
-                    nodes[i] = value;
+                    nodes[pos] = value;
                 } else {
-                    final IArtNode<V> resizedNode = ((IArtNode<V>) nodes[i]).put(key, level - 8, value);
+                    final IArtNode<V> resizedNode = ((IArtNode<V>) nodes[pos]).put(key, level - 8, value);
                     if (resizedNode != null) {
                         // TODO put old into the pool
                         // update resized node if capacity has increased
-                        nodes[i] = resizedNode;
+                        nodes[pos] = resizedNode;
                     }
                 }
                 return null;
             }
+            if (nodeIndex < keys[pos]) {
+                // can give up searching because keys are in sorted order
+                break;
+            }
+            pos++;
         }
+
+        log.debug("pos:{}", pos);
 
         // new element
         if (numChildren != 4) {
-            // filled less than 4 - can simply insert node
-            keys[numChildren] = nodeIndex;
+            // capacity less than 4 - can simply insert node
+            final int copyLength = numChildren - pos;
+            log.debug("numChildren:{} copyLength:{}", numChildren, copyLength);
+            if (copyLength != 0) {
+                log.debug("before keys:{}", keys);
+                log.debug("before nodes:{}", Arrays.toString(nodes));
+                System.arraycopy(keys, pos, keys, pos + 1, copyLength);
+                System.arraycopy(nodes, pos, nodes, pos + 1, copyLength);
+                log.debug("after keys:{}", keys);
+                log.debug("after nodes:{}", Arrays.toString(nodes));
+            }
+            keys[pos] = nodeIndex;
             if (level == 0) {
-                nodes[numChildren] = value;
+                nodes[pos] = value;
             } else {
                 // TODO take from pool
-                final ArtNode4 newSubNode = new ArtNode4();
-                nodes[numChildren] = newSubNode;
                 // TODO create compressed-path node
-                newSubNode.put(key, level - 8, value);
+
+                final ArtNode4 newSubNode = new ArtNode4(key, level - 8, value);
+                nodes[pos] = newSubNode;
+                // TODO create compressed-path node
+                //newSubNode.put();
             }
             numChildren++;
+
+            log.debug("final keys:{}", keys);
+            log.debug("final nodes:{}", Arrays.toString(nodes));
+
             return null;
         } else {
             // no space left, create a Node16 with new item
-            return new ArtNode16<>(this, nodeIndex, value);
+            return new ArtNode16<>(this, nodeIndex, (level == 0) ? value : new ArtNode4<>(key, level - 8, value));
         }
     }
 
@@ -132,6 +174,7 @@ public final class ArtNode4<V> implements IArtNode<V> {
             }
         }
 
+        // indicate if removed last one
         return (numChildren == 0) ? null : this;
     }
 
@@ -149,14 +192,20 @@ public final class ArtNode4<V> implements IArtNode<V> {
     public void validateInternalState() {
         short last = -1;
         for (int i = 0; i < 4; i++) {
+            Object node = nodes[i];
             if (i < numChildren) {
-                if (nodes[i] == null) throw new IllegalStateException("null node");
+                if (node == null) throw new IllegalStateException("null node");
                 if (keys[i] < 0 || keys[i] >= 256) throw new IllegalStateException("key out of range");
                 if (keys[i] == last) throw new IllegalStateException("duplicate key");
                 if (keys[i] < last) throw new IllegalStateException("wrong key order");
                 last = keys[i];
+                if (node instanceof IArtNode) {
+                    IArtNode artNode = (IArtNode) node;
+                    artNode.validateInternalState();
+                }
+
             } else {
-                if (nodes[i] != null) throw new IllegalStateException("not released node");
+                if (node != null) throw new IllegalStateException("not released node");
             }
 
         }
@@ -165,25 +214,9 @@ public final class ArtNode4<V> implements IArtNode<V> {
 
     @Override
     public String printDiagram(String prefix, int level) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < numChildren; i++) {
-            Object node = nodes[i];
-            String key = String.format("%02X", keys[i]);
-            String x = (i == 0 ? (numChildren == 1 ? "──" : "┬─") : (i + 1 == numChildren ? (prefix + "└─") : (prefix + "├─")));
-
-            if (level == 0) {
-                sb.append(x + key + " = " + node);
-            } else {
-                sb.append(x + key + "" + (((IArtNode<V>) node).printDiagram(prefix + (i + 1 == numChildren ? "    " : "│   "), level - 8)));
-            }
-            if (i < numChildren - 1) {
-                sb.append("\n");
-            } else if (level == 0) {
-                sb.append("\n" + prefix);
-            }
-        }
-        return sb.toString();
+        return LongAdaptiveRadixTreeMap.printDiagram(prefix, level, numChildren, idx -> keys[idx], idx -> nodes[idx]);
     }
+
 
     static short toNodeIndex(long key, int level) {
         return (short) ((key >>> level) & 0xFF);

@@ -71,11 +71,16 @@ public final class ArtNode256<V> implements IArtNode<V> {
         if (level == 0) {
             nodes[idx] = value;
         } else {
-            final IArtNode<V> resizedNode = ((IArtNode<V>) nodes[idx]).put(key, level - 8, value);
-            if (resizedNode != null) {
-                // TODO put old into the pool
-                // update resized node if capacity has increased
-                nodes[idx] = resizedNode;
+            IArtNode<V> node = (IArtNode<V>) nodes[idx];
+            if (node != null) {
+                final IArtNode<V> resizedNode = node.put(key, level - 8, value);
+                if (resizedNode != null) {
+                    // TODO put old into the pool
+                    // update resized node if capacity has increased
+                    nodes[idx] = resizedNode;
+                }
+            } else {
+                nodes[idx] = new ArtNode4(key, level - 8, value);
             }
         }
 
@@ -118,6 +123,13 @@ public final class ArtNode256<V> implements IArtNode<V> {
 
     @Override
     public String printDiagram(String prefix, int level) {
-        return null;
+        short[] keys = new short[numChildren];
+        int j = 0;
+        for (short i = 0; i < 256; i++) {
+            if (nodes[i] != null) {
+                keys[j++] = i;
+            }
+        }
+        return LongAdaptiveRadixTreeMap.printDiagram(prefix, level, numChildren, idx -> keys[idx], idx -> nodes[idx]);
     }
 }

@@ -67,6 +67,9 @@ public final class ArtNode48<V> implements IArtNode<V> {
                 this.indexes[i] = idx;
                 this.nodes[idx] = node;
                 idx++;
+                if (idx == numChildren) {
+                    break;
+                }
             }
         }
     }
@@ -115,10 +118,9 @@ public final class ArtNode48<V> implements IArtNode<V> {
                 nodes[numChildren] = value;
             } else {
                 // TODO take from pool
-                final ArtNode4 newSubNode = new ArtNode4();
-                nodes[numChildren] = newSubNode;
                 // TODO create compressed-path node
-                newSubNode.put(key, level - 8, value);
+                final ArtNode4 newSubNode = new ArtNode4(key, level - 8, value);
+                nodes[numChildren] = newSubNode;
             }
             numChildren++;
             return null;
@@ -166,6 +168,13 @@ public final class ArtNode48<V> implements IArtNode<V> {
 
     @Override
     public String printDiagram(String prefix, int level) {
-        return null;
+        short[] keys = new short[numChildren];
+        int j = 0;
+        for (int i = 0; i < 256; i++) {
+            if (indexes[i] != -1) {
+                keys[j++] = indexes[i];
+            }
+        }
+        return LongAdaptiveRadixTreeMap.printDiagram(prefix, level, numChildren, idx -> keys[idx], idx -> nodes[idx]);
     }
 }

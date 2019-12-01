@@ -15,6 +15,8 @@
  */
 package exchange.core2.core.art;
 
+import lombok.extern.slf4j.Slf4j;
+
 import static exchange.core2.core.art.ArtNode4.toNodeIndex;
 
 /**
@@ -25,6 +27,7 @@ import static exchange.core2.core.art.ArtNode4.toNodeIndex;
  * efficiently with binary search or, on modern hardware, with
  * parallel comparisons using SIMD instructions.
  */
+@Slf4j
 public final class ArtNode16<V> implements IArtNode<V> {
 
     private static final int NODE4_SWITCH_THRESHOLD = 3;
@@ -36,8 +39,9 @@ public final class ArtNode16<V> implements IArtNode<V> {
     byte numChildren;
 
     public ArtNode16(ArtNode4<V> node4, short subKey, Object newElement) {
-        final int sourceSize = 4;
-        this.numChildren = sourceSize + 1;
+        log.debug("Creating from 4->16");
+        final byte sourceSize = node4.numChildren;
+        this.numChildren = (byte) (sourceSize + 1);
         int inserted = 0;
         for (int i = 0; i < sourceSize; i++) {
             final int key = node4.keys[i];
@@ -110,7 +114,6 @@ public final class ArtNode16<V> implements IArtNode<V> {
                         nodes[pos] = resizedNode;
                     }
                 }
-                numChildren++;
                 return null;
             }
             if (nodeIndex < keys[pos]) {
@@ -128,12 +131,12 @@ public final class ArtNode16<V> implements IArtNode<V> {
                 System.arraycopy(keys, pos, keys, pos + 1, copyLength);
                 System.arraycopy(nodes, pos, nodes, pos + 1, copyLength);
             }
-            keys[numChildren] = nodeIndex;
+            keys[pos] = nodeIndex;
             if (level == 0) {
                 nodes[pos] = value;
             } else {
                 // TODO take from pool
-                final ArtNode4 newSubNode = new ArtNode4();
+                final ArtNode4 newSubNode = new ArtNode4(key, level - 8, value);
                 nodes[pos] = newSubNode;
                 // TODO create compressed-path node
                 newSubNode.put(key, level - 8, value);
@@ -142,7 +145,7 @@ public final class ArtNode16<V> implements IArtNode<V> {
             return null;
         } else {
             // no space left, create a Node48 with new item
-            return new ArtNode48<>(this, nodeIndex, value);
+            return new ArtNode48<>(this, nodeIndex, level == 0 ? value : new ArtNode4<>(key, level - 8, value));
         }
     }
 
@@ -191,12 +194,30 @@ public final class ArtNode16<V> implements IArtNode<V> {
 
     @Override
     public void validateInternalState() {
+        short last = -1;
+        for (int i = 0; i < 16; i++) {
+            Object node = nodes[i];
+            if (i < numChildren) {
+                if (node == null) throw new IllegalStateException("null node");
+                if (keys[i] < 0 || keys[i] >= 256) throw new IllegalStateException("key out of range");
+                if (keys[i] == last) throw new IllegalStateException("duplicate key");
+                if (keys[i] < last) throw new IllegalStateException("wrong key order");
+                last = keys[i];
+                if (node instanceof IArtNode) {
+                    IArtNode artNode = (IArtNode) node;
+                    artNode.validateInternalState();
+                }
 
+            } else {
+                if (node != null) throw new IllegalStateException("not released node");
+            }
+
+        }
     }
 
     @Override
     public String printDiagram(String prefix, int level) {
-        return null;
+        return LongAdaptiveRadixTreeMap.printDiagram(prefix, level, numChildren, idx -> keys[idx], idx -> nodes[idx]);
     }
 
     private void removeElementAtPos(final int pos) {

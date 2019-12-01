@@ -15,6 +15,9 @@
  */
 package exchange.core2.core.art;
 
+import lombok.extern.slf4j.Slf4j;
+
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -31,22 +34,38 @@ import java.util.function.Supplier;
  * Boltzmannstrae 3, D-85748 Garching
  * <p>
  * https://db.in.tum.de/~leis/papers/ART.pdf
+ * <p>
+ * Target operations:
+ * - GET or (PUT + GET_LOWER) - placing/moving/bulkload order - often GET, more rare PUT ??cache
+ * - REMOVE - cancel or move last order in a bucket
+ * - TRAVERSE from LOWER - filling L2 market data, in hot area (Node256 or Node48).
+ * - REMOVE price during matching - !! can use RANGE removal operation - rare, but latency critical
+ * - GET or PUT if not exists - inserting back own orders, very rare
  */
+@Slf4j
 public final class LongAdaptiveRadixTreeMap<V> {
 
     private static final int INITIAL_LEVEL = 56;
 
-    private IArtNode<V> root = new ArtNode4<>();
+    private IArtNode<V> root = null;
 
     public V get(final long key) {
-        return root.getValue(key, INITIAL_LEVEL);
+        return root != null
+                ? root.getValue(key, INITIAL_LEVEL)
+                : null;
     }
 
     public void put(final long key, final V value) {
-        final IArtNode<V> upSizedNode = root.put(key, INITIAL_LEVEL, value);
-        if (upSizedNode != null) {
-            // TODO put old into the pool
-            root = upSizedNode;
+        if (root == null) {
+            root = new ArtNode4<>(key, INITIAL_LEVEL, value);
+
+        } else {
+
+            final IArtNode<V> upSizedNode = root.put(key, INITIAL_LEVEL, value);
+            if (upSizedNode != null) {
+                // TODO put old into the pool
+                root = upSizedNode;
+            }
         }
     }
 
@@ -60,23 +79,64 @@ public final class LongAdaptiveRadixTreeMap<V> {
     }
 
     public void remove(final long key) {
-        final IArtNode<V> downSizeNode = root.remove(key, INITIAL_LEVEL);
-        // ignore null because can not remove root
-        if (downSizeNode != null && downSizeNode != root) {
-            // TODO put old into the pool
-            root = downSizeNode;
+        if (root != null) {
+            final IArtNode<V> downSizeNode = root.remove(key, INITIAL_LEVEL);
+            // ignore null because can not remove root
+            if (downSizeNode != null && downSizeNode != root) {
+                // TODO put old into the pool
+                root = downSizeNode;
+            }
         }
     }
 
-    public void validateInternalState() {
-        root.validateInternalState();
+    /**
+     * remove on matching
+     */
+    public void removeRange(final long keyFromInclusive, final long keyToExclusive) {
+
     }
 
 
-    String printDiagram(){
-        return root.printDiagram("", INITIAL_LEVEL);
+    public void validateInternalState() {
+        if (root != null) {
+            // TODO initial level
+            root.validateInternalState();
+        }
+    }
+
+
+    String printDiagram() {
+        if (root != null) {
+            return root.printDiagram("", INITIAL_LEVEL);
+        } else {
+            return "";
+        }
     }
 
     // TODO remove based on leaf  (having reference) ?
+
+    static String printDiagram(String prefix, int level, short numChildren, Function<Short, Short> subKeys, Function<Short, Object> nodes) {
+        StringBuilder sb = new StringBuilder();
+        for (short i = 0; i < numChildren; i++) {
+            Object node = nodes.apply(i);
+            String key = String.format("%02X", subKeys.apply(i));
+            String x = (i == 0 ? (numChildren == 1 ? "──" : "┬─") : (i + 1 == numChildren ? (prefix + "└─") : (prefix + "├─")));
+
+            log.debug("level: {} numChildren={}", level, numChildren);
+
+            if (level == 0) {
+                sb.append(x + key + " = " + node);
+            } else {
+                sb.append(x + key + "" + (((IArtNode<?>) node).printDiagram(prefix + (i + 1 == numChildren ? "    " : "│   "), level - 8)));
+            }
+            if (i < numChildren - 1) {
+                sb.append("\n");
+            } else if (level == 0) {
+                sb.append("\n" + prefix);
+            }
+        }
+        return sb.toString();
+    }
+
 
 }
