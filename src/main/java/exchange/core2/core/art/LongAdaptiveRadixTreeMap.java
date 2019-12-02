@@ -15,8 +15,12 @@
  */
 package exchange.core2.core.art;
 
+import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -104,6 +108,13 @@ public final class LongAdaptiveRadixTreeMap<V> {
         }
     }
 
+    List<Map.Entry<Long, V>> entriesList() {
+        if (root != null) {
+            return root.entries(0L, INITIAL_LEVEL);
+        } else {
+            return Collections.emptyList();
+        }
+    }
 
     String printDiagram() {
         if (root != null) {
@@ -138,5 +149,29 @@ public final class LongAdaptiveRadixTreeMap<V> {
         return sb.toString();
     }
 
+    @AllArgsConstructor
+    public static final class Entry<V> implements Map.Entry<Long, V> {
+
+        final long key;
+
+        V value;
+
+        @Override
+        public Long getKey() {
+            return key;
+        }
+
+        @Override
+        public V getValue() {
+            return value;
+        }
+
+        @Override
+        public V setValue(V value) {
+            final V v = this.value;
+            this.value = value;
+            return v;
+        }
+    }
 
 }

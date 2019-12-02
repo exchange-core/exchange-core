@@ -44,7 +44,7 @@ public class OrderBookDirectImpl implements IOrderBook {
     // index: orderId -> order
     private final LongObjectHashMap<DirectOrder> orderIdIndex = new LongObjectHashMap<>();
 
-    // updatable heads (nullable)
+    // heads (nullable)
     private DirectOrder bestAskOrder = null;
     private DirectOrder bestBidOrder = null;
 
@@ -110,7 +110,6 @@ public class OrderBookDirectImpl implements IOrderBook {
         orderRecord.uid = cmd.uid;
         orderRecord.timestamp = cmd.timestamp;
         orderRecord.filled = filledSize;
-
 
         orderIdIndex.put(orderId, orderRecord);
         insertOrder(orderRecord);
@@ -250,6 +249,9 @@ public class OrderBookDirectImpl implements IOrderBook {
             bestAskOrder.next = selfOrder;
         }
         bestAskOrder = selfOrder;
+
+        // update bucket/parent accordingly (check if bucket exists)
+        // TODO can remember last bucket/price to avoid discovering each time
         Bucket bucket = askPriceBuckets.get(selfOrder.price);
         if (bucket == null) {
             bucket = new Bucket(selfOrder);
@@ -268,6 +270,9 @@ public class OrderBookDirectImpl implements IOrderBook {
             bestBidOrder.next = selfOrder;
         }
         bestBidOrder = selfOrder;
+
+        // update bucket/parent accordingly (check if bucket exists)
+        // TODO can remember last bucket/price to avoid discovering each time
         Bucket bucket = bidPriceBuckets.get(selfOrder.price);
         if (bucket == null) {
             bucket = new Bucket(selfOrder);
@@ -397,7 +402,7 @@ public class OrderBookDirectImpl implements IOrderBook {
             buckets.put(order.price, newBucket);
             final Map.Entry<Long, Bucket> lowerEntry = buckets.lowerEntry(order.price);
             if (lowerEntry != null) {
-                // attache ne bucket and event to the lower entry
+                // attache new bucket and event to the lower entry
                 final Bucket lowerBucket = lowerEntry.getValue();
                 DirectOrder lowerTail = lowerBucket.tail;
                 final DirectOrder prevOrder = lowerTail.prev; // can be null

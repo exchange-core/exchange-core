@@ -15,7 +15,12 @@
  */
 package exchange.core2.core.art;
 
+import lombok.extern.slf4j.Slf4j;
+
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 
 import static exchange.core2.core.art.ArtNode4.toNodeIndex;
 
@@ -30,6 +35,7 @@ import static exchange.core2.core.art.ArtNode4.toNodeIndex;
  * comparison to 256 pointers of 8 bytes, because the indexes
  * only require 6 bits (we use 1 byte for simplicity).
  */
+@Slf4j
 public final class ArtNode48<V> implements IArtNode<V> {
 
     private static final int NODE16_SWITCH_THRESHOLD = 12;
@@ -164,17 +170,39 @@ public final class ArtNode48<V> implements IArtNode<V> {
     @Override
     public void validateInternalState() {
 
+        // TODO
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public List<Map.Entry<Long, V>> entries(long keyPrefix, int level) {
+        final long keyPrefixNext = keyPrefix << 8;
+        final List<Map.Entry<Long, V>> list = new ArrayList<>();
+        short[] keys = createKeysArray();
+        for (int i = 0; i < numChildren; i++) {
+            if (level == 0) {
+                list.add(new LongAdaptiveRadixTreeMap.Entry<>(keyPrefixNext + keys[i], (V) nodes[i]));
+            } else {
+                list.addAll(((IArtNode<V>) nodes[i]).entries(keyPrefixNext + keys[i], level - 8));
+            }
+        }
+        return list;
     }
 
     @Override
     public String printDiagram(String prefix, int level) {
+        final short[] keys = createKeysArray();
+        return LongAdaptiveRadixTreeMap.printDiagram(prefix, level, numChildren, idx -> keys[idx], idx -> nodes[idx]);
+    }
+
+    private short[] createKeysArray() {
         short[] keys = new short[numChildren];
         int j = 0;
-        for (int i = 0; i < 256; i++) {
+        for (short i = 0; i < 256; i++) {
             if (indexes[i] != -1) {
-                keys[j++] = indexes[i];
+                keys[j++] = i;
             }
         }
-        return LongAdaptiveRadixTreeMap.printDiagram(prefix, level, numChildren, idx -> keys[idx], idx -> nodes[idx]);
+        return keys;
     }
 }

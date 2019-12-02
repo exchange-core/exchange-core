@@ -17,7 +17,9 @@ package exchange.core2.core.art;
 
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 /**
  * The smallest node type can store up to 4 child
@@ -74,7 +76,7 @@ public final class ArtNode4<V> implements IArtNode<V> {
     @SuppressWarnings("unchecked")
     public IArtNode<V> put(final long key, final int level, final V value) {
 
-        log.debug("PUT key:{} level:{} value:{}", key, level, value);
+//        log.debug("PUT key:{} level:{} value:{}", key, level, value);
 
         final short nodeIndex = toNodeIndex(key, level);
         int pos = 0;
@@ -100,20 +102,15 @@ public final class ArtNode4<V> implements IArtNode<V> {
             pos++;
         }
 
-        log.debug("pos:{}", pos);
+//        log.debug("pos:{}", pos);
 
         // new element
         if (numChildren != 4) {
             // capacity less than 4 - can simply insert node
             final int copyLength = numChildren - pos;
-            log.debug("numChildren:{} copyLength:{}", numChildren, copyLength);
             if (copyLength != 0) {
-                log.debug("before keys:{}", keys);
-                log.debug("before nodes:{}", Arrays.toString(nodes));
                 System.arraycopy(keys, pos, keys, pos + 1, copyLength);
                 System.arraycopy(nodes, pos, nodes, pos + 1, copyLength);
-                log.debug("after keys:{}", keys);
-                log.debug("after nodes:{}", Arrays.toString(nodes));
             }
             keys[pos] = nodeIndex;
             if (level == 0) {
@@ -128,10 +125,6 @@ public final class ArtNode4<V> implements IArtNode<V> {
                 //newSubNode.put();
             }
             numChildren++;
-
-            log.debug("final keys:{}", keys);
-            log.debug("final nodes:{}", Arrays.toString(nodes));
-
             return null;
         } else {
             // no space left, create a Node16 with new item
@@ -217,6 +210,19 @@ public final class ArtNode4<V> implements IArtNode<V> {
         return LongAdaptiveRadixTreeMap.printDiagram(prefix, level, numChildren, idx -> keys[idx], idx -> nodes[idx]);
     }
 
+    @Override
+    public List<Map.Entry<Long, V>> entries(long keyPrefix, int level) {
+        final long keyPrefixNext = keyPrefix << 8;
+        final List<Map.Entry<Long, V>> list = new ArrayList<>();
+        for (int i = 0; i < numChildren; i++) {
+            if (level == 0) {
+                list.add(new LongAdaptiveRadixTreeMap.Entry<>(keyPrefixNext + keys[i], (V) nodes[i]));
+            } else {
+                list.addAll(((IArtNode<V>) nodes[i]).entries(keyPrefixNext + keys[i], level - 8));
+            }
+        }
+        return list;
+    }
 
     static short toNodeIndex(long key, int level) {
         return (short) ((key >>> level) & 0xFF);

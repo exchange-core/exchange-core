@@ -15,6 +15,9 @@
  */
 package exchange.core2.core.art;
 
+import java.util.List;
+import java.util.Map;
+
 public interface IArtNode<V> {
 
     V getValue(long key, int level);
@@ -26,5 +29,10 @@ public interface IArtNode<V> {
     void validateInternalState();
 
     String printDiagram(String prefix, int level);
+
+    /**
+     * For testing only
+     */
+    List<Map.Entry<Long, V>> entries(long keyPrefix, int level);
 
 }

@@ -15,7 +15,13 @@
  */
 package exchange.core2.core.art;
 
+import org.junit.Before;
 import org.junit.Test;
+
+import java.util.Iterator;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.stream.Stream;
 
 import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.assertNull;
@@ -23,9 +29,18 @@ import static org.junit.Assert.assertThat;
 
 public class LongAdaptiveRadixTreeMapTest {
 
+    private LongAdaptiveRadixTreeMap<String> map;
+    private TreeMap<Long, String> origMap;
+
+    @Before
+    public void before() {
+        map = new LongAdaptiveRadixTreeMap<>();
+        origMap = new TreeMap<>();
+    }
+
     @Test
     public void test() {
-        LongAdaptiveRadixTreeMap<String> map = new LongAdaptiveRadixTreeMap<>();
+
         map.validateInternalState();
         assertNull(map.get(0));
         map.put(2, "two");
@@ -58,36 +73,111 @@ public class LongAdaptiveRadixTreeMapTest {
 
     @Test
     public void shouldExtendTo16andReduceTo4() {
-        LongAdaptiveRadixTreeMap<String> map = new LongAdaptiveRadixTreeMap<>();
-        map.put(2, "2");
-        map.put(223, "223");
-        map.put(49, "49");
-        map.put(1, "1");
-        map.validateInternalState();
+        put(2, "2");
+        put(223, "223");
+        put(49, "49");
+        put(1, "1");
         // 4->16
-        map.put(77, "77");
-        map.put(4, "4");
-        map.validateInternalState();
+        put(77, "77");
+        put(4, "4");
 
-        map.remove(223);
-        map.remove(1);
+        remove(223);
+        remove(1);
         // 16->4
-        map.remove(4);
-        map.validateInternalState();
-        map.remove(49);
-        map.validateInternalState();
+        remove(4);
+        remove(49);
 
+        // reduce intermediate
 
-        map.put(65536, "65536");
-        map.put(131072, "131072");
-        map.put(262144, "262144");
-        map.validateInternalState();
-        System.out.println(map.printDiagram());
+        put(65536 * 7, "65536*7");
+        put(65536 * 3, "65536*3");
+        put(65536 * 2, "65536*2");
         // 4->16
-        map.put(524288, "524288");
-        map.validateInternalState();
-        System.out.println(map.printDiagram());
+        put(65536 * 4, "65536*4");
+        put(65536 * 3 + 3, "65536*3+3");
 
+        remove(65536 * 2);
+        // 16->4
+        remove(65536 * 4);
+        remove(65536 * 7);
+//        System.out.println(map.printDiagram());
+    }
+
+    @Test
+    public void shouldExtendTo48andReduceTo16() {
+        // reduce ay end level
+
+        for (int i = 0; i < 16; i++) {
+            put(i, "" + i);
+        }
+        // 16->48
+        put(177, "177");
+        put(56, "56");
+        System.out.println(map.printDiagram());
+        //put(177, "177");
+
+//        remove(223);
+//        remove(1);
+//        // 16->4
+//        remove(4);
+//        remove(49);
+
+
+        // reduce intermediate
+//
+//        put(65536 * 7, "65536*7");
+//        put(65536 * 3, "65536*3");
+//        put(65536 * 2, "65536*2");
+//        // 4->16
+//        put(65536 * 4, "65536*4");
+//        put(65536 * 3 + 3, "65536*3+3");
+//
+//        remove(65536 * 2);
+//        // 16->4
+//        remove(65536 * 4);
+//        remove(65536 * 7);
+    }
+
+
+    private void put(long key, String value) {
+        map.put(key, value);
+        map.validateInternalState();
+        origMap.put(key, value);
+
+//        map.entriesList().forEach(entry -> System.out.println("k=" + entry.getKey() + " v=" + entry.getValue()));
+//        origMap.forEach((key1, value1) -> System.out.println("k1=" + key1 + " v1=" + value1));
+
+        checkStreamsEqual(map.entriesList().stream(), origMap.entrySet().stream());
+    }
+
+    private void remove(long key) {
+        map.remove(key);
+        map.validateInternalState();
+        origMap.remove(key);
+
+//        map.entriesList().forEach(entry -> System.out.println("k=" + entry.getKey() + " v=" + entry.getValue()));
+//        origMap.forEach((key1, value1) -> System.out.println("k1=" + key1 + " v1=" + value1));
+
+        checkStreamsEqual(map.entriesList().stream(), origMap.entrySet().stream());
+    }
+
+
+    private static <K, V> void checkStreamsEqual(final Stream<Map.Entry<K, V>> entry, final Stream<Map.Entry<K, V>> origEntry) {
+        final Iterator<Map.Entry<K, V>> iter = entry.iterator();
+        final Iterator<Map.Entry<K, V>> origIter = origEntry.iterator();
+        while (iter.hasNext() && origIter.hasNext()) {
+            final Map.Entry<K, V> next = iter.next();
+            final Map.Entry<K, V> origNext = origIter.next();
+            if (!next.getKey().equals(origNext.getKey())) {
+                throw new IllegalStateException(String.format("unexpected key: %s  (expected %s)", next.getKey(), origNext.getKey()));
+            }
+            if (!next.getValue().equals(origNext.getValue())) {
+                throw new IllegalStateException(String.format("unexpected value: %s  (expected %s)", next.getValue(), origNext.getValue()));
+            }
+        }
+        if (iter.hasNext() || origIter.hasNext()) {
+            throw new IllegalStateException("different size");
+        }
     }
 
 

@@ -17,6 +17,10 @@ package exchange.core2.core.art;
 
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
 import static exchange.core2.core.art.ArtNode4.toNodeIndex;
 
 /**
@@ -218,6 +222,20 @@ public final class ArtNode16<V> implements IArtNode<V> {
     @Override
     public String printDiagram(String prefix, int level) {
         return LongAdaptiveRadixTreeMap.printDiagram(prefix, level, numChildren, idx -> keys[idx], idx -> nodes[idx]);
+    }
+
+    @Override
+    public List<Map.Entry<Long, V>> entries(long keyPrefix, int level) {
+        final long keyPrefixNext = keyPrefix << 8;
+        final List<Map.Entry<Long, V>> list = new ArrayList<>();
+        for (int i = 0; i < numChildren; i++) {
+            if (level == 0) {
+                list.add(new LongAdaptiveRadixTreeMap.Entry<>(keyPrefixNext + keys[i], (V) nodes[i]));
+            } else {
+                list.addAll(((IArtNode<V>) nodes[i]).entries(keyPrefixNext + keys[i], level - 8));
+            }
+        }
+        return list;
     }
 
     private void removeElementAtPos(final int pos) {
