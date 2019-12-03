@@ -126,15 +126,16 @@ public final class ArtNode256<V> implements IArtNode<V> {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public List<Map.Entry<Long, V>> entries(long keyPrefix, int level) {
         final long keyPrefixNext = keyPrefix << 8;
         final List<Map.Entry<Long, V>> list = new ArrayList<>();
         final short[] keys = createKeysArray();
         for (int i = 0; i < numChildren; i++) {
             if (level == 0) {
-                list.add(new LongAdaptiveRadixTreeMap.Entry<>(keyPrefixNext + keys[i], (V) nodes[i]));
+                list.add(new LongAdaptiveRadixTreeMap.Entry<>(keyPrefixNext + keys[i], (V) nodes[keys[i]]));
             } else {
-                list.addAll(((IArtNode<V>) nodes[i]).entries(keyPrefixNext + keys[i], level - 8));
+                list.addAll(((IArtNode<V>) nodes[keys[i]]).entries(keyPrefixNext + keys[i], level - 8));
             }
         }
         return list;
@@ -143,7 +144,7 @@ public final class ArtNode256<V> implements IArtNode<V> {
     @Override
     public String printDiagram(String prefix, int level) {
         final short[] keys = createKeysArray();
-        return LongAdaptiveRadixTreeMap.printDiagram(prefix, level, numChildren, idx -> keys[idx], idx -> nodes[idx]);
+        return LongAdaptiveRadixTreeMap.printDiagram(prefix, level, numChildren, idx -> keys[idx], idx -> nodes[keys[idx]]);
     }
 
     private short[] createKeysArray() {

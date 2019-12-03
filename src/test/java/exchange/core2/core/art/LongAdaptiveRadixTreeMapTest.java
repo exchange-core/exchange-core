@@ -113,29 +113,51 @@ public class LongAdaptiveRadixTreeMapTest {
         // 16->48
         put(177, "177");
         put(56, "56");
-        System.out.println(map.printDiagram());
-        //put(177, "177");
+        put(255, "255");
 
-//        remove(223);
-//        remove(1);
-//        // 16->4
-//        remove(4);
-//        remove(49);
+        remove(0);
+        remove(16);
+        remove(13);
+        remove(17); // nothing
+        remove(3);
+        remove(5);
+        remove(255);
+        remove(7);
+        // 48->16
+        remove(8);
+        remove(2);
+        remove(38);
+        put(4, "4A");
 
 
         // reduce intermediate
-//
-//        put(65536 * 7, "65536*7");
-//        put(65536 * 3, "65536*3");
-//        put(65536 * 2, "65536*2");
-//        // 4->16
-//        put(65536 * 4, "65536*4");
-//        put(65536 * 3 + 3, "65536*3+3");
-//
-//        remove(65536 * 2);
-//        // 16->4
-//        remove(65536 * 4);
-//        remove(65536 * 7);
+
+        for (int i = 0; i < 16; i++) {
+            put(256 * i, "" + 256 * i);
+        }
+
+
+        // 16->48
+        put(256 * 47, "" + 256 * 47);
+        put(256 * 27, "" + 256 * 27);
+        put(256 * 255, "" + 256 * 255);
+        put(256 * 22, "" + 256 * 22);
+
+
+        remove(256 * 5);
+        remove(256 * 6);
+        remove(256 * 7);
+        remove(256 * 8);
+        remove(256 * 9);
+        remove(256 * 10);
+        remove(256 * 11);
+        // 48->16
+        remove(256 * 15);
+        remove(256 * 13);
+        remove(256 * 14);
+        remove(256 * 12);
+
+//        System.out.println(map.printDiagram());
     }
 
 
@@ -146,6 +168,7 @@ public class LongAdaptiveRadixTreeMapTest {
 
 //        map.entriesList().forEach(entry -> System.out.println("k=" + entry.getKey() + " v=" + entry.getValue()));
 //        origMap.forEach((key1, value1) -> System.out.println("k1=" + key1 + " v1=" + value1));
+//        System.out.println(map.printDiagram());
 
         checkStreamsEqual(map.entriesList().stream(), origMap.entrySet().stream());
     }

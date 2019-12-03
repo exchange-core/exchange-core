@@ -133,8 +133,6 @@ public final class LongAdaptiveRadixTreeMap<V> {
             String key = String.format("%02X", subKeys.apply(i));
             String x = (i == 0 ? (numChildren == 1 ? "──" : "┬─") : (i + 1 == numChildren ? (prefix + "└─") : (prefix + "├─")));
 
-            log.debug("level: {} numChildren={}", level, numChildren);
-
             if (level == 0) {
                 sb.append(x + key + " = " + node);
             } else {

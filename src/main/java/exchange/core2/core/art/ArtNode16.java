@@ -43,7 +43,6 @@ public final class ArtNode16<V> implements IArtNode<V> {
     byte numChildren;
 
     public ArtNode16(ArtNode4<V> node4, short subKey, Object newElement) {
-        log.debug("Creating from 4->16");
         final byte sourceSize = node4.numChildren;
         this.numChildren = (byte) (sourceSize + 1);
         int inserted = 0;

@@ -159,6 +159,7 @@ public final class ArtNode48<V> implements IArtNode<V> {
                 nodes[nodeIndex] = resizedNode;
                 if (resizedNode == null) {
                     numChildren--;
+                    indexes[idx] = -1;
                 }
             }
         }
@@ -181,9 +182,9 @@ public final class ArtNode48<V> implements IArtNode<V> {
         short[] keys = createKeysArray();
         for (int i = 0; i < numChildren; i++) {
             if (level == 0) {
-                list.add(new LongAdaptiveRadixTreeMap.Entry<>(keyPrefixNext + keys[i], (V) nodes[i]));
+                list.add(new LongAdaptiveRadixTreeMap.Entry<>(keyPrefixNext + keys[i], (V) nodes[indexes[keys[i]]]));
             } else {
-                list.addAll(((IArtNode<V>) nodes[i]).entries(keyPrefixNext + keys[i], level - 8));
+                list.addAll(((IArtNode<V>) nodes[indexes[keys[i]]]).entries(keyPrefixNext + keys[i], level - 8));
             }
         }
         return list;
@@ -192,7 +193,7 @@ public final class ArtNode48<V> implements IArtNode<V> {
     @Override
     public String printDiagram(String prefix, int level) {
         final short[] keys = createKeysArray();
-        return LongAdaptiveRadixTreeMap.printDiagram(prefix, level, numChildren, idx -> keys[idx], idx -> nodes[idx]);
+        return LongAdaptiveRadixTreeMap.printDiagram(prefix, level, numChildren, idx -> keys[idx], idx -> nodes[indexes[keys[idx]]]);
     }
 
     private short[] createKeysArray() {
