@@ -15,6 +15,8 @@
  */
 package exchange.core2.core.art;
 
+import lombok.extern.slf4j.Slf4j;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +32,7 @@ import static exchange.core2.core.art.ArtNode4.toNodeIndex;
  * null, this representation is also very space efficient because
  * only pointers need to be stored.
  */
+@Slf4j
 public final class ArtNode256<V> implements IArtNode<V> {
 
     public static final int NODE48_SWITCH_THRESHOLD = 37;
@@ -41,13 +44,14 @@ public final class ArtNode256<V> implements IArtNode<V> {
 
     public ArtNode256(ArtNode48<V> artNode48, short subKey, Object newElement) {
         final int sourceSize = 48;
-
-        this.numChildren = sourceSize + 1;
-        for (byte i = 0; i < sourceSize; i++) {
-            this.nodes[i] = artNode48.nodes[artNode48.indexes[i]];
+        for (short i = 0; i < 256; i++) {
+            final byte index = artNode48.indexes[i];
+            if (index != -1) {
+                this.nodes[i] = artNode48.nodes[index];
+            }
         }
-
         this.nodes[subKey] = newElement;
+        this.numChildren = sourceSize + 1;
     }
 
     @Override
@@ -122,7 +126,21 @@ public final class ArtNode256<V> implements IArtNode<V> {
 
     @Override
     public void validateInternalState() {
-        // TODO
+        int found = 0;
+        for (int i = 0; i < 256; i++) {
+            Object node = nodes[i];
+            if (node != null) {
+                if (node instanceof IArtNode) {
+                    IArtNode artNode = (IArtNode) node;
+                    artNode.validateInternalState();
+                }
+                found++;
+            }
+        }
+        if (found != numChildren) {
+            throw new IllegalStateException("wrong numChildren");
+        }
+        if (numChildren <= NODE48_SWITCH_THRESHOLD) throw new IllegalStateException("too small");
     }
 
     @Override

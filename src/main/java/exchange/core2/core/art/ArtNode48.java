@@ -16,6 +16,7 @@
 package exchange.core2.core.art;
 
 import lombok.extern.slf4j.Slf4j;
+import org.eclipse.collections.impl.set.mutable.primitive.IntHashSet;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -133,7 +134,7 @@ public final class ArtNode48<V> implements IArtNode<V> {
 
         } else {
             // no space left, create a ArtNode256 containing a new item
-            return new ArtNode256<>(this, nodeIndex, value);
+            return new ArtNode256<>(this, idx, level == 0 ? value : new ArtNode4<>(key, level - 8, value));
         }
     }
 
@@ -170,8 +171,36 @@ public final class ArtNode48<V> implements IArtNode<V> {
 
     @Override
     public void validateInternalState() {
+        int found = 0;
+        IntHashSet keysSet = new IntHashSet();
+        for (int i = 0; i < 256; i++) {
+            int idx = indexes[i];
+            if (idx != -1) {
+                if (idx > 47 || idx < -1) throw new IllegalStateException("wrong index");
+                keysSet.add(idx);
+                found++;
+                if (nodes[idx] == null) throw new IllegalStateException("null node");
+            }
+        }
+        if (found != numChildren) throw new IllegalStateException("wrong numChildren");
+        if (keysSet.size() != numChildren) throw new IllegalStateException("duplicate keys");
+        if (numChildren <= NODE16_SWITCH_THRESHOLD) throw new IllegalStateException("too small");
 
-        // TODO
+        for (int i = 0; i < 48; i++) {
+            Object node = nodes[i];
+            if (keysSet.contains(i)) {
+                if (node == null) {
+                    throw new IllegalStateException("null node");
+                } else {
+                    if (node instanceof IArtNode) {
+                        IArtNode artNode = (IArtNode) node;
+                        artNode.validateInternalState();
+                    }
+                }
+            } else {
+                if (node != null) throw new IllegalStateException("not released node");
+            }
+        }
     }
 
     @Override

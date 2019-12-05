@@ -197,6 +197,7 @@ public final class ArtNode16<V> implements IArtNode<V> {
 
     @Override
     public void validateInternalState() {
+        if (numChildren <= NODE4_SWITCH_THRESHOLD) throw new IllegalStateException("too small");
         short last = -1;
         for (int i = 0; i < 16; i++) {
             Object node = nodes[i];
@@ -214,7 +215,6 @@ public final class ArtNode16<V> implements IArtNode<V> {
             } else {
                 if (node != null) throw new IllegalStateException("not released node");
             }
-
         }
     }
 

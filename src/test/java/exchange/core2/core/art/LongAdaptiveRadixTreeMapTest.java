@@ -39,7 +39,7 @@ public class LongAdaptiveRadixTreeMapTest {
     }
 
     @Test
-    public void test() {
+    public void shouldPerformBasicOperations() {
 
         map.validateInternalState();
         assertNull(map.get(0));
@@ -50,8 +50,8 @@ public class LongAdaptiveRadixTreeMapTest {
         map.put(49, "fn");
         map.put(1, "fn");
 
-        System.out.println(String.format("11239847219L = %016X", 11239847219L));
-        System.out.println(String.format("1123909L = %016X", 1123909L));
+//        System.out.println(String.format("11239847219L = %016X", 11239847219L));
+//        System.out.println(String.format("1123909L = %016X", 1123909L));
         map.put(Long.MAX_VALUE, "fn");
         map.put(11239847219L, "11239847219L");
         map.put(1123909L, "1123909L");
@@ -59,14 +59,14 @@ public class LongAdaptiveRadixTreeMapTest {
         map.put(13213, "13213");
         map.put(13423, "13423");
 
-        System.out.println(map.printDiagram());
+//        System.out.println(map.printDiagram());
 
         assertThat(map.get(223), is("dds"));
         assertThat(map.get(Long.MAX_VALUE), is("fn"));
         assertThat(map.get(11239837212L), is("11239837212L"));
 
 
-        System.out.println(map.printDiagram());
+//        System.out.println(map.printDiagram());
 
     }
 
@@ -105,7 +105,7 @@ public class LongAdaptiveRadixTreeMapTest {
 
     @Test
     public void shouldExtendTo48andReduceTo16() {
-        // reduce ay end level
+        // reduce at end level
 
         for (int i = 0; i < 16; i++) {
             put(i, "" + i);
@@ -160,6 +160,45 @@ public class LongAdaptiveRadixTreeMapTest {
 //        System.out.println(map.printDiagram());
     }
 
+
+    @Test
+    public void shouldExtendTo256andReduceTo48() {
+        // reduce at end level
+        for (int i = 0; i < 48; i++) {
+            int key = 255 - i * 3;
+            put(key, "" + key);
+        }
+
+//        // 48->256
+        put(176, "176");
+        put(221, "221");
+
+        remove(252);
+        remove(132);
+        remove(135);
+        remove(138);
+        remove(141);
+        remove(144);
+        remove(147);
+        remove(150);
+        remove(153);
+        remove(156);
+        remove(159);
+        remove(162);
+        remove(165);
+
+        for (int i = 0; i < 50; i++) {
+            int key = 65536 * (13 + i * 3);
+            put(key, "" + key);
+        }
+
+        for (int i = 10; i < 30; i++) {
+            int key = 65536 * (13 + i * 3);
+            remove(key);
+        }
+
+        System.out.println(map.printDiagram());
+    }
 
     private void put(long key, String value) {
         map.put(key, value);
