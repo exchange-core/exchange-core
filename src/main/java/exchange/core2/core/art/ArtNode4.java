@@ -46,7 +46,6 @@ public final class ArtNode4<V> implements IArtNode<V> {
 
 
     public ArtNode4(ArtNode16 artNode16) {
-        log.debug("Creating from 16->4");
         this.numChildren = artNode16.numChildren;
         System.arraycopy(artNode16.keys, 0, this.keys, 0, numChildren);
         System.arraycopy(artNode16.nodes, 0, this.nodes, 0, numChildren);
@@ -171,11 +170,13 @@ public final class ArtNode4<V> implements IArtNode<V> {
         return (numChildren == 0) ? null : this;
     }
 
+
     private void removeElementAtPos(final int pos) {
-        final int copyLength = numChildren - pos;
+        final int ppos = pos + 1;
+        final int copyLength = numChildren - ppos;
         if (copyLength != 0) {
-            System.arraycopy(keys, pos + 1, keys, pos, copyLength);
-            System.arraycopy(nodes, pos + 1, nodes, pos, copyLength);
+            System.arraycopy(keys, ppos, keys, pos, copyLength);
+            System.arraycopy(nodes, ppos, nodes, pos, copyLength);
         }
         numChildren--;
         nodes[numChildren] = null;

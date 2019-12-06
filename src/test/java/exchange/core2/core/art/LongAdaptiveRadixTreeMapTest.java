@@ -15,18 +15,18 @@
  */
 package exchange.core2.core.art;
 
+import lombok.extern.slf4j.Slf4j;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.util.Iterator;
-import java.util.Map;
-import java.util.TreeMap;
+import java.util.*;
 import java.util.stream.Stream;
 
 import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThat;
 
+@Slf4j
 public class LongAdaptiveRadixTreeMapTest {
 
     private LongAdaptiveRadixTreeMap<String> map;
@@ -199,6 +199,58 @@ public class LongAdaptiveRadixTreeMapTest {
 
         System.out.println(map.printDiagram());
     }
+
+    @Test
+    public void shouldLoadManyItems() {
+
+        LongAdaptiveRadixTreeMap<Long> adt = new LongAdaptiveRadixTreeMap<>();
+
+        TreeMap<Long, Long> bst = new TreeMap<>();
+
+        Random rand = new Random(1L);
+        int num = 2000000;
+        List<Long> list = new ArrayList<>(num);
+        long j = 0;
+        log.debug("generate random numbers..");
+        for (int i = 0; i < num; i++) {
+            list.add(10_000_000_000L + j);
+            j += 1 + rand.nextInt((int) Math.min(Integer.MAX_VALUE, 1L + (Long.highestOneBit(i) >> 2)));
+        }
+        log.debug("shuffle..");
+        Collections.shuffle(list, rand);
+
+        log.debug("put into BST..");
+        list.forEach(x -> bst.put(x, x));
+
+        log.debug("put into ADR..");
+        //list.forEach(x -> log.debug("{}", x));
+        list.forEach(x -> adt.put(x, x));
+
+//        log.debug("\n{}", adt.printDiagram());
+        log.debug("validating..");
+        adt.validateInternalState();
+        checkStreamsEqual(adt.entriesList().stream(), bst.entrySet().stream());
+
+        log.debug("shuffle again..");
+        Collections.shuffle(list, rand);
+
+        log.debug("remove from BST..");
+        list.forEach(bst::remove);
+
+        log.debug("remove from ADR..");
+//        list.forEach(x -> {
+////            log.debug("\n{}", adt.printDiagram());
+//            adt.validateInternalState();
+//            log.debug("REMOVING {}", x);
+//            adt.remove(x);
+//        });
+        list.forEach(adt::remove);
+
+        log.debug("validating..");
+        adt.validateInternalState();
+        checkStreamsEqual(adt.entriesList().stream(), bst.entrySet().stream());
+    }
+
 
     private void put(long key, String value) {
         map.put(key, value);

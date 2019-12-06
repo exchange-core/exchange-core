@@ -238,10 +238,11 @@ public final class ArtNode16<V> implements IArtNode<V> {
     }
 
     private void removeElementAtPos(final int pos) {
-        final int copyLength = numChildren - pos;
+        final int ppos = pos + 1;
+        final int copyLength = numChildren - ppos;
         if (copyLength != 0) {
-            System.arraycopy(keys, pos + 1, keys, pos, copyLength);
-            System.arraycopy(nodes, pos + 1, nodes, pos, copyLength);
+            System.arraycopy(keys, ppos, keys, pos, copyLength);
+            System.arraycopy(nodes, ppos, nodes, pos, copyLength);
         }
         numChildren--;
         nodes[numChildren] = null;
