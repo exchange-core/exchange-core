@@ -26,13 +26,13 @@ public interface IArtNode<V> {
 
     IArtNode<V> remove(long key, int level);
 
-    void validateInternalState();
+    void validateInternalState(int level);
 
     String printDiagram(String prefix, int level);
 
     /**
      * For testing only
      */
-    List<Map.Entry<Long, V>> entries(long keyPrefix, int level);
+    List<Map.Entry<Long, V>> entries();
 
 }

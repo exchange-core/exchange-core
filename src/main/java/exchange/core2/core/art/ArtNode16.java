@@ -21,8 +21,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import static exchange.core2.core.art.ArtNode4.toNodeIndex;
-
 /**
  * This node type is used for storing between 5 and
  * 16 child pointers. Like the Node4, the keys and pointers
@@ -40,10 +38,15 @@ public final class ArtNode16<V> implements IArtNode<V> {
     final short[] keys = new short[16];
     final Object[] nodes = new Object[16];
 
+    long nodeKey;
+    int nodeLevel;
+
     byte numChildren;
 
     public ArtNode16(ArtNode4<V> node4, short subKey, Object newElement) {
         final byte sourceSize = node4.numChildren;
+        this.nodeLevel = node4.nodeLevel;
+        this.nodeKey = node4.nodeKey;
         this.numChildren = (byte) (sourceSize + 1);
         int inserted = 0;
         for (int i = 0; i < sourceSize; i++) {
@@ -63,7 +66,10 @@ public final class ArtNode16<V> implements IArtNode<V> {
     }
 
     public ArtNode16(ArtNode48<V> node48) {
+//        log.debug("48->16 nodeLevel={} (nodekey={})", node48.nodeLevel, node48.nodeKey);
         this.numChildren = node48.numChildren;
+        this.nodeLevel = node48.nodeLevel;
+        this.nodeKey = node48.nodeKey;
         byte idx = 0;
         for (short i = 0; i < 256; i++) {
             final byte j = node48.indexes[i];
@@ -73,7 +79,7 @@ public final class ArtNode16<V> implements IArtNode<V> {
                 idx++;
             }
             if (idx == numChildren) {
-                return;
+                break;
             }
         }
     }
@@ -82,14 +88,17 @@ public final class ArtNode16<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public V getValue(final long key, final int level) {
-        final short nodeIndex = toNodeIndex(key, level);
+        if (level != nodeLevel && ((key ^ nodeKey) & (-1L << (nodeLevel + 8))) != 0) {
+            return null;
+        }
+        final short nodeIndex = (short) ((key >>> nodeLevel) & 0xFF);
         for (int i = 0; i < numChildren; i++) {
             final short index = keys[i];
             if (index == nodeIndex) {
                 final Object node = nodes[i];
-                return level == 0
+                return nodeLevel == 0
                         ? (V) node
-                        : ((IArtNode<V>) node).getValue(key, level - 8);
+                        : ((IArtNode<V>) node).getValue(key, nodeLevel - 8);
             }
             if (nodeIndex < index) {
                 // can give up searching because keys are in sorted order
@@ -102,15 +111,21 @@ public final class ArtNode16<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public IArtNode<V> put(final long key, final int level, final V value) {
-        final short nodeIndex = toNodeIndex(key, level);
+        if (level != nodeLevel) {
+            final IArtNode<V> branch = LongAdaptiveRadixTreeMap.branchIfRequired(key, value, nodeKey, nodeLevel, this);
+            if (branch != null) {
+                return branch;
+            }
+        }
+        final short nodeIndex = (short) ((key >>> nodeLevel) & 0xFF);
         int pos = 0;
         while (pos < numChildren) {
             if (nodeIndex == keys[pos]) {
                 // just update
-                if (level == 0) {
+                if (nodeLevel == 0) {
                     nodes[pos] = value;
                 } else {
-                    final IArtNode<V> resizedNode = ((IArtNode<V>) nodes[pos]).put(key, level - 8, value);
+                    final IArtNode<V> resizedNode = ((IArtNode<V>) nodes[pos]).put(key, nodeLevel - 8, value);
                     if (resizedNode != null) {
                         // TODO put old into the pool
                         // update resized node if capacity has increased
@@ -135,27 +150,30 @@ public final class ArtNode16<V> implements IArtNode<V> {
                 System.arraycopy(nodes, pos, nodes, pos + 1, copyLength);
             }
             keys[pos] = nodeIndex;
-            if (level == 0) {
+            if (nodeLevel == 0) {
                 nodes[pos] = value;
             } else {
                 // TODO take from pool
-                final ArtNode4 newSubNode = new ArtNode4(key, level - 8, value);
+                final ArtNode4 newSubNode = new ArtNode4(key, value);
                 nodes[pos] = newSubNode;
                 // TODO create compressed-path node
-                newSubNode.put(key, level - 8, value);
+                newSubNode.put(key, nodeLevel - 8, value);
             }
             numChildren++;
             return null;
         } else {
-            // no space left, create a Node48 with new item
-            return new ArtNode48<>(this, nodeIndex, level == 0 ? value : new ArtNode4<>(key, level - 8, value));
+            // no space left, create a Node48 with new element
+            return new ArtNode48<>(this, nodeIndex, nodeLevel == 0 ? value : new ArtNode4<>(key, value));
         }
     }
 
     @Override
     @SuppressWarnings("unchecked")
     public IArtNode<V> remove(long key, int level) {
-        final short nodeIndex = toNodeIndex(key, level);
+        if (level != nodeLevel && ((key ^ nodeKey) & (-1L << (nodeLevel + 8))) != 0) {
+            return this;
+        }
+        final short nodeIndex = (short) ((key >>> nodeLevel) & 0xFF);
         Object node = null;
         int pos = 0;
         while (pos < numChildren) {
@@ -177,10 +195,10 @@ public final class ArtNode16<V> implements IArtNode<V> {
         }
 
         // removing
-        if (level == 0) {
+        if (nodeLevel == 0) {
             removeElementAtPos(pos);
         } else {
-            final IArtNode<V> resizedNode = ((IArtNode<V>) node).remove(key, level - 8);
+            final IArtNode<V> resizedNode = ((IArtNode<V>) node).remove(key, nodeLevel - 8);
             if (resizedNode != node) {
                 // TODO put old into the pool
                 // update resized node if capacity has decreased
@@ -196,7 +214,8 @@ public final class ArtNode16<V> implements IArtNode<V> {
     }
 
     @Override
-    public void validateInternalState() {
+    public void validateInternalState(int level) {
+        if (nodeLevel > level) throw new IllegalStateException("unexpected nodeLevel");
         if (numChildren <= NODE4_SWITCH_THRESHOLD) throw new IllegalStateException("too small");
         short last = -1;
         for (int i = 0; i < 16; i++) {
@@ -208,8 +227,11 @@ public final class ArtNode16<V> implements IArtNode<V> {
                 if (keys[i] < last) throw new IllegalStateException("wrong key order");
                 last = keys[i];
                 if (node instanceof IArtNode) {
+                    if (nodeLevel == 0) throw new IllegalStateException("unexpected node type");
                     IArtNode artNode = (IArtNode) node;
-                    artNode.validateInternalState();
+                    artNode.validateInternalState(nodeLevel - 8);
+                } else {
+                    if (nodeLevel != 0) throw new IllegalStateException("unexpected node type");
                 }
 
             } else {
@@ -220,18 +242,19 @@ public final class ArtNode16<V> implements IArtNode<V> {
 
     @Override
     public String printDiagram(String prefix, int level) {
-        return LongAdaptiveRadixTreeMap.printDiagram(prefix, level, numChildren, idx -> keys[idx], idx -> nodes[idx]);
+        return LongAdaptiveRadixTreeMap.printDiagram(prefix, level, nodeLevel, nodeKey, numChildren, idx -> keys[idx], idx -> nodes[idx]);
     }
 
     @Override
-    public List<Map.Entry<Long, V>> entries(long keyPrefix, int level) {
-        final long keyPrefixNext = keyPrefix << 8;
+    @SuppressWarnings("unchecked")
+    public List<Map.Entry<Long, V>> entries() {
+        final long keyPrefix = nodeKey & (-1L << 8);
         final List<Map.Entry<Long, V>> list = new ArrayList<>();
         for (int i = 0; i < numChildren; i++) {
-            if (level == 0) {
-                list.add(new LongAdaptiveRadixTreeMap.Entry<>(keyPrefixNext + keys[i], (V) nodes[i]));
+            if (nodeLevel == 0) {
+                list.add(new LongAdaptiveRadixTreeMap.Entry<>(keyPrefix + keys[i], (V) nodes[i]));
             } else {
-                list.addAll(((IArtNode<V>) nodes[i]).entries(keyPrefixNext + keys[i], level - 8));
+                list.addAll(((IArtNode<V>) nodes[i]).entries());
             }
         }
         return list;
@@ -246,5 +269,14 @@ public final class ArtNode16<V> implements IArtNode<V> {
         }
         numChildren--;
         nodes[numChildren] = null;
+    }
+
+    @Override
+    public String toString() {
+        return "ArtNode16{" +
+                "nodeKey=" + nodeKey +
+                ", nodeLevel=" + nodeLevel +
+                ", numChildren=" + numChildren +
+                '}';
     }
 }

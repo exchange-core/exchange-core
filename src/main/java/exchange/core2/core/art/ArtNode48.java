@@ -23,8 +23,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
-import static exchange.core2.core.art.ArtNode4.toNodeIndex;
-
 /**
  * As the number of entries in a node increases,
  * searching the key array becomes expensive. Therefore, nodes
@@ -45,6 +43,9 @@ public final class ArtNode48<V> implements IArtNode<V> {
     final byte[] indexes;
     final Object[] nodes = new Object[48];
 
+    long nodeKey;
+    int nodeLevel;
+
     byte numChildren;
 
     public ArtNode48(ArtNode16<V> node16, short subKey, Object newElement) {
@@ -52,6 +53,8 @@ public final class ArtNode48<V> implements IArtNode<V> {
         this.indexes = new byte[256];
         Arrays.fill(this.indexes, (byte) -1);
         this.numChildren = sourceSize + 1;
+        this.nodeLevel = node16.nodeLevel;
+        this.nodeKey = node16.nodeKey;
 
         for (byte i = 0; i < sourceSize; i++) {
             this.indexes[node16.keys[i]] = i;
@@ -66,7 +69,8 @@ public final class ArtNode48<V> implements IArtNode<V> {
         this.indexes = new byte[256];
         Arrays.fill(this.indexes, (byte) -1);
         this.numChildren = (byte) node256.numChildren;
-
+        this.nodeLevel = node256.nodeLevel;
+        this.nodeKey = node256.nodeKey;
         byte idx = 0;
         for (int i = 0; i < 256; i++) {
             Object node = node256.nodes[i];
@@ -84,13 +88,16 @@ public final class ArtNode48<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public V getValue(final long key, final int level) {
-        final short idx = toNodeIndex(key, level);
+        if (level != nodeLevel && ((key ^ nodeKey) & (-1L << (nodeLevel + 8))) != 0) {
+            return null;
+        }
+        final short idx = (short) ((key >>> nodeLevel) & 0xFF);
         final byte nodeIndex = indexes[idx];
         if (nodeIndex != -1) {
             final Object node = nodes[nodeIndex];
-            return level == 0
+            return nodeLevel == 0
                     ? (V) node
-                    : ((IArtNode<V>) node).getValue(key, level - 8);
+                    : ((IArtNode<V>) node).getValue(key, nodeLevel - 8);
         }
         return null;
     }
@@ -98,14 +105,20 @@ public final class ArtNode48<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public IArtNode<V> put(final long key, final int level, final V value) {
-        final short idx = toNodeIndex(key, level);
+        if (level != nodeLevel) {
+            final IArtNode<V> branch = LongAdaptiveRadixTreeMap.branchIfRequired(key, value, nodeKey, nodeLevel, this);
+            if (branch != null) {
+                return branch;
+            }
+        }
+        final short idx = (short) ((key >>> nodeLevel) & 0xFF);
         final byte nodeIndex = indexes[idx];
         if (nodeIndex != -1) {
             // found
-            if (level == 0) {
+            if (nodeLevel == 0) {
                 nodes[nodeIndex] = value;
             } else {
-                final IArtNode<V> resizedNode = ((IArtNode<V>) nodes[nodeIndex]).put(key, level - 8, value);
+                final IArtNode<V> resizedNode = ((IArtNode<V>) nodes[nodeIndex]).put(key, nodeLevel - 8, value);
                 if (resizedNode != null) {
                     // update resized node if capacity has increased
                     // TODO put old into the pool
@@ -121,12 +134,12 @@ public final class ArtNode48<V> implements IArtNode<V> {
             // capacity less than 48 - can simply insert node
             indexes[idx] = numChildren;
 
-            if (level == 0) {
+            if (nodeLevel == 0) {
                 nodes[numChildren] = value;
             } else {
                 // TODO take from pool
                 // TODO create compressed-path node
-                final ArtNode4 newSubNode = new ArtNode4(key, level - 8, value);
+                final ArtNode4 newSubNode = new ArtNode4(key, value);
                 nodes[numChildren] = newSubNode;
             }
             numChildren++;
@@ -134,26 +147,29 @@ public final class ArtNode48<V> implements IArtNode<V> {
 
         } else {
             // no space left, create a ArtNode256 containing a new item
-            return new ArtNode256<>(this, idx, level == 0 ? value : new ArtNode4<>(key, level - 8, value));
+            return new ArtNode256<>(this, idx, nodeLevel == 0 ? value : new ArtNode4<>(key, value));
         }
     }
 
     @Override
     @SuppressWarnings("unchecked")
     public IArtNode<V> remove(long key, int level) {
-        final short idx = toNodeIndex(key, level);
+        if (level != nodeLevel && ((key ^ nodeKey) & (-1L << (nodeLevel + 8))) != 0) {
+            return this;
+        }
+        final short idx = (short) ((key >>> nodeLevel) & 0xFF);
         final byte nodeIndex = indexes[idx];
         if (nodeIndex == -1) {
             return this;
         }
 
-        if (level == 0) {
+        if (nodeLevel == 0) {
             nodes[nodeIndex] = null;
             indexes[idx] = -1;
             numChildren--;
         } else {
             final IArtNode<V> node = (IArtNode<V>) nodes[nodeIndex];
-            final IArtNode<V> resizedNode = node.remove(key, level - 8);
+            final IArtNode<V> resizedNode = node.remove(key, nodeLevel - 8);
             if (resizedNode != node) {
                 // TODO put old into the pool
                 // update resized node if capacity has decreased
@@ -168,9 +184,9 @@ public final class ArtNode48<V> implements IArtNode<V> {
         return (numChildren == NODE16_SWITCH_THRESHOLD) ? new ArtNode16(this) : this;
     }
 
-
     @Override
-    public void validateInternalState() {
+    public void validateInternalState(int level) {
+        if (nodeLevel > level) throw new IllegalStateException("unexpected nodeLevel");
         int found = 0;
         IntHashSet keysSet = new IntHashSet();
         for (int i = 0; i < 256; i++) {
@@ -193,8 +209,11 @@ public final class ArtNode48<V> implements IArtNode<V> {
                     throw new IllegalStateException("null node");
                 } else {
                     if (node instanceof IArtNode) {
+                        if (nodeLevel == 0) throw new IllegalStateException("unexpected node type");
                         IArtNode artNode = (IArtNode) node;
-                        artNode.validateInternalState();
+                        artNode.validateInternalState(nodeLevel - 8);
+                    } else {
+                        if (nodeLevel != 0) throw new IllegalStateException("unexpected node type");
                     }
                 }
             } else {
@@ -205,15 +224,15 @@ public final class ArtNode48<V> implements IArtNode<V> {
 
     @Override
     @SuppressWarnings("unchecked")
-    public List<Map.Entry<Long, V>> entries(long keyPrefix, int level) {
-        final long keyPrefixNext = keyPrefix << 8;
+    public List<Map.Entry<Long, V>> entries() {
+        final long keyPrefix = nodeKey & (-1L << 8);
         final List<Map.Entry<Long, V>> list = new ArrayList<>();
         short[] keys = createKeysArray();
         for (int i = 0; i < numChildren; i++) {
-            if (level == 0) {
-                list.add(new LongAdaptiveRadixTreeMap.Entry<>(keyPrefixNext + keys[i], (V) nodes[indexes[keys[i]]]));
+            if (nodeLevel == 0) {
+                list.add(new LongAdaptiveRadixTreeMap.Entry<>(keyPrefix + keys[i], (V) nodes[indexes[keys[i]]]));
             } else {
-                list.addAll(((IArtNode<V>) nodes[indexes[keys[i]]]).entries(keyPrefixNext + keys[i], level - 8));
+                list.addAll(((IArtNode<V>) nodes[indexes[keys[i]]]).entries());
             }
         }
         return list;
@@ -222,8 +241,18 @@ public final class ArtNode48<V> implements IArtNode<V> {
     @Override
     public String printDiagram(String prefix, int level) {
         final short[] keys = createKeysArray();
-        return LongAdaptiveRadixTreeMap.printDiagram(prefix, level, numChildren, idx -> keys[idx], idx -> nodes[indexes[keys[idx]]]);
+        return LongAdaptiveRadixTreeMap.printDiagram(prefix, level, nodeLevel, nodeKey, numChildren, idx -> keys[idx], idx -> nodes[indexes[keys[idx]]]);
     }
+
+    @Override
+    public String toString() {
+        return "ArtNode48{" +
+                "nodeKey=" + nodeKey +
+                ", nodeLevel=" + nodeLevel +
+                ", numChildren=" + numChildren +
+                '}';
+    }
+
 
     private short[] createKeysArray() {
         short[] keys = new short[numChildren];

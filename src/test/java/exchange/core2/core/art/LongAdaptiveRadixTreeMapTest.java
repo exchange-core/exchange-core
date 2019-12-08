@@ -72,6 +72,61 @@ public class LongAdaptiveRadixTreeMapTest {
 
 
     @Test
+    public void shouldCompactNodes() {
+        put(2, "2");
+        System.out.println(map.printDiagram());
+        assertThat(map.get(2), is("2"));
+        assertNull(map.get(3));
+        assertNull(map.get(256 + 2));
+        assertNull(map.get(256 * 256 * 256 + 2));
+        assertNull(map.get(Long.MAX_VALUE - 0xFF + 2));
+
+//        map.put(0x010002L, "0x010002");
+//        map.put(0xFF0002L, "0xFF0002");
+//        map.put(Long.MAX_VALUE, "MAX_VALUE");
+        put(0x414F32L, "0x414F32");
+        put(0x414F33L, "0x414F33");
+        put(0x414E00L, "0x414E00");
+        put(0x407654L, "0x407654");
+        put(0x33558822DD44AA11L, "0x33558822DD44AA11");
+        put(0xFFFFFFFFFFFFFFL, "0xFFFFFFFFFFFFFF");
+        put(0xFFFFFFFFFFFFFEL, "0xFFFFFFFFFFFFFE");
+        put(0x112233445566L, "0x112233445566");
+        put(0x1122AAEE5566L, "0x1122AAEE5566");
+        System.out.println(map.printDiagram());
+
+        assertThat(map.get(0x414F32L), is("0x414F32"));
+        assertThat(map.get(0x414F33L), is("0x414F33"));
+        assertThat(map.get(0x414E00L), is("0x414E00"));
+        assertNull(map.get(0x414D00L));
+        assertNull(map.get(0x414D33L));
+        assertNull(map.get(0x414D32L));
+        assertNull(map.get(0x424F32L));
+
+        assertThat(map.get(0x407654L), is("0x407654"));
+        assertThat(map.get(0x33558822DD44AA11L), is("0x33558822DD44AA11"));
+        assertNull(map.get(0x00558822DD44AA11L));
+        assertThat(map.get(0xFFFFFFFFFFFFFFL), is("0xFFFFFFFFFFFFFF"));
+        assertThat(map.get(0xFFFFFFFFFFFFFEL), is("0xFFFFFFFFFFFFFE"));
+        assertNull(map.get(0xFFFFL));
+        assertNull(map.get(0xFFL));
+        assertThat(map.get(0x112233445566L), is("0x112233445566"));
+        assertThat(map.get(0x1122AAEE5566L), is("0x1122AAEE5566"));
+        assertNull(map.get(0x112333445566L));
+        assertNull(map.get(0x112255445566L));
+        assertNull(map.get(0x112233EE5566L));
+        assertNull(map.get(0x1122AA445566L));
+
+//        map.remove(0x112233445566L);
+        remove(0x414F32L);
+        remove(0x414E00L);
+        remove(0x407654L);
+        remove(2);
+        System.out.println(map.printDiagram());
+
+    }
+
+    @Test
     public void shouldExtendTo16andReduceTo4() {
         put(2, "2");
         put(223, "223");
@@ -202,53 +257,132 @@ public class LongAdaptiveRadixTreeMapTest {
 
     @Test
     public void shouldLoadManyItems() {
+        List<Long> bstPutTime = new ArrayList<>();
+        List<Long> adtPutTime = new ArrayList<>();
+        List<Long> bstGetHitTime = new ArrayList<>();
+        List<Long> adtGetHitTime = new ArrayList<>();
+        List<Long> bstRemoveTime = new ArrayList<>();
+        List<Long> adtRemoveTime = new ArrayList<>();
 
-        LongAdaptiveRadixTreeMap<Long> adt = new LongAdaptiveRadixTreeMap<>();
+        long timeEnd = System.currentTimeMillis() + 1_000;
+        for (int iter = 0; System.currentTimeMillis() < timeEnd && iter < 1000; iter++) {
+            log.debug("-------------------iteration:{} ({}s left)------------------------", iter, (timeEnd - System.currentTimeMillis()) / 1000);
 
-        TreeMap<Long, Long> bst = new TreeMap<>();
+            LongAdaptiveRadixTreeMap<Long> adt = new LongAdaptiveRadixTreeMap<>();
 
-        Random rand = new Random(1L);
-        int num = 2000000;
-        List<Long> list = new ArrayList<>(num);
-        long j = 0;
-        log.debug("generate random numbers..");
-        for (int i = 0; i < num; i++) {
-            list.add(10_000_000_000L + j);
-            j += 1 + rand.nextInt((int) Math.min(Integer.MAX_VALUE, 1L + (Long.highestOneBit(i) >> 2)));
-        }
-        log.debug("shuffle..");
-        Collections.shuffle(list, rand);
+            TreeMap<Long, Long> bst = new TreeMap<>();
 
-        log.debug("put into BST..");
-        list.forEach(x -> bst.put(x, x));
+            Random rand = new Random(iter);
+//            int num = 500_000;
+            int num = 50_000;
+            List<Long> list = new ArrayList<>(num);
+            long j = 0;
+            log.debug("generate random numbers..");
+            for (int i = 0; i < num; i++) {
+                list.add(1_000_000_000L + j);
+                j += 1 + rand.nextInt((int) Math.min(Integer.MAX_VALUE, 1L + (Long.highestOneBit(i) >> 8)));
+//                j += 1 + rand.nextInt(Integer.MAX_VALUE);
+//                j += 1 ;
+            }
+            log.debug("shuffle..");
+            Collections.shuffle(list, rand);
 
-        log.debug("put into ADR..");
-        //list.forEach(x -> log.debug("{}", x));
-        list.forEach(x -> adt.put(x, x));
+            log.debug("put into BST..");
+            long t = System.nanoTime();
+            list.forEach(x -> bst.put(x, x));
+            long bstPutTimeNs = System.nanoTime() - t;
+            log.debug("put into ADT..");
+//            list.forEach(x -> log.debug("{}", x));
 
-//        log.debug("\n{}", adt.printDiagram());
-        log.debug("validating..");
-        adt.validateInternalState();
-        checkStreamsEqual(adt.entriesList().stream(), bst.entrySet().stream());
+            t = System.nanoTime();
+            list.forEach(x -> adt.put(x, x));
+            long adtPutTimeNs = System.nanoTime() - t;
 
-        log.debug("shuffle again..");
-        Collections.shuffle(list, rand);
 
-        log.debug("remove from BST..");
-        list.forEach(bst::remove);
+            log.debug("shuffle..");
+            Collections.shuffle(list, rand);
 
-        log.debug("remove from ADR..");
+            log.debug("get (hit) from BST..");
+            t = System.nanoTime();
+            long sum = 0;
+            for (long x : list) {
+                sum += bst.get(x);
+            }
+            long bstGetHitTimeNs = System.nanoTime() - t;
+
+            log.debug("get (hit) from ADT..");
+            t = System.nanoTime();
+            for (long x : list) {
+                sum += adt.get(x);
+            }
+            long adtGetHitTimeNs = System.nanoTime() - t;
+            log.debug("done ({})", sum);
+
+            //        log.debug("\n{}", adt.printDiagram());
+            log.debug("validating..");
+            adt.validateInternalState();
+            checkStreamsEqual(adt.entriesList().stream(), bst.entrySet().stream());
+
+            log.debug("shuffle again..");
+            Collections.shuffle(list, rand);
+
+            log.debug("remove from BST..");
+            t = System.nanoTime();
+            list.forEach(bst::remove);
+            long bstRemoveTimeNs = System.nanoTime() - t;
+
+            log.debug("remove from ADT..");
 //        list.forEach(x -> {
 ////            log.debug("\n{}", adt.printDiagram());
 //            adt.validateInternalState();
 //            log.debug("REMOVING {}", x);
 //            adt.remove(x);
 //        });
-        list.forEach(adt::remove);
+            t = System.nanoTime();
+            list.forEach(adt::remove);
+            long adtRemoveTimeNs = System.nanoTime() - t;
 
-        log.debug("validating..");
-        adt.validateInternalState();
-        checkStreamsEqual(adt.entriesList().stream(), bst.entrySet().stream());
+            log.debug("validating..");
+            adt.validateInternalState();
+            checkStreamsEqual(adt.entriesList().stream(), bst.entrySet().stream());
+
+            if (iter > 1) {
+                bstPutTime.add(bstPutTimeNs);
+                adtPutTime.add(adtPutTimeNs);
+                bstGetHitTime.add(bstGetHitTimeNs);
+                adtGetHitTime.add(adtGetHitTimeNs);
+                bstRemoveTime.add(bstRemoveTimeNs);
+                adtRemoveTime.add(adtRemoveTimeNs);
+
+                long bstPutTimeNsAvg = Math.round(bstPutTime.stream().mapToLong(x -> x).average().orElse(0));
+                long adtPutTimeNsAvg = Math.round(adtPutTime.stream().mapToLong(x -> x).average().orElse(0));
+                long bstGetHitTimeNsAvg = Math.round(bstGetHitTime.stream().mapToLong(x -> x).average().orElse(0));
+                long adtGetHitTimeNsAvg = Math.round(adtGetHitTime.stream().mapToLong(x -> x).average().orElse(0));
+                long bstRemoveTimeNsAvg = Math.round(bstRemoveTime.stream().mapToLong(x -> x).average().orElse(0));
+                long adtRemoveTimeNsAvg = Math.round(adtRemoveTime.stream().mapToLong(x -> x).average().orElse(0));
+
+                log.info("AVERAGE PUT    BST {}us ADT {}us ({}%)",
+                        nanoToMs(bstPutTimeNsAvg), nanoToMs(adtPutTimeNsAvg), percentImprovement(bstPutTimeNsAvg, adtPutTimeNsAvg));
+
+                log.info("AVERAGE GETHIT BST {}us ADT {}us ({}%)",
+                        nanoToMs(bstGetHitTimeNsAvg), nanoToMs(adtGetHitTimeNsAvg), percentImprovement(bstGetHitTimeNsAvg, adtGetHitTimeNsAvg));
+
+                log.info("AVERAGE REMOVE BST {}us ADT {}us ({}%)",
+                        nanoToMs(bstRemoveTimeNsAvg), nanoToMs(adtRemoveTimeNsAvg), percentImprovement(bstRemoveTimeNsAvg, adtRemoveTimeNsAvg));
+            }
+        }
+
+        log.info("---------------------------------------");
+
+
+    }
+
+    private static float nanoToMs(long nano) {
+        return ((float) (nano / 1000)) / 1000f;
+    }
+
+    private static float percentImprovement(long oldTime, long newTime) {
+        return 100f * ((float) oldTime / (float) newTime - 1f);
     }
 
 

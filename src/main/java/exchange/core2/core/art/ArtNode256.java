@@ -21,7 +21,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import static exchange.core2.core.art.ArtNode4.toNodeIndex;
 
 /**
  * The largest node type is simply an array of 256
@@ -35,14 +34,19 @@ import static exchange.core2.core.art.ArtNode4.toNodeIndex;
 @Slf4j
 public final class ArtNode256<V> implements IArtNode<V> {
 
-    public static final int NODE48_SWITCH_THRESHOLD = 37;
+    private static final int NODE48_SWITCH_THRESHOLD = 37;
 
     // direct addressing
     final Object[] nodes = new Object[256];
 
+    long nodeKey;
+    int nodeLevel;
     short numChildren;
 
+
     public ArtNode256(ArtNode48<V> artNode48, short subKey, Object newElement) {
+        this.nodeLevel = artNode48.nodeLevel;
+        this.nodeKey = artNode48.nodeKey;
         final int sourceSize = 48;
         for (short i = 0; i < 256; i++) {
             final byte index = artNode48.indexes[i];
@@ -57,12 +61,15 @@ public final class ArtNode256<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public V getValue(final long key, final int level) {
-        final short idx = toNodeIndex(key, level);
+        if (level != nodeLevel && ((key ^ nodeKey) & (-1L << (nodeLevel + 8))) != 0) {
+            return null;
+        }
+        final short idx = (short) ((key >>> nodeLevel) & 0xFF);
         final Object node = nodes[idx];
         if (node != null) {
-            return level == 0
+            return nodeLevel == 0
                     ? (V) node
-                    : ((IArtNode<V>) node).getValue(key, level - 8);
+                    : ((IArtNode<V>) node).getValue(key, nodeLevel - 8);
         }
         return null;
     }
@@ -70,47 +77,55 @@ public final class ArtNode256<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public IArtNode<V> put(final long key, final int level, final V value) {
-        final short idx = toNodeIndex(key, level);
+        if (level != nodeLevel) {
+            final IArtNode<V> branch = LongAdaptiveRadixTreeMap.branchIfRequired(key, value, nodeKey, nodeLevel, this);
+            if (branch != null) {
+                return branch;
+            }
+        }
+        final short idx = (short) ((key >>> nodeLevel) & 0xFF);
         if (nodes[idx] == null) {
             // new object will be inserted
             numChildren++;
         }
 
-        if (level == 0) {
+        if (nodeLevel == 0) {
             nodes[idx] = value;
         } else {
             IArtNode<V> node = (IArtNode<V>) nodes[idx];
             if (node != null) {
-                final IArtNode<V> resizedNode = node.put(key, level - 8, value);
+                final IArtNode<V> resizedNode = node.put(key, nodeLevel - 8, value);
                 if (resizedNode != null) {
                     // TODO put old into the pool
                     // update resized node if capacity has increased
                     nodes[idx] = resizedNode;
                 }
             } else {
-                nodes[idx] = new ArtNode4(key, level - 8, value);
+                nodes[idx] = new ArtNode4(key, value);
             }
         }
 
-        // never need to increase size
+        // never need to increase the size
         return null;
     }
 
     @Override
     @SuppressWarnings("unchecked")
     public IArtNode<V> remove(long key, int level) {
-        final short idx = toNodeIndex(key, level);
-
+        if (level != nodeLevel && ((key ^ nodeKey) & (-1L << (nodeLevel + 8))) != 0) {
+            return this;
+        }
+        final short idx = (short) ((key >>> nodeLevel) & 0xFF);
         if (nodes[idx] == null) {
             return this;
         }
 
-        if (level == 0) {
+        if (nodeLevel == 0) {
             nodes[idx] = null;
             numChildren--;
         } else {
             final IArtNode<V> node = (IArtNode<V>) nodes[idx];
-            final IArtNode<V> resizedNode = node.remove(key, level - 8);
+            final IArtNode<V> resizedNode = node.remove(key, nodeLevel - 8);
             if (resizedNode != node) {
                 // TODO put old into the pool
                 // update resized node if capacity has decreased
@@ -125,14 +140,18 @@ public final class ArtNode256<V> implements IArtNode<V> {
     }
 
     @Override
-    public void validateInternalState() {
+    public void validateInternalState(int level) {
+        if (nodeLevel > level) throw new IllegalStateException("unexpected nodeLevel");
         int found = 0;
         for (int i = 0; i < 256; i++) {
             Object node = nodes[i];
             if (node != null) {
                 if (node instanceof IArtNode) {
+                    if (nodeLevel == 0) throw new IllegalStateException("unexpected node type");
                     IArtNode artNode = (IArtNode) node;
-                    artNode.validateInternalState();
+                    artNode.validateInternalState(nodeLevel - 8);
+                } else {
+                    if (nodeLevel != 0) throw new IllegalStateException("unexpected node type");
                 }
                 found++;
             }
@@ -145,15 +164,15 @@ public final class ArtNode256<V> implements IArtNode<V> {
 
     @Override
     @SuppressWarnings("unchecked")
-    public List<Map.Entry<Long, V>> entries(long keyPrefix, int level) {
-        final long keyPrefixNext = keyPrefix << 8;
+    public List<Map.Entry<Long, V>> entries() {
+        final long keyPrefix = nodeKey & (-1L << 8);
         final List<Map.Entry<Long, V>> list = new ArrayList<>();
         final short[] keys = createKeysArray();
         for (int i = 0; i < numChildren; i++) {
-            if (level == 0) {
-                list.add(new LongAdaptiveRadixTreeMap.Entry<>(keyPrefixNext + keys[i], (V) nodes[keys[i]]));
+            if (nodeLevel == 0) {
+                list.add(new LongAdaptiveRadixTreeMap.Entry<>(keyPrefix + keys[i], (V) nodes[keys[i]]));
             } else {
-                list.addAll(((IArtNode<V>) nodes[keys[i]]).entries(keyPrefixNext + keys[i], level - 8));
+                list.addAll(((IArtNode<V>) nodes[keys[i]]).entries());
             }
         }
         return list;
@@ -162,7 +181,16 @@ public final class ArtNode256<V> implements IArtNode<V> {
     @Override
     public String printDiagram(String prefix, int level) {
         final short[] keys = createKeysArray();
-        return LongAdaptiveRadixTreeMap.printDiagram(prefix, level, numChildren, idx -> keys[idx], idx -> nodes[keys[idx]]);
+        return LongAdaptiveRadixTreeMap.printDiagram(prefix, level, nodeLevel, nodeKey, numChildren, idx -> keys[idx], idx -> nodes[keys[idx]]);
+    }
+
+    @Override
+    public String toString() {
+        return "ArtNode256{" +
+                "nodeKey=" + nodeKey +
+                ", nodeLevel=" + nodeLevel +
+                ", numChildren=" + numChildren +
+                '}';
     }
 
     private short[] createKeysArray() {

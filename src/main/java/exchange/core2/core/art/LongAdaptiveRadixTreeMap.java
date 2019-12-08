@@ -17,6 +17,7 @@ package exchange.core2.core.art;
 
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Collections;
 import java.util.List;
@@ -61,7 +62,7 @@ public final class LongAdaptiveRadixTreeMap<V> {
 
     public void put(final long key, final V value) {
         if (root == null) {
-            root = new ArtNode4<>(key, INITIAL_LEVEL, value);
+            root = new ArtNode4<>(key, value);
 
         } else {
 
@@ -104,13 +105,13 @@ public final class LongAdaptiveRadixTreeMap<V> {
     public void validateInternalState() {
         if (root != null) {
             // TODO initial level
-            root.validateInternalState();
+            root.validateInternalState(INITIAL_LEVEL);
         }
     }
 
     List<Map.Entry<Long, V>> entriesList() {
         if (root != null) {
-            return root.entries(0L, INITIAL_LEVEL);
+            return root.entries();
         } else {
             return Collections.emptyList();
         }
@@ -124,23 +125,77 @@ public final class LongAdaptiveRadixTreeMap<V> {
         }
     }
 
+
+    static <V> IArtNode<V> branchIfRequired(final long key, final V value, final long nodeKey, final int nodeLevel, final Object caller) {
+
+        final long keyDiff = key ^ nodeKey;
+
+        // check if there is common part
+        if ((keyDiff & (-1L << nodeLevel)) == 0) {
+            return null;
+        }
+
+        // on which level
+        final int newLevel = (63 - Long.numberOfLeadingZeros(keyDiff)) & 0xF8;
+        if (newLevel == nodeLevel) {
+            return null;
+        }
+
+        final IArtNode<V> newSubNode = new ArtNode4<>(key, value);
+        return key > nodeKey
+                ? new ArtNode4<>(nodeKey, caller, key, newSubNode, newLevel)
+                : new ArtNode4<>(key, newSubNode, nodeKey, caller, newLevel);
+    }
+
+
+//    static boolean keyNotMatches(long key, int level, long nodeKey, int nodeLevel) {
+//        return (level != nodeLevel && ((key ^ nodeKey) & (-1L << (nodeLevel + 8))) != 0);
+//    }
     // TODO remove based on leaf  (having reference) ?
 
-    static String printDiagram(String prefix, int level, short numChildren, Function<Short, Short> subKeys, Function<Short, Object> nodes) {
+    static String printDiagram(String prefix,
+                               int level,
+                               int nodeLevel,
+                               long nodeKey,
+                               short numChildren,
+                               Function<Short, Short> subKeys,
+                               Function<Short, Object> nodes) {
+
+        final String baseKeyPrefix;
+        final String baseKeyPrefix1;
+        final int lvlDiff = level - nodeLevel;
+//        log.debug("nodeKey={} level={} nodeLevel={} lvlDiff={}", String.format("%X", nodeKey), level, nodeLevel, lvlDiff);
+
+        if (lvlDiff != 0) {
+            int chars = lvlDiff >> 2;
+//            baseKeyPrefix = String.format("[%0" + chars + "X]", nodeKey & ((1L << lvlDiff) - 1L) << nodeLevel);
+            long mask = ((1L << lvlDiff) - 1L);
+//            log.debug("       mask={}", String.format("%X", mask));
+//            log.debug("       nodeKey >> level = {}", String.format("%X", nodeKey >> (nodeLevel + 8)));
+//            log.debug("       nodeKey >> level  & mask= {}", String.format("%X", (nodeKey >> (nodeLevel + 8)) & mask));
+            baseKeyPrefix = StringUtils.repeat("─", chars - 2) + String.format("[%0" + chars + "X]", (nodeKey >> (nodeLevel + 8)) & mask);
+            baseKeyPrefix1 = StringUtils.repeat(" ", chars * 2);
+        } else {
+            baseKeyPrefix = "";
+            baseKeyPrefix1 = "";
+        }
+        //       log.debug("baseKeyPrefix={}", baseKeyPrefix);
+
+
         StringBuilder sb = new StringBuilder();
         for (short i = 0; i < numChildren; i++) {
             Object node = nodes.apply(i);
-            String key = String.format("%02X", subKeys.apply(i));
+            String key = String.format("%s%02X", baseKeyPrefix, subKeys.apply(i));
             String x = (i == 0 ? (numChildren == 1 ? "──" : "┬─") : (i + 1 == numChildren ? (prefix + "└─") : (prefix + "├─")));
 
-            if (level == 0) {
+            if (nodeLevel == 0) {
                 sb.append(x + key + " = " + node);
             } else {
-                sb.append(x + key + "" + (((IArtNode<?>) node).printDiagram(prefix + (i + 1 == numChildren ? "    " : "│   "), level - 8)));
+                sb.append(x + key + "" + (((IArtNode<?>) node).printDiagram(prefix + (i + 1 == numChildren ? "    " : "│   ") + baseKeyPrefix1, nodeLevel - 8)));
             }
             if (i < numChildren - 1) {
                 sb.append("\n");
-            } else if (level == 0) {
+            } else if (nodeLevel == 0) {
                 sb.append("\n" + prefix);
             }
         }
