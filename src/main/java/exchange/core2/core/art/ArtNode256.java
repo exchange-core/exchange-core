@@ -140,6 +140,56 @@ public final class ArtNode256<V> implements IArtNode<V> {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
+    public V getCeilingValue(long key, int level) {
+
+        // special processing for compacted nodes
+        if ((level != nodeLevel)) {
+            // try first
+            final long mask = -1L << (nodeLevel + 8);
+            final long keyWithMask = key & mask;
+            final long nodeKeyWithMask = nodeKey & mask;
+            if (nodeKeyWithMask < keyWithMask) {
+                // compacted part is lower - no need to search for ceiling entry here
+                return null;
+            } else if (keyWithMask != nodeKeyWithMask) {
+                // can reset lowest bits key, because compacted nodekey is higher
+                key = keyWithMask;
+            }
+        }
+
+        short idx = (short) ((key >>> nodeLevel) & 0xFF);
+
+        Object node = nodes[idx];
+        if (node != null) {
+            // if exact key found
+            final V res = nodeLevel == 0 ? (V) node : ((IArtNode<V>) node).getCeilingValue(key, nodeLevel - 8);
+            if (res != null) {
+                // return if found ceiling, otherwise will try next one
+                return res;
+            }
+        }
+
+        // if exact key not found - searching for first higher key
+        while (++idx < 256) {
+            node = nodes[idx];
+            if (node != null) {
+                if (nodeLevel == 0) {
+                    // found
+                    return (V) node;
+                } else {
+                    // reset right bits to find lowest key that higher
+                    key = (key >>> nodeLevel) << nodeLevel;
+                    return ((IArtNode<V>) node).getCeilingValue(key, nodeLevel - 8);
+                }
+            }
+        }
+
+        // no keys found
+        return null;
+    }
+
+    @Override
     public void validateInternalState(int level) {
         if (nodeLevel > level) throw new IllegalStateException("unexpected nodeLevel");
         int found = 0;

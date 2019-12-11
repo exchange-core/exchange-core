@@ -41,8 +41,8 @@ import java.util.function.Supplier;
  * https://db.in.tum.de/~leis/papers/ART.pdf
  * <p>
  * Target operations:
- * - GET or (PUT + GET_LOWER) - placing/moving/bulkload order - often GET, more rare PUT ??cache
- * - REMOVE - cancel or move last order in a bucket
+ * - GET or (PUT + GET_LOWER/HIGHER) - placing/moving/bulkload order - often GET, more rare PUT ??cache
+ * - REMOVE - cancel or move - last order in the bucket
  * - TRAVERSE from LOWER - filling L2 market data, in hot area (Node256 or Node48).
  * - REMOVE price during matching - !! can use RANGE removal operation - rare, but latency critical
  * - GET or PUT if not exists - inserting back own orders, very rare
@@ -94,13 +94,25 @@ public final class LongAdaptiveRadixTreeMap<V> {
         }
     }
 
+    public void clear() {
+        // produces garbage
+        root = null;
+    }
+
     /**
      * remove on matching
      */
     public void removeRange(final long keyFromInclusive, final long keyToExclusive) {
-
+        throw new UnsupportedOperationException();
     }
 
+    public V getHigherValue(long key) {
+        if (root != null && key != 0) {
+            return root.getCeilingValue(key + 1, INITIAL_LEVEL);
+        } else {
+            return null;
+        }
+    }
 
     public void validateInternalState() {
         if (root != null) {
@@ -146,7 +158,6 @@ public final class LongAdaptiveRadixTreeMap<V> {
                 ? new ArtNode4<>(nodeKey, caller, key, newSubNode, newLevel)
                 : new ArtNode4<>(key, newSubNode, nodeKey, caller, newLevel);
     }
-
 
 //    static boolean keyNotMatches(long key, int level, long nodeKey, int nodeLevel) {
 //        return (level != nodeLevel && ((key ^ nodeKey) & (-1L << (nodeLevel + 8))) != 0);

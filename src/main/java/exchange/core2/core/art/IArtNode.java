@@ -26,6 +26,8 @@ public interface IArtNode<V> {
 
     IArtNode<V> remove(long key, int level);
 
+    V getCeilingValue(long key, int level);
+
     void validateInternalState(int level);
 
     String printDiagram(String prefix, int level);

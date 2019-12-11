@@ -72,6 +72,47 @@ public class LongAdaptiveRadixTreeMapTest {
 
 
     @Test
+    public void shouldFindLowerKeys() {
+
+        map.put(33, "33");
+        map.put(273, "273");
+        map.put(182736400230L, "182736400230");
+        map.put(182736487234L, "182736487234");
+        map.put(37, "37");
+        System.out.println(map.printDiagram());
+
+//        assertThat(map.getHigherValue(63120L), is(String.valueOf(182736400230L)));
+//        assertThat(map.getHigherValue(255), is(String.valueOf("273")));
+//
+//        for (int x = 37; x < 273; x++) {
+//            log.debug("TRY:{} {}", x, String.format("%Xh", x));
+//            assertThat(map.getHigherValue(x), is("273"));
+//        }
+//
+//        for (int x = 273; x < 100000; x++) {
+//            log.debug("TRY:{} {}", x, String.format("%Xh", x));
+//            assertThat(map.getHigherValue(x), is("182736400230"));
+//        }
+//            log.debug("TRY:{} {}", 182736388198L, String.format("%Xh", 182736388198L));
+        assertThat(map.getHigherValue(182736388198L), is("182736400230"));
+
+        for (long x = 182736300230L; x < 182736400229L; x++) {
+//            log.debug("TRY:{} {}", x, String.format("%Xh", x));
+            assertThat(map.getHigherValue(x), is("182736400230"));
+        }
+        for (long x = 182736400230L; x < 182736487234L; x++) {
+//            log.debug("TRY:{} {}", x, String.format("%Xh", x));
+            assertThat(map.getHigherValue(x), is("182736487234"));
+        }
+        for (long x = 182736487234L; x < 182736497234L; x++) {
+//            log.debug("TRY:{} {}", x, String.format("%Xh", x));
+            assertNull(map.getHigherValue(x));
+        }
+
+    }
+
+
+    @Test
     public void shouldCompactNodes() {
         put(2, "2");
         System.out.println(map.printDiagram());
@@ -274,7 +315,7 @@ public class LongAdaptiveRadixTreeMapTest {
 
             Random rand = new Random(iter);
 //            int num = 500_000;
-            int num = 50_000;
+            int num = 100_000;
             List<Long> list = new ArrayList<>(num);
             long j = 0;
             log.debug("generate random numbers..");
@@ -361,13 +402,13 @@ public class LongAdaptiveRadixTreeMapTest {
                 long bstRemoveTimeNsAvg = Math.round(bstRemoveTime.stream().mapToLong(x -> x).average().orElse(0));
                 long adtRemoveTimeNsAvg = Math.round(adtRemoveTime.stream().mapToLong(x -> x).average().orElse(0));
 
-                log.info("AVERAGE PUT    BST {}us ADT {}us ({}%)",
+                log.info("AVERAGE PUT    BST {}ms ADT {}ms ({}%)",
                         nanoToMs(bstPutTimeNsAvg), nanoToMs(adtPutTimeNsAvg), percentImprovement(bstPutTimeNsAvg, adtPutTimeNsAvg));
 
-                log.info("AVERAGE GETHIT BST {}us ADT {}us ({}%)",
+                log.info("AVERAGE GETHIT BST {}ms ADT {}ms ({}%)",
                         nanoToMs(bstGetHitTimeNsAvg), nanoToMs(adtGetHitTimeNsAvg), percentImprovement(bstGetHitTimeNsAvg, adtGetHitTimeNsAvg));
 
-                log.info("AVERAGE REMOVE BST {}us ADT {}us ({}%)",
+                log.info("AVERAGE REMOVE BST {}ms ADT {}ms ({}%)",
                         nanoToMs(bstRemoveTimeNsAvg), nanoToMs(adtRemoveTimeNsAvg), percentImprovement(bstRemoveTimeNsAvg, adtRemoveTimeNsAvg));
             }
         }

@@ -40,7 +40,7 @@ public final class ArtNode48<V> implements IArtNode<V> {
     private static final int NODE16_SWITCH_THRESHOLD = 12;
 
     // just keep indexes
-    final byte[] indexes;
+    final byte[] indexes = new byte[256];
     final Object[] nodes = new Object[48];
 
     long nodeKey;
@@ -50,7 +50,6 @@ public final class ArtNode48<V> implements IArtNode<V> {
 
     public ArtNode48(ArtNode16<V> node16, short subKey, Object newElement) {
         final byte sourceSize = 16;
-        this.indexes = new byte[256];
         Arrays.fill(this.indexes, (byte) -1);
         this.numChildren = sourceSize + 1;
         this.nodeLevel = node16.nodeLevel;
@@ -66,7 +65,6 @@ public final class ArtNode48<V> implements IArtNode<V> {
     }
 
     public ArtNode48(ArtNode256<V> node256) {
-        this.indexes = new byte[256];
         Arrays.fill(this.indexes, (byte) -1);
         this.numChildren = (byte) node256.numChildren;
         this.nodeLevel = node256.nodeLevel;
@@ -182,6 +180,56 @@ public final class ArtNode48<V> implements IArtNode<V> {
         }
 
         return (numChildren == NODE16_SWITCH_THRESHOLD) ? new ArtNode16(this) : this;
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public V getCeilingValue(long key, int level) {
+
+        // special processing for compacted nodes
+        if ((level != nodeLevel)) {
+            // try first
+            final long mask = -1L << (nodeLevel + 8);
+            final long keyWithMask = key & mask;
+            final long nodeKeyWithMask = nodeKey & mask;
+            if (nodeKeyWithMask < keyWithMask) {
+                // compacted part is lower - no need to search for ceiling entry here
+                return null;
+            } else if (keyWithMask != nodeKeyWithMask) {
+                // can reset lowest bits key, because compacted nodekey is higher
+                key = keyWithMask;
+            }
+        }
+
+        short idx = (short) ((key >>> nodeLevel) & 0xFF);
+
+        byte index = indexes[idx];
+        if (index != -1) {
+            // if exact key found
+            final V res = nodeLevel == 0 ? (V) nodes[index] : ((IArtNode<V>) nodes[index]).getCeilingValue(key, nodeLevel - 8);
+            if (res != null) {
+                // return if found ceiling, otherwise will try next one
+                return res;
+            }
+        }
+
+        // if exact key not found - searching for first higher key
+        while (++idx < 256) {
+            index = indexes[idx];
+            if (index != -1) {
+                if (nodeLevel == 0) {
+                    // found
+                    return (V) nodes[index];
+                } else {
+                    // reset right bits to find lowest key that higher
+                    key = (key >>> nodeLevel) << nodeLevel;
+                    return ((IArtNode<V>) nodes[index]).getCeilingValue(key, nodeLevel - 8);
+                }
+            }
+        }
+
+        // no keys found
+        return null;
     }
 
     @Override
