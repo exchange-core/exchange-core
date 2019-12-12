@@ -185,11 +185,12 @@ public final class ArtNode48<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public V getCeilingValue(long key, int level) {
-
+//        log.debug("key = {}", String.format("%Xh", key));
         // special processing for compacted nodes
         if ((level != nodeLevel)) {
             // try first
             final long mask = -1L << (nodeLevel + 8);
+//            log.debug("key & mask = {} > nodeKey & mask = {}", String.format("%Xh", key & mask), String.format("%Xh", nodeKey & mask));
             final long keyWithMask = key & mask;
             final long nodeKeyWithMask = nodeKey & mask;
             if (nodeKeyWithMask < keyWithMask) {

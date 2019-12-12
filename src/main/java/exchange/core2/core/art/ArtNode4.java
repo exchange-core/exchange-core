@@ -243,25 +243,25 @@ public final class ArtNode4<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public V getCeilingValue(long key, int level) {
-
+//        log.debug("key = {}", String.format("%Xh", key));
 //        log.debug("level={} nodeLevel={} nodekey={} looking for key={} mask={}",
 //                level, nodeLevel, String.format("%Xh", nodeKey), String.format("%Xh", key), String.format("%Xh", mask));
-//
-//        log.debug("key & mask = {} > nodeKey & mask = {}",
-//                String.format("%Xh", key & mask), String.format("%Xh", nodeKey & mask));
 
         // special processing for compacted nodes
         if ((level != nodeLevel)) {
             // try first
             final long mask = -1L << (nodeLevel + 8);
+//            log.debug("key & mask = {} > nodeKey & mask = {}",
+//                    String.format("%Xh", key & mask), String.format("%Xh", nodeKey & mask));
             final long keyWithMask = key & mask;
             final long nodeKeyWithMask = nodeKey & mask;
             if (nodeKeyWithMask < keyWithMask) {
                 // compacted part is lower - no need to search for ceiling entry here
-//                log.debug("return");
+//                log.debug("compacted part is lower - no need to search for ceiling entry here");
                 return null;
             } else if (keyWithMask != nodeKeyWithMask) {
                 // can reset lowest bits key, because compacted nodekey is higher
+//                log.debug("can reset lowest bits key, because compacted nodekey is higher");
                 key = keyWithMask;
             }
         }
@@ -271,18 +271,19 @@ public final class ArtNode4<V> implements IArtNode<V> {
         int i = 0;
         for (; i < numChildren; i++) {
             final short index = keys[i];
-//            log.debug("try index={} (looking for {})", String.format("%X", index), String.format("%X", nodeIndex));
+//            log.debug("try index={} (looking for {}) key={}", String.format("%X", index), String.format("%X", nodeIndex), String.format("%X", key));
             // any equal or higher is ok
-            if (index >= nodeIndex) {
-//                log.debug("higher");
-                final V res = nodeLevel == 0 ? (V) nodes[i] : ((IArtNode<V>) nodes[i]).getCeilingValue(key, nodeLevel - 8);
+            if (index == nodeIndex) {
+                final V res = nodeLevel == 0
+                        ? (V) nodes[i]
+                        : ((IArtNode<V>) nodes[i]).getCeilingValue(key, nodeLevel - 8);
                 if (res != null) {
 //                    log.debug("return {}", res);
                     // return if found ceiling, otherwise will try next one
                     return res;
                 }
             }
-            if (nodeIndex < index) {
+            if (index > nodeIndex) {
 //                log.debug("give up");
                 // can give up searching -
                 break;
@@ -301,7 +302,7 @@ public final class ArtNode4<V> implements IArtNode<V> {
         } else {
             // reset right bits to find lowest key that higher
             key = (key >>> nodeLevel) << nodeLevel;
-//            log.debug(" key = {}", String.format("%X", key));
+//            log.debug("reset right bits to find lowest key that higher: key = {}", String.format("%X", key));
             return ((IArtNode<V>) nodes[i]).getCeilingValue(key, nodeLevel - 8);
         }
     }

@@ -142,11 +142,12 @@ public final class ArtNode256<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public V getCeilingValue(long key, int level) {
-
+//        log.debug("key = {}", String.format("%Xh", key));
         // special processing for compacted nodes
         if ((level != nodeLevel)) {
             // try first
             final long mask = -1L << (nodeLevel + 8);
+//            log.debug("key & mask = {} > nodeKey & mask = {}", String.format("%Xh", key & mask), String.format("%Xh", nodeKey & mask));
             final long keyWithMask = key & mask;
             final long nodeKeyWithMask = nodeKey & mask;
             if (nodeKeyWithMask < keyWithMask) {
@@ -159,7 +160,7 @@ public final class ArtNode256<V> implements IArtNode<V> {
         }
 
         short idx = (short) ((key >>> nodeLevel) & 0xFF);
-
+//        log.debug("idx = {}", String.format("%Xh", idx));
         Object node = nodes[idx];
         if (node != null) {
             // if exact key found
@@ -169,22 +170,26 @@ public final class ArtNode256<V> implements IArtNode<V> {
                 return res;
             }
         }
-
+//        log.debug("// if exact key not found - searching for first higher key");
         // if exact key not found - searching for first higher key
         while (++idx < 256) {
+//            log.debug("idx+ = {}", String.format("%Xh", idx));
             node = nodes[idx];
             if (node != null) {
                 if (nodeLevel == 0) {
                     // found
+//                    log.debug("//found");
                     return (V) node;
                 } else {
                     // reset right bits to find lowest key that higher
                     key = (key >>> nodeLevel) << nodeLevel;
+//                    log.debug("key lowest = {}", String.format("%Xh", key));
                     return ((IArtNode<V>) node).getCeilingValue(key, nodeLevel - 8);
                 }
             }
         }
 
+//        log.debug("//no keys found");
         // no keys found
         return null;
     }

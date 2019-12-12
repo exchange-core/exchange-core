@@ -216,7 +216,7 @@ public final class ArtNode16<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public V getCeilingValue(long key, int level) {
-
+//        log.debug("key = {}", String.format("%Xh", key));
 //        log.debug("level={} nodeLevel={} nodekey={} looking for key={} mask={}",
 //                level, nodeLevel, String.format("%Xh", nodeKey), String.format("%Xh", key), String.format("%Xh", mask));
 //
@@ -246,9 +246,10 @@ public final class ArtNode16<V> implements IArtNode<V> {
             final short index = keys[i];
 //            log.debug("try index={} (looking for {})", String.format("%X", index), String.format("%X", nodeIndex));
             // any equal or higher is ok
-            if (index >= nodeIndex) {
-//                log.debug("higher");
-                final V res = nodeLevel == 0 ? (V) nodes[i] : ((IArtNode<V>) nodes[i]).getCeilingValue(key, nodeLevel - 8);
+            if (index == nodeIndex) {
+                final V res = nodeLevel == 0
+                        ? (V) nodes[i]
+                        : ((IArtNode<V>) nodes[i]).getCeilingValue(key, nodeLevel - 8);
                 if (res != null) {
 //                    log.debug("return {}", res);
                     // return if found ceiling, otherwise will try next one
