@@ -107,8 +107,16 @@ public final class LongAdaptiveRadixTreeMap<V> {
     }
 
     public V getHigherValue(long key) {
-        if (root != null && key != 0) {
+        if (root != null && key != Long.MAX_VALUE) {
             return root.getCeilingValue(key + 1, INITIAL_LEVEL);
+        } else {
+            return null;
+        }
+    }
+
+    public V getLowerValue(long key) {
+        if (root != null && key != 0) {
+            return root.getFloorValue(key - 1, INITIAL_LEVEL);
         } else {
             return null;
         }

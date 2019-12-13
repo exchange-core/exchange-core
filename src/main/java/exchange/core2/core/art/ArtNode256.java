@@ -154,13 +154,12 @@ public final class ArtNode256<V> implements IArtNode<V> {
                 // compacted part is lower - no need to search for ceiling entry here
                 return null;
             } else if (keyWithMask != nodeKeyWithMask) {
-                // can reset lowest bits key, because compacted nodekey is higher
-                key = keyWithMask;
+                // find first lowest key, because compacted nodekey is higher
+                key = 0;
             }
         }
 
         short idx = (short) ((key >>> nodeLevel) & 0xFF);
-//        log.debug("idx = {}", String.format("%Xh", idx));
         Object node = nodes[idx];
         if (node != null) {
             // if exact key found
@@ -170,26 +169,63 @@ public final class ArtNode256<V> implements IArtNode<V> {
                 return res;
             }
         }
-//        log.debug("// if exact key not found - searching for first higher key");
+
         // if exact key not found - searching for first higher key
         while (++idx < 256) {
 //            log.debug("idx+ = {}", String.format("%Xh", idx));
             node = nodes[idx];
             if (node != null) {
-                if (nodeLevel == 0) {
-                    // found
-//                    log.debug("//found");
-                    return (V) node;
-                } else {
-                    // reset right bits to find lowest key that higher
-                    key = (key >>> nodeLevel) << nodeLevel;
-//                    log.debug("key lowest = {}", String.format("%Xh", key));
-                    return ((IArtNode<V>) node).getCeilingValue(key, nodeLevel - 8);
-                }
+                return (nodeLevel == 0)
+                        ? (V) node
+                        : ((IArtNode<V>) node).getCeilingValue(0, nodeLevel - 8);// find first lowest key
+            }
+        }
+        // no keys found
+        return null;
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public V getFloorValue(long key, int level) {
+        //        log.debug("key = {}", String.format("%Xh", key));
+        // special processing for compacted nodes
+        if ((level != nodeLevel)) {
+            // try first
+            final long mask = -1L << (nodeLevel + 8);
+//            log.debug("key & mask = {} > nodeKey & mask = {}",
+//                    String.format("%Xh", key & mask), String.format("%Xh", nodeKey & mask));
+            final long keyWithMask = key & mask;
+            final long nodeKeyWithMask = nodeKey & mask;
+            if (nodeKeyWithMask > keyWithMask) {
+                // compacted part is higher - no need to search for floor entry here
+                return null;
+            } else if (keyWithMask != nodeKeyWithMask) {
+                // find highest value, because compacted nodekey is lower
+                key = Long.MAX_VALUE;
             }
         }
 
-//        log.debug("//no keys found");
+        short idx = (short) ((key >>> nodeLevel) & 0xFF);
+        Object node = nodes[idx];
+        if (node != null) {
+            // if exact key found
+            final V res = nodeLevel == 0 ? (V) node : ((IArtNode<V>) node).getFloorValue(key, nodeLevel - 8);
+            if (res != null) {
+                // return if found floor, otherwise will try prev one
+                return res;
+            }
+        }
+
+        // if exact key not found - searching for first lower key
+        while (--idx >= 0) {
+//            log.debug("idx+ = {}", String.format("%Xh", idx));
+            node = nodes[idx];
+            if (node != null) {
+                return (nodeLevel == 0)
+                        ? (V) node
+                        : ((IArtNode<V>) node).getFloorValue(Long.MAX_VALUE, nodeLevel - 8);// find first highest key
+            }
+        }
         // no keys found
         return null;
     }

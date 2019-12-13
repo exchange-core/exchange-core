@@ -28,6 +28,8 @@ public interface IArtNode<V> {
 
     V getCeilingValue(long key, int level);
 
+    V getFloorValue(long key, int level);
+
     void validateInternalState(int level);
 
     String printDiagram(String prefix, int level);

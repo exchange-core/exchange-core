@@ -73,7 +73,7 @@ public class LongAdaptiveRadixTreeMapTest {
 
 
     @Test
-    public void shouldFindLowerKeys() {
+    public void shouldFindHigherKeys() {
 
         map.put(33, "33");
         map.put(273, "273");
@@ -85,15 +85,15 @@ public class LongAdaptiveRadixTreeMapTest {
 //        assertThat(map.getHigherValue(63120L), is(String.valueOf(182736400230L)));
 //        assertThat(map.getHigherValue(255), is(String.valueOf("273")));
 //
-//        for (int x = 37; x < 273; x++) {
+        for (int x = 37; x < 273; x++) {
 //            log.debug("TRY:{} {}", x, String.format("%Xh", x));
-//            assertThat(map.getHigherValue(x), is("273"));
-//        }
+            assertThat(map.getHigherValue(x), is("273"));
+        }
 //
-//        for (int x = 273; x < 100000; x++) {
+        for (int x = 273; x < 100000; x++) {
 //            log.debug("TRY:{} {}", x, String.format("%Xh", x));
-//            assertThat(map.getHigherValue(x), is("182736400230"));
-//        }
+            assertThat(map.getHigherValue(x), is("182736400230"));
+        }
 //            log.debug("TRY:{} {}", 182736388198L, String.format("%Xh", 182736388198L));
         assertThat(map.getHigherValue(182736388198L), is("182736400230"));
 
@@ -109,6 +109,54 @@ public class LongAdaptiveRadixTreeMapTest {
 //            log.debug("TRY:{} {}", x, String.format("%Xh", x));
             assertNull(map.getHigherValue(x));
         }
+
+    }
+
+    @Test
+    public void shouldFindLowerKeys() {
+
+        map.put(33, "33");
+        map.put(273, "273");
+        map.put(182736400230L, "182736400230");
+        map.put(182736487234L, "182736487234");
+        map.put(37, "37");
+        System.out.println(map.printDiagram());
+
+        assertThat(map.getLowerValue(63120L), is(String.valueOf(273L)));
+        assertThat(map.getLowerValue(255), is(String.valueOf("37")));
+        assertThat(map.getLowerValue(275), is(String.valueOf("273")));
+
+        assertNull(map.getLowerValue(33));
+        assertNull(map.getLowerValue(32));
+        for (int x = 34; x <= 37; x++) {
+//            log.debug("TRY:{} {}", x, String.format("%Xh", x));
+            assertThat(map.getLowerValue(x), is("33"));
+        }
+        for (int x = 38; x <= 273; x++) {
+//            log.debug("TRY:{} {}", x, String.format("%Xh", x));
+            assertThat(map.getLowerValue(x), is("37"));
+        }
+//
+        for (int x = 274; x < 100000; x++) {
+//            log.debug("TRY:{} {}", x, String.format("%Xh", x));
+            assertThat(map.getLowerValue(x), is("273"));
+        }
+
+//            log.debug("TRY:{} {}", 182736388198L, String.format("%Xh", 182736388198L));
+        assertThat(map.getLowerValue(182736487334L), is("182736487234"));
+
+        for (long x = 182736300230L; x < 182736400230L; x++) {
+//            log.debug("TRY:{} {}", x, String.format("%Xh", x));
+            assertThat(map.getLowerValue(x), is("273"));
+        }
+//        for (long x = 182736400230L; x < 182736487234L; x++) {
+////            log.debug("TRY:{} {}", x, String.format("%Xh", x));
+//            assertThat(map.getHigherValue(x), is("182736487234"));
+//        }
+//        for (long x = 182736487234L; x < 182736497234L; x++) {
+////            log.debug("TRY:{} {}", x, String.format("%Xh", x));
+//            assertNull(map.getHigherValue(x));
+//        }
 
     }
 
@@ -376,6 +424,22 @@ public class LongAdaptiveRadixTreeMapTest {
 //                log.debug("CHECK:{} {} ---------", x, String.format("%Xh", x));
                 Long v1 = art.getHigherValue(x);
                 Map.Entry<Long, Long> entry = bst.higherEntry(x);
+                Long v2 = entry != null ? entry.getValue() : null;
+                if (!Objects.equals(v1, v2)) {
+                    log.debug("ART  :{} {}", v1, String.format("%Xh", v1));
+                    log.debug("BST  :{} {}", v2, String.format("%Xh", v2));
+                    System.out.println(art.printDiagram());
+                    throw new IllegalStateException();
+                }
+
+//                assertThat(v1, is(v2));
+            }
+
+            log.debug("validate getLowerValue method..");
+            for (long x : list) {
+//                log.debug("CHECK:{} {} ---------", x, String.format("%Xh", x));
+                Long v1 = art.getLowerValue(x);
+                Map.Entry<Long, Long> entry = bst.lowerEntry(x);
                 Long v2 = entry != null ? entry.getValue() : null;
                 if (!Objects.equals(v1, v2)) {
                     log.debug("ART  :{} {}", v1, String.format("%Xh", v1));
