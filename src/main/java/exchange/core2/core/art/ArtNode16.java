@@ -312,6 +312,31 @@ public final class ArtNode16<V> implements IArtNode<V> {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
+    public int forEach(LongObjConsumer<V> consumer, int limit) {
+        if (nodeLevel == 0) {
+            final long keyBase = (nodeKey >>> 8) << 8;
+            final int n = Math.min(numChildren, limit);
+            for (int i = 0; i < n; i++) {
+                consumer.accept(keyBase + keys[i], (V) nodes[i]);
+            }
+            return n;
+        } else {
+            int numLeft = limit;
+            for (int i = 0; i < numChildren && numLeft > 0; i++) {
+                numLeft -= ((IArtNode<V>) nodes[i]).forEach(consumer, numLeft);
+            }
+            return limit - numLeft;
+        }
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public int forEachDesc(LongObjConsumer<V> consumer, int limit) {
+        return 0;
+    }
+
+    @Override
     public void validateInternalState(int level) {
         if (nodeLevel > level) throw new IllegalStateException("unexpected nodeLevel");
         if (numChildren <= NODE4_SWITCH_THRESHOLD) throw new IllegalStateException("too small");

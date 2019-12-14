@@ -284,6 +284,41 @@ public final class ArtNode48<V> implements IArtNode<V> {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
+    public int forEach(LongObjConsumer<V> consumer, int limit) {
+        if (nodeLevel == 0) {
+            final long keyBase = (nodeKey >>> 8) << 8;
+            int numFound = 0;
+            for (short i = 0; i < 256; i++) {
+                if (numFound == limit) {
+                    return numFound;
+                }
+                final byte index = indexes[i];
+                if (index != -1) {
+                    consumer.accept(keyBase + i, (V) nodes[index]);
+                    numFound++;
+                }
+            }
+            return numFound;
+        } else {
+            int numLeft = limit;
+            for (short i = 0; i < 256 && numLeft > 0; i++) {
+                final byte index = indexes[i];
+                if (index != -1) {
+                    numLeft -= ((IArtNode<V>) nodes[index]).forEach(consumer, numLeft);
+                }
+            }
+            return limit - numLeft;
+        }
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public int forEachDesc(LongObjConsumer<V> consumer, int limit) {
+        return 0;
+    }
+
+    @Override
     public void validateInternalState(int level) {
         if (nodeLevel > level) throw new IllegalStateException("unexpected nodeLevel");
         int found = 0;

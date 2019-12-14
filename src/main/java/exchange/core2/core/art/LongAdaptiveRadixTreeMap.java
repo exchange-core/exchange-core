@@ -22,8 +22,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
-import java.util.function.Supplier;
+import java.util.function.*;
 
 /**
  * Adaptive Radix Tree (ART) Java implementation
@@ -103,6 +102,7 @@ public final class LongAdaptiveRadixTreeMap<V> {
      * remove on matching
      */
     public void removeRange(final long keyFromInclusive, final long keyToExclusive) {
+        // TODO
         throw new UnsupportedOperationException();
     }
 
@@ -122,18 +122,35 @@ public final class LongAdaptiveRadixTreeMap<V> {
         }
     }
 
-    public void validateInternalState() {
+    public int forEach(LongObjConsumer<V> consumer, int limit) {
         if (root != null) {
-            // TODO initial level
-            root.validateInternalState(INITIAL_LEVEL);
+            return root.forEach(consumer, limit);
+        } else {
+            return 0;
         }
     }
+
+    public int forEachDesc(LongObjConsumer<V> consumer, int limit) {
+        if (root != null) {
+            return root.forEachDesc(consumer, limit);
+        } else {
+            return 0;
+        }
+    }
+
 
     List<Map.Entry<Long, V>> entriesList() {
         if (root != null) {
             return root.entries();
         } else {
             return Collections.emptyList();
+        }
+    }
+
+    void validateInternalState() {
+        if (root != null) {
+            // TODO initial level
+            root.validateInternalState(INITIAL_LEVEL);
         }
     }
 

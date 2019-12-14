@@ -15,35 +15,14 @@
  */
 package exchange.core2.core.art;
 
-import java.util.List;
-import java.util.Map;
-
-public interface IArtNode<V> {
-
-    V getValue(long key, int level);
-
-    IArtNode<V> put(long key, int level, V value);
-
-    IArtNode<V> remove(long key, int level);
-
-    V getCeilingValue(long key, int level);
-
-    V getFloorValue(long key, int level);
-
-    int forEach(LongObjConsumer<V> consumer, int limit);
-
-    int forEachDesc(LongObjConsumer<V> consumer, int limit);
-
-    void validateInternalState(int level);
+@FunctionalInterface
+public interface LongObjConsumer<T> {
 
     /**
-     * For testing only
+     * Performs this operation on the given arguments.
+     *
+     * @param a the first input argument
+     * @param b the second input argument
      */
-    String printDiagram(String prefix, int level);
-
-    /**
-     * For testing only
-     */
-    List<Map.Entry<Long, V>> entries();
-
+    void accept(long a, T b);
 }
