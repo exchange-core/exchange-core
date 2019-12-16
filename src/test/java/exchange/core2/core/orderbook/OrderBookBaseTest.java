@@ -40,8 +40,8 @@ import static exchange.core2.core.common.OrderType.IOC;
 import static exchange.core2.core.common.cmd.CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
 import static exchange.core2.core.common.cmd.CommandResultCode.SUCCESS;
 
+
 /**
- * TODO add tests where orders for same UID ignored during matching
  * TODO cancel/update other uid not allowed
  * TODO tests where IOC order is not fully matched because of limit price (similar to GTC tests)
  * TODO tests where GTC order has duplicate id - rejection event should be sent
@@ -173,6 +173,17 @@ public abstract class OrderBookBaseTest {
         orderBook.validateInternalState();
 
         //        log.debug("{}", dumpOrderBook(snapshot));
+    }
+
+    /**
+     * Ignore order with duplicate orderId
+     */
+    @Test
+    public void shouldIgnoredDuplicateOrder() {
+        OrderCommand orderCommand = OrderCommand.newOrder(GTC, 1, UID_1, 81600, 0, 100, ASK);
+        processAndValidate(orderCommand, CommandResultCode.MATCHING_DUPLICATE_ORDER_ID);
+        List<MatcherTradeEvent> events = orderCommand.extractEvents();
+        assertThat(events.size(), is(1));
     }
 
     /**
