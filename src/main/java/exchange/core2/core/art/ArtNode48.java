@@ -315,7 +315,30 @@ public final class ArtNode48<V> implements IArtNode<V> {
     @Override
     @SuppressWarnings("unchecked")
     public int forEachDesc(LongObjConsumer<V> consumer, int limit) {
-        return 0;
+        if (nodeLevel == 0) {
+            final long keyBase = (nodeKey >>> 8) << 8;
+            int numFound = 0;
+            for (short i = 255; i >= 0; i--) {
+                if (numFound == limit) {
+                    return numFound;
+                }
+                final byte index = indexes[i];
+                if (index != -1) {
+                    consumer.accept(keyBase + i, (V) nodes[index]);
+                    numFound++;
+                }
+            }
+            return numFound;
+        } else {
+            int numLeft = limit;
+            for (short i = 255; i >= 0 && numLeft > 0; i--) {
+                final byte index = indexes[i];
+                if (index != -1) {
+                    numLeft -= ((IArtNode<V>) nodes[index]).forEachDesc(consumer, numLeft);
+                }
+            }
+            return limit - numLeft;
+        }
     }
 
     @Override

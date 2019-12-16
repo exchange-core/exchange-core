@@ -71,6 +71,81 @@ public class LongAdaptiveRadixTreeMapTest {
 
     }
 
+    @Test
+    public void shouldCallForEach() {
+        map.put(533, "533");
+        map.put(573, "573");
+        map.put(38234, "38234");
+        map.put(38251, "38251");
+        map.put(38255, "38255");
+        map.put(40001, "40001");
+        map.put(40021, "40021");
+        map.put(40023, "40023");
+//        System.out.println(map.printDiagram());
+        final List<Long> keys = new ArrayList<>();
+        final List<String> values = new ArrayList<>();
+        final LongObjConsumer<String> consumer = (k, v) -> {
+            keys.add(k);
+            values.add(v);
+        };
+        Long[] keysArray = {533L, 573L, 38234L, 38251L, 38255L, 40001L, 40021L, 40023L};
+        String[] valuesArray = {"533", "573", "38234", "38251", "38255", "40001", "40021", "40023"};
+        List<Long> keysExpected = Arrays.asList(keysArray);
+        List<String> valuesExpected = Arrays.asList(valuesArray);
+        List<Long> keysExpectedRev = Arrays.asList(Arrays.copyOf(keysArray, keysArray.length));
+        List<String> valuesExpectedRev = Arrays.asList(Arrays.copyOf(valuesArray, valuesArray.length));
+        Collections.reverse(keysExpectedRev);
+        Collections.reverse(valuesExpectedRev);
+
+        map.forEach(consumer, Integer.MAX_VALUE);
+        assertThat(keys, is(keysExpected));
+        assertThat(values, is(valuesExpected));
+        keys.clear();
+        values.clear();
+
+        map.forEach(consumer, 8);
+        assertThat(keys, is(keysExpected));
+        assertThat(values, is(valuesExpected));
+        keys.clear();
+        values.clear();
+
+        map.forEach(consumer, 3);
+        assertThat(keys, is(keysExpected.subList(0, 3)));
+        assertThat(values, is(valuesExpected.subList(0, 3)));
+        keys.clear();
+        values.clear();
+
+        map.forEach(consumer, 0);
+        assertThat(keys, is(Collections.emptyList()));
+        assertThat(values, is(Collections.emptyList()));
+        keys.clear();
+        values.clear();
+
+
+        map.forEachDesc(consumer, Integer.MAX_VALUE);
+        assertThat(keys, is(keysExpectedRev));
+        assertThat(values, is(valuesExpectedRev));
+        keys.clear();
+        values.clear();
+
+        map.forEachDesc(consumer, 8);
+        assertThat(keys, is(keysExpectedRev));
+        assertThat(values, is(valuesExpectedRev));
+        keys.clear();
+        values.clear();
+
+        map.forEachDesc(consumer, 3);
+        assertThat(keys, is(keysExpectedRev.subList(0, 3)));
+        assertThat(values, is(valuesExpectedRev.subList(0, 3)));
+        keys.clear();
+        values.clear();
+
+        map.forEachDesc(consumer, 0);
+        assertThat(keys, is(Collections.emptyList()));
+        assertThat(values, is(Collections.emptyList()));
+        keys.clear();
+        values.clear();
+    }
 
     @Test
     public void shouldFindHigherKeys() {
