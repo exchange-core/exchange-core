@@ -252,7 +252,7 @@ public final class ArtNode256<V> implements IArtNode<V> {
             for (short i = 0; i < 256 && numLeft > 0; i++) {
                 final IArtNode<V> node = (IArtNode<V>) nodes[i];
                 if (node != null) {
-                    numLeft = node.forEach(consumer, numLeft);
+                    numLeft -= node.forEach(consumer, numLeft);
                 }
             }
             return limit - numLeft;
@@ -281,7 +281,7 @@ public final class ArtNode256<V> implements IArtNode<V> {
             for (short i = 255; i >= 0 && numLeft > 0; i--) {
                 final IArtNode<V> node = (IArtNode<V>) nodes[i];
                 if (node != null) {
-                    numLeft = node.forEachDesc(consumer, numLeft);
+                    numLeft -= node.forEachDesc(consumer, numLeft);
                 }
             }
             return limit - numLeft;
