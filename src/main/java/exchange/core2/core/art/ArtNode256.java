@@ -289,6 +289,23 @@ public final class ArtNode256<V> implements IArtNode<V> {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
+    public int size(int limit) {
+        if (nodeLevel == 0) {
+            return numChildren;
+        } else {
+            int numLeft = limit;
+            for (short i = 0; i < 256 && numLeft > 0; i++) {
+                final IArtNode<V> node = (IArtNode<V>) nodes[i];
+                if (node != null) {
+                    numLeft -= node.size(numLeft);
+                }
+            }
+            return limit - numLeft;
+        }
+    }
+
+    @Override
     public void validateInternalState(int level) {
         if (nodeLevel > level) throw new IllegalStateException("unexpected nodeLevel");
         int found = 0;

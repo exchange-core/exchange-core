@@ -375,6 +375,20 @@ public final class ArtNode4<V> implements IArtNode<V> {
         }
     }
 
+    @Override
+    @SuppressWarnings("unchecked")
+    public int size(int limit) {
+        if (nodeLevel == 0) {
+            return numChildren;
+        } else {
+            int numLeft = limit;
+            for (int i = numChildren - 1; i >= 0 && numLeft > 0; i--) {
+                numLeft -= ((IArtNode<V>) nodes[i]).size(numLeft);
+            }
+            return limit - numLeft;
+        }
+    }
+
     private void removeElementAtPos(final int pos) {
         final int ppos = pos + 1;
         final int copyLength = numChildren - ppos;

@@ -34,6 +34,18 @@ public interface IArtNode<V> {
 
     int forEachDesc(LongObjConsumer<V> consumer, int limit);
 
+    /**
+     * Get number of elements
+     * Slow operation - O(n) complexity
+     *
+     * @param limit - can provide value to operation increase performance
+     * @return if returned value less than limit - it is precise size of the node
+     */
+    int size(int limit);
+
+    /**
+     * For testing only
+     */
     void validateInternalState(int level);
 
     /**

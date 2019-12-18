@@ -138,6 +138,13 @@ public final class LongAdaptiveRadixTreeMap<V> {
         }
     }
 
+    public int size(int limit) {
+        if (root != null) {
+            return Math.min(root.size(limit), limit);
+        } else {
+            return 0;
+        }
+    }
 
     List<Map.Entry<Long, V>> entriesList() {
         if (root != null) {
