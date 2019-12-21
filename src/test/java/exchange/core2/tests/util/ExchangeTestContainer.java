@@ -26,7 +26,7 @@ import exchange.core2.core.common.api.reports.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
-import exchange.core2.core.orderbook.OrderBookFastImpl;
+import exchange.core2.core.orderbook.OrderBookDirectImpl;
 import exchange.core2.core.processors.journalling.DiskSerializationProcessor;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -85,7 +85,8 @@ public final class ExchangeTestContainer implements AutoCloseable {
                 .msgsInGroupLimit(msgsInGroupLimit)
                 .threadAffinityMode(THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE)
                 .waitStrategy(CoreWaitStrategy.BUSY_SPIN)
-                .orderBookFactory(symbolType -> new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH, symbolType))
+//                .orderBookFactory(symbolType -> new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH, symbolType))
+                .orderBookFactory(OrderBookDirectImpl::new)
 //                .orderBookFactory(OrderBookNaiveImpl::new)
                 .loadStateId(stateId) // Loading from persisted state
                 .build();

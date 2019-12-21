@@ -234,7 +234,7 @@ public final class TestOrdersGenerator {
         updateOrderBookSizeStat(session);
 
         assertThat("Orderbook was not filled for target rate " + session.targetOrderBookOrders, session.orderbooksFilledAtSequence, greaterThan(0L)); // check targetOrdersFilled
-        final int commandsListSize = commands.size() - (int) session.orderbooksFilledAtSequence;
+//        final int commandsListSize = commands.size() - (int) session.orderbooksFilledAtSequence;
 //        log.debug("total commands: {}, post-fill commands: {}", commands.size(), commandsListSize);
 
 //        log.debug("completed:{} rejected:{} cancel:{}", session.numCompleted, session.numRejected, session.numCancelled);
@@ -245,10 +245,10 @@ public final class TestOrdersGenerator {
 //        log.debug("move: {} ({}%)", session.counterMove, (float) session.counterMove / (float) commandsListSize * 100.0f);
 
 
-        final float succPerc = (float) successfulCommands / (float) commands.size() * 100.0f;
-        final float avgOrderBookSizeAsk = (float) session.orderBookSizeAskStat.stream().mapToInt(x -> x).average().orElse(0);
-        final float avgOrderBookSizeBid = (float) session.orderBookSizeBidStat.stream().mapToInt(x -> x).average().orElse(0);
-        final float avgOrdersNumInOrderBook = (float) session.orderBookNumOrdersStat.stream().mapToInt(x -> x).average().orElse(0);
+//        final float succPerc = (float) successfulCommands / (float) commands.size() * 100.0f;
+//        final float avgOrderBookSizeAsk = (float) session.orderBookSizeAskStat.stream().mapToInt(x -> x).average().orElse(0);
+//        final float avgOrderBookSizeBid = (float) session.orderBookSizeBidStat.stream().mapToInt(x -> x).average().orElse(0);
+//        final float avgOrdersNumInOrderBook = (float) session.orderBookNumOrdersStat.stream().mapToInt(x -> x).average().orElse(0);
 
 //        assertThat(succPerc, greaterThan(85.0f));
 //        assertThat(avgOrderBookSizeAsk, greaterThan(Math.min(100, session.targetOrderBookOrders / 20f - 1)));
