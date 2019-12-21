@@ -340,13 +340,13 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     }
 
     @Override
-    public int getTotalAskBuckets() {
-        return askBuckets.size();
+    public int getTotalAskBuckets(final int limit) {
+        return Math.min(limit, askBuckets.size());
     }
 
     @Override
-    public int getTotalBidBuckets() {
-        return bidBuckets.size();
+    public int getTotalBidBuckets(final int limit) {
+        return Math.min(limit, bidBuckets.size());
     }
 
     @Override

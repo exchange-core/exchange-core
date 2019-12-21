@@ -259,7 +259,7 @@ public final class TestOrdersGenerator {
 //        log.debug("Average limit orders number in the order book:{} (target:{})", avgOrdersNumInOrderBook, targetOrderBookOrders);
 //        log.debug("Commands success={}%", succPerc);
 
-        final L2MarketData l2MarketData = orderBook.getL2MarketDataSnapshot(-1);
+        final L2MarketData l2MarketData = orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE);
 
         //log.info("gen: {}", LatencyTools.createLatencyReportFast(session.hdrRecorder.getIntervalHistogram()));
 
@@ -271,7 +271,7 @@ public final class TestOrdersGenerator {
     }
 
     private static void updateOrderBookSizeStat(TestOrdersGeneratorSession session) {
-        L2MarketData l2MarketDataSnapshot = session.orderBook.getL2MarketDataSnapshot(-1);
+        L2MarketData l2MarketDataSnapshot = session.orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE);
 //                log.debug("{}", dumpOrderBook(l2MarketDataSnapshot));
 
         int ordersNum = session.orderBook.getOrdersNum();

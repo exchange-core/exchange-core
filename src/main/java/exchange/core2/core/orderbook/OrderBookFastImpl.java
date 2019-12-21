@@ -813,13 +813,13 @@ public final class OrderBookFastImpl implements IOrderBook {
     }
 
     @Override
-    public int getTotalAskBuckets() {
-        return hotAskBuckets.size() + farAskBuckets.size();
+    public int getTotalAskBuckets(final int limit) {
+        return Math.min(limit, hotAskBuckets.size() + farAskBuckets.size());
     }
 
     @Override
-    public int getTotalBidBuckets() {
-        return hotBidBuckets.size() + farBidBuckets.size();
+    public int getTotalBidBuckets(final int limit) {
+        return Math.min(limit, hotBidBuckets.size() + farBidBuckets.size());
     }
 
     @Override

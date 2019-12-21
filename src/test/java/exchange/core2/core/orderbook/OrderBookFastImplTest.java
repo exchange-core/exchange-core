@@ -87,7 +87,7 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
         }
 
         // collecting full order book
-        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(-1);
+        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE);
 
         // check the number of records, should match to expected results
         assertThat(snapshot.askSize, is(results.size()));
@@ -145,7 +145,7 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
         }
 
         // collecting full order book
-        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(-1);
+        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE);
 
         // check the number of records, should match to expected results
         assertThat(snapshot.bidSize, is(results.size()));

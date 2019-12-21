@@ -86,7 +86,7 @@ public final class LongAdaptiveRadixTreeMap<V> {
         if (root != null) {
             final IArtNode<V> downSizeNode = root.remove(key, INITIAL_LEVEL);
             // ignore null because can not remove root
-            if (downSizeNode != null && downSizeNode != root) {
+            if (downSizeNode != root) {
                 // TODO put old into the pool
                 root = downSizeNode;
             }
@@ -154,14 +154,14 @@ public final class LongAdaptiveRadixTreeMap<V> {
         }
     }
 
-    void validateInternalState() {
+    public void validateInternalState() {
         if (root != null) {
             // TODO initial level
             root.validateInternalState(INITIAL_LEVEL);
         }
     }
 
-    String printDiagram() {
+    public String printDiagram() {
         if (root != null) {
             return root.printDiagram("", INITIAL_LEVEL);
         } else {

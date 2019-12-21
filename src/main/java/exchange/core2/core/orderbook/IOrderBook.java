@@ -103,25 +103,15 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     }
 
     /**
-     * @param size max size for each part (ask, bid)
-     * @return
-     */
-
-    /**
      * Obtain current L2 Market Data snapshot
      *
      * @param size max size for each part (ask, bid), if negative - all records returned
      * @return L2 Market Data snapshot
      */
-    default L2MarketData getL2MarketDataSnapshot(int size) {
-        int asksSize = getTotalAskBuckets();
-        int bidsSize = getTotalBidBuckets();
-        if (size >= 0) {
-            // limit size
-            asksSize = Math.min(asksSize, size);
-            bidsSize = Math.min(bidsSize, size);
-        }
-        L2MarketData data = new L2MarketData(asksSize, bidsSize);
+    default L2MarketData getL2MarketDataSnapshot(final int size) {
+        final int asksSize = getTotalAskBuckets(size);
+        final int bidsSize = getTotalBidBuckets(size);
+        final L2MarketData data = new L2MarketData(asksSize, bidsSize);
         fillAsks(asksSize, data);
         fillBids(bidsSize, data);
         return data;
@@ -138,13 +128,13 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
         fillBids(size, data);
     }
 
-    void fillAsks(final int size, L2MarketData data);
+    void fillAsks(int size, L2MarketData data);
 
-    void fillBids(final int size, L2MarketData data);
+    void fillBids(int size, L2MarketData data);
 
-    int getTotalAskBuckets();
+    int getTotalAskBuckets(int limit);
 
-    int getTotalBidBuckets();
+    int getTotalBidBuckets(int limit);
 
 
     static CommandResultCode processCommand(final IOrderBook orderBook, final OrderCommand cmd) {
@@ -167,8 +157,8 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
                     : cmd.resultCode; // no change
 
         } else if (commandType == OrderCommandType.ORDER_BOOK_REQUEST) {
-
-            cmd.marketData = orderBook.getL2MarketDataSnapshot((int) cmd.size);
+            int size = (int) cmd.size;
+            cmd.marketData = orderBook.getL2MarketDataSnapshot(size >= 0 ? size : Integer.MAX_VALUE);
             return CommandResultCode.SUCCESS;
 
         } else {

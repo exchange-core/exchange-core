@@ -403,6 +403,7 @@ public final class ArtNode4<V> implements IArtNode<V> {
     @Override
     public void validateInternalState(int level) {
         if (nodeLevel > level) throw new IllegalStateException("unexpected nodeLevel");
+        if (numChildren > 4 || numChildren < 1) throw new IllegalStateException("unexpected numChildren");
         short last = -1;
         for (int i = 0; i < 4; i++) {
             Object node = nodes[i];

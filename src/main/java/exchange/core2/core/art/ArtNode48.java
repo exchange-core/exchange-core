@@ -42,6 +42,7 @@ public final class ArtNode48<V> implements IArtNode<V> {
     // just keep indexes
     final byte[] indexes = new byte[256];
     final Object[] nodes = new Object[48];
+    long freeBitMask;
 
     long nodeKey;
     int nodeLevel;
@@ -62,6 +63,7 @@ public final class ArtNode48<V> implements IArtNode<V> {
 
         this.indexes[subKey] = sourceSize;
         this.nodes[sourceSize] = newElement;
+        this.freeBitMask = (1L << (sourceSize + 1)) - 1;
     }
 
     public ArtNode48(ArtNode256<V> node256) {
@@ -81,6 +83,7 @@ public final class ArtNode48<V> implements IArtNode<V> {
                 }
             }
         }
+        this.freeBitMask = (1L << (numChildren)) - 1;
     }
 
     @Override
@@ -130,17 +133,19 @@ public final class ArtNode48<V> implements IArtNode<V> {
 
         if (numChildren != 48) {
             // capacity less than 48 - can simply insert node
-            indexes[idx] = numChildren;
+            final byte freePosition = (byte) Long.numberOfTrailingZeros(~freeBitMask);
+            indexes[idx] = freePosition;
 
             if (nodeLevel == 0) {
-                nodes[numChildren] = value;
+                nodes[freePosition] = value;
             } else {
                 // TODO take from pool
                 // TODO create compressed-path node
                 final ArtNode4 newSubNode = new ArtNode4(key, value);
-                nodes[numChildren] = newSubNode;
+                nodes[freePosition] = newSubNode;
             }
             numChildren++;
+            freeBitMask = freeBitMask ^ (1L << freePosition);
             return null;
 
         } else {
@@ -165,6 +170,7 @@ public final class ArtNode48<V> implements IArtNode<V> {
             nodes[nodeIndex] = null;
             indexes[idx] = -1;
             numChildren--;
+            freeBitMask = freeBitMask ^ (1L << nodeIndex);
         } else {
             final IArtNode<V> node = (IArtNode<V>) nodes[nodeIndex];
             final IArtNode<V> resizedNode = node.remove(key, nodeLevel - 8);
@@ -175,6 +181,7 @@ public final class ArtNode48<V> implements IArtNode<V> {
                 if (resizedNode == null) {
                     numChildren--;
                     indexes[idx] = -1;
+                    freeBitMask = freeBitMask ^ (1L << nodeIndex);
                 }
             }
         }
@@ -363,20 +370,25 @@ public final class ArtNode48<V> implements IArtNode<V> {
     public void validateInternalState(int level) {
         if (nodeLevel > level) throw new IllegalStateException("unexpected nodeLevel");
         int found = 0;
-        IntHashSet keysSet = new IntHashSet();
+        final IntHashSet keysSet = new IntHashSet();
+        long expectedBitMask = 0;
         for (int i = 0; i < 256; i++) {
-            int idx = indexes[i];
+            byte idx = indexes[i];
             if (idx != -1) {
                 if (idx > 47 || idx < -1) throw new IllegalStateException("wrong index");
                 keysSet.add(idx);
                 found++;
                 if (nodes[idx] == null) throw new IllegalStateException("null node");
+                expectedBitMask ^= (1L << idx);
             }
         }
+        if (freeBitMask != expectedBitMask) throw new IllegalStateException("freeBitMask is wrong");
         if (found != numChildren) throw new IllegalStateException("wrong numChildren");
-        if (keysSet.size() != numChildren) throw new IllegalStateException("duplicate keys");
-        if (numChildren <= NODE16_SWITCH_THRESHOLD) throw new IllegalStateException("too small");
-
+        if (keysSet.size() != numChildren) {
+            throw new IllegalStateException("duplicate keys keysSet=" + keysSet + " numChildren=" + numChildren);
+        }
+        if (numChildren > 48 || numChildren <= NODE16_SWITCH_THRESHOLD)
+            throw new IllegalStateException("unexpected numChildren");
         for (int i = 0; i < 48; i++) {
             Object node = nodes[i];
             if (keysSet.contains(i)) {

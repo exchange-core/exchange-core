@@ -325,7 +325,9 @@ public final class ArtNode256<V> implements IArtNode<V> {
         if (found != numChildren) {
             throw new IllegalStateException("wrong numChildren");
         }
-        if (numChildren <= NODE48_SWITCH_THRESHOLD) throw new IllegalStateException("too small");
+        if (numChildren <= NODE48_SWITCH_THRESHOLD || numChildren > 256) {
+            throw new IllegalStateException("unexpected numChildren");
+        }
     }
 
     @Override

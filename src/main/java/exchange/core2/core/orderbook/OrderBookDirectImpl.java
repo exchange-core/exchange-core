@@ -15,6 +15,7 @@
  */
 package exchange.core2.core.orderbook;
 
+import exchange.core2.core.art.LongAdaptiveRadixTreeMap;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
@@ -27,7 +28,10 @@ import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.eclipse.collections.impl.set.mutable.primitive.LongHashSet;
 
-import java.util.*;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
@@ -35,8 +39,8 @@ import java.util.stream.StreamSupport;
 public class OrderBookDirectImpl implements IOrderBook {
 
     // buckets
-    private final NavigableMap<Long, Bucket> askPriceBuckets = new TreeMap<>();
-    private final NavigableMap<Long, Bucket> bidPriceBuckets = new TreeMap<>(Collections.reverseOrder());
+    private final LongAdaptiveRadixTreeMap<Bucket> askPriceBuckets = new LongAdaptiveRadixTreeMap<>();
+    private final LongAdaptiveRadixTreeMap<Bucket> bidPriceBuckets = new LongAdaptiveRadixTreeMap<>();
 
     // symbol specification
     private final CoreSymbolSpecification symbolSpec;
@@ -191,7 +195,7 @@ public class OrderBookDirectImpl implements IOrderBook {
 
             if (makerOrder == priceBucketTail) {
                 // reached current price tail -> remove bucket reference
-                final NavigableMap<Long, Bucket> buckets = isBidAction ? askPriceBuckets : bidPriceBuckets;
+                final LongAdaptiveRadixTreeMap<Bucket> buckets = isBidAction ? askPriceBuckets : bidPriceBuckets;
                 buckets.remove(makerOrder.price);
 
 //                log.debug("  removed price bucket for {}", makerOrder.price);
@@ -343,7 +347,7 @@ public class OrderBookDirectImpl implements IOrderBook {
             // if we removing tail order -> change bucket tail reference
             if (order.next == null || order.next.parent != bucket) {
                 // if no next or next order has different parent -> then it was the last bucket -> remove record
-                final NavigableMap<Long, Bucket> buckets = order.action == OrderAction.ASK ? askPriceBuckets : bidPriceBuckets;
+                final LongAdaptiveRadixTreeMap<Bucket> buckets = order.action == OrderAction.ASK ? askPriceBuckets : bidPriceBuckets;
                 buckets.remove(order.price);
             } else {
                 // otherwise at least one order always having the same parent left -> update tail reference to it
@@ -373,7 +377,7 @@ public class OrderBookDirectImpl implements IOrderBook {
 //        log.debug("   + insert order: {}", order);
 
         final boolean isAsk = order.action == OrderAction.ASK;
-        final NavigableMap<Long, Bucket> buckets = isAsk ? askPriceBuckets : bidPriceBuckets;
+        final LongAdaptiveRadixTreeMap<Bucket> buckets = isAsk ? askPriceBuckets : bidPriceBuckets;
         final Bucket toBucket = buckets.get(order.price);
 
         if (toBucket != null) {
@@ -400,10 +404,9 @@ public class OrderBookDirectImpl implements IOrderBook {
             final Bucket newBucket = new Bucket(order);
             order.parent = newBucket;
             buckets.put(order.price, newBucket);
-            final Map.Entry<Long, Bucket> lowerEntry = buckets.lowerEntry(order.price);
-            if (lowerEntry != null) {
+            final Bucket lowerBucket = isAsk ? buckets.getLowerValue(order.price) : buckets.getHigherValue(order.price);
+            if (lowerBucket != null) {
                 // attache new bucket and event to the lower entry
-                final Bucket lowerBucket = lowerEntry.getValue();
                 DirectOrder lowerTail = lowerBucket.tail;
                 final DirectOrder prevOrder = lowerTail.prev; // can be null
                 // update neighbors
@@ -464,8 +467,9 @@ public class OrderBookDirectImpl implements IOrderBook {
     private void validateChain(boolean asksChain, LongHashSet ordersInChain) {
 
         // buckets index
-        final NavigableMap<Long, Bucket> buckets = asksChain ? askPriceBuckets : bidPriceBuckets;
-        final LongObjectHashMap<Bucket> bucketsFoundInChain = new LongObjectHashMap<>(buckets.size());
+        final LongAdaptiveRadixTreeMap<Bucket> buckets = asksChain ? askPriceBuckets : bidPriceBuckets;
+        final LongObjectHashMap<Bucket> bucketsFoundInChain = new LongObjectHashMap<>();
+        buckets.validateInternalState();
 
         DirectOrder order = asksChain ? bestAskOrder : bestBidOrder;
 
@@ -535,11 +539,12 @@ public class OrderBookDirectImpl implements IOrderBook {
             thrw("last order is not a tail");
         }
 
+//        log.debug("-------- validateChain ----- asksChain={} ", asksChain);
         buckets.forEach((price, bucket) -> {
-            if (bucketsFoundInChain.remove(price) != bucket) {
-                thrw("bucket in the price-tree not found in the chain");
-            }
-        });
+//            log.debug("Remove {} ", price);
+            if (bucketsFoundInChain.remove(price) != bucket) thrw("bucket in the price-tree not found in the chain");
+        }, Integer.MAX_VALUE);
+
         if (!bucketsFoundInChain.isEmpty()) {
             thrw("found buckets in the chain that not discoverable from the price-tree");
         }
@@ -607,48 +612,32 @@ public class OrderBookDirectImpl implements IOrderBook {
 
     @Override
     public void fillAsks(final int size, L2MarketData data) {
-        if (size == 0) {
-            data.askSize = 0;
-            return;
-        }
-
-        int i = 0;
-        for (Bucket bucket : askPriceBuckets.values()) {
+        data.askSize = 0;
+        askPriceBuckets.forEach((p, bucket) -> {
+            final int i = data.askSize++;
             data.askPrices[i] = bucket.tail.price;
             data.askVolumes[i] = bucket.volume;
-            if (++i == size) {
-                break;
-            }
-        }
-        data.askSize = i;
+        }, size);
     }
 
     @Override
     public void fillBids(final int size, L2MarketData data) {
-        if (size == 0) {
-            data.bidSize = 0;
-            return;
-        }
-
-        int i = 0;
-        for (Bucket bucket : bidPriceBuckets.values()) {
+        data.bidSize = 0;
+        bidPriceBuckets.forEachDesc((p, bucket) -> {
+            final int i = data.bidSize++;
             data.bidPrices[i] = bucket.tail.price;
             data.bidVolumes[i] = bucket.volume;
-            if (++i == size) {
-                break;
-            }
-        }
-        data.bidSize = i;
+        }, size);
     }
 
     @Override
-    public int getTotalAskBuckets() {
-        return askPriceBuckets.size();
+    public int getTotalAskBuckets(final int limit) {
+        return askPriceBuckets.size(limit);
     }
 
     @Override
-    public int getTotalBidBuckets() {
-        return bidPriceBuckets.size();
+    public int getTotalBidBuckets(final int limit) {
+        return bidPriceBuckets.size(limit);
     }
 
     @Override

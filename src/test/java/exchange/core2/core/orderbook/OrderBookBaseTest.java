@@ -115,13 +115,13 @@ public abstract class OrderBookBaseTest {
 
     void clearOrderBook() {
         orderBook.validateInternalState();
-        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(-1);
+        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE);
 
         // match all asks
         long askSum = Arrays.stream(snapshot.askVolumes).sum();
         IOrderBook.processCommand(orderBook, OrderCommand.newOrder(IOC, 100000000000L, -1, MAX_PRICE, MAX_PRICE, askSum, BID));
 
-//        log.debug("{}", orderBook.getL2MarketDataSnapshot(-1).dumpOrderBook());
+//        log.debug("{}", orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE).dumpOrderBook());
 
         orderBook.validateInternalState();
 
@@ -129,10 +129,10 @@ public abstract class OrderBookBaseTest {
         long bidSum = Arrays.stream(snapshot.bidVolumes).sum();
         IOrderBook.processCommand(orderBook, OrderCommand.newOrder(IOC, 100000000001L, -2, 1, 0, bidSum, ASK));
 
-//        log.debug("{}", orderBook.getL2MarketDataSnapshot(-1).dumpOrderBook());
+//        log.debug("{}", orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE).dumpOrderBook());
 
-        assertThat(orderBook.getL2MarketDataSnapshot(-1).askSize, is(0));
-        assertThat(orderBook.getL2MarketDataSnapshot(-1).bidSize, is(0));
+        assertThat(orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE).askSize, is(0));
+        assertThat(orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE).bidSize, is(0));
 
         orderBook.validateInternalState();
     }
@@ -577,6 +577,7 @@ public abstract class OrderBookBaseTest {
 
         genResult.getCommands().forEach(cmd -> {
             cmd.orderId += 100; // TODO set start id
+            //log.debug("{}",  cmd);
             CommandResultCode commandResultCode = IOrderBook.processCommand(localOrderBook, cmd);
             assertThat(commandResultCode, is(SUCCESS));
             localOrderBook.validateInternalState();
