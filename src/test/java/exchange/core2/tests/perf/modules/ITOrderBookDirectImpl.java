@@ -13,19 +13,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package exchange.core2.core.orderbook;
+package exchange.core2.tests.perf.modules;
 
+import exchange.core2.core.orderbook.IOrderBook;
+import exchange.core2.core.orderbook.OrderBookDirectImpl;
 import exchange.core2.tests.util.TestConstants;
 
-public class OrderBookNaiveImplTest extends OrderBookBaseTest {
+public class ITOrderBookDirectImpl extends ITOrderBookBase {
 
     @Override
     protected IOrderBook createNewOrderBook() {
-        return new OrderBookNaiveImpl(TestConstants.SYMBOLSPEC_ETH_XBT);
-    }
-
-    @Override
-    public void multipleCommandsCompareTest() {
-        // no need to compare with same order book
+        return new OrderBookDirectImpl(TestConstants.SYMBOLSPEC_EUR_USD);
     }
 }

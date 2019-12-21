@@ -15,11 +15,13 @@
  */
 package exchange.core2.core.common;
 
-public interface IOrder {
+public interface IOrder extends StateHash{
 
     long getPrice();
 
     long getSize();
+
+    long getFilled();
 
     long getUid();
 

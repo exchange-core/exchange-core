@@ -299,7 +299,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
      * @return order
      */
     @Override
-    public Order getOrderById(long orderId) {
+    public IOrder getOrderById(long orderId) {
         return idMap.get(orderId);
     }
 
@@ -342,13 +342,13 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     }
 
     @Override
-    public int getTotalAskBuckets() {
-        return askBuckets.size();
+    public int getTotalAskBuckets(final int limit) {
+        return Math.min(limit, askBuckets.size());
     }
 
     @Override
-    public int getTotalBidBuckets() {
-        return bidBuckets.size();
+    public int getTotalBidBuckets(final int limit) {
+        return Math.min(limit, bidBuckets.size());
     }
 
     @Override
@@ -381,12 +381,12 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     }
 
     @Override
-    public Stream<Order> askOrdersStream(final boolean sorted) {
+    public Stream<IOrder> askOrdersStream(final boolean sorted) {
         return askBuckets.values().stream().flatMap(bucket -> bucket.getAllOrders().stream());
     }
 
     @Override
-    public Stream<Order> bidOrdersStream(final boolean sorted) {
+    public Stream<IOrder> bidOrdersStream(final boolean sorted) {
         return bidBuckets.values().stream().flatMap(bucket -> bucket.getAllOrders().stream());
     }
 
@@ -411,19 +411,4 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         SerializationUtils.marshallLongMap(askBuckets, bytes);
         SerializationUtils.marshallLongMap(bidBuckets, bytes);
     }
-
-    @Override
-    public int hashCode() {
-        IOrdersBucket[] a = this.askBuckets.values().toArray(new IOrdersBucket[0]);
-        IOrdersBucket[] b = this.bidBuckets.values().toArray(new IOrdersBucket[0]);
-//        for(IOrdersBucket ord: a) log.debug("ask {}", ord);
-//        for(IOrdersBucket ord: b) log.debug("bid {}", ord);
-        return IOrderBook.hash(a, b, symbolSpec);
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        return IOrderBook.equals(this, o);
-    }
-
 }

@@ -17,15 +17,10 @@ package exchange.core2.core.orderbook;
 
 import exchange.core2.tests.util.TestConstants;
 
-public class OrderBookNaiveImplTest extends OrderBookBaseTest {
+public class OrderBookDirectImplTest extends OrderBookBaseTest {
 
     @Override
     protected IOrderBook createNewOrderBook() {
-        return new OrderBookNaiveImpl(TestConstants.SYMBOLSPEC_ETH_XBT);
-    }
-
-    @Override
-    public void multipleCommandsCompareTest() {
-        // no need to compare with same order book
+        return new OrderBookDirectImpl(TestConstants.SYMBOLSPEC_EUR_USD);
     }
 }

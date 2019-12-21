@@ -103,4 +103,21 @@ public final class CoreSymbolSpecification implements WriteBytesMarshallable, St
                 marginBuy,
                 marginSell);
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        CoreSymbolSpecification that = (CoreSymbolSpecification) o;
+        return symbolId == that.symbolId &&
+                baseCurrency == that.baseCurrency &&
+                quoteCurrency == that.quoteCurrency &&
+                baseScaleK == that.baseScaleK &&
+                quoteScaleK == that.quoteScaleK &&
+                takerFee == that.takerFee &&
+                makerFee == that.makerFee &&
+                marginBuy == that.marginBuy &&
+                marginSell == that.marginSell &&
+                type == that.type;
+    }
 }

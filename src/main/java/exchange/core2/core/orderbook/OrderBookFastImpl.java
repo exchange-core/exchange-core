@@ -730,7 +730,7 @@ public final class OrderBookFastImpl implements IOrderBook {
      * @return - order
      */
     @Override
-    public Order getOrderById(long orderId) {
+    public IOrder getOrderById(long orderId) {
         IOrdersBucket bucket = idMapToBucket.get(orderId);
         return (bucket != null) ? bucket.findOrder(orderId) : null;
     }
@@ -817,13 +817,13 @@ public final class OrderBookFastImpl implements IOrderBook {
     }
 
     @Override
-    public int getTotalAskBuckets() {
-        return hotAskBuckets.size() + farAskBuckets.size();
+    public int getTotalAskBuckets(final int limit) {
+        return Math.min(limit, hotAskBuckets.size() + farAskBuckets.size());
     }
 
     @Override
-    public int getTotalBidBuckets() {
-        return hotBidBuckets.size() + farBidBuckets.size();
+    public int getTotalBidBuckets(final int limit) {
+        return Math.min(limit, hotBidBuckets.size() + farBidBuckets.size());
     }
 
     @Override
@@ -976,7 +976,7 @@ public final class OrderBookFastImpl implements IOrderBook {
     }
 
     @Override
-    public Stream<Order> askOrdersStream(final boolean sorted) {
+    public Stream<IOrder> askOrdersStream(final boolean sorted) {
         // TODO sorted version is slow
         final Stream<IOrdersBucket> hotStream = sorted ? hotAskBuckets.toSortedList().stream() : hotAskBuckets.stream();
         return Stream.concat(hotStream, farAskBuckets.values().stream())
@@ -984,7 +984,7 @@ public final class OrderBookFastImpl implements IOrderBook {
     }
 
     @Override
-    public Stream<Order> bidOrdersStream(final boolean sorted) {
+    public Stream<IOrder> bidOrdersStream(final boolean sorted) {
         // TODO sorted version is slow
         final Stream<IOrdersBucket> hotStream = sorted ? hotBidBuckets.toSortedList().reverseThis().stream() : hotBidBuckets.stream();
         return Stream.concat(hotStream, farBidBuckets.values().stream())
@@ -1045,23 +1045,6 @@ public final class OrderBookFastImpl implements IOrderBook {
 
         SerializationUtils.marshallLongMap(farAskBuckets, bytes);
         SerializationUtils.marshallLongMap(farBidBuckets, bytes);
-    }
-
-    @Override
-    public int hashCode() {
-        final IOrdersBucket[] a = getAsksAsArray();
-        final IOrdersBucket[] b = getBidsAsArray();
-//        for(IOrdersBucket ord: a) log.debug("ask {}", ord);
-//        for(IOrdersBucket ord: b) log.debug("bid {}", ord);
-        //log.debug("FAST A:{} B:{}", a, b);
-        return IOrderBook.hash(a, b, symbolSpec);
-        //log.debug("{} {} {} {} {}", hash, hotAskBuckets.size(), farAskBuckets.size(), hotBidBuckets.size(), farBidBuckets.size());
-    }
-
-
-    @Override
-    public boolean equals(Object o) {
-        return IOrderBook.equals(this, o);
     }
 
 }

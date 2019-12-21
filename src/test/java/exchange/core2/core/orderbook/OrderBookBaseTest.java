@@ -15,30 +15,31 @@
  */
 package exchange.core2.core.orderbook;
 
-import exchange.core2.tests.util.L2MarketDataHelper;
-import exchange.core2.tests.util.TestOrdersGenerator;
-import lombok.extern.slf4j.Slf4j;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
 import exchange.core2.core.common.L2MarketData;
 import exchange.core2.core.common.MatcherEventType;
 import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
+import exchange.core2.tests.util.L2MarketDataHelper;
+import exchange.core2.tests.util.TestConstants;
+import exchange.core2.tests.util.TestOrdersGenerator;
+import lombok.extern.slf4j.Slf4j;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
 
 import java.util.Arrays;
 import java.util.List;
 
-import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.*;
 import static exchange.core2.core.common.OrderAction.ASK;
 import static exchange.core2.core.common.OrderAction.BID;
 import static exchange.core2.core.common.OrderType.GTC;
 import static exchange.core2.core.common.OrderType.IOC;
 import static exchange.core2.core.common.cmd.CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
 import static exchange.core2.core.common.cmd.CommandResultCode.SUCCESS;
+import static org.hamcrest.Matchers.is;
+import static org.junit.Assert.*;
 
 
 /**
@@ -71,29 +72,24 @@ public abstract class OrderBookBaseTest {
         orderBook = createNewOrderBook();
         orderBook.validateInternalState();
 
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 0, UID_2, INITIAL_PRICE, 0, 131, ASK));
-        orderBook.cancelOrder(OrderCommand.cancel(0, UID_2));
+        processAndValidate(OrderCommand.newOrder(GTC, 0, UID_2, INITIAL_PRICE, 0, 131, ASK), SUCCESS);
+        processAndValidate(OrderCommand.cancel(0, UID_2), SUCCESS);
 
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 1, UID_1, 81600, 0, 100, ASK));
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 2, UID_1, 81599, 0, 50, ASK));
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 3, UID_1, 81599, 0, 25, ASK));
-        orderBook.validateInternalState();
-
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 4, UID_1, 81593, 82000, 40, BID));
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 5, UID_1, 81590, 82000, 20, BID));
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 6, UID_1, 81590, 82000, 1, BID));
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 7, UID_1, 81200, 82000, 20, BID));
-        orderBook.validateInternalState();
+        processAndValidate(OrderCommand.newOrder(GTC, 1, UID_1, 81600, 0, 100, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 2, UID_1, 81599, 0, 50, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 3, UID_1, 81599, 0, 25, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 4, UID_1, 81593, 82000, 40, BID), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 5, UID_1, 81590, 82000, 20, BID), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 6, UID_1, 81590, 82000, 1, BID), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 7, UID_1, 81200, 82000, 20, BID), SUCCESS);
 
         // FAR orders section
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 8, UID_1, 201000, 0, 28, ASK));
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 9, UID_1, 201000, 0, 32, ASK));
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 10, UID_1, 200954, 0, 10, ASK));
-        orderBook.validateInternalState();
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 11, UID_1, 10000, 12000, 12, BID));
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 12, UID_1, 10000, 12000, 1, BID));
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 13, UID_1, 9136, 12000, 2, BID));
-        orderBook.validateInternalState();
+        processAndValidate(OrderCommand.newOrder(GTC, 8, UID_1, 201000, 0, 28, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 9, UID_1, 201000, 0, 32, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 10, UID_1, 200954, 0, 10, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 11, UID_1, 10000, 12000, 12, BID), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 12, UID_1, 10000, 12000, 1, BID), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 13, UID_1, 9136, 12000, 2, BID), SUCCESS);
 
         expectedState = new L2MarketDataHelper(
                 new L2MarketData(
@@ -121,13 +117,13 @@ public abstract class OrderBookBaseTest {
 
     void clearOrderBook() {
         orderBook.validateInternalState();
-        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(-1);
+        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE);
 
         // match all asks
         long askSum = Arrays.stream(snapshot.askVolumes).sum();
         IOrderBook.processCommand(orderBook, OrderCommand.newOrder(IOC, 100000000000L, -1, MAX_PRICE, MAX_PRICE, askSum, BID));
 
-//        log.debug("{}", dumpOrderBook(orderBook.getL2MarketDataSnapshot(100000)));
+//        log.debug("{}", orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE).dumpOrderBook());
 
         orderBook.validateInternalState();
 
@@ -135,14 +131,19 @@ public abstract class OrderBookBaseTest {
         long bidSum = Arrays.stream(snapshot.bidVolumes).sum();
         IOrderBook.processCommand(orderBook, OrderCommand.newOrder(IOC, 100000000001L, -2, 1, 0, bidSum, ASK));
 
-//        log.debug("{}", dumpOrderBook(orderBook.getL2MarketDataSnapshot(100000)));
+//        log.debug("{}", orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE).dumpOrderBook());
 
-        assertThat(orderBook.getL2MarketDataSnapshot(-1).askSize, is(0));
-        assertThat(orderBook.getL2MarketDataSnapshot(-1).bidSize, is(0));
+        assertThat(orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE).askSize, is(0));
+        assertThat(orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE).bidSize, is(0));
 
         orderBook.validateInternalState();
     }
 
+
+    @Test
+    public void shouldInitializeWithoutErrors() {
+
+    }
 
     // ------------------------ TESTS WITHOUT MATCHING -----------------------
 
@@ -571,7 +572,7 @@ public abstract class OrderBookBaseTest {
 
 
     @Test
-    public void multipleCommandsTest() {
+    public void multipleCommandsKeepInternalStateTest() {
 
         int tranNum = 25000;
 
@@ -589,10 +590,83 @@ public abstract class OrderBookBaseTest {
 
         genResult.getCommands().forEach(cmd -> {
             cmd.orderId += 100; // TODO set start id
+            //log.debug("{}",  cmd);
             CommandResultCode commandResultCode = IOrderBook.processCommand(localOrderBook, cmd);
             assertThat(commandResultCode, is(SUCCESS));
             localOrderBook.validateInternalState();
         });
+
+    }
+
+
+    @Test
+    public void multipleCommandsCompareTest() {
+
+        long nextUpdateTime = 0;
+
+        final int tranNum = 100_000;
+        final int targetOrderBookOrders = 500;
+        final int numUsers = 100;
+
+        final IOrderBook orderBook = createNewOrderBook();
+//        IOrderBook orderBook = new OrderBookFastImpl(4096, TestConstants.SYMBOLSPEC_EUR_USD);
+        //IOrderBook orderBook = new OrderBookNaiveImpl();
+        final IOrderBook orderBookRef = new OrderBookNaiveImpl(TestConstants.SYMBOLSPEC_EUR_USD);
+
+        assertEquals(orderBook.stateHash(), orderBookRef.stateHash());
+
+        TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(
+                tranNum,
+                targetOrderBookOrders,
+                numUsers,
+                TestOrdersGenerator.UID_PLAIN_MAPPER,
+                0,
+                true,
+                TestOrdersGenerator.createAsyncProgressLogger(tranNum));
+
+        long i = 0;
+        for (OrderCommand cmd : genResult.getCommands()) {
+            i++;
+            cmd.orderId += 100;
+
+            cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
+            IOrderBook.processCommand(orderBook, cmd);
+
+            cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
+            CommandResultCode commandResultCode = IOrderBook.processCommand(orderBookRef, cmd);
+
+            assertThat(commandResultCode, is(SUCCESS));
+
+//            if (!orderBook.equals(orderBookRef)) {
+//
+//                if (!orderBook.getAllAskBuckets().equals(orderBookRef.getAllAskBuckets())) {
+//                    log.warn("ASK FAST: {}", orderBook.getAllAskBuckets());
+//                    log.warn("ASK REF : {}", orderBookRef.getAllAskBuckets());
+//                } else {
+//                    log.info("ASK ok");
+//                }
+//
+//                if (!orderBook.getAllBidBuckets().equals(orderBookRef.getAllBidBuckets())) {
+//                    log.warn("BID FAST: {}", orderBook.getAllBidBuckets().stream().map(x -> x.getPrice() + " " + x.getTotalVolume()).toArray());
+//                    log.warn("BID REF : {}", orderBookRef.getAllBidBuckets().stream().map(x -> x.getPrice() + " " + x.getTotalVolume()).toArray());
+//                } else {
+//                    log.info("BID ok");
+//                }
+//
+//            }
+
+            assertEquals(orderBook.stateHash(), orderBookRef.stateHash());
+//            assertTrue(checkSameOrders(orderBook, orderBookRef));
+
+            // TODO compare events!
+            // TODO compare L2 marketdata
+
+            if (System.currentTimeMillis() > nextUpdateTime) {
+                log.debug("{}% done ({})", (i * 10000 / genResult.getCommands().size()) / 100f, i);
+                nextUpdateTime = System.currentTimeMillis() + 3000;
+            }
+
+        }
 
     }
 

@@ -126,7 +126,8 @@ public abstract class ITOrderBookBase {
 
                 // weak compare orderBook final state just to make sure all commands executed same way
                 // TODO compare events
-                assertThat(orderBook.hashCode(), is(genResult.getFinalOrderbookHash()));
+                orderBook.validateInternalState();
+                assertThat(orderBook.stateHash(), is(genResult.getFinalOrderbookHash()));
 
                 float perfMt = (float) orderCommands.size() / (float) t / 1000.0f;
                 perfResults.add(perfMt);

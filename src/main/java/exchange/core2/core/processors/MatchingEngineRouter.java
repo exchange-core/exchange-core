@@ -191,11 +191,11 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
 
                     currencyBalance.addToValue(
                             spec.getBaseCurrency(),
-                            ob.askOrdersStream(false).mapToLong(ord -> CoreArithmeticUtils.calculateAmountAsk(ord.size - ord.filled, spec)).sum());
+                            ob.askOrdersStream(false).mapToLong(ord -> CoreArithmeticUtils.calculateAmountAsk(ord.getSize() - ord.getFilled(), spec)).sum());
 
                     currencyBalance.addToValue(
                             spec.getQuoteCurrency(),
-                            ob.bidOrdersStream(false).mapToLong(ord -> CoreArithmeticUtils.calculateAmountBidTakerFee(ord.size - ord.filled, ord.reserveBidPrice, spec)).sum());
+                            ob.bidOrdersStream(false).mapToLong(ord -> CoreArithmeticUtils.calculateAmountBidTakerFee(ord.getSize() - ord.getFilled(), ord.getReserveBidPrice(), spec)).sum());
                 });
 
         return Optional.of(TotalCurrencyBalanceReportResult.ofOrderBalances(currencyBalance));
@@ -248,12 +248,11 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
 
     @Override
     public int stateHash() {
+//        log.debug("HASH ME{} : HashingUtils.stateHash(orderBooks)={}", shardId, HashingUtils.stateHash(orderBooks));
         return Objects.hash(
                 shardId,
                 shardMask,
                 binaryCommandsProcessor.stateHash(),
                 HashingUtils.stateHash(orderBooks));
-
-        //log.debug("HASH ME{} : hash={} a={} b={}", shardId, hash, a, b);
     }
 }

@@ -15,21 +15,16 @@
  */
 package exchange.core2.core.orderbook;
 
-import exchange.core2.core.common.CoreSymbolSpecification;
-import exchange.core2.core.common.L2MarketData;
-import exchange.core2.core.common.Order;
-import exchange.core2.core.common.StateHash;
+import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
+import exchange.core2.core.utils.HashingUtils;
 import lombok.Getter;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 
-import java.util.Arrays;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Objects;
 import java.util.stream.Stream;
 
 public interface IOrderBook extends WriteBytesMarshallable, StateHash {
@@ -67,10 +62,11 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
      */
     CommandResultCode moveOrder(OrderCommand cmd);
 
-
+    // testing only ?
     int getOrdersNum();
 
-    Order getOrderById(long orderId);
+    // testing only ?
+    IOrder getOrderById(long orderId);
 
     // testing only - validateInternalState without changing state
     void validateInternalState();
@@ -79,7 +75,6 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
      * @return actual implementation
      */
     OrderBookImplType getImplementationType();
-
 
     /**
      * Search for all orders for specified user.<br/>
@@ -94,48 +89,18 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
     CoreSymbolSpecification getSymbolSpec();
 
-    Stream<Order> askOrdersStream(boolean sorted);
+    Stream<? extends IOrder> askOrdersStream(boolean sorted);
 
-    Stream<Order> bidOrdersStream(boolean sorted);
+    Stream<? extends IOrder> bidOrdersStream(boolean sorted);
 
     /**
      * State hash for order books is implementation-agnostic
-     * Look {@link IOrderBook#validateInternalState} for complete state validation for de-serialized objects
+     * Look {@link IOrderBook#validateInternalState} for full internal state validation for de-serialized objects
      */
     @Override
     default int stateHash() {
-        return hashCode();
+        return HashingUtils.stateHash(this);
     }
-
-    static int hash(final IOrdersBucket[] askBuckets, final IOrdersBucket[] bidBuckets, final CoreSymbolSpecification symbolSpec) {
-        final int a = Arrays.hashCode(askBuckets);
-        final int b = Arrays.hashCode(bidBuckets);
-        return Objects.hash(a, b, symbolSpec.stateHash());
-    }
-
-    static boolean equals(IOrderBook me, Object o) {
-        if (o == me) return true;
-        if (o == null) return false;
-        if (!(o instanceof IOrderBook)) return false;
-        IOrderBook other = (IOrderBook) o;
-        return checkStreamsEqual(me.askOrdersStream(true), other.askOrdersStream(true)) &&
-                checkStreamsEqual(me.bidOrdersStream(true), other.bidOrdersStream(true));
-    }
-
-    static boolean checkStreamsEqual(final Stream<?> s1, final Stream<?> s2) {
-        final Iterator<?> iter1 = s1.iterator(), iter2 = s2.iterator();
-        while (iter1.hasNext() && iter2.hasNext()) {
-            if (!iter1.next().equals(iter2.next())) {
-                return false;
-            }
-        }
-        return !iter1.hasNext() && !iter2.hasNext();
-    }
-
-    /**
-     * @param size max size for each part (ask, bid)
-     * @return
-     */
 
     /**
      * Obtain current L2 Market Data snapshot
@@ -143,15 +108,10 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
      * @param size max size for each part (ask, bid), if negative - all records returned
      * @return L2 Market Data snapshot
      */
-    default L2MarketData getL2MarketDataSnapshot(int size) {
-        int asksSize = getTotalAskBuckets();
-        int bidsSize = getTotalBidBuckets();
-        if (size >= 0) {
-            // limit size
-            asksSize = Math.min(asksSize, size);
-            bidsSize = Math.min(bidsSize, size);
-        }
-        L2MarketData data = new L2MarketData(asksSize, bidsSize);
+    default L2MarketData getL2MarketDataSnapshot(final int size) {
+        final int asksSize = getTotalAskBuckets(size);
+        final int bidsSize = getTotalBidBuckets(size);
+        final L2MarketData data = new L2MarketData(asksSize, bidsSize);
         fillAsks(asksSize, data);
         fillBids(bidsSize, data);
         return data;
@@ -168,13 +128,13 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
         fillBids(size, data);
     }
 
-    void fillAsks(final int size, L2MarketData data);
+    void fillAsks(int size, L2MarketData data);
 
-    void fillBids(final int size, L2MarketData data);
+    void fillBids(int size, L2MarketData data);
 
-    int getTotalAskBuckets();
+    int getTotalAskBuckets(int limit);
 
-    int getTotalBidBuckets();
+    int getTotalBidBuckets(int limit);
 
 
     static CommandResultCode processCommand(final IOrderBook orderBook, final OrderCommand cmd) {
@@ -197,8 +157,8 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
                     : cmd.resultCode; // no change
 
         } else if (commandType == OrderCommandType.ORDER_BOOK_REQUEST) {
-
-            cmd.marketData = orderBook.getL2MarketDataSnapshot((int) cmd.size);
+            int size = (int) cmd.size;
+            cmd.marketData = orderBook.getL2MarketDataSnapshot(size >= 0 ? size : Integer.MAX_VALUE);
             return CommandResultCode.SUCCESS;
 
         } else {
@@ -213,6 +173,8 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
                 return new OrderBookNaiveImpl(bytes);
             case FAST:
                 return new OrderBookFastImpl(bytes);
+            case DIRECT:
+                return new OrderBookDirectImpl(bytes);
             default:
                 throw new IllegalArgumentException();
         }
@@ -221,7 +183,8 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     @Getter
     enum OrderBookImplType {
         NAIVE(0),
-        FAST(1);
+        FAST(1),
+        DIRECT(2);
 
         private byte code;
 
@@ -235,6 +198,8 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
                     return NAIVE;
                 case 1:
                     return FAST;
+                case 2:
+                    return DIRECT;
                 default:
                     throw new IllegalArgumentException("unknown OrderBookImplType:" + code);
             }

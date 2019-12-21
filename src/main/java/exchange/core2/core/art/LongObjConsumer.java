@@ -13,19 +13,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package exchange.core2.core.orderbook;
+package exchange.core2.core.art;
 
-import exchange.core2.tests.util.TestConstants;
+@FunctionalInterface
+public interface LongObjConsumer<T> {
 
-public class OrderBookNaiveImplTest extends OrderBookBaseTest {
-
-    @Override
-    protected IOrderBook createNewOrderBook() {
-        return new OrderBookNaiveImpl(TestConstants.SYMBOLSPEC_ETH_XBT);
-    }
-
-    @Override
-    public void multipleCommandsCompareTest() {
-        // no need to compare with same order book
-    }
+    /**
+     * Performs this operation on the given arguments.
+     *
+     * @param a the first input argument
+     * @param b the second input argument
+     */
+    void accept(long a, T b);
 }
