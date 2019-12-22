@@ -2,9 +2,18 @@
 [![Build Status](https://travis-ci.org/mzheravin/exchange-core.svg?branch=master)](https://travis-ci.org/mzheravin/exchange-core)
 [![][license img]][license]
 
-**Ultra-fast market exchange core matching engine** based on LMAX Disruptor and Eclipse Collections (ex. Goldman Sachs GS Collections).
+**Ultra-fast market exchange core matching engine** based on 
+[LMAX Disruptor](https://github.com/LMAX-Exchange/disruptor), 
+[Eclipse Collections](https://www.eclipse.org/collections/) (ex. Goldman Sachs GS Collections) 
+and [Adaptive Radix Trees](https://db.in.tum.de/~leis/papers/ART.pdf).
 
-Capable to process 5M order book operations per second on 8-years old hardware (Intel® Xeon® X5690) with moderate latency degradation:
+Designed for high scalability and pauseless 24/7 operation under high load conditions and providing low-latency responses:
+- 1M users having 3M accounts;
+- 100K order books;
+- 1M+ orders book operations per second;
+- less than 1ms worst wire-to-wire latency.
+
+Single order book configuration is capable to process 5M operations per second on 10-years old hardware (Intel® Xeon® X5690) with moderate latency degradation:
 
 |rate|50.0%|90.0%|95.0%|99.0%|99.9%|99.99%|worst|
 |----|-----|-----|-----|-----|-----|------|-----|
@@ -42,12 +51,15 @@ Benchmark configuration:
 - Matching engine and risk control operations are atomic and deterministic.
 - Pipelined multi-core processing (based on LMAX Disruptor): each CPU core is responsible for certain processing stage, user accounts shard, or symbol order books shard.
 - Low GC pressure, objects pooling.
-- Two different risk processing modes (per symbol): direct-exchange and margin-trade.
+- Two different risk processing modes (specified per symbol): direct-exchange and margin-trade.
+- Maker/taker fees (fixed in currency units).
 - Supports crossing Ask-Bid orders for market makers.
-- Two implementations of matching engine: reference (naive) and performance-optimized.
-- Testing - unit-tests, integration tests, stress tests, integrity tests.
+- 3 implementations of matching engine: reference simple implementation ("Naive"), small order books optimized ("Fast"), scalability optimized ("Direct").
+- Testing - unit-tests, integration tests, stress tests, integrity/consistency tests.
 - Automatic threads affinity (requires JNA).
-- State snapshot (serialization) and reconstruct operations.
+- State snapshots (serialization) and restore operations.
+- User suspend/resume operation (reduces memory consumption).
+- Core reports (user balances, open interest).
 
 ### TODOs
 - Journalling and journal replay support (Event-sourcing)
@@ -57,10 +69,11 @@ Benchmark configuration:
 - More tests and benchmarks.
 - NUMA-aware.
 
-### How to run tests
-- Latency test: mvn -Dtest=PerfLatency#latencyTest test
-- Throughput test: mvn -Dtest=PerfThroughput#throughputTest test
-- Hiccups test: mvn -Dtest=PerfHiccups#hiccupsTest test
+### How to run performance tests
+- Latency test: mvn -Dtest=PerfLatency#testLatencyMargin test
+- Throughput test: mvn -Dtest=PerfThroughput#testThroughputMargin test
+- Hiccups test: mvn -Dtest=PerfHiccups#testHiccups test
+- Serialization test: mvn -Dtest=PerfPersistence#testPersistenceMargin test
 
 [license]:LICENSE.txt
 [license img]:https://img.shields.io/badge/License-Apache%202-blue.svg

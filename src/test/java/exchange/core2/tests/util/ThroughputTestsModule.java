@@ -54,7 +54,8 @@ public class ThroughputTestsModule {
                     coreSymbolSpecifications,
                     totalTransactionsNumber,
                     usersAccounts,
-                    targetOrderBookOrdersTotal);
+                    targetOrderBookOrdersTotal,
+                    1);
 
             List<Float> perfResults = new ArrayList<>();
             for (int j = 0; j < iterations; j++) {

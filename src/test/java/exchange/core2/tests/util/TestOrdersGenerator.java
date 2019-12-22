@@ -64,6 +64,7 @@ public final class TestOrdersGenerator {
 
     public static final int CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND = 256;
 
+    // TODO customize
     public static final int GENERATION_THREADS = 6;
 
     public static final UnaryOperator<Integer> UID_PLAIN_MAPPER = i -> i + 1;
@@ -74,7 +75,8 @@ public final class TestOrdersGenerator {
     public static MultiSymbolGenResult generateMultipleSymbols(final List<CoreSymbolSpecification> coreSymbolSpecifications,
                                                                final int totalTransactionsNumber,
                                                                final List<BitSet> usersAccounts,
-                                                               final int targetOrderBookOrdersTotal) {
+                                                               final int targetOrderBookOrdersTotal,
+                                                               final int seed) {
 
         final ExecutorService executor = Executors.newFixedThreadPool(
                 GENERATION_THREADS,
@@ -97,7 +99,7 @@ public final class TestOrdersGenerator {
                 final int[] uidsAvailableForSymbol = UserCurrencyAccountsGenerator.createUserListForSymbol(usersAccounts, spec, commandsNum);
                 final int numUsers = uidsAvailableForSymbol.length;
                 final UnaryOperator<Integer> uidMapper = idx -> uidsAvailableForSymbol[idx];
-                return generateCommands(commandsNum, numOrdersTarget, numUsers, uidMapper, spec.symbolId, false, sharedProgressLogger);
+                return generateCommands(commandsNum, numOrdersTarget, numUsers, uidMapper, spec.symbolId, false, sharedProgressLogger, seed);
             }, executor));
 
             //stat[symbolId%4] += numOrdersTarget;
@@ -168,7 +170,8 @@ public final class TestOrdersGenerator {
             final UnaryOperator<Integer> uidMapper,
             final int symbol,
             final boolean enableSlidingPrice,
-            final LongConsumer asyncProgressConsumer) {
+            final LongConsumer asyncProgressConsumer,
+            final int seed) {
 
         // TODO specify symbol type
         final IOrderBook orderBook = new OrderBookNaiveImpl(SYMBOLSPEC_EUR_USD);
@@ -181,7 +184,8 @@ public final class TestOrdersGenerator {
                 uidMapper,
                 symbol,
                 CENTRAL_PRICE,
-                enableSlidingPrice);
+                enableSlidingPrice,
+                seed);
 
         final List<OrderCommand> commands = new ArrayList<>();
 

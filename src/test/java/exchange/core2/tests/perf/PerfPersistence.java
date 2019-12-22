@@ -73,10 +73,10 @@ public final class PerfPersistence {
         PersistenceTestsModule.persistenceTestImpl(
                 5_000_000, //16.5
                 1_000_000, // 10
-                10_000_000, // 10
+                5_000_000, // 10
                 25,
                 TestConstants.ALL_CURRENCIES,
-                1_000,
+                100_000,
                 ExchangeTestContainer.AllowedSymbolTypes.BOTH,
                 4,
                 4,

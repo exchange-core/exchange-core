@@ -70,7 +70,8 @@ public final class ITExchangeCoreIntegrationStress {
                     TestOrdersGenerator.UID_PLAIN_MAPPER,
                     symbolSpec.getSymbolId(),
                     false,
-                    TestOrdersGenerator.createAsyncProgressLogger(numOrders));
+                    TestOrdersGenerator.createAsyncProgressLogger(numOrders),
+                    288379917);
 
             final List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
 

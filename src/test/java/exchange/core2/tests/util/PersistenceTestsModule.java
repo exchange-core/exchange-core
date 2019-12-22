@@ -70,7 +70,8 @@ public class PersistenceTestsModule {
                     genResult = TestOrdersGenerator.generateMultipleSymbols(coreSymbolSpecifications,
                             totalTransactionsNumber,
                             usersAccounts,
-                            targetOrderBookOrdersTotal);
+                            targetOrderBookOrdersTotal,
+                            iteration);
 
                     final ExchangeApi api = container.api;
 

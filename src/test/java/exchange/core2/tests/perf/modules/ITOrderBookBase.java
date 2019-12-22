@@ -107,7 +107,8 @@ public abstract class ITOrderBookBase {
                     TestOrdersGenerator.UID_PLAIN_MAPPER,
                     0,
                     false,
-                    TestOrdersGenerator.createAsyncProgressLogger(numOrders));
+                    TestOrdersGenerator.createAsyncProgressLogger(numOrders),
+                    101572685);
             List<OrderCommand> orderCommands = genResult.getCommands();
             log.debug("orderCommands size: {}", orderCommands.size());
 

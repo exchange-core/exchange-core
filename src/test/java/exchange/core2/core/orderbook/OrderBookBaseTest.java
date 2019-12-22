@@ -586,7 +586,8 @@ public abstract class OrderBookBaseTest {
                 TestOrdersGenerator.UID_PLAIN_MAPPER,
                 0,
                 false,
-                TestOrdersGenerator.createAsyncProgressLogger(tranNum));
+                TestOrdersGenerator.createAsyncProgressLogger(tranNum),
+                348290254);
 
         genResult.getCommands().forEach(cmd -> {
             cmd.orderId += 100; // TODO set start id
@@ -622,7 +623,8 @@ public abstract class OrderBookBaseTest {
                 TestOrdersGenerator.UID_PLAIN_MAPPER,
                 0,
                 true,
-                TestOrdersGenerator.createAsyncProgressLogger(tranNum));
+                TestOrdersGenerator.createAsyncProgressLogger(tranNum),
+                1825793762);
 
         long i = 0;
         for (OrderCommand cmd : genResult.getCommands()) {

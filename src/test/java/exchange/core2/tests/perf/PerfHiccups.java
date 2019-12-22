@@ -59,7 +59,8 @@ public final class PerfHiccups {
                     TestOrdersGenerator.UID_PLAIN_MAPPER,
                     TestConstants.SYMBOL_MARGIN,
                     false,
-                    TestOrdersGenerator.createAsyncProgressLogger(numOrders));
+                    TestOrdersGenerator.createAsyncProgressLogger(numOrders),
+                    920630642);
 
             final List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
 

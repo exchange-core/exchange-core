@@ -78,10 +78,10 @@ public final class PerfThroughput {
                     container,
                     5_000_000,
                     1_000_000,
-                    10_000_000,
+                    5_000_000,
                     25,
                     TestConstants.ALL_CURRENCIES,
-                    1_000,
+                    100_000,
                     ExchangeTestContainer.AllowedSymbolTypes.BOTH);
         }
     }
