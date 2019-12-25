@@ -21,18 +21,13 @@ import com.lmax.disruptor.EventTranslator;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.EventHandlerGroup;
 import com.lmax.disruptor.dsl.ProducerType;
-import exchange.core2.core.processors.GroupingProcessor;
-import exchange.core2.core.processors.TwoStepMasterProcessor;
-import exchange.core2.core.processors.TwoStepSlaveProcessor;
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.CoreWaitStrategy;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.orderbook.IOrderBook;
-import exchange.core2.core.processors.DisruptorExceptionHandler;
-import exchange.core2.core.processors.MatchingEngineRouter;
-import exchange.core2.core.processors.RiskEngine;
+import exchange.core2.core.processors.*;
 import exchange.core2.core.processors.journalling.ISerializationProcessor;
 import exchange.core2.core.processors.journalling.JournallingProcessor;
 import exchange.core2.core.utils.UnsafeUtils;
@@ -70,6 +65,10 @@ public final class ExchangeCore {
                         final CoreWaitStrategy waitStrategy,
                         final Function<CoreSymbolSpecification, IOrderBook> orderBookFactory,
                         final Long loadStateId) {
+
+        if (msgsInGroupLimit >= ringBufferSize) {
+            throw new IllegalArgumentException("msgsInGroupLimit should be less than ringBufferSize");
+        }
 
         this.disruptor = new Disruptor<>(
                 OrderCommand::new,

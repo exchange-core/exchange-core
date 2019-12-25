@@ -78,17 +78,17 @@ public final class TestOrdersGenerator {
                                                                final int targetOrderBookOrdersTotal,
                                                                final int seed) {
 
+        final long timeGenStart = System.currentTimeMillis();
         final ExecutorService executor = Executors.newFixedThreadPool(
                 GENERATION_THREADS,
                 UnsafeUtils.affinedThreadFactory(UnsafeUtils.ThreadAffinityMode.THREAD_AFFINITY_DISABLE));
 
-        final double[] distribution = createWeightedDistribution(coreSymbolSpecifications.size());
+        final double[] distribution = createWeightedDistribution(coreSymbolSpecifications.size(), seed);
         int quotaLeft = totalTransactionsNumber;
         final Map<Integer, CompletableFuture<GenResult>> futures = new HashMap<>();
 
         final LongConsumer sharedProgressLogger = createAsyncProgressLogger(totalTransactionsNumber);
 
-        //int[] stat = new int[4];
         for (int i = 0; i < coreSymbolSpecifications.size(); i++) {
             final CoreSymbolSpecification spec = coreSymbolSpecifications.get(i);
             final int numOrdersTarget = (int) (targetOrderBookOrdersTotal * distribution[i]);
@@ -101,11 +101,7 @@ public final class TestOrdersGenerator {
                 final UnaryOperator<Integer> uidMapper = idx -> uidsAvailableForSymbol[idx];
                 return generateCommands(commandsNum, numOrdersTarget, numUsers, uidMapper, spec.symbolId, false, sharedProgressLogger, seed);
             }, executor));
-
-            //stat[symbolId%4] += numOrdersTarget;
         }
-
-        //log.debug("stat: {}", stat);
 
         final Map<Integer, GenResult> genResults = new HashMap<>();
         futures.forEach((symbol, future) -> {
@@ -117,11 +113,19 @@ public final class TestOrdersGenerator {
         });
 
         executor.shutdown();
+        log.debug("All test commands generated in {}s", String.format("%f.03", (System.currentTimeMillis() - timeGenStart) / 1000.0));
 
         final int readyAtSequenceApproximate = genResults.values().stream().mapToInt(TestOrdersGenerator.GenResult::getOrderbooksFilledAtSequence).sum();
-        log.debug("readyAtSequenceApproximate={}", readyAtSequenceApproximate);
+        log.debug("Placed {} GTC orders to pre-fill order books", readyAtSequenceApproximate);
 
-        final List<OrderCommand> allCommands = TestOrdersGenerator.mergeCommands(genResults.values());
+        final List<List<OrderCommand>> commandsLists = genResults.values().stream()
+                .map(genResult -> genResult.commands)
+                .collect(Collectors.toList());
+
+        log.debug("Merging {} commands for {} symbols ...",
+                commandsLists.stream().mapToInt(Collection::size).sum(), genResults.size());
+
+        final List<OrderCommand> allCommands = RandomCollectionsMerger.mergeCollections(commandsLists, 1L);
 
         printStatistics(readyAtSequenceApproximate, allCommands);
 
@@ -135,18 +139,20 @@ public final class TestOrdersGenerator {
                 .build();
     }
 
-    public static double[] createWeightedDistribution(int size) {
-        final RealDistribution paretoDistribution = new ParetoDistribution(new JDKRandomGenerator(0), 0.001, 1.6);
+    public static double[] createWeightedDistribution(int size, int seed) {
+        final RealDistribution paretoDistribution = new ParetoDistribution(new JDKRandomGenerator(seed), 0.001, 1.0);
         final double[] paretoRaw = DoubleStream.generate(paretoDistribution::sample).limit(size).toArray();
-        //Arrays.sort(paretoRaw);
-        //ArrayUtils.reverse(paretoRaw);
+
+        // normalize
         final double sum = Arrays.stream(paretoRaw).sum();
-        return Arrays.stream(paretoRaw).map(x -> x / sum).toArray();
+        double[] doubles = Arrays.stream(paretoRaw).map(x -> x / sum).toArray();
+//        Arrays.stream(doubles).sorted().forEach(d -> log.debug("{}", d));
+        return doubles;
     }
 
     @NotNull
     public static LongConsumer createAsyncProgressLogger(int totalTransactionsNumber) {
-        final long progressLogInterval = 3_000_000_000L; // 3 sec
+        final long progressLogInterval = 5_000_000_000L; // 5 sec
         final AtomicLong nextUpdateTime = new AtomicLong(System.nanoTime() + progressLogInterval);
         final LongAdder progress = new LongAdder();
         return transactions -> {
@@ -157,7 +163,8 @@ public final class TestOrdersGenerator {
                 if (nextUpdateTime.compareAndSet(whenLogNext, timeNow + progressLogInterval)) {
                     // whichever thread won - it should print progress
                     final long done = progress.sum();
-                    log.debug("{} ({}% done)", done, (done * 100L / totalTransactionsNumber));
+                    log.debug(String.format("Generating commands: %d of %d (%.01f%% done)...",
+                            done, totalTransactionsNumber, done * 100.0 / totalTransactionsNumber));
                 }
             }
         };
@@ -482,16 +489,19 @@ public final class TestOrdersGenerator {
         final int counterCancel = commandsByType.get(OrderCommandType.CANCEL_ORDER).size();
         final int counterMove = commandsByType.get(OrderCommandType.MOVE_ORDER).size();
 
-        log.debug("new GTC: {} ({}%)", counterPlaceGTC, (float) counterPlaceGTC / (float) commandsListSize * 100.0f);
-        log.debug("new IOC: {} ({}%)", counterPlaceIOC, (float) counterPlaceIOC / (float) commandsListSize * 100.0f);
-        log.debug("cancel: {} ({}%)", counterCancel, (float) counterCancel / (float) commandsListSize * 100.0f);
-        log.debug("move: {} ({}%)", counterMove, (float) counterMove / (float) commandsListSize * 100.0f);
+        final String commandsGtc = String.format("%d (%.2f%%)", counterPlaceGTC, (float) counterPlaceGTC / (float) commandsListSize * 100.0f);
+        final String commandsIoc = String.format("%d (%.2f%%)", counterPlaceIOC, (float) counterPlaceIOC / (float) commandsListSize * 100.0f);
+        final String commandsCancel = String.format("%d (%.2f%%)", counterCancel, (float) counterCancel / (float) commandsListSize * 100.0f);
+        final String commandsMove = String.format("%d (%.2f%%)", counterMove, (float) counterMove / (float) commandsListSize * 100.0f);
+
+        log.info("new GTC: {}; new IOC: {}; cancel: {}; move: {}", commandsGtc, commandsIoc, commandsCancel, commandsMove);
 
         final Map<Integer, Long> perSymbols = allCommands.stream().skip(readyAtSequenceApproximate).collect(Collectors.groupingBy(cmd -> cmd.symbol, Collectors.counting()));
         final LongSummaryStatistics symbolStat = perSymbols.values().stream().collect(Collectors.summarizingLong(n -> n));
-        log.debug("max commands per symbol: {} ({}%)", symbolStat.getMax(), (float) symbolStat.getMax() / (float) commandsListSize * 100.0f);
-        log.debug("avg commands per symbol: {} ({}%)", (int) symbolStat.getAverage(), (float) symbolStat.getAverage() / (float) commandsListSize * 100.0f);
-        log.debug("min commands per symbol: {} ({}%)", symbolStat.getMin(), (float) symbolStat.getMin() / (float) commandsListSize * 100.0f);
+        final String cpsMax = String.format("%d (%.2f%%)", symbolStat.getMax(), symbolStat.getMax() * 100.0f / commandsListSize);
+        final String cpsAvg = String.format("%d (%.2f%%)", (int) symbolStat.getAverage(), symbolStat.getAverage() * 100.0f / commandsListSize);
+        final String cpsMin = String.format("%d (%.2f%%)", symbolStat.getMin(), symbolStat.getMin() * 100.0f / commandsListSize);
+        log.info("commands per symbol: max:{}; avg:{}; min:{}", cpsMax, cpsAvg, cpsMin);
     }
 
     @Builder
@@ -510,58 +520,4 @@ public final class TestOrdersGenerator {
         final List<ApiCommand> apiCommandsFill;
         final List<ApiCommand> apiCommandsBenchmark;
     }
-
-
-    public static List<OrderCommand> mergeCommands(final Collection<GenResult> genResultsCollection) {
-
-        if (genResultsCollection.size() == 1) {
-            return genResultsCollection.stream().findFirst().get().commands;
-        }
-
-        Random rand = new Random(1L);
-
-        List<GenResult> genResults = new ArrayList<>(genResultsCollection);
-
-        List<Integer> probabilityRanges = new ArrayList<>();
-        List<Integer> leftCounters = new ArrayList<>();
-        int totalCommands = 0;
-        for (final GenResult genResult : genResults) {
-            final int size = genResult.getCommands().size();
-            leftCounters.add(size);
-            totalCommands += size;
-            probabilityRanges.add(totalCommands);
-        }
-
-        //log.debug("Merging {} commands for {} different symbols: probabilityRanges: {}", totalCommands, genResults.size(), probabilityRanges);
-        log.debug("Merging {} commands for {} different symbols...", totalCommands, genResults.size());
-
-        List<OrderCommand> res = new ArrayList<>(totalCommands);
-
-        while (true) {
-
-            int r = rand.nextInt(totalCommands);
-
-            int pos = Collections.binarySearch(probabilityRanges, r);
-            if (pos < 0) {
-                pos = -1 - pos;
-            }
-
-            int left = leftCounters.get(pos);
-
-            if (left > 0) {
-                List<OrderCommand> commands = genResults.get(pos).getCommands();
-                res.add(commands.get(commands.size() - left));
-                leftCounters.set(pos, left - 1);
-            } else {
-                // todo remove/optimize
-                if (res.size() == totalCommands) {
-                    log.debug("Done merging");
-                    return res;
-                }
-            }
-
-        }
-
-    }
-
 }
