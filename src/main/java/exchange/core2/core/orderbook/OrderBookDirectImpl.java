@@ -53,7 +53,7 @@ public class OrderBookDirectImpl implements IOrderBook {
     private DirectOrder bestBidOrder = null;
 
     // Object pools
-    private final ArrayDeque<DirectOrder> ordersPool = new ArrayDeque<>(256);
+    private final ArrayDeque<DirectOrder> ordersPool = new ArrayDeque<>(128);
     // private final ArrayDeque<Bucket> bucketsPool = new ArrayDeque<>(4096);
 
     public OrderBookDirectImpl(final CoreSymbolSpecification symbolSpec) {

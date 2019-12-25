@@ -154,11 +154,15 @@ public final class ExchangeTestContainer implements AutoCloseable {
     }
 
     public void addSymbols(final BatchAddSymbolsCommand symbols) {
-        submitMultiCommandSync(ApiBinaryDataCommand.builder().transferId(getRandomTransactionId()).data(symbols).build());
+        submitMultiCommandSync(ApiBinaryDataCommand.builder().transferId(getRandomTransferId()).data(symbols).build());
     }
 
-    private int getRandomTransactionId() {
+    private int getRandomTransferId() {
         return (int) (System.nanoTime() & Integer.MAX_VALUE);
+    }
+
+    private long getRandomTransactionId() {
+        return (System.nanoTime() & Long.MAX_VALUE);
     }
 
     public final IntLongHashMap userAccountsInit(List<BitSet> userCurrencies) throws InterruptedException {
@@ -180,7 +184,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
         IntStream.rangeClosed(1, numUsers).forEach(uid -> {
             api.submitCommand(ApiAddUser.builder().uid(uid).build());
             userCurrencies.get(uid).stream().forEach(currency ->
-                    api.submitCommand(ApiAdjustUserBalance.builder().uid(uid).transactionId(uid * 1000 + currency).amount(amountToAdd).currency(currency).build()));
+                    api.submitCommand(ApiAdjustUserBalance.builder().uid(uid).transactionId(getRandomTransactionId()).amount(amountToAdd).currency(currency).build()));
 
 //            if (uid > 1000000 && uid % 1000000 == 0) {
 //                log.debug("uid: {} usersLatch: {}", uid, usersLatch.getCount());
@@ -255,7 +259,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
                 log.debug("uid: {}", uid);
             }
         }
-        submitMultiCommandSync(ApiBinaryDataCommand.builder().transferId(getRandomTransactionId()).data(new BatchAddAccountsCommand(users)).build());
+        submitMultiCommandSync(ApiBinaryDataCommand.builder().transferId(getRandomTransferId()).data(new BatchAddAccountsCommand(users)).build());
 
         return true;
     }
@@ -360,7 +364,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
             Consumer<UserProfile> riskEngineStateConsumer,
             Consumer<Map<Long, Order>> matchingEngineStateConsumer) throws InterruptedException, ExecutionException {
 
-        final SingleUserReportResult res = api.processReport(new SingleUserReportQuery(uid), getRandomTransactionId()).get();
+        final SingleUserReportResult res = api.processReport(new SingleUserReportQuery(uid), getRandomTransferId()).get();
         riskEngineStateConsumer.accept(res.getUserProfile());
         matchingEngineStateConsumer.accept(res.getOrders().stream()
                 .flatMap(Collection::stream)
@@ -369,7 +373,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
 
     public TotalCurrencyBalanceReportResult totalBalanceReport() throws InterruptedException, ExecutionException {
-        final TotalCurrencyBalanceReportResult res = api.processReport(new TotalCurrencyBalanceReportQuery(), getRandomTransactionId()).get();
+        final TotalCurrencyBalanceReportResult res = api.processReport(new TotalCurrencyBalanceReportQuery(), getRandomTransferId()).get();
         final IntLongHashMap openInterestLong = res.getOpenInterestLong();
         final IntLongHashMap openInterestShort = res.getOpenInterestShort();
 //        log.debug("accBal : {}", res.getAccountBalances());
@@ -388,7 +392,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
 
     public int requestStateHash() throws InterruptedException, ExecutionException {
-        return api.processReport(new StateHashReportQuery(), getRandomTransactionId()).get().getStateHash();
+        return api.processReport(new StateHashReportQuery(), getRandomTransferId()).get().getStateHash();
     }
 
     public static List<CoreSymbolSpecification> generateRandomSymbols(final int num,

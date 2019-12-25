@@ -64,9 +64,6 @@ public final class TestOrdersGenerator {
 
     public static final int CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND = 256;
 
-    // TODO customize
-    public static final int GENERATION_THREADS = 6;
-
     public static final UnaryOperator<Integer> UID_PLAIN_MAPPER = i -> i + 1;
 
     // TODO allow limiting max volume
@@ -79,9 +76,6 @@ public final class TestOrdersGenerator {
                                                                final int seed) {
 
         final long timeGenStart = System.currentTimeMillis();
-        final ExecutorService executor = Executors.newFixedThreadPool(
-                GENERATION_THREADS,
-                UnsafeUtils.affinedThreadFactory(UnsafeUtils.ThreadAffinityMode.THREAD_AFFINITY_DISABLE));
 
         final double[] distribution = createWeightedDistribution(coreSymbolSpecifications.size(), seed);
         int quotaLeft = totalTransactionsNumber;
@@ -100,7 +94,7 @@ public final class TestOrdersGenerator {
                 final int numUsers = uidsAvailableForSymbol.length;
                 final UnaryOperator<Integer> uidMapper = idx -> uidsAvailableForSymbol[idx];
                 return generateCommands(commandsNum, numOrdersTarget, numUsers, uidMapper, spec.symbolId, false, sharedProgressLogger, seed);
-            }, executor));
+            }));
         }
 
         final Map<Integer, GenResult> genResults = new HashMap<>();
@@ -112,11 +106,7 @@ public final class TestOrdersGenerator {
             }
         });
 
-        executor.shutdown();
-        log.debug("All test commands generated in {}s", String.format("%f.03", (System.currentTimeMillis() - timeGenStart) / 1000.0));
-
-        final int readyAtSequenceApproximate = genResults.values().stream().mapToInt(TestOrdersGenerator.GenResult::getOrderbooksFilledAtSequence).sum();
-        log.debug("Placed {} GTC orders to pre-fill order books", readyAtSequenceApproximate);
+        log.debug("All test commands generated in {}s", String.format("%.3f", (System.currentTimeMillis() - timeGenStart) / 1000.0));
 
         final List<List<OrderCommand>> commandsLists = genResults.values().stream()
                 .map(genResult -> genResult.commands)
@@ -127,10 +117,10 @@ public final class TestOrdersGenerator {
 
         final List<OrderCommand> allCommands = RandomCollectionsMerger.mergeCollections(commandsLists, 1L);
 
-        printStatistics(readyAtSequenceApproximate, allCommands);
+        printStatistics(targetOrderBookOrdersTotal, allCommands);
 
-        final List<ApiCommand> apiCommandsFill = TestOrdersGenerator.convertToApiCommand(allCommands, 0, readyAtSequenceApproximate);
-        final List<ApiCommand> apiCommandsBenchmark = TestOrdersGenerator.convertToApiCommand(allCommands, readyAtSequenceApproximate, allCommands.size());
+        final List<ApiCommand> apiCommandsFill = TestOrdersGenerator.convertToApiCommand(allCommands, 0, targetOrderBookOrdersTotal);
+        final List<ApiCommand> apiCommandsBenchmark = TestOrdersGenerator.convertToApiCommand(allCommands, targetOrderBookOrdersTotal, allCommands.size());
 
         return MultiSymbolGenResult.builder()
                 .genResults(genResults)
@@ -399,7 +389,6 @@ public final class TestOrdersGenerator {
         }
 
         // TODO improve random picking performance (custom hashset implementation?)
-
 //        long t = System.nanoTime();
         int size = Math.min(session.orderUids.size(), 512);
         if (size == 0) {
