@@ -17,20 +17,25 @@ package exchange.core2.tests.util;
 
 import exchange.core2.core.ExchangeApi;
 import exchange.core2.core.common.CoreSymbolSpecification;
+import exchange.core2.core.common.MatcherTradeEvent;
+import exchange.core2.core.common.OrderType;
 import exchange.core2.core.common.api.ApiCommand;
+import exchange.core2.core.common.api.ApiMoveOrder;
+import exchange.core2.core.common.api.ApiPlaceOrder;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
 import org.HdrHistogram.Histogram;
 import org.HdrHistogram.SingleWriterRecorder;
+import org.apache.commons.math3.util.Pair;
 
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.PrintStream;
-import java.util.BitSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 
@@ -40,6 +45,8 @@ import static org.junit.Assert.assertEquals;
 public class LatencyTestsModule {
 
     private static final boolean WRITE_HDR_HISTOGRAMS = false;
+
+    private static int c = 0;
 
     public static void latencyTestImpl(final Supplier<ExchangeTestContainer> containerFactory,
                                        final int totalCommandsNumber,
@@ -152,4 +159,174 @@ public class LatencyTestsModule {
                     .allMatch(x -> x);
         }
     }
+
+    public static void individualLatencyTest(final Function<Integer, ExchangeTestContainer> containerFactory,
+                                             final int totalCommandsNumber,
+                                             final int targetOrderBookOrdersTotal,
+                                             final int numAccounts,
+                                             final Set<Integer> currenciesAllowed,
+                                             final int numSymbols,
+                                             final ExchangeTestContainer.AllowedSymbolTypes allowedSymbolTypes,
+                                             final int warmupCycles) {
+
+
+        final List<CoreSymbolSpecification> coreSymbolSpecifications = ExchangeTestContainer.generateRandomSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
+
+        final List<BitSet> usersAccounts = UserCurrencyAccountsGenerator.generateUsers(numAccounts, currenciesAllowed);
+
+        final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(
+                coreSymbolSpecifications,
+                totalCommandsNumber,
+                usersAccounts,
+                targetOrderBookOrdersTotal,
+                1);
+
+        final int[] minLatencies = new int[genResult.apiCommandsBenchmark.size()];
+        Arrays.fill(minLatencies, Integer.MAX_VALUE);
+
+
+        // TODO - first run should validate the output (orders are accepted and processed properly)
+
+        final Function<Integer, Boolean> testIteration = (step) -> {
+
+            final Random rand = new Random(step);
+            final int groupSize = 200 + rand.nextInt(500);
+
+            try (final AffinityLock cpuLock = AffinityLock.acquireLock();
+                 final ExchangeTestContainer container = containerFactory.apply(groupSize)) {
+
+                final ExchangeApi api = container.getApi();
+
+
+                container.initBasicSymbols();
+                container.addSymbols(coreSymbolSpecifications);
+                container.userAccountsInit(usersAccounts);
+
+                final CountDownLatch latchFill = new CountDownLatch(genResult.getApiCommandsFill().size());
+                container.setConsumer(cmd -> latchFill.countDown());
+                genResult.getApiCommandsFill().forEach(api::submitCommand);
+                latchFill.await();
+
+                final List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
+                final int[] latencies = new int[apiCommandsBenchmark.size()];
+                final int[] matcherEvents = new int[apiCommandsBenchmark.size()];
+                c = 0;
+
+                final AtomicLong orderProgressCounter = new AtomicLong(0);
+                container.setConsumer(cmd -> {
+                    final long latency = System.nanoTime() - cmd.timestamp;
+                    long lat = Math.min(latency, Integer.MAX_VALUE);
+                    int i = c++;
+
+                    orderProgressCounter.set(cmd.timestamp);
+                    latencies[i] = (int) lat;
+
+
+                    MatcherTradeEvent matcherEvent = cmd.matcherEvent;
+                    while (matcherEvent != null) {
+                        matcherEvent = matcherEvent.nextEvent;
+                        matcherEvents[i]++;
+                    }
+
+                });
+
+
+                for (ApiCommand cmd : apiCommandsBenchmark) {
+                    long t = System.nanoTime();
+                    cmd.timestamp = t;
+                    api.submitCommand(cmd);
+                    while (orderProgressCounter.get() != t) {
+                        // spin until command is processed
+                    }
+                }
+
+
+                final Map<Class<? extends ApiCommand>, SingleWriterRecorder> commandsClassLatencies = new HashMap<>();
+
+                SingleWriterRecorder placeIocLatencies = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
+                SingleWriterRecorder placeGtcLatencies = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
+                SingleWriterRecorder moveOrderEvts0 = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
+                SingleWriterRecorder moveOrderEvts1 = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
+                SingleWriterRecorder moveOrderEvts2 = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
+
+                SingleWriterRecorder minLatenciesHdr = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
+
+                List<Pair<Integer, Pair<Integer, ApiCommand>>> slowCommands = new ArrayList<>(apiCommandsBenchmark.size());
+
+                for (int i = 0; i < apiCommandsBenchmark.size(); i++) {
+                    int latency = latencies[i];
+                    int minLatency = Math.min(minLatencies[i], latency);
+                    minLatencies[i] = minLatency;
+                    minLatenciesHdr.recordValue(minLatency);
+
+                    int matcherEventsNum = matcherEvents[i];
+                    ApiCommand apiCommand = apiCommandsBenchmark.get(i);
+                    Class<? extends ApiCommand> aClass = apiCommand.getClass();
+                    SingleWriterRecorder hdrSvr = commandsClassLatencies.compute(aClass, (k, v) -> v == null
+                            ? (new SingleWriterRecorder(Integer.MAX_VALUE, 2))
+                            : v);
+                    hdrSvr.recordValue(latency);
+
+                    if (apiCommand instanceof ApiPlaceOrder) {
+                        if (((ApiPlaceOrder) apiCommand).orderType == OrderType.GTC) {
+                            placeGtcLatencies.recordValue(latency);
+                        } else {
+                            placeIocLatencies.recordValue(latency);
+                        }
+                    } else if (apiCommand instanceof ApiMoveOrder) {
+                        if (matcherEventsNum == 0) {
+                            moveOrderEvts0.recordValue(latency);
+                        } else if (matcherEventsNum == 1) {
+                            moveOrderEvts1.recordValue(latency);
+                        } else {
+                            moveOrderEvts2.recordValue(latency);
+                        }
+                    }
+
+                    slowCommands.add(Pair.create(minLatency, Pair.create(i, apiCommand)));
+                }
+                log.info("command independent latencies:");
+                commandsClassLatencies.forEach((cls, hdr) -> {
+                    log.info("  {} {}", cls.getSimpleName(), LatencyTools.createLatencyReportFast(hdr.getIntervalHistogram()));
+                });
+                log.info("  Place GTC   {}", LatencyTools.createLatencyReportFast(placeGtcLatencies.getIntervalHistogram()));
+                log.info("  Place IOC   {}", LatencyTools.createLatencyReportFast(placeIocLatencies.getIntervalHistogram()));
+                log.info("  Move 0  evt {}", LatencyTools.createLatencyReportFast(moveOrderEvts0.getIntervalHistogram()));
+                log.info("  Move 1  evt {}", LatencyTools.createLatencyReportFast(moveOrderEvts1.getIntervalHistogram()));
+                log.info("  Move 2+ evt {}", LatencyTools.createLatencyReportFast(moveOrderEvts2.getIntervalHistogram()));
+                log.info("  Theoretical {}", LatencyTools.createLatencyReportFast(minLatenciesHdr.getIntervalHistogram()));
+
+
+                slowCommands.sort((o1, o2) -> o2.getFirst().compareTo(o1.getFirst()));
+
+                log.info("100 slowest commands (theoretical):");
+                slowCommands.stream().limit(100).forEach(
+                        p -> log.info("{}. {}µs {}", String.format("%06X", p.getSecond().getFirst()), (p.getFirst() + 500) / 1000, p.getSecond().getSecond()));
+
+                // compare orderBook final state just to make sure all commands executed same way
+                // TODO compare events, balances, positions
+                coreSymbolSpecifications.forEach(
+                        symbol -> assertEquals(genResult.getGenResults().get(symbol.symbolId).getFinalOrderBookSnapshot(), container.requestCurrentOrderBook(symbol.symbolId)));
+
+
+                container.resetExchangeCore();
+
+                System.gc();
+                Thread.sleep(300);
+
+                // stop testing if median latency above 1 millisecond
+                return true;
+
+            } catch (InterruptedException ex) {
+                throw new IllegalStateException(ex);
+            }
+        };
+
+        final boolean ignore = IntStream.range(0, 32)
+                .mapToObj(testIteration::apply)
+                .allMatch(x -> x);
+    }
 }
+
+
+
