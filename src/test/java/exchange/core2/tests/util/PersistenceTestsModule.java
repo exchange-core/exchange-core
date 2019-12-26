@@ -15,20 +15,22 @@
  */
 package exchange.core2.tests.util;
 
-import lombok.extern.slf4j.Slf4j;
-import net.openhft.affinity.AffinityLock;
+import exchange.core2.core.ExchangeApi;
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.api.ApiCommand;
 import exchange.core2.core.common.api.ApiPersistState;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommandType;
-import exchange.core2.core.ExchangeApi;
+import lombok.extern.slf4j.Slf4j;
+import net.openhft.affinity.AffinityLock;
 
 import java.util.BitSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 import static junit.framework.TestCase.assertTrue;
 import static org.hamcrest.Matchers.is;
@@ -37,17 +39,14 @@ import static org.junit.Assert.assertThat;
 @Slf4j
 public class PersistenceTestsModule {
 
-    public static void persistenceTestImpl(final int totalTransactionsNumber,
+    public static void persistenceTestImpl(final Function<Long, ExchangeTestContainer> containerFactory,
+                                           final int totalTransactionsNumber,
                                            final int targetOrderBookOrdersTotal,
                                            final int numAccounts,
                                            final int iterations,
                                            final Set<Integer> currenciesAllowed,
                                            final int numSymbols,
-                                           final ExchangeTestContainer.AllowedSymbolTypes allowedSymbolTypes,
-                                           final int matchingEngines,
-                                           final int riskEngines,
-                                           final int bufferSize,
-                                           final int msgsInGroupLimit) throws InterruptedException, ExecutionException {
+                                           final ExchangeTestContainer.AllowedSymbolTypes allowedSymbolTypes) throws InterruptedException, ExecutionException {
 
         for (int iteration = 0; iteration < iterations; iteration++) {
 
@@ -64,21 +63,21 @@ public class PersistenceTestsModule {
             final float originalPerfMt;
 
             try (AffinityLock cpuLock = AffinityLock.acquireLock()) {
-                try (final ExchangeTestContainer container = new ExchangeTestContainer(bufferSize, matchingEngines, riskEngines, msgsInGroupLimit, null)) {
+                try (final ExchangeTestContainer container = containerFactory.apply(null)) {
 
                     final ExchangeApi api = container.getApi();
 
-                    log.info("Init symbols...");
+                    log.info("Init basic symbols...");
                     container.initBasicSymbols();
 
-                    log.info("Load symbols...");
+                    log.info("Loading {} symbols...", coreSymbolSpecifications.size());
                     container.addSymbols(coreSymbolSpecifications);
 
-                    log.info("Load users...");
+                    log.info("Loading {} users having {} accounts...", usersAccounts.size(), usersAccounts.stream().mapToInt(BitSet::cardinality).sum());
                     container.userAccountsInit(usersAccounts);
 
-                    log.info("Pre-fill...");
                     final List<ApiCommand> apiCommandsFill = genResult.getApiCommandsFill();
+                    log.info("Order books pre-fill with {} orders...", apiCommandsFill.size());
                     final CountDownLatch latchFill = new CountDownLatch(apiCommandsFill.size());
                     container.setConsumer(cmd -> {
                         if (cmd.resultCode == CommandResultCode.SUCCESS
@@ -127,7 +126,11 @@ public class PersistenceTestsModule {
 
             log.debug("Creating new exchange from persisted state...");
             final long tLoad = System.currentTimeMillis();
-            try (final ExchangeTestContainer recreatedContainer = new ExchangeTestContainer(bufferSize, matchingEngines, riskEngines, msgsInGroupLimit, stateId)) {
+            try (final ExchangeTestContainer recreatedContainer = containerFactory.apply(stateId)) {
+
+                // simple sync query in order to wait until core is started to respond
+                recreatedContainer.validateUserState(0, IGNORING_CONSUMER, IGNORING_CONSUMER);
+
                 float loadTimeSec = (float) (System.currentTimeMillis() - tLoad) / 1000.0f;
                 log.debug("Load+start time: {}s", String.format("%.3f", loadTimeSec));
 
@@ -161,5 +164,9 @@ public class PersistenceTestsModule {
         }
 
     }
+
+
+    private static final Consumer<? super Object> IGNORING_CONSUMER = x -> {
+    };
 
 }

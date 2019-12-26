@@ -59,6 +59,19 @@ public final class PerfThroughput {
                 ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR);
     }
 
+    @Test
+    public void testThroughputPeak() throws Exception {
+        ThroughputTestsModule.throughputTestImpl(
+                () -> new ExchangeTestContainer(64 * 1024, 4, 2, 2048, null),
+                3_000_000,
+                10_000,
+                10_000,
+                50,
+                TestConstants.ALL_CURRENCIES,
+                100,
+                ExchangeTestContainer.AllowedSymbolTypes.BOTH);
+    }
+
     /**
      * This is medium load throughput test for verifying "triple million" capability:
      * * - 1M active users (3M currency accounts)
@@ -99,7 +112,7 @@ public final class PerfThroughput {
                 33_000_000,
                 25,
                 TestConstants.ALL_CURRENCIES,
-                100_000,
+                200_000,
                 ExchangeTestContainer.AllowedSymbolTypes.BOTH);
     }
 }

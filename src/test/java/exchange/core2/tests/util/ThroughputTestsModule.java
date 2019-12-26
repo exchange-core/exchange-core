@@ -43,21 +43,22 @@ public class ThroughputTestsModule {
                                           final int numSymbols,
                                           final ExchangeTestContainer.AllowedSymbolTypes allowedSymbolTypes) throws Exception {
 
-        try (final AffinityLock cpuLock = AffinityLock.acquireLock();
-             final ExchangeTestContainer container = containerFactory.get()) {
+        final List<CoreSymbolSpecification> coreSymbolSpecifications = ExchangeTestContainer.generateRandomSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
+
+        final List<BitSet> usersAccounts = UserCurrencyAccountsGenerator.generateUsers(numAccounts, currenciesAllowed);
+
+        final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(
+                coreSymbolSpecifications,
+                totalTransactionsNumber,
+                usersAccounts,
+                targetOrderBookOrdersTotal,
+                1);
+
+        try (final ExchangeTestContainer container = containerFactory.get();
+             final AffinityLock cpuLock = AffinityLock.acquireLock()) {
 
             final ExchangeApi api = container.getApi();
 
-            final List<CoreSymbolSpecification> coreSymbolSpecifications = ExchangeTestContainer.generateRandomSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
-
-            final List<BitSet> usersAccounts = UserCurrencyAccountsGenerator.generateUsers(numAccounts, currenciesAllowed);
-
-            final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(
-                    coreSymbolSpecifications,
-                    totalTransactionsNumber,
-                    usersAccounts,
-                    targetOrderBookOrdersTotal,
-                    1);
 
             List<Float> perfResults = new ArrayList<>();
             for (int j = 0; j < iterations; j++) {

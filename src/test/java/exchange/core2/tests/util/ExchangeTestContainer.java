@@ -369,8 +369,8 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
     public void validateUserState(
             long uid,
-            Consumer<UserProfile> riskEngineStateConsumer,
-            Consumer<Map<Long, Order>> matchingEngineStateConsumer) throws InterruptedException, ExecutionException {
+            Consumer<? super UserProfile> riskEngineStateConsumer,
+            Consumer<? super Map<Long, Order>> matchingEngineStateConsumer) throws InterruptedException, ExecutionException {
 
         final SingleUserReportResult res = api.processReport(new SingleUserReportQuery(uid), getRandomTransferId()).get();
         riskEngineStateConsumer.accept(res.getUserProfile());

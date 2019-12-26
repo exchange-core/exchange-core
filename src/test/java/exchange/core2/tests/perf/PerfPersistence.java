@@ -35,33 +35,27 @@ public final class PerfPersistence {
     @Test
     public void testPersistenceMargin() throws Exception {
         PersistenceTestsModule.persistenceTestImpl(
+                stateId -> new ExchangeTestContainer(2 * 1024, 1, 1, 512, stateId),
                 3_000_000,
                 1000,
                 2000,
                 10,
                 TestConstants.CURRENCIES_FUTURES,
                 1,
-                ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT,
-                1,
-                1,
-                2 * 1024,
-                512);
+                ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT);
     }
 
     @Test
     public void testPersistenceExchange() throws Exception {
         PersistenceTestsModule.persistenceTestImpl(
+                stateId -> new ExchangeTestContainer(2 * 1024, 1, 1, 512, stateId),
                 3_000_000,
                 1000,
                 2000,
                 10,
                 TestConstants.CURRENCIES_EXCHANGE,
                 1,
-                ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR,
-                1,
-                1,
-                2 * 1024,
-                512);
+                ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR);
     }
 
     /**
@@ -69,19 +63,30 @@ public final class PerfPersistence {
      * This test requires 10+ GiB free disk space, 16+ GiB of RAM and 12-threads CPU
      */
     @Test
-    public void testPersistenceMultiSymbol() throws Exception {
+    public void testPersistenceMultiSymbolMedium() throws Exception {
         PersistenceTestsModule.persistenceTestImpl(
+                stateId -> new ExchangeTestContainer(32 * 1024, 4, 2, 1024, stateId),
                 7_500_000, //16.5
-                3_300_000, // 10
+                1_000_000, // 10
                 3_300_000, // 10
                 25,
                 TestConstants.ALL_CURRENCIES,
                 100_000,
-                ExchangeTestContainer.AllowedSymbolTypes.BOTH,
-                2,
-                2,
-                32 * 1024,
-                1024);
+                ExchangeTestContainer.AllowedSymbolTypes.BOTH);
     }
+
+    @Test
+    public void testPersistenceMultiSymbolLarge() throws Exception {
+        PersistenceTestsModule.persistenceTestImpl(
+                stateId -> new ExchangeTestContainer(32 * 1024, 4, 2, 1024, stateId),
+                30_000_000, //16.5
+                20_000_000, // 10
+                20_000_000, // 10
+                25,
+                TestConstants.ALL_CURRENCIES,
+                200_000,
+                ExchangeTestContainer.AllowedSymbolTypes.BOTH);
+    }
+
 
 }
