@@ -15,6 +15,8 @@
  */
 package exchange.core2.core.orderbook;
 
+import com.koloboke.collect.map.LongObjMap;
+import com.koloboke.collect.map.hash.HashLongObjMaps;
 import exchange.core2.core.art.LongAdaptiveRadixTreeMap;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
@@ -46,7 +48,7 @@ public class OrderBookDirectImpl implements IOrderBook {
     private final CoreSymbolSpecification symbolSpec;
 
     // index: orderId -> order
-    private final LongObjectHashMap<DirectOrder> orderIdIndex = new LongObjectHashMap<>();
+    private final LongObjMap<DirectOrder> orderIdIndex = HashLongObjMaps.newMutableMap();
 
     // heads (nullable)
     private DirectOrder bestAskOrder = null;
@@ -591,7 +593,7 @@ public class OrderBookDirectImpl implements IOrderBook {
     @Override
     public List<Order> findUserOrders(long uid) {
         final List<Order> list = new ArrayList<>();
-        orderIdIndex.forEachValue(order -> {
+        orderIdIndex.forEach((long k, DirectOrder order) -> {
             if (order.uid == uid) {
                 list.add(Order.builder()
                         .orderId(order.orderId)

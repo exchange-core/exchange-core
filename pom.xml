@@ -90,6 +90,18 @@
                 <version>9.2.0</version>
             </dependency>
 
+            <!-- Koloboke Collections -->
+            <dependency>
+                <groupId>com.koloboke</groupId>
+                <artifactId>koloboke-api-jdk8</artifactId>
+                <version>1.0.0</version>
+            </dependency>
+            <dependency>
+                <groupId>com.koloboke</groupId>
+                <artifactId>koloboke-impl-jdk8</artifactId>
+                <version>1.0.0</version>
+            </dependency>
+
             <!-- Google Guava -->
             <dependency>
                 <groupId>com.google.guava</groupId>
@@ -226,6 +238,15 @@
         <dependency>
             <groupId>org.eclipse.collections</groupId>
             <artifactId>eclipse-collections</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.koloboke</groupId>
+            <artifactId>koloboke-api-jdk8</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.koloboke</groupId>
+            <artifactId>koloboke-impl-jdk8</artifactId>
         </dependency>
 
         <dependency>
