@@ -15,6 +15,7 @@
  */
 package exchange.core2.tests.perf;
 
+import exchange.core2.core.ExchangeApi;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.TestConstants;
 import exchange.core2.tests.util.TestOrdersGenerator;
@@ -70,6 +71,8 @@ public final class PerfHiccups {
                     System.gc();
                     Thread.sleep(300);
 
+                    final ExchangeApi api = container.getApi();
+
                     container.initBasicSymbols();
                     container.usersInit(numUsers, TestConstants.CURRENCIES_FUTURES);
 
@@ -106,7 +109,7 @@ public final class PerfHiccups {
                         }
                         // setting current timestamp (not planned) for catching original hiccups only (this is different from latency test)
                         cmd.timestamp = currentTimeNs;
-                        container.api.submitCommand(cmd);
+                        api.submitCommand(cmd);
                         plannedTimestamp += nanosPerCmd;
                     }
 

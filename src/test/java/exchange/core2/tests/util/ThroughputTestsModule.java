@@ -25,6 +25,7 @@ import java.util.BitSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.function.Supplier;
 
 import static junit.framework.TestCase.assertTrue;
 import static org.junit.Assert.assertEquals;
@@ -33,7 +34,7 @@ import static org.junit.Assert.assertEquals;
 public class ThroughputTestsModule {
 
 
-    public static void throughputTestImpl(final ExchangeTestContainer container,
+    public static void throughputTestImpl(final Supplier<ExchangeTestContainer> containerFactory,
                                           final int totalTransactionsNumber,
                                           final int targetOrderBookOrdersTotal,
                                           final int numAccounts,
@@ -42,9 +43,10 @@ public class ThroughputTestsModule {
                                           final int numSymbols,
                                           final ExchangeTestContainer.AllowedSymbolTypes allowedSymbolTypes) throws Exception {
 
-        try (final AffinityLock cpuLock = AffinityLock.acquireLock()) {
+        try (final AffinityLock cpuLock = AffinityLock.acquireLock();
+             final ExchangeTestContainer container = containerFactory.get()) {
 
-            final ExchangeApi api = container.api;
+            final ExchangeApi api = container.getApi();
 
             final List<CoreSymbolSpecification> coreSymbolSpecifications = ExchangeTestContainer.generateRandomSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
 

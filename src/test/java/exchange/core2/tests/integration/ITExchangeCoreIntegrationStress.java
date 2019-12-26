@@ -15,6 +15,7 @@
  */
 package exchange.core2.tests.integration;
 
+import exchange.core2.core.ExchangeApi;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.api.*;
 import exchange.core2.tests.util.ExchangeTestContainer;
@@ -57,6 +58,7 @@ public final class ITExchangeCoreIntegrationStress {
         try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
             container.initBasicSymbols();
             //container.initBasicUsers();
+            final ExchangeApi api = container.getApi();
 
             int numOrders = 1_000_000;
             int targetOrderBookOrders = 1000;
@@ -93,7 +95,7 @@ public final class ITExchangeCoreIntegrationStress {
             container.setConsumer(cmd -> ordersLatch.countDown());
             for (ApiCommand cmd : apiCommands) {
                 cmd.timestamp = System.currentTimeMillis();
-                container.api.submitCommand(cmd);
+                api.submitCommand(cmd);
             }
             ordersLatch.await();
 

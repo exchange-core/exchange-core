@@ -52,33 +52,28 @@ public class PersistenceTestsModule {
         for (int iteration = 0; iteration < iterations; iteration++) {
 
             final long stateId;
-            final List<CoreSymbolSpecification> coreSymbolSpecifications;
-            final TestOrdersGenerator.MultiSymbolGenResult genResult;
+            final List<CoreSymbolSpecification> coreSymbolSpecifications = ExchangeTestContainer.generateRandomSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
+            final List<BitSet> usersAccounts = UserCurrencyAccountsGenerator.generateUsers(numAccounts, currenciesAllowed);
+            final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(coreSymbolSpecifications,
+                    totalTransactionsNumber,
+                    usersAccounts,
+                    targetOrderBookOrdersTotal,
+                    iteration);
 
             final long originalPrefillStateHash;
-
             final float originalPerfMt;
 
-            try (final ExchangeTestContainer container = new ExchangeTestContainer(bufferSize, matchingEngines, riskEngines, msgsInGroupLimit, null)) {
+            try (AffinityLock cpuLock = AffinityLock.acquireLock()) {
+                try (final ExchangeTestContainer container = new ExchangeTestContainer(bufferSize, matchingEngines, riskEngines, msgsInGroupLimit, null)) {
 
-                try (AffinityLock cpuLock = AffinityLock.acquireLock()) {
-
-                    coreSymbolSpecifications = ExchangeTestContainer.generateRandomSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
-
-                    final List<BitSet> usersAccounts = UserCurrencyAccountsGenerator.generateUsers(numAccounts, currenciesAllowed);
-
-                    genResult = TestOrdersGenerator.generateMultipleSymbols(coreSymbolSpecifications,
-                            totalTransactionsNumber,
-                            usersAccounts,
-                            targetOrderBookOrdersTotal,
-                            iteration);
-
-                    final ExchangeApi api = container.api;
+                    final ExchangeApi api = container.getApi();
 
                     log.info("Init symbols...");
                     container.initBasicSymbols();
+
                     log.info("Load symbols...");
                     container.addSymbols(coreSymbolSpecifications);
+
                     log.info("Load users...");
                     container.userAccountsInit(usersAccounts);
 
@@ -144,7 +139,7 @@ public class PersistenceTestsModule {
                     assertTrue(recreatedContainer.totalBalanceReport().isGlobalBalancesAllZero());
 
                     log.info("Restored snapshot is valid, benchmarking original state...");
-                    final ExchangeApi api = recreatedContainer.api;
+                    final ExchangeApi api = recreatedContainer.getApi();
                     List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
                     final CountDownLatch latchBenchmark = new CountDownLatch(apiCommandsBenchmark.size());
                     recreatedContainer.setConsumer(cmd -> latchBenchmark.countDown());

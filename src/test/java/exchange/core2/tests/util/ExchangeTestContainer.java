@@ -28,6 +28,7 @@ import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.orderbook.OrderBookDirectImpl;
 import exchange.core2.core.processors.journalling.DiskSerializationProcessor;
+import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
@@ -36,6 +37,8 @@ import org.hamcrest.core.Is;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -51,14 +54,19 @@ import static org.junit.Assert.assertNotNull;
 @Slf4j
 public final class ExchangeTestContainer implements AutoCloseable {
 
-    static final int RING_BUFFER_SIZE_DEFAULT = 64 * 1024;
-    static final int RISK_ENGINES_ONE = 1;
-    static final int MATCHING_ENGINES_ONE = 1;
-    static final int MGS_IN_GROUP_LIMIT_DEFAULT = 128;
+    private static final int RING_BUFFER_SIZE_DEFAULT = 64 * 1024;
+    private static final int RISK_ENGINES_ONE = 1;
+    private static final int MATCHING_ENGINES_ONE = 1;
+    private static final int MGS_IN_GROUP_LIMIT_DEFAULT = 128;
 
 
-    public final ExchangeCore exchangeCore;
-    public final ExchangeApi api;
+    private final ExchangeCore exchangeCore;
+
+    @Getter
+    private final ExchangeApi api;
+
+    private AtomicLong uniqueIdCounterLong = new AtomicLong();
+    private AtomicInteger uniqueIdCounterInt = new AtomicInteger();
 
     @Setter
     private Consumer<OrderCommand> consumer = cmd -> {
@@ -158,11 +166,11 @@ public final class ExchangeTestContainer implements AutoCloseable {
     }
 
     private int getRandomTransferId() {
-        return (int) (System.nanoTime() & Integer.MAX_VALUE);
+        return uniqueIdCounterInt.incrementAndGet();
     }
 
     private long getRandomTransactionId() {
-        return (System.nanoTime() & Long.MAX_VALUE);
+        return uniqueIdCounterLong.incrementAndGet();
     }
 
     public final IntLongHashMap userAccountsInit(List<BitSet> userCurrencies) throws InterruptedException {

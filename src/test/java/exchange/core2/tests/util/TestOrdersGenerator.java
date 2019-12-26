@@ -466,7 +466,7 @@ public final class TestOrdersGenerator {
                     }
                     throw new IllegalStateException("unsupported type: " + cmd.command);
                 })
-                .collect(Collectors.toList());
+                .collect(Collectors.toCollection(() -> new ArrayList<>(to - from)));
     }
 
     private static void printStatistics(final int readyAtSequenceApproximate, final List<OrderCommand> allCommands) {

@@ -35,55 +35,71 @@ public final class PerfThroughput {
      */
     @Test
     public void testThroughputMargin() throws Exception {
-        try (final ExchangeTestContainer container = new ExchangeTestContainer(2 * 1024, 1, 1, 1536, null)) {
-            ThroughputTestsModule.throughputTestImpl(
-                    container,
-                    3_000_000,
-                    1000,
-                    2000,
-                    50,
-                    TestConstants.CURRENCIES_FUTURES,
-                    1,
-                    ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT);
-        }
+        ThroughputTestsModule.throughputTestImpl(
+                () -> new ExchangeTestContainer(2 * 1024, 1, 1, 1536, null),
+                3_000_000,
+                1000,
+                2000,
+                50,
+                TestConstants.CURRENCIES_FUTURES,
+                1,
+                ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT);
     }
 
     @Test
     public void testThroughputExchange() throws Exception {
-        try (final ExchangeTestContainer container = new ExchangeTestContainer(2 * 1024, 1, 1, 1536, null)) {
-            ThroughputTestsModule.throughputTestImpl(
-                    container,
-                    3_000_000,
-                    1000,
-                    2000,
-                    50,
-                    TestConstants.CURRENCIES_EXCHANGE,
-                    1,
-                    ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR);
-        }
+        ThroughputTestsModule.throughputTestImpl(
+                () -> new ExchangeTestContainer(2 * 1024, 1, 1, 1536, null),
+                3_000_000,
+                1000,
+                2000,
+                50,
+                TestConstants.CURRENCIES_EXCHANGE,
+                1,
+                ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR);
     }
 
     /**
-     * This is high load throughput test for verifying "triple million" capability:
-     * - 10M currency accounts (~3M active users)
-     * - 1M pending limit-orders (in 1K order books)
-     * - 1K symbols
-     * - at least 1M messages per second throughput
+     * This is medium load throughput test for verifying "triple million" capability:
+     * * - 1M active users (3M currency accounts)
+     * * - 1M pending limit-orders
+     * * - 100K symbols
+     * * - 1M+ messages per second target throughput
      * 12-threads CPU and 32GiB RAM is required for running this test in 4+4 configuration.
      */
     @Test
-    public void testThroughputMultiSymbol() throws Exception {
-        try (final ExchangeTestContainer container = new ExchangeTestContainer(64 * 1024, 4, 4, 2048, null)) {
-            ThroughputTestsModule.throughputTestImpl(
-                    container,
-                    5_000_000,
-                    1_000_000,
-                    5_000_000,
-                    25,
-                    TestConstants.ALL_CURRENCIES,
-                    100_000,
-                    ExchangeTestContainer.AllowedSymbolTypes.BOTH);
-        }
+    public void testThroughputMultiSymbolMedium() throws Exception {
+        ThroughputTestsModule.throughputTestImpl(
+                () -> new ExchangeTestContainer(64 * 1024, 4, 2, 2048, null),
+                6_000_000,
+                1_000_000,
+                3_300_000,
+                25,
+                TestConstants.ALL_CURRENCIES,
+                100_000,
+                ExchangeTestContainer.AllowedSymbolTypes.BOTH);
     }
 
+
+    /**
+     * This is high load throughput test for verifying exchange core scalability:
+     * - 10M active users (33M currency accounts)
+     * - 30M pending limit-orders
+     * - 1M+ messages per second throughput
+     * - 200K symbols
+     * - less than 1 millisecond 99.99% latency
+     * 12-threads CPU and 32GiB RAM is required for running this test in 2+4 configuration.
+     */
+    @Test
+    public void testThroughputMultiSymbolLarge() throws Exception {
+        ThroughputTestsModule.throughputTestImpl(
+                () -> new ExchangeTestContainer(64 * 1024, 4, 2, 2048, null),
+                40_000_000,
+                30_000_000,
+                33_000_000,
+                25,
+                TestConstants.ALL_CURRENCIES,
+                100_000,
+                ExchangeTestContainer.AllowedSymbolTypes.BOTH);
+    }
 }

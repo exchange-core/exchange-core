@@ -45,7 +45,7 @@ public final class PerfPersistence {
                 1,
                 1,
                 2 * 1024,
-                1024);
+                512);
     }
 
     @Test
@@ -61,7 +61,7 @@ public final class PerfPersistence {
                 1,
                 1,
                 2 * 1024,
-                1024);
+                512);
     }
 
     /**
@@ -71,17 +71,17 @@ public final class PerfPersistence {
     @Test
     public void testPersistenceMultiSymbol() throws Exception {
         PersistenceTestsModule.persistenceTestImpl(
-                5_000_000, //16.5
-                1_000_000, // 10
-                5_000_000, // 10
+                7_500_000, //16.5
+                3_300_000, // 10
+                3_300_000, // 10
                 25,
                 TestConstants.ALL_CURRENCIES,
                 100_000,
                 ExchangeTestContainer.AllowedSymbolTypes.BOTH,
-                4,
-                4,
-                64 * 1024,
-                1546);
+                2,
+                2,
+                32 * 1024,
+                1024);
     }
 
 }
