@@ -21,7 +21,7 @@ import exchange.core2.tests.util.ThroughputTestsModule;
 import exchange.core2.tests.util.TestConstants;
 
 
-public class ITMultiOperation {
+public final class ITMultiOperation {
 
     @Test(timeout = 60000L)
     public void shouldPerformMarginOperations() throws Exception {

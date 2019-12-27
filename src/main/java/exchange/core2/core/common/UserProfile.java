@@ -15,14 +15,16 @@
  */
 package exchange.core2.core.common;
 
+import com.koloboke.collect.map.IntLongMap;
+import com.koloboke.collect.map.IntObjMap;
+import com.koloboke.collect.map.hash.HashIntLongMaps;
+import com.koloboke.collect.map.hash.HashIntObjMaps;
 import exchange.core2.core.utils.HashingUtils;
 import exchange.core2.core.utils.SerializationUtils;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
-import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
-import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
 import java.util.Objects;
 
@@ -33,23 +35,23 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
 
     // symbol -> margin position records
     // TODO initialize lazily (only needed if margin trading allowed)
-    public final IntObjectHashMap<SymbolPositionRecord> positions;
+    public final IntObjMap<SymbolPositionRecord> positions;
 
     // protects from double adjustment
     public long adjustmentsCounter;
 
     // currency accounts
     // currency -> balance
-    public final IntLongHashMap accounts;
+    public final IntLongMap accounts;
 
     public boolean suspended;
 
     public UserProfile(long uid, boolean suspended) {
         //log.debug("New {}", uid);
         this.uid = uid;
-        this.positions = new IntObjectHashMap<>();
+        this.positions = HashIntObjMaps.newMutableMap();
         this.adjustmentsCounter = 0L;
-        this.accounts = new IntLongHashMap();
+        this.accounts = HashIntLongMaps.newUpdatableMap(4);
         this.suspended = suspended;
     }
 
@@ -58,13 +60,13 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
         this.uid = bytesIn.readLong();
 
         // positions
-        this.positions = SerializationUtils.readIntHashMap(bytesIn, b -> new SymbolPositionRecord(uid, b));
+        this.positions = SerializationUtils.readIntObjMap(bytesIn, b -> new SymbolPositionRecord(uid, b), HashIntObjMaps::newMutableMap);
 
         // adjustmentsCounter
         this.adjustmentsCounter = bytesIn.readLong();
 
         // account balances
-        this.accounts = SerializationUtils.readIntLongHashMap(bytesIn);
+        this.accounts = SerializationUtils.readIntLongMap(bytesIn, HashIntLongMaps::newUpdatableMap);
 
         // suspended
         this.suspended = bytesIn.readBoolean();
@@ -90,8 +92,8 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
 
     public void removeRecordIfEmpty(SymbolPositionRecord record) {
         if (record.isEmpty()) {
-            accounts.addToValue(record.currency, record.profit);
-            positions.removeKey(record.symbol);
+            accounts.addValue(record.currency, record.profit);
+            positions.remove(record.symbol);
         }
     }
 

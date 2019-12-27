@@ -15,6 +15,8 @@
  */
 package exchange.core2.core.processors;
 
+import com.koloboke.collect.map.LongObjMap;
+import com.koloboke.collect.map.hash.HashLongObjMaps;
 import exchange.core2.core.common.StateHash;
 import exchange.core2.core.common.UserProfile;
 import exchange.core2.core.common.cmd.CommandResultCode;
@@ -25,7 +27,6 @@ import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
-import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 
 import java.util.Objects;
 
@@ -41,14 +42,14 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
      * State: uid -> user profile
      */
     @Getter
-    private final LongObjectHashMap<UserProfile> userProfiles;
+    private final LongObjMap<UserProfile> userProfiles;
 
     public UserProfileService() {
-        this.userProfiles = new LongObjectHashMap<>(1024);
+        this.userProfiles = HashLongObjMaps.newMutableMap(1024);
     }
 
     public UserProfileService(BytesIn bytes) {
-        this.userProfiles = SerializationUtils.readLongHashMap(bytes, UserProfile::new);
+        this.userProfiles = SerializationUtils.readLongObjMap(bytes, UserProfile::new);
     }
 
     /**
@@ -62,7 +63,7 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
     }
 
     public UserProfile getUserProfileOrAddSuspended(long uid) {
-        return userProfiles.getIfAbsentPut(uid, () -> new UserProfile(uid, true));
+        return userProfiles.computeIfAbsent(uid, uid1 -> new UserProfile(uid1, true));
     }
 
 
@@ -101,7 +102,7 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
         }
 
         userProfile.adjustmentsCounter = fundingTransactionId;
-        userProfile.accounts.addToValue(currency, amount);
+        userProfile.accounts.addValue(currency, amount);
 
         //log.debug("FUND: {}", userProfile);
         return CommandResultCode.SUCCESS;
@@ -142,10 +143,10 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
         } else if (userProfile.suspended) {
             return CommandResultCode.USER_MGMT_USER_ALREADY_SUSPENDED;
 
-        } else if (userProfile.positions.anySatisfy(pos -> !pos.isEmpty())) {
+        } else if (userProfile.positions.values().stream().anyMatch(pos -> !pos.isEmpty())) {
             return CommandResultCode.USER_MGMT_USER_NOT_SUSPENDABLE_HAS_POSITIONS;
 
-        } else if (userProfile.accounts.anySatisfy(acc -> acc != 0)) {
+        } else if (userProfile.accounts.values().stream().anyMatch(acc -> acc != 0)) {
             return CommandResultCode.USER_MGMT_USER_NOT_SUSPENDABLE_NON_EMPTY_ACCOUNTS;
 
         } else {
@@ -185,7 +186,7 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
     public void writeMarshallable(BytesOut bytes) {
 
         // write symbolSpecs
-        SerializationUtils.marshallLongHashMap(userProfiles, bytes);
+        SerializationUtils.marshallLongObjMap(userProfiles, bytes);
     }
 
     @Override

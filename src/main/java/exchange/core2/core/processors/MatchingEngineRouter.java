@@ -15,6 +15,8 @@
  */
 package exchange.core2.core.processors;
 
+import com.koloboke.collect.map.IntObjMap;
+import com.koloboke.collect.map.hash.HashIntObjMaps;
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.Order;
 import exchange.core2.core.common.StateHash;
@@ -50,7 +52,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
     private final BinaryCommandsProcessor binaryCommandsProcessor;
 
     // symbol->OB
-    private final IntObjectHashMap<IOrderBook> orderBooks;
+    private final IntObjMap<IOrderBook> orderBooks;
 
     private final Function<CoreSymbolSpecification, IOrderBook> orderBookFactory;
 
@@ -74,7 +76,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         this.orderBookFactory = orderBookFactory;
 
         if (loadStateId != null) {
-            final Pair<BinaryCommandsProcessor, IntObjectHashMap<IOrderBook>> deserialized = serializationProcessor.loadData(
+            final Pair<BinaryCommandsProcessor, IntObjMap<IOrderBook>> deserialized = serializationProcessor.loadData(
                     loadStateId,
                     ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER,
                     shardId,
@@ -86,7 +88,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
                             throw new IllegalStateException("wrong shardMask");
                         }
                         final BinaryCommandsProcessor bcp = new BinaryCommandsProcessor(this::handleBinaryMessage, bytesIn, shardId + 1024);
-                        final IntObjectHashMap<IOrderBook> ob = SerializationUtils.readIntHashMap(bytesIn, IOrderBook::create);
+                        final IntObjMap<IOrderBook> ob = SerializationUtils.readIntObjMap(bytesIn, IOrderBook::create, HashIntObjMaps::newUpdatableMap);
                         return Pair.of(bcp, ob);
                     });
 
@@ -95,7 +97,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
 
         } else {
             this.binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, shardId + 1024);
-            this.orderBooks = new IntObjectHashMap<>();
+            this.orderBooks = HashIntObjMaps.newUpdatableMap(64);
         }
     }
 
@@ -174,7 +176,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
 
     private Optional<SingleUserReportResult> reportSingleUser(final SingleUserReportQuery query) {
         final IntObjectHashMap<List<Order>> orders = new IntObjectHashMap<>();
-        orderBooks.forEach(ob -> orders.put(ob.getSymbolSpec().symbolId, ob.findUserOrders(query.getUid())));
+        orderBooks.forEach((int k, IOrderBook ob) -> orders.put(ob.getSymbolSpec().symbolId, ob.findUserOrders(query.getUid())));
 
         //log.debug("orders: {}", orders.size());
         return Optional.of(new SingleUserReportResult(null, orders, SingleUserReportResult.ExecutionStatus.OK));
@@ -184,19 +186,19 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
 
         final IntLongHashMap currencyBalance = new IntLongHashMap();
 
-        orderBooks.stream()
-                .filter(ob -> ob.getSymbolSpec().type == SymbolType.CURRENCY_EXCHANGE_PAIR)
-                .forEach(ob -> {
-                    final CoreSymbolSpecification spec = ob.getSymbolSpec();
+        orderBooks.forEach((int k, IOrderBook ob) -> {
+            if (ob.getSymbolSpec().type == SymbolType.CURRENCY_EXCHANGE_PAIR) {
+                final CoreSymbolSpecification spec = ob.getSymbolSpec();
 
-                    currencyBalance.addToValue(
-                            spec.getBaseCurrency(),
-                            ob.askOrdersStream(false).mapToLong(ord -> CoreArithmeticUtils.calculateAmountAsk(ord.getSize() - ord.getFilled(), spec)).sum());
+                currencyBalance.addToValue(
+                        spec.getBaseCurrency(),
+                        ob.askOrdersStream(false).mapToLong(ord -> CoreArithmeticUtils.calculateAmountAsk(ord.getSize() - ord.getFilled(), spec)).sum());
 
-                    currencyBalance.addToValue(
-                            spec.getQuoteCurrency(),
-                            ob.bidOrdersStream(false).mapToLong(ord -> CoreArithmeticUtils.calculateAmountBidTakerFee(ord.getSize() - ord.getFilled(), ord.getReserveBidPrice(), spec)).sum());
-                });
+                currencyBalance.addToValue(
+                        spec.getQuoteCurrency(),
+                        ob.bidOrdersStream(false).mapToLong(ord -> CoreArithmeticUtils.calculateAmountBidTakerFee(ord.getSize() - ord.getFilled(), ord.getReserveBidPrice(), spec)).sum());
+            }
+        });
 
         return Optional.of(TotalCurrencyBalanceReportResult.ofOrderBalances(currencyBalance));
     }

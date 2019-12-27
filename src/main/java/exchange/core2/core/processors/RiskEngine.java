@@ -15,6 +15,11 @@
  */
 package exchange.core2.core.processors;
 
+import com.koloboke.collect.map.IntLongMap;
+import com.koloboke.collect.map.IntObjMap;
+import com.koloboke.collect.map.hash.HashIntLongMaps;
+import com.koloboke.collect.map.hash.HashIntObjMaps;
+import com.koloboke.function.IntLongConsumer;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.api.binary.BatchAddAccountsCommand;
 import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
@@ -50,10 +55,10 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
     private final SymbolSpecificationProvider symbolSpecificationProvider;
     private final UserProfileService userProfileService;
     private final BinaryCommandsProcessor binaryCommandsProcessor;
-    private final IntObjectHashMap<LastPriceCacheRecord> lastPriceCache;
-    private final IntLongHashMap fees;
-    private final IntLongHashMap adjustments;
-    private final IntLongHashMap suspends;
+    private final IntObjMap<LastPriceCacheRecord> lastPriceCache;
+    private final IntLongMap fees;
+    private final IntLongMap adjustments;
+    private final IntLongMap suspends;
 
     // configuration
     private final int shardId;
@@ -73,10 +78,10 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             this.symbolSpecificationProvider = new SymbolSpecificationProvider();
             this.userProfileService = new UserProfileService();
             this.binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, shardId);
-            this.lastPriceCache = new IntObjectHashMap<>();
-            this.fees = new IntLongHashMap();
-            this.adjustments = new IntLongHashMap();
-            this.suspends = new IntLongHashMap();
+            this.lastPriceCache = HashIntObjMaps.newUpdatableMap(64);
+            this.fees = HashIntLongMaps.newUpdatableMap(64);
+            this.adjustments = HashIntLongMaps.newUpdatableMap(64);
+            this.suspends = HashIntLongMaps.newUpdatableMap(64);
 
         } else {
             // TODO refactor, change to creator (simpler init)
@@ -94,10 +99,10 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                         final SymbolSpecificationProvider symbolSpecificationProvider = new SymbolSpecificationProvider(bytesIn);
                         final UserProfileService userProfileService = new UserProfileService(bytesIn);
                         final BinaryCommandsProcessor binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, bytesIn, shardId);
-                        final IntObjectHashMap<LastPriceCacheRecord> lastPriceCache = SerializationUtils.readIntHashMap(bytesIn, LastPriceCacheRecord::new);
-                        final IntLongHashMap fees = SerializationUtils.readIntLongHashMap(bytesIn);
-                        final IntLongHashMap adjustments = SerializationUtils.readIntLongHashMap(bytesIn);
-                        final IntLongHashMap suspends = SerializationUtils.readIntLongHashMap(bytesIn);
+                        final IntObjMap<LastPriceCacheRecord> lastPriceCache = SerializationUtils.readIntObjMap(bytesIn, LastPriceCacheRecord::new, HashIntObjMaps::newUpdatableMap);
+                        final IntLongMap fees = SerializationUtils.readIntLongMap(bytesIn, HashIntLongMaps::newUpdatableMap);
+                        final IntLongMap adjustments = SerializationUtils.readIntLongMap(bytesIn, HashIntLongMaps::newUpdatableMap);
+                        final IntLongMap suspends = SerializationUtils.readIntLongMap(bytesIn, HashIntLongMaps::newUpdatableMap);
 
                         return new State(
                                 symbolSpecificationProvider,
@@ -248,11 +253,11 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         if (res == CommandResultCode.SUCCESS) {
             switch (adjustmentType) {
                 case ADJUSTMENT: // adjust total adjustments amount
-                    adjustments.addToValue(currency, -amountDiff);
+                    adjustments.addValue(currency, -amountDiff);
                     break;
 
                 case SUSPEND: // adjust total suspends amount
-                    suspends.addToValue(currency, -amountDiff);
+                    suspends.addValue(currency, -amountDiff);
                     break;
             }
         }
@@ -324,16 +329,16 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
         // prepare fast price cache for profit estimation with some price (exact value is not important, except ask==bid condition)
         final IntObjectHashMap<LastPriceCacheRecord> dummyLastPriceCache = new IntObjectHashMap<>();
-        lastPriceCache.forEachKeyValue((s, r) -> dummyLastPriceCache.put(s, r.averagingRecord()));
+        lastPriceCache.forEach((int s, LastPriceCacheRecord r) -> dummyLastPriceCache.put(s, r.averagingRecord()));
 
         final IntLongHashMap currencyBalance = new IntLongHashMap();
 
         final IntLongHashMap symbolOpenInterestLong = new IntLongHashMap();
         final IntLongHashMap symbolOpenInterestShort = new IntLongHashMap();
 
-        userProfileService.getUserProfiles().forEach(userProfile -> {
-            userProfile.accounts.forEachKeyValue(currencyBalance::addToValue);
-            userProfile.positions.forEachKeyValue((symbolId, positionRecord) -> {
+        userProfileService.getUserProfiles().forEach((long uid, UserProfile userProfile) -> {
+            userProfile.accounts.forEach((IntLongConsumer) currencyBalance::addToValue);
+            userProfile.positions.forEach((int symbolId, SymbolPositionRecord positionRecord) -> {
                 final CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(symbolId);
                 final LastPriceCacheRecord avgPrice = dummyLastPriceCache.getIfAbsentPut(symbolId, LastPriceCacheRecord.dummy);
                 currencyBalance.addToValue(positionRecord.currency, positionRecord.estimateProfit(spec, avgPrice));
@@ -349,12 +354,18 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         return Optional.of(
                 new TotalCurrencyBalanceReportResult(
                         currencyBalance,
-                        new IntLongHashMap(fees),
-                        new IntLongHashMap(adjustments),
-                        new IntLongHashMap(suspends),
+                        toIntLongHashMap(fees),
+                        toIntLongHashMap(adjustments),
+                        toIntLongHashMap(suspends),
                         null,
                         symbolOpenInterestLong,
                         symbolOpenInterestShort));
+    }
+
+    public static IntLongHashMap toIntLongHashMap(IntLongMap map) {
+        IntLongHashMap res = new IntLongHashMap(map.size());
+        map.forEach((IntLongConsumer) res::put);
+        return res;
     }
 
     /**
@@ -433,7 +444,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
         // futures positions check for this currency
         long freeFuturesMargin = 0L;
-        for (final SymbolPositionRecord position : userProfile.positions) {
+        for (final SymbolPositionRecord position : userProfile.positions.values()) {
             if (position.currency == currency) {
                 final int recSymbol = position.symbol;
                 final CoreSymbolSpecification spec2 = symbolSpecificationProvider.getSymbolSpecification(recSymbol);
@@ -457,13 +468,13 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 //        log.debug("orderAmount={}", orderAmount);
 
         // speculative change balance
-        long newBalance = userProfile.accounts.addToValue(currency, -orderAmount);
+        long newBalance = userProfile.accounts.addValue(currency, -orderAmount);
 
         final boolean canPlace = newBalance + freeFuturesMargin >= 0;
 
         if (!canPlace) {
             // revert balance change
-            userProfile.accounts.addToValue(currency, orderAmount);
+            userProfile.accounts.addValue(currency, orderAmount);
 //            log.warn("orderAmount={} > userProfile.accounts.get({})={}", orderAmount, currency, userProfile.accounts.get(currency));
         }
 
@@ -495,7 +506,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         final int symbol = cmd.symbol;
         // calculate free margin for all positions same currency
         long freeMargin = 0L;
-        for (final SymbolPositionRecord positionRecord : userProfile.positions) {
+        for (final SymbolPositionRecord positionRecord : userProfile.positions.values()) {
             final int recSymbol = positionRecord.symbol;
             if (recSymbol != symbol) {
                 if (positionRecord.currency == spec.quoteCurrency) {
@@ -544,7 +555,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
         // Process marked data
         if (marketData != null) {
-            final RiskEngine.LastPriceCacheRecord record = lastPriceCache.getIfAbsentPut(symbol, RiskEngine.LastPriceCacheRecord::new);
+            final RiskEngine.LastPriceCacheRecord record = lastPriceCache.computeIfAbsent(symbol, k -> new RiskEngine.LastPriceCacheRecord());
             record.askPrice = (marketData.askSize != 0) ? marketData.askPrices[0] : Long.MAX_VALUE;
             record.bidPrice = (marketData.bidSize != 0) ? marketData.bidPrices[0] : 0;
         }
@@ -564,8 +575,8 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 final SymbolPositionRecord takerSpr = taker.getPositionRecordOrThrowEx(ev.symbol);
                 long sizeOpen = takerSpr.updatePositionForMarginTrade(ev.activeOrderAction, size, ev.price);
                 final long fee = spec.takerFee * sizeOpen;
-                taker.accounts.addToValue(quoteCurrency, -fee);
-                fees.addToValue(quoteCurrency, fee);
+                taker.accounts.addValue(quoteCurrency, -fee);
+                fees.addValue(quoteCurrency, fee);
                 taker.removeRecordIfEmpty(takerSpr);
             }
 
@@ -575,8 +586,8 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 final SymbolPositionRecord makerSpr = maker.getPositionRecordOrThrowEx(ev.symbol);
                 long sizeOpen = makerSpr.updatePositionForMarginTrade(ev.activeOrderAction.opposite(), size, ev.price);
                 final long fee = spec.makerFee * sizeOpen;
-                maker.accounts.addToValue(quoteCurrency, -fee);
-                fees.addToValue(quoteCurrency, fee);
+                maker.accounts.addValue(quoteCurrency, -fee);
+                fees.addValue(quoteCurrency, fee);
                 maker.removeRecordIfEmpty(makerSpr);
             }
 
@@ -624,7 +635,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
                 userProfileService.getUserProfileOrAddSuspended(ev.activeOrderUid)
                         .accounts
-                        .addToValue(currency, amountForRelease);
+                        .addValue(currency, amountForRelease);
 
 //                log.debug("REJ/CAN ASK: uid={} amountToRelease = {}  ACC:{}",
 //                        ev.activeOrderUid, amountForRelease, userProfileService.getUserProfile(ev.activeOrderUid).accounts);
@@ -641,14 +652,14 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         final UserProfile up = userProfileService.getUserProfileOrAddSuspended(uid);
 
         final long feeForSize = (isTaker ? spec.takerFee : spec.makerFee) * size;
-        fees.addToValue(spec.quoteCurrency, feeForSize);
+        fees.addValue(spec.quoteCurrency, feeForSize);
 
         final boolean isSelling = ev.activeOrderAction == OrderAction.BID ^ isTaker;
         if (isSelling) {
 
             // selling
             final long obtainedAmountInQuoteCurrency = CoreArithmeticUtils.calculateAmountBid(size, ev.price, spec);
-            up.accounts.addToValue(spec.quoteCurrency, obtainedAmountInQuoteCurrency - feeForSize);
+            up.accounts.addValue(spec.quoteCurrency, obtainedAmountInQuoteCurrency - feeForSize);
 //            log.debug("{} sells - getting {} -fee:{} (in quote cur={}) size={} ACCOUNTS:{}", up.uid, obtainedAmountInQuoteCurrency, feeForSize, spec.quoteCurrency, size, userProfileService.getUserProfile(uid).accounts);
         } else {
 
@@ -657,10 +668,10 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
             // buying, use bidderHoldPrice to calculate released amount based on price difference
             final long amountDiffToReleaseInQuoteCurrency = CoreArithmeticUtils.calculateAmountBidReleaseCorr(size, ev.bidderHoldPrice - ev.price, spec, isTaker);
-            up.accounts.addToValue(spec.quoteCurrency, amountDiffToReleaseInQuoteCurrency);
+            up.accounts.addValue(spec.quoteCurrency, amountDiffToReleaseInQuoteCurrency);
 
             final long obtainedAmountInBaseCurrency = CoreArithmeticUtils.calculateAmountAsk(size, spec);
-            up.accounts.addToValue(spec.baseCurrency, obtainedAmountInBaseCurrency);
+            up.accounts.addValue(spec.baseCurrency, obtainedAmountInBaseCurrency);
 
 //            log.debug("{} buys - amountDiffToReleaseInQuoteCurrency={} ({}-{}) (in quote cur={})",
 //                    up.uid, amountDiffToReleaseInQuoteCurrency, ev.bidderHoldPrice, ev.price, spec.quoteCurrency);
@@ -716,9 +727,9 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         private final SymbolSpecificationProvider symbolSpecificationProvider;
         private final UserProfileService userProfileService;
         private final BinaryCommandsProcessor binaryCommandsProcessor;
-        private final IntObjectHashMap<LastPriceCacheRecord> lastPriceCache;
-        private final IntLongHashMap fees;
-        private final IntLongHashMap adjustments;
-        private final IntLongHashMap suspends;
+        private final IntObjMap<LastPriceCacheRecord> lastPriceCache;
+        private final IntLongMap fees;
+        private final IntLongMap adjustments;
+        private final IntLongMap suspends;
     }
 }

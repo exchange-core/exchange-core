@@ -72,7 +72,7 @@ public final class PerfLatencyCommands {
     @Test
     public void testLatencyMultiSymbolMedium() {
         individualLatencyTest(msgsInGroup -> new ExchangeTestContainer(32 * 1024, 4, 2, msgsInGroup, null),
-                6_000_000,
+                3_000_000,
                 1_000_000,
                 3_300_000,
                 TestConstants.ALL_CURRENCIES,

@@ -15,6 +15,10 @@
  */
 package exchange.core2.core.utils;
 
+import com.koloboke.collect.map.IntLongMap;
+import com.koloboke.collect.map.IntObjMap;
+import com.koloboke.collect.map.LongObjMap;
+import com.koloboke.collect.map.hash.HashLongObjMaps;
 import net.openhft.chronicle.bytes.*;
 import net.openhft.chronicle.wire.Wire;
 import net.openhft.chronicle.wire.WireType;
@@ -142,7 +146,6 @@ public class SerializationUtils {
     public static LongIntHashMap readLongIntHashMap(final BytesIn bytes) {
         int length = bytes.readInt();
         final LongIntHashMap hashMap = new LongIntHashMap(length);
-        // TODO shuffle (? performance can be reduced if populating linearly)
         for (int i = 0; i < length; i++) {
             long k = bytes.readLong();
             int v = bytes.readInt();
@@ -161,10 +164,30 @@ public class SerializationUtils {
         });
     }
 
+    public static void marshallIntLongHashMap(final IntLongMap hashMap, final BytesOut bytes) {
+
+        bytes.writeInt(hashMap.size());
+
+        hashMap.forEach((int k, long v) -> {
+            bytes.writeInt(k);
+            bytes.writeLong(v);
+        });
+    }
+
     public static IntLongHashMap readIntLongHashMap(final BytesIn bytes) {
         int length = bytes.readInt();
         final IntLongHashMap hashMap = new IntLongHashMap(length);
-        // TODO shuffle (? performance can be reduced if populating linearly)
+        for (int i = 0; i < length; i++) {
+            int k = bytes.readInt();
+            long v = bytes.readLong();
+            hashMap.put(k, v);
+        }
+        return hashMap;
+    }
+
+    public static IntLongMap readIntLongMap(final BytesIn bytes, final Function<Integer, IntLongMap> mapSupplier) {
+        int length = bytes.readInt();
+        final IntLongMap hashMap = mapSupplier.apply(length);
         for (int i = 0; i < length; i++) {
             int k = bytes.readInt();
             long v = bytes.readLong();
@@ -182,7 +205,6 @@ public class SerializationUtils {
     public static LongHashSet readLongHashSet(final BytesIn bytes) {
         int length = bytes.readInt();
         final LongHashSet set = new LongHashSet(length);
-        // TODO shuffle (? performance can be reduced if populating linearly)
         for (int i = 0; i < length; i++) {
             set.add(bytes.readLong());
         }
@@ -191,14 +213,19 @@ public class SerializationUtils {
 
 
     public static <T extends WriteBytesMarshallable> void marshallLongHashMap(final LongObjectHashMap<T> hashMap, final BytesOut bytes) {
-
         bytes.writeInt(hashMap.size());
-
         hashMap.forEachKeyValue((k, v) -> {
             bytes.writeLong(k);
             v.writeMarshallable(bytes);
         });
+    }
 
+    public static <T extends WriteBytesMarshallable> void marshallLongObjMap(final LongObjMap<T> hashMap, final BytesOut bytes) {
+        bytes.writeInt(hashMap.size());
+        hashMap.forEach((long k, T v) -> {
+            bytes.writeLong(k);
+            v.writeMarshallable(bytes);
+        });
     }
 
     public static <T> void marshallLongHashMap(final LongObjectHashMap<T> hashMap, final BiConsumer<T, BytesOut> valuesMarshaller, final BytesOut bytes) {
@@ -221,6 +248,16 @@ public class SerializationUtils {
         return hashMap;
     }
 
+    public static <T> LongObjMap<T> readLongObjMap(final BytesIn bytes, final Function<BytesIn, T> creator) {
+        int length = bytes.readInt();
+        final LongObjMap<T> hashMap = HashLongObjMaps.newMutableMap(length);
+        for (int i = 0; i < length; i++) {
+            hashMap.put(bytes.readLong(), creator.apply(bytes));
+        }
+        return hashMap;
+    }
+
+
     public static <T extends WriteBytesMarshallable> void marshallIntHashMap(final IntObjectHashMap<T> hashMap, final BytesOut bytes) {
         bytes.writeInt(hashMap.size());
         hashMap.forEachKeyValue((k, v) -> {
@@ -228,6 +265,15 @@ public class SerializationUtils {
             v.writeMarshallable(bytes);
         });
     }
+
+    public static <T extends WriteBytesMarshallable> void marshallIntHashMap(final IntObjMap<T> hashMap, final BytesOut bytes) {
+        bytes.writeInt(hashMap.size());
+        hashMap.forEach((int k, T v) -> {
+            bytes.writeInt(k);
+            v.writeMarshallable(bytes);
+        });
+    }
+
 
     public static <T> void marshallIntHashMap(final IntObjectHashMap<T> hashMap, final BytesOut bytes, final Consumer<T> elementMarshaller) {
         bytes.writeInt(hashMap.size());
@@ -237,10 +283,27 @@ public class SerializationUtils {
         });
     }
 
+    public static <T> void marshallIntHashMap(final IntObjMap<T> hashMap, final BytesOut bytes, final Consumer<T> elementMarshaller) {
+        bytes.writeInt(hashMap.size());
+        hashMap.forEach((int k, T v) -> {
+            bytes.writeInt(k);
+            elementMarshaller.accept(v);
+        });
+    }
+
 
     public static <T> IntObjectHashMap<T> readIntHashMap(final BytesIn bytes, final Function<BytesIn, T> creator) {
         int length = bytes.readInt();
         final IntObjectHashMap<T> hashMap = new IntObjectHashMap<>(length);
+        for (int i = 0; i < length; i++) {
+            hashMap.put(bytes.readInt(), creator.apply(bytes));
+        }
+        return hashMap;
+    }
+
+    public static <T> IntObjMap<T> readIntObjMap(final BytesIn bytes, final Function<BytesIn, T> creator, final Function<Integer, IntObjMap<T>> mapSupplier) {
+        int length = bytes.readInt();
+        final IntObjMap<T> hashMap = mapSupplier.apply(length);
         for (int i = 0; i < length; i++) {
             hashMap.put(bytes.readInt(), creator.apply(bytes));
         }

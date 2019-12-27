@@ -15,6 +15,8 @@
  */
 package exchange.core2.core.utils;
 
+import com.koloboke.collect.map.IntObjMap;
+import com.koloboke.collect.map.LongObjMap;
 import exchange.core2.core.common.StateHash;
 import exchange.core2.core.orderbook.IOrderBook;
 import lombok.extern.slf4j.Slf4j;
@@ -33,23 +35,59 @@ public class HashingUtils {
 
 
     public static <T extends StateHash> int stateHash(final LongObjectHashMap<T> hashMap) {
-        final SortedMap<Long, T> sortedMap = new TreeMap<>();
-        hashMap.forEachKeyValue(sortedMap::put);
-        return Arrays.hashCode(sortedMap.entrySet().stream().mapToInt(ent -> Objects.hash(ent.getKey(), ent.getValue().stateHash())).toArray());
+        final long[] keys = hashMap.keySet().toArray();
+        Arrays.sort(keys);
+        int hash = keys.length;
+        for (final long key : keys) {
+            final T obj = hashMap.get(key);
+            hash = Objects.hash(hash, key, obj.stateHash());
+        }
+        return hash;
     }
 
-
     public static <T extends StateHash> int stateHash(final IntObjectHashMap<T> hashMap) {
-        final SortedMap<Integer, T> sortedMap = new TreeMap<>();
-        hashMap.forEachKeyValue(sortedMap::put);
-        return Arrays.hashCode(sortedMap.entrySet().stream().mapToInt(ent -> Objects.hash(ent.getKey(), ent.getValue().stateHash())).toArray());
+        final int[] keys = hashMap.keySet().toArray();
+        Arrays.sort(keys);
+        int hash = keys.length;
+        for (final int key : keys) {
+            final T obj = hashMap.get(key);
+            hash = Objects.hash(hash, key, obj.stateHash());
+        }
+        return hash;
+    }
+
+    public static <T extends StateHash> int stateHash(final IntObjMap<T> hashMap) {
+        final int[] keys = hashMap.keySet().toIntArray();
+        Arrays.sort(keys);
+        int hash = keys.length;
+        for (final int key : keys) {
+            final T obj = hashMap.get(key);
+            hash = Objects.hash(hash, key, obj.stateHash());
+        }
+        return hash;
+    }
+
+    public static <T extends StateHash> int stateHash(final LongObjMap<T> hashMap) {
+        final long[] keys = hashMap.keySet().toLongArray();
+        Arrays.sort(keys);
+        int hash = keys.length;
+        for (final long key : keys) {
+            final T obj = hashMap.get(key);
+            hash = Objects.hash(hash, key, obj.stateHash());
+        }
+        return hash;
     }
 
 
     public static <T extends StateHash> int stateHash(final Map<Long, T> map) {
-        final SortedMap<Long, T> sortedMap = new TreeMap<>();
-        map.forEach(sortedMap::put);
-        return Arrays.hashCode(sortedMap.entrySet().stream().mapToInt(ent -> Objects.hash(ent.getKey(), ent.getValue().stateHash())).toArray());
+        final Long[] keys = map.keySet().toArray(new Long[0]);
+        Arrays.sort(keys);
+        int hash = keys.length;
+        for (final long key : keys) {
+            final T obj = map.get(key);
+            hash = Objects.hash(hash, key, obj.stateHash());
+        }
+        return hash;
     }
 
     public static int stateHash(IOrderBook orderBook) {

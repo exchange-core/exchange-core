@@ -16,6 +16,8 @@
 package exchange.core2.core.processors;
 
 
+import com.koloboke.collect.map.IntObjMap;
+import com.koloboke.collect.map.hash.HashIntObjMaps;
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.StateHash;
 import exchange.core2.core.utils.HashingUtils;
@@ -24,7 +26,6 @@ import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
-import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
 import java.util.Objects;
 
@@ -32,14 +33,14 @@ import java.util.Objects;
 public final class SymbolSpecificationProvider implements WriteBytesMarshallable, StateHash {
 
     // symbol->specs
-    private final IntObjectHashMap<CoreSymbolSpecification> symbolSpecs;
+    private final IntObjMap<CoreSymbolSpecification> symbolSpecs;
 
     public SymbolSpecificationProvider() {
-        this.symbolSpecs = new IntObjectHashMap<>();
+        this.symbolSpecs = HashIntObjMaps.newUpdatableMap(64);
     }
 
     public SymbolSpecificationProvider(BytesIn bytes) {
-        this.symbolSpecs = SerializationUtils.readIntHashMap(bytes, CoreSymbolSpecification::new);
+        this.symbolSpecs = SerializationUtils.readIntObjMap(bytes, CoreSymbolSpecification::new, HashIntObjMaps::newUpdatableMap);
     }
 
 

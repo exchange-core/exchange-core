@@ -17,6 +17,8 @@ package exchange.core2.core.orderbook;
 
 import com.koloboke.collect.map.LongObjMap;
 import com.koloboke.collect.map.hash.HashLongObjMaps;
+import com.koloboke.collect.set.LongSet;
+import com.koloboke.collect.set.hash.HashLongSets;
 import exchange.core2.core.art.LongAdaptiveRadixTreeMap;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
@@ -28,7 +30,6 @@ import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
-import org.eclipse.collections.impl.set.mutable.primitive.LongHashSet;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -38,7 +39,7 @@ import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 @Slf4j
-public class OrderBookDirectImpl implements IOrderBook {
+public final class OrderBookDirectImpl implements IOrderBook {
 
     // buckets
     private final LongAdaptiveRadixTreeMap<Bucket> askPriceBuckets = new LongAdaptiveRadixTreeMap<>();
@@ -48,7 +49,7 @@ public class OrderBookDirectImpl implements IOrderBook {
     private final CoreSymbolSpecification symbolSpec;
 
     // index: orderId -> order
-    private final LongObjMap<DirectOrder> orderIdIndex = HashLongObjMaps.newMutableMap();
+    private final LongObjMap<DirectOrder> orderIdIndex = HashLongObjMaps.newMutableMap(16);
 
     // heads (nullable)
     private DirectOrder bestAskOrder = null;
@@ -320,6 +321,11 @@ public class OrderBookDirectImpl implements IOrderBook {
             return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
 
+        // risk check for exchange bids
+        if (symbolSpec.type == SymbolType.CURRENCY_EXCHANGE_PAIR && orderToMove.action == OrderAction.BID && cmd.price > orderToMove.reserveBidPrice) {
+            return CommandResultCode.MATCHING_MOVE_FAILED_PRICE_OVER_RISK_LIMIT;
+        }
+
         // remove order
         removeOrder(orderToMove);
 
@@ -461,7 +467,7 @@ public class OrderBookDirectImpl implements IOrderBook {
 
     @Override
     public void validateInternalState() {
-        final LongHashSet ordersInChain = new LongHashSet(orderIdIndex.size());
+        final LongSet ordersInChain = HashLongSets.newUpdatableSet(orderIdIndex.size());
         validateChain(true, ordersInChain);
         validateChain(false, ordersInChain);
 //        log.debug("ordersInChain={}", ordersInChain);
@@ -474,7 +480,7 @@ public class OrderBookDirectImpl implements IOrderBook {
         }
     }
 
-    private void validateChain(boolean asksChain, LongHashSet ordersInChain) {
+    private void validateChain(boolean asksChain, LongSet ordersInChain) {
 
         // buckets index
         final LongAdaptiveRadixTreeMap<Bucket> buckets = asksChain ? askPriceBuckets : bidPriceBuckets;
