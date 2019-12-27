@@ -36,7 +36,7 @@ import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 @Slf4j
-public class OrderBookDirectImpl implements IOrderBook {
+public final class OrderBookDirectImpl implements IOrderBook {
 
     // buckets
     private final LongAdaptiveRadixTreeMap<Bucket> askPriceBuckets = new LongAdaptiveRadixTreeMap<>();
@@ -316,6 +316,11 @@ public class OrderBookDirectImpl implements IOrderBook {
         final DirectOrder orderToMove = orderIdIndex.get(cmd.orderId);
         if (orderToMove == null || orderToMove.uid != cmd.uid) {
             return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
+        }
+
+        // risk check for exchange bids
+        if (symbolSpec.type == SymbolType.CURRENCY_EXCHANGE_PAIR && orderToMove.action == OrderAction.BID && cmd.price > orderToMove.reserveBidPrice) {
+            return CommandResultCode.MATCHING_MOVE_FAILED_PRICE_OVER_RISK_LIMIT;
         }
 
         // remove order
