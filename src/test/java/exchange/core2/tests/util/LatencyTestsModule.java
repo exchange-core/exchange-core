@@ -251,6 +251,7 @@ public class LatencyTestsModule {
 
                     SingleWriterRecorder minLatenciesHdr = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
 
+                    // TODO change to case based
                     List<Pair<Integer, Pair<Integer, ApiCommand>>> slowCommands = new ArrayList<>(apiCommandsBenchmark.size());
 
                     for (int i = 0; i < apiCommandsBenchmark.size(); i++) {
@@ -265,27 +266,29 @@ public class LatencyTestsModule {
                         SingleWriterRecorder hdrSvr = commandsClassLatencies.compute(aClass, (k, v) -> v == null
                                 ? (new SingleWriterRecorder(Integer.MAX_VALUE, 2))
                                 : v);
-                        hdrSvr.recordValue(latency);
+                        hdrSvr.recordValue(minLatency);
+
+                        slowCommands.add(Pair.create(minLatency, Pair.create(i, apiCommand)));
 
                         if (apiCommand instanceof ApiPlaceOrder) {
                             if (((ApiPlaceOrder) apiCommand).orderType == OrderType.GTC) {
-                                placeGtcLatencies.recordValue(latency);
+                                placeGtcLatencies.recordValue(minLatency);
                             } else {
-                                placeIocLatencies.recordValue(latency);
+                                placeIocLatencies.recordValue(minLatency);
                             }
                         } else if (apiCommand instanceof ApiMoveOrder) {
                             if (matcherEventsNum == 0) {
-                                moveOrderEvts0.recordValue(latency);
+                                moveOrderEvts0.recordValue(minLatency);
                             } else if (matcherEventsNum == 1) {
-                                moveOrderEvts1.recordValue(latency);
+                                moveOrderEvts1.recordValue(minLatency);
                             } else {
-                                moveOrderEvts2.recordValue(latency);
+                                moveOrderEvts2.recordValue(minLatency);
                             }
                         }
 
-                        slowCommands.add(Pair.create(minLatency, Pair.create(i, apiCommand)));
                     }
                     log.info("command independent latencies:");
+                    log.info("  Theoretical {}", LatencyTools.createLatencyReportFast(minLatenciesHdr.getIntervalHistogram()));
                     commandsClassLatencies.forEach((cls, hdr) -> {
                         log.info("  {} {}", cls.getSimpleName(), LatencyTools.createLatencyReportFast(hdr.getIntervalHistogram()));
                     });
@@ -294,7 +297,6 @@ public class LatencyTestsModule {
                     log.info("  Move 0  evt {}", LatencyTools.createLatencyReportFast(moveOrderEvts0.getIntervalHistogram()));
                     log.info("  Move 1  evt {}", LatencyTools.createLatencyReportFast(moveOrderEvts1.getIntervalHistogram()));
                     log.info("  Move 2+ evt {}", LatencyTools.createLatencyReportFast(moveOrderEvts2.getIntervalHistogram()));
-                    log.info("  Theoretical {}", LatencyTools.createLatencyReportFast(minLatenciesHdr.getIntervalHistogram()));
 
 
                     slowCommands.sort((o1, o2) -> o2.getFirst().compareTo(o1.getFirst()));
