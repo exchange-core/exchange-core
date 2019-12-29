@@ -106,6 +106,12 @@ public final class LongAdaptiveRadixTreeMap<V> {
         throw new UnsupportedOperationException();
     }
 
+
+    // TODO putAndGetHigherValue
+    // TODO putAndGetLowerValue
+
+    // TODO moveToAnotherKey(long oldKey, long newKey) - throw exception if not found
+
     public V getHigherValue(long key) {
         if (root != null && key != Long.MAX_VALUE) {
             return root.getCeilingValue(key + 1, INITIAL_LEVEL);

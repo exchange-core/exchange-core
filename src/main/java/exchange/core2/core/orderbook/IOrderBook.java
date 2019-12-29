@@ -19,6 +19,7 @@ import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
+import exchange.core2.core.processors.ObjectsPool;
 import exchange.core2.core.utils.HashingUtils;
 import lombok.Getter;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -167,14 +168,14 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
     }
 
-    static IOrderBook create(BytesIn bytes) {
+    static IOrderBook create(BytesIn bytes, final ObjectsPool objectsPool) {
         switch (OrderBookImplType.of(bytes.readByte())) {
             case NAIVE:
                 return new OrderBookNaiveImpl(bytes);
             case FAST:
                 return new OrderBookFastImpl(bytes);
             case DIRECT:
-                return new OrderBookDirectImpl(bytes);
+                return new OrderBookDirectImpl(bytes, objectsPool);
             default:
                 throw new IllegalArgumentException();
         }

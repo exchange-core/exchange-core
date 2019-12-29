@@ -38,10 +38,11 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Function;
+import java.util.function.BiFunction;
 
 @Slf4j
 public final class MatchingEngineRouter implements WriteBytesMarshallable, StateHash {
@@ -52,7 +53,10 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
     // symbol->OB
     private final IntObjectHashMap<IOrderBook> orderBooks;
 
-    private final Function<CoreSymbolSpecification, IOrderBook> orderBookFactory;
+    private final BiFunction<CoreSymbolSpecification, ObjectsPool, IOrderBook> orderBookFactory;
+
+    // local objects pool for order books
+    private final ObjectsPool objectsPool;
 
     private final int shardId;
     private final long shardMask;
@@ -62,7 +66,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
     public MatchingEngineRouter(final int shardId,
                                 final long numShards,
                                 final ISerializationProcessor serializationProcessor,
-                                final Function<CoreSymbolSpecification, IOrderBook> orderBookFactory,
+                                final BiFunction<CoreSymbolSpecification, ObjectsPool, IOrderBook> orderBookFactory,
                                 final Long loadStateId) {
 
         if (Long.bitCount(numShards) != 1) {
@@ -72,6 +76,16 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         this.shardMask = numShards - 1;
         this.serializationProcessor = serializationProcessor;
         this.orderBookFactory = orderBookFactory;
+
+        // initialize object pools
+        final HashMap<Integer, Integer> objectsPoolConfig = new HashMap<>();
+        objectsPoolConfig.put(ObjectsPool.DIRECT_ORDER, 1024 * 1024);
+        objectsPoolConfig.put(ObjectsPool.DIRECT_BUCKET, 1024 * 64);
+        objectsPoolConfig.put(ObjectsPool.ART_NODE_4, 1024 * 32);
+        objectsPoolConfig.put(ObjectsPool.ART_NODE_16, 1024 * 16);
+        objectsPoolConfig.put(ObjectsPool.ART_NODE_48, 1024 * 8);
+        objectsPoolConfig.put(ObjectsPool.ART_NODE_256, 1024 * 4);
+        this.objectsPool = new ObjectsPool(objectsPoolConfig);
 
         if (loadStateId != null) {
             final Pair<BinaryCommandsProcessor, IntObjectHashMap<IOrderBook>> deserialized = serializationProcessor.loadData(
@@ -86,7 +100,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
                             throw new IllegalStateException("wrong shardMask");
                         }
                         final BinaryCommandsProcessor bcp = new BinaryCommandsProcessor(this::handleBinaryMessage, bytesIn, shardId + 1024);
-                        final IntObjectHashMap<IOrderBook> ob = SerializationUtils.readIntHashMap(bytesIn, IOrderBook::create);
+                        final IntObjectHashMap<IOrderBook> ob = SerializationUtils.readIntHashMap(bytesIn, bytes -> IOrderBook.create(bytes, objectsPool));
                         return Pair.of(bcp, ob);
                     });
 
@@ -215,7 +229,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         if (orderBooks.get(symbolId) != null) {
             return CommandResultCode.MATCHING_ORDER_BOOK_ALREADY_EXISTS;
         } else {
-            orderBooks.put(symbolId, orderBookFactory.apply(symbolSpecification));
+            orderBooks.put(symbolId, orderBookFactory.apply(symbolSpecification, objectsPool));
             return CommandResultCode.SUCCESS;
         }
     }

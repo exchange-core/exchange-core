@@ -19,16 +19,16 @@ import exchange.core2.core.art.LongAdaptiveRadixTreeMap;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
+import exchange.core2.core.processors.ObjectsPool;
 import lombok.*;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
+import org.agrona.collections.Long2ObjectHashMap;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
-import org.eclipse.collections.impl.set.mutable.primitive.LongHashSet;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -46,30 +46,31 @@ public final class OrderBookDirectImpl implements IOrderBook {
     private final CoreSymbolSpecification symbolSpec;
 
     // index: orderId -> order
-    private final LongObjectHashMap<DirectOrder> orderIdIndex = new LongObjectHashMap<>();
+    private final Long2ObjectHashMap<DirectOrder> orderIdIndex = new Long2ObjectHashMap<>();
 
     // heads (nullable)
     private DirectOrder bestAskOrder = null;
     private DirectOrder bestBidOrder = null;
 
     // Object pools
-    private final ArrayDeque<DirectOrder> ordersPool = new ArrayDeque<>(128);
-    // private final ArrayDeque<Bucket> bucketsPool = new ArrayDeque<>(4096);
+    final ObjectsPool objectsPool;
 
-    public OrderBookDirectImpl(final CoreSymbolSpecification symbolSpec) {
+    public OrderBookDirectImpl(final CoreSymbolSpecification symbolSpec, final ObjectsPool objectsPool) {
         this.symbolSpec = symbolSpec;
+        this.objectsPool = objectsPool;
     }
 
-    public OrderBookDirectImpl(final BytesIn bytes) {
+    public OrderBookDirectImpl(final BytesIn bytes, final ObjectsPool objectsPool) {
         this.symbolSpec = new CoreSymbolSpecification(bytes);
 
         final int size = bytes.readInt();
         for (int i = 0; i < size; i++) {
             DirectOrder order = new DirectOrder(bytes);
-            insertOrder(order);
+            insertOrder(order, null);
             orderIdIndex.put(order.orderId, order);
         }
 
+        this.objectsPool = objectsPool;
         //validateInternalState();
     }
 
@@ -101,10 +102,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         final long price = cmd.price;
 
         // normally placing regular GTC order
-        DirectOrder orderRecord = ordersPool.pollLast();
-        if (orderRecord == null) {
-            orderRecord = new DirectOrder();
-        }
+        final DirectOrder orderRecord = objectsPool.get(ObjectsPool.DIRECT_ORDER, DirectOrder::new);
 
         orderRecord.orderId = orderId;
         orderRecord.price = price;
@@ -116,7 +114,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         orderRecord.filled = filledSize;
 
         orderIdIndex.put(orderId, orderRecord);
-        insertOrder(orderRecord);
+        insertOrder(orderRecord, null);
 
         return CommandResultCode.SUCCESS;
     }
@@ -183,8 +181,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
                 // if completed can remove maker order
                 orderIdIndex.remove(makerOrder.orderId);
-                ordersPool.add(makerOrder);
-
+                objectsPool.put(ObjectsPool.DIRECT_ORDER, makerOrder);
 
             } else {
 //                log.debug("  self UID");
@@ -201,7 +198,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
                 // reached current price tail -> remove bucket reference
                 final LongAdaptiveRadixTreeMap<Bucket> buckets = isBidAction ? askPriceBuckets : bidPriceBuckets;
                 buckets.remove(makerOrder.price);
-
+                objectsPool.put(ObjectsPool.DIRECT_BUCKET, makerOrder.parent);
 //                log.debug("  removed price bucket for {}", makerOrder.price);
 
                 // set next price tail (if there is next price)
@@ -262,12 +259,14 @@ public final class OrderBookDirectImpl implements IOrderBook {
         // TODO can remember last bucket/price to avoid discovering each time
         Bucket bucket = askPriceBuckets.get(selfOrder.price);
         if (bucket == null) {
-            bucket = new Bucket(selfOrder);
+            bucket = objectsPool.get(ObjectsPool.DIRECT_BUCKET, Bucket::new);
+            bucket.tail = selfOrder;
+            bucket.volume = 0;
+            bucket.numOrders = 0;
             askPriceBuckets.put(selfOrder.price, bucket);
-        } else {
-            bucket.volume += selfOrder.size - selfOrder.filled;
-            bucket.numOrders++;
         }
+        bucket.numOrders++;
+        bucket.volume += selfOrder.size - selfOrder.filled;
         selfOrder.parent = bucket;
     }
 
@@ -284,12 +283,14 @@ public final class OrderBookDirectImpl implements IOrderBook {
         // TODO can remember last bucket/price to avoid discovering each time
         Bucket bucket = bidPriceBuckets.get(selfOrder.price);
         if (bucket == null) {
-            bucket = new Bucket(selfOrder);
+            bucket = objectsPool.get(ObjectsPool.DIRECT_BUCKET, Bucket::new);
+            bucket.tail = selfOrder;
+            bucket.volume = 0;
+            bucket.numOrders = 0;
             bidPriceBuckets.put(selfOrder.price, bucket);
-        } else {
-            bucket.volume += selfOrder.size - selfOrder.filled;
-            bucket.numOrders++;
         }
+        bucket.numOrders++;
+        bucket.volume += selfOrder.size - selfOrder.filled;
         selfOrder.parent = bucket;
     }
 
@@ -302,7 +303,12 @@ public final class OrderBookDirectImpl implements IOrderBook {
             return false;
         }
         orderIdIndex.remove(cmd.orderId);
-        removeOrder(order);
+        objectsPool.put(ObjectsPool.DIRECT_ORDER, order);
+
+        final Bucket freeBucket = removeOrder(order);
+        if (freeBucket != null) {
+            objectsPool.put(ObjectsPool.DIRECT_BUCKET, freeBucket);
+        }
 
         OrderBookEventsHelper.sendCancelEvent(cmd, order);
 
@@ -324,7 +330,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         }
 
         // remove order
-        removeOrder(orderToMove);
+        final Bucket freeBucket = removeOrder(orderToMove);
 
         // update price
         orderToMove.price = cmd.price;
@@ -334,8 +340,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
         if (filled == orderToMove.size) {
             // order was fully matched - removing
             orderIdIndex.remove(cmd.orderId);
-            // saving free object back to pool
-            ordersPool.addLast(orderToMove);
+            // returning free object back to the pool
+            objectsPool.put(ObjectsPool.DIRECT_ORDER, orderToMove);
             return CommandResultCode.SUCCESS;
         }
 
@@ -343,17 +349,18 @@ public final class OrderBookDirectImpl implements IOrderBook {
         orderToMove.filled = filled;
 
         // insert into a new place
-        insertOrder(orderToMove);
+        insertOrder(orderToMove, freeBucket);
 
         return CommandResultCode.SUCCESS;
     }
 
 
-    private void removeOrder(final DirectOrder order) {
+    private Bucket removeOrder(final DirectOrder order) {
 
         final Bucket bucket = order.parent;
         bucket.volume -= order.size - order.filled;
         bucket.numOrders--;
+        Bucket bucketRemoved = null;
 
         if (bucket.tail == order) {
             // if we removing tail order -> change bucket tail reference
@@ -361,6 +368,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
                 // if no next or next order has different parent -> then it was the last bucket -> remove record
                 final LongAdaptiveRadixTreeMap<Bucket> buckets = order.action == OrderAction.ASK ? askPriceBuckets : bidPriceBuckets;
                 buckets.remove(order.price);
+                bucketRemoved = bucket;
             } else {
                 // otherwise at least one order always having the same parent left -> update tail reference to it
                 bucket.tail = order.next; // always not null
@@ -381,10 +389,12 @@ public final class OrderBookDirectImpl implements IOrderBook {
         } else if (order == bestBidOrder) {
             bestBidOrder = order.prev; // can be null
         }
+
+        return bucketRemoved;
     }
 
 
-    private void insertOrder(final DirectOrder order) {
+    private void insertOrder(final DirectOrder order, final Bucket freeBucket) {
 
 //        log.debug("   + insert order: {}", order);
 
@@ -395,6 +405,11 @@ public final class OrderBookDirectImpl implements IOrderBook {
         if (toBucket != null) {
             // update tail if bucket already exists
 //            log.debug(">>>> increment bucket {} from {} to {}", toBucket.tail.price, toBucket.volume, toBucket.volume +  order.size - order.filled);
+
+            // can put bucket back to the pool (because target bucket already exists)
+            if (freeBucket != null) {
+                objectsPool.put(ObjectsPool.DIRECT_BUCKET, freeBucket);
+            }
 
             toBucket.volume += order.size - order.filled;
             toBucket.numOrders++;
@@ -413,8 +428,14 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         } else {
 
-            // insert a new bucket
-            final Bucket newBucket = new Bucket(order);
+            // insert a new bucket (reuse existing)
+            final Bucket newBucket = freeBucket != null
+                    ? freeBucket
+                    : objectsPool.get(ObjectsPool.DIRECT_BUCKET, Bucket::new);
+
+            newBucket.tail = order;
+            newBucket.volume = order.size - order.filled;
+            newBucket.numOrders = 1;
             order.parent = newBucket;
             buckets.put(order.price, newBucket);
             final Bucket lowerBucket = isAsk ? buckets.getLowerValue(order.price) : buckets.getHigherValue(order.price);
@@ -464,7 +485,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
     @Override
     public void validateInternalState() {
-        final LongHashSet ordersInChain = new LongHashSet(orderIdIndex.size());
+        final Long2ObjectHashMap<DirectOrder> ordersInChain = new Long2ObjectHashMap<>(orderIdIndex.size(), 0.8f);
         validateChain(true, ordersInChain);
         validateChain(false, ordersInChain);
 //        log.debug("ordersInChain={}", ordersInChain);
@@ -472,12 +493,12 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
 //        log.debug("orderIdIndex.keySet()={}", orderIdIndex.keySet().toSortedArray());
 //        log.debug("ordersInChain=        {}", ordersInChain.toSortedArray());
-        if (!orderIdIndex.keySet().equals(ordersInChain)) {
+        if (!orderIdIndex.equals(ordersInChain)) {
             thrw("orderIdIndex does not match to the chained orders");
         }
     }
 
-    private void validateChain(boolean asksChain, LongHashSet ordersInChain) {
+    private void validateChain(boolean asksChain, Long2ObjectHashMap<DirectOrder> ordersInChain) {
 
         // buckets index
         final LongAdaptiveRadixTreeMap<Bucket> buckets = asksChain ? askPriceBuckets : bidPriceBuckets;
@@ -499,10 +520,10 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         while (order != null) {
 
-            if (ordersInChain.contains(order.orderId)) {
+            if (ordersInChain.containsKey(order.orderId)) {
                 thrw("duplicate orderid in the chain");
             }
-            ordersInChain.add(order.orderId);
+            ordersInChain.put(order.orderId, order);
 
             //log.debug("id:{} p={} +{}", order.orderId, order.price, order.size - order.filled);
             expectedBucketVolume += order.size - order.filled;
@@ -596,10 +617,10 @@ public final class OrderBookDirectImpl implements IOrderBook {
     @Override
     public List<Order> findUserOrders(long uid) {
         final List<Order> list = new ArrayList<>();
-        orderIdIndex.forEachValue(order -> {
+        orderIdIndex.forEach((orderId, order) -> {
             if (order.uid == uid) {
                 list.add(Order.builder()
-                        .orderId(order.orderId)
+                        .orderId(orderId)
                         .price(order.price)
                         .size(order.size)
                         .filled(order.filled)
@@ -797,11 +818,5 @@ public final class OrderBookDirectImpl implements IOrderBook {
         long volume;
         int numOrders;
         DirectOrder tail;
-
-        Bucket(DirectOrder order) {
-            this.tail = order;
-            this.volume = order.size - order.filled;
-            this.numOrders = 1;
-        }
     }
 }

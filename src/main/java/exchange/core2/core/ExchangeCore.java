@@ -37,7 +37,7 @@ import org.apache.commons.lang3.ArrayUtils;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Function;
+import java.util.function.BiFunction;
 import java.util.function.ObjLongConsumer;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -63,7 +63,7 @@ public final class ExchangeCore {
                         final int msgsInGroupLimit,
                         final UnsafeUtils.ThreadAffinityMode threadAffinityMode,
                         final CoreWaitStrategy waitStrategy,
-                        final Function<CoreSymbolSpecification, IOrderBook> orderBookFactory,
+                        final BiFunction<CoreSymbolSpecification, ObjectsPool, IOrderBook> orderBookFactory,
                         final Long loadStateId) {
 
         if (msgsInGroupLimit >= ringBufferSize) {

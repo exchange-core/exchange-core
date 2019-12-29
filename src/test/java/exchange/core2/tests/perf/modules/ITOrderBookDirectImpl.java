@@ -17,12 +17,14 @@ package exchange.core2.tests.perf.modules;
 
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.orderbook.OrderBookDirectImpl;
+import exchange.core2.core.processors.ObjectsPool;
 import exchange.core2.tests.util.TestConstants;
 
 public class ITOrderBookDirectImpl extends ITOrderBookBase {
 
     @Override
     protected IOrderBook createNewOrderBook() {
-        return new OrderBookDirectImpl(TestConstants.SYMBOLSPEC_EUR_USD);
+
+        return new OrderBookDirectImpl(TestConstants.SYMBOLSPEC_EUR_USD, ObjectsPool.createDefaultTestPool());
     }
 }
