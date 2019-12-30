@@ -19,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 @Slf4j
@@ -55,12 +56,25 @@ public final class ObjectsPool {
         sizesConfig.forEach((type, size) -> this.pools[type] = new ArrayStack(size));
     }
 
+
     public <T> T get(final int type, final Supplier<T> supplier) {
         final T obj = (T) pools[type].pop();  // pollFirst is cheaper for empty pool
 
         if (obj == null) {
 //            log.debug("MISS {}", type);
             return supplier.get();
+        } else {
+//            log.debug("HIT {} (count={})", type, pools[type].count);
+            return obj;
+        }
+    }
+
+    public <T> T get(final int type, final Function<ObjectsPool, T> constructor) {
+        final T obj = (T) pools[type].pop();  // pollFirst is cheaper for empty pool
+
+        if (obj == null) {
+//            log.debug("MISS {}", type);
+            return constructor.apply(this);
         } else {
 //            log.debug("HIT {} (count={})", type, pools[type].count);
             return obj;

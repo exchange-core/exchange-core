@@ -15,6 +15,7 @@
  */
 package exchange.core2.core.art;
 
+import exchange.core2.core.processors.ObjectsPool;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -53,6 +54,16 @@ public final class LongAdaptiveRadixTreeMap<V> {
 
     private IArtNode<V> root = null;
 
+    private final ObjectsPool objectsPool;
+
+    public LongAdaptiveRadixTreeMap(ObjectsPool objectsPool) {
+        this.objectsPool = objectsPool;
+    }
+
+    public LongAdaptiveRadixTreeMap() {
+        objectsPool = ObjectsPool.createDefaultTestPool();
+    }
+
     public V get(final long key) {
         return root != null
                 ? root.getValue(key, INITIAL_LEVEL)
@@ -61,8 +72,9 @@ public final class LongAdaptiveRadixTreeMap<V> {
 
     public void put(final long key, final V value) {
         if (root == null) {
-            root = new ArtNode4<>(key, value);
-
+            final ArtNode4<V> node = objectsPool.get(ObjectsPool.ART_NODE_4, ArtNode4::new);
+            node.initFirstKey(key, value);
+            root = node;
         } else {
 
             final IArtNode<V> upSizedNode = root.put(key, INITIAL_LEVEL, value);
@@ -176,7 +188,7 @@ public final class LongAdaptiveRadixTreeMap<V> {
     }
 
 
-    static <V> IArtNode<V> branchIfRequired(final long key, final V value, final long nodeKey, final int nodeLevel, final Object caller) {
+    static <V> IArtNode<V> branchIfRequired(final long key, final V value, final long nodeKey, final int nodeLevel, final IArtNode<V> caller) {
 
         final long keyDiff = key ^ nodeKey;
 
@@ -191,10 +203,14 @@ public final class LongAdaptiveRadixTreeMap<V> {
             return null;
         }
 
-        final IArtNode<V> newSubNode = new ArtNode4<>(key, value);
-        return key > nodeKey
-                ? new ArtNode4<>(nodeKey, caller, key, newSubNode, newLevel)
-                : new ArtNode4<>(key, newSubNode, nodeKey, caller, newLevel);
+        final ObjectsPool objectsPool = caller.getObjectsPool();
+        final ArtNode4<V> newSubNode = objectsPool.get(ObjectsPool.ART_NODE_4, ArtNode4::new);
+        newSubNode.initFirstKey(key, value);
+
+        final ArtNode4<V> newNode = objectsPool.get(ObjectsPool.ART_NODE_4, ArtNode4::new);
+        newNode.initTwoKeys(nodeKey, caller, key, newSubNode, newLevel);
+
+        return newNode;
     }
 
 //    static boolean keyNotMatches(long key, int level, long nodeKey, int nodeLevel) {

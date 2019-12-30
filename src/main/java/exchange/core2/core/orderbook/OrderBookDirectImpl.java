@@ -32,6 +32,7 @@ import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
@@ -39,8 +40,8 @@ import java.util.stream.StreamSupport;
 public final class OrderBookDirectImpl implements IOrderBook {
 
     // buckets
-    private final LongAdaptiveRadixTreeMap<Bucket> askPriceBuckets = new LongAdaptiveRadixTreeMap<>();
-    private final LongAdaptiveRadixTreeMap<Bucket> bidPriceBuckets = new LongAdaptiveRadixTreeMap<>();
+    private final LongAdaptiveRadixTreeMap<Bucket> askPriceBuckets;
+    private final LongAdaptiveRadixTreeMap<Bucket> bidPriceBuckets;
 
     // symbol specification
     private final CoreSymbolSpecification symbolSpec;
@@ -53,15 +54,20 @@ public final class OrderBookDirectImpl implements IOrderBook {
     private DirectOrder bestBidOrder = null;
 
     // Object pools
-    final ObjectsPool objectsPool;
+    private final ObjectsPool objectsPool;
 
     public OrderBookDirectImpl(final CoreSymbolSpecification symbolSpec, final ObjectsPool objectsPool) {
         this.symbolSpec = symbolSpec;
         this.objectsPool = objectsPool;
+        this.askPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
+        this.bidPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
     }
 
     public OrderBookDirectImpl(final BytesIn bytes, final ObjectsPool objectsPool) {
         this.symbolSpec = new CoreSymbolSpecification(bytes);
+        this.objectsPool = objectsPool;
+        this.askPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
+        this.bidPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
 
         final int size = bytes.readInt();
         for (int i = 0; i < size; i++) {
@@ -69,8 +75,6 @@ public final class OrderBookDirectImpl implements IOrderBook {
             insertOrder(order, null);
             orderIdIndex.put(order.orderId, order);
         }
-
-        this.objectsPool = objectsPool;
         //validateInternalState();
     }
 
@@ -102,7 +106,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         final long price = cmd.price;
 
         // normally placing regular GTC order
-        final DirectOrder orderRecord = objectsPool.get(ObjectsPool.DIRECT_ORDER, DirectOrder::new);
+        final DirectOrder orderRecord = objectsPool.get(ObjectsPool.DIRECT_ORDER, (Supplier<DirectOrder>) DirectOrder::new);
 
         orderRecord.orderId = orderId;
         orderRecord.price = price;

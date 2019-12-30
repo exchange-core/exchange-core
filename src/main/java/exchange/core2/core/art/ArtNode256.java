@@ -15,9 +15,13 @@
  */
 package exchange.core2.core.art;
 
+import exchange.core2.core.processors.ObjectsPool;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -32,6 +36,7 @@ import java.util.Map;
  * only pointers need to be stored.
  */
 @Slf4j
+@RequiredArgsConstructor
 public final class ArtNode256<V> implements IArtNode<V> {
 
     private static final int NODE48_SWITCH_THRESHOLD = 37;
@@ -43,8 +48,11 @@ public final class ArtNode256<V> implements IArtNode<V> {
     int nodeLevel;
     short numChildren;
 
+    @Getter
+    final ObjectsPool objectsPool;
 
-    public ArtNode256(ArtNode48<V> artNode48, short subKey, Object newElement) {
+    void initFromNode48(ArtNode48<V> artNode48, short subKey, Object newElement) {
+
         this.nodeLevel = artNode48.nodeLevel;
         this.nodeKey = artNode48.nodeKey;
         final int sourceSize = 48;
@@ -56,6 +64,10 @@ public final class ArtNode256<V> implements IArtNode<V> {
         }
         this.nodes[subKey] = newElement;
         this.numChildren = sourceSize + 1;
+
+        Arrays.fill(artNode48.nodes, null);
+        Arrays.fill(artNode48.indexes, (byte) -1);
+        objectsPool.put(ObjectsPool.ART_NODE_48, artNode48);
     }
 
     @Override
@@ -101,7 +113,9 @@ public final class ArtNode256<V> implements IArtNode<V> {
                     nodes[idx] = resizedNode;
                 }
             } else {
-                nodes[idx] = new ArtNode4(key, value);
+                final ArtNode4<V> newSubNode = objectsPool.get(ObjectsPool.ART_NODE_4, ArtNode4::new);
+                newSubNode.initFirstKey(key, value);
+                nodes[idx] = newSubNode;
             }
         }
 
@@ -136,7 +150,13 @@ public final class ArtNode256<V> implements IArtNode<V> {
             }
         }
 
-        return (numChildren == NODE48_SWITCH_THRESHOLD) ? new ArtNode48(this) : this;
+        if (numChildren == NODE48_SWITCH_THRESHOLD) {
+            final ArtNode48<V> newNode = objectsPool.get(ObjectsPool.ART_NODE_48, ArtNode48::new);
+            newNode.initFromNode256(this);
+            return newNode;
+        } else {
+            return this;
+        }
     }
 
     @Override
