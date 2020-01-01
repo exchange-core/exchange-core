@@ -37,6 +37,7 @@ import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
+import java.util.HashMap;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -54,6 +55,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
     private final IntLongHashMap fees;
     private final IntLongHashMap adjustments;
     private final IntLongHashMap suspends;
+    private final ObjectsPool objectsPool;
 
     // configuration
     private final int shardId;
@@ -68,6 +70,11 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         this.shardId = shardId;
         this.shardMask = numShards - 1;
         this.serializationProcessor = serializationProcessor;
+
+        // initialize object pools
+        final HashMap<Integer, Integer> objectsPoolConfig = new HashMap<>();
+        objectsPoolConfig.put(ObjectsPool.SYMBOL_POSITION_RECORD, 1024 * 256);
+        this.objectsPool = new ObjectsPool(objectsPoolConfig);
 
         if (loadStateId == null) {
             this.symbolSpecificationProvider = new SymbolSpecificationProvider();
@@ -408,14 +415,22 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
         } else if (spec.type == SymbolType.FUTURES_CONTRACT) {
 
-            final SymbolPositionRecord position = userProfile.getOrCreatePositionRecord(spec);
+            SymbolPositionRecord position = userProfile.positions.get(spec.symbolId); // TODO getIfAbsentPut?
+            if (position == null) {
+                position = objectsPool.get(ObjectsPool.SYMBOL_POSITION_RECORD, SymbolPositionRecord::new);
+                position.initialize(userProfile.uid, spec.symbolId, spec.quoteCurrency);
+                userProfile.positions.put(spec.symbolId, position);
+            }
+
             final boolean canPlaceOrder = canPlaceMarginOrder(cmd, userProfile, spec, position);
             if (canPlaceOrder) {
                 position.pendingHold(cmd.action, cmd.size);
                 return true;
             } else {
                 // try to cleanup position if refusing to place
-                userProfile.removeRecordIfEmpty(position);
+                if (position.isEmpty()) {
+                    removePositionRecord(position, userProfile);
+                }
                 return false;
             }
 
@@ -566,7 +581,9 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 final long fee = spec.takerFee * sizeOpen;
                 taker.accounts.addToValue(quoteCurrency, -fee);
                 fees.addToValue(quoteCurrency, fee);
-                taker.removeRecordIfEmpty(takerSpr);
+                if (takerSpr.isEmpty()) {
+                    removePositionRecord(takerSpr, taker);
+                }
             }
 
             if (uidForThisHandler(ev.matchedOrderUid)) {
@@ -577,7 +594,9 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 final long fee = spec.makerFee * sizeOpen;
                 maker.accounts.addToValue(quoteCurrency, -fee);
                 fees.addToValue(quoteCurrency, fee);
-                maker.removeRecordIfEmpty(makerSpr);
+                if (makerSpr.isEmpty()) {
+                    removePositionRecord(makerSpr, maker);
+                }
             }
 
         } else if (ev.eventType == MatcherEventType.REJECTION || ev.eventType == MatcherEventType.CANCEL) {
@@ -587,7 +606,9 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 final UserProfile up = userProfileService.getUserProfileOrAddSuspended(ev.activeOrderUid);
                 final SymbolPositionRecord spr = up.getPositionRecordOrThrowEx(ev.symbol);
                 spr.pendingRelease(ev.activeOrderAction, size);
-                up.removeRecordIfEmpty(spr);
+                if (spr.isEmpty()) {
+                    removePositionRecord(spr, up);
+                }
             }
 
         } else {
@@ -667,6 +688,12 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 //            log.debug("{} buys - getting {} (in base cur={}) size={} ACCOUNTS:{}",
 //                    up.uid, obtainedAmountInBaseCurrency, spec.baseCurrency, size, userProfileService.getUserProfile(uid).accounts);
         }
+    }
+
+    private void removePositionRecord(SymbolPositionRecord record, UserProfile userProfile) {
+        userProfile.accounts.addToValue(record.currency, record.profit);
+        userProfile.positions.removeKey(record.symbol);
+        objectsPool.put(ObjectsPool.SYMBOL_POSITION_RECORD, record);
     }
 
     @Override
