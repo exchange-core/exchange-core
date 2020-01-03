@@ -64,7 +64,10 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     CommandResultCode moveOrder(OrderCommand cmd);
 
     // testing only ?
-    int getOrdersNum();
+    int getOrdersNum(OrderAction action);
+
+    // testing only ?
+    long getTotalOrdersVolume(OrderAction action);
 
     // testing only ?
     IOrder getOrderById(long orderId);

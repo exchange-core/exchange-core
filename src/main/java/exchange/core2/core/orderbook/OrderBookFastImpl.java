@@ -994,21 +994,29 @@ public final class OrderBookFastImpl implements IOrderBook {
 
     // for testing only
     @Override
-    public int getOrdersNum() {
-        //validateInternalState();
+    public int getOrdersNum(OrderAction action) {
+        if (action == OrderAction.ASK) {
+            int ah = hotAskBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
+            int af = farAskBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
+            return ah + af;
+        } else {
+            int bh = hotBidBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
+            int bf = farBidBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
+            return bh + bf;
+        }
+    }
 
-        // TODO add trees
-        int ah = hotAskBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
-        int bh = hotBidBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
-        int af = farAskBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
-        int bf = farBidBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
-
-//        log.debug("idMap:{} askOrders:{} bidOrders:{}", idMap.size(), askOrders, bidOrders);
-        int knownOrders = idMapToBucket.size();
-
-        assert knownOrders == ah + af + bh + bf : "inconsistent known orders";
-
-        return idMapToBucket.size();
+    @Override
+    public long getTotalOrdersVolume(OrderAction action) {
+        if (action == OrderAction.ASK) {
+            long ah = hotAskBuckets.values().stream().mapToLong(IOrdersBucket::getTotalVolume).sum();
+            long af = farAskBuckets.values().stream().mapToLong(IOrdersBucket::getTotalVolume).sum();
+            return ah + af;
+        } else {
+            long bh = hotBidBuckets.values().stream().mapToLong(IOrdersBucket::getTotalVolume).sum();
+            long bf = farBidBuckets.values().stream().mapToLong(IOrdersBucket::getTotalVolume).sum();
+            return bh + bf;
+        }
     }
 
     private IOrdersBucket[] getBidsAsArray() {

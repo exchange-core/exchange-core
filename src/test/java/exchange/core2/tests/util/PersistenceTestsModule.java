@@ -53,11 +53,16 @@ public class PersistenceTestsModule {
             final long stateId;
             final List<CoreSymbolSpecification> coreSymbolSpecifications = ExchangeTestContainer.generateRandomSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
             final List<BitSet> usersAccounts = UserCurrencyAccountsGenerator.generateUsers(numAccounts, currenciesAllowed);
-            final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(coreSymbolSpecifications,
-                    totalTransactionsNumber,
-                    usersAccounts,
-                    targetOrderBookOrdersTotal,
-                    iteration);
+
+            final TestOrdersGeneratorConfig genConfig = TestOrdersGeneratorConfig.builder()
+                    .coreSymbolSpecifications(coreSymbolSpecifications)
+                    .totalTransactionsNumber(totalTransactionsNumber)
+                    .usersAccounts(usersAccounts)
+                    .targetOrderBookOrdersTotal(targetOrderBookOrdersTotal)
+                    .seed(iteration)
+                    .build();
+
+            final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(genConfig);
 
             final long originalPrefillStateHash;
             final float originalPerfMt;

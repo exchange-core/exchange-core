@@ -72,6 +72,7 @@ public final class ITExchangeCoreIntegrationStress {
                     TestOrdersGenerator.UID_PLAIN_MAPPER,
                     symbolSpec.getSymbolId(),
                     false,
+                    false,
                     TestOrdersGenerator.createAsyncProgressLogger(numOrders),
                     288379917);
 

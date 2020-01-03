@@ -586,6 +586,7 @@ public abstract class OrderBookBaseTest {
                 TestOrdersGenerator.UID_PLAIN_MAPPER,
                 0,
                 false,
+                false,
                 TestOrdersGenerator.createAsyncProgressLogger(tranNum),
                 348290254);
 
@@ -623,6 +624,7 @@ public abstract class OrderBookBaseTest {
                 TestOrdersGenerator.UID_PLAIN_MAPPER,
                 0,
                 true,
+                false,
                 TestOrdersGenerator.createAsyncProgressLogger(tranNum),
                 1825793762);
 

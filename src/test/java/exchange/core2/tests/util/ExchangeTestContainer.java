@@ -173,7 +173,14 @@ public final class ExchangeTestContainer implements AutoCloseable {
         return uniqueIdCounterLong.incrementAndGet();
     }
 
-    public final IntLongHashMap userAccountsInit(List<BitSet> userCurrencies) throws InterruptedException {
+    public final void userAccountsInit(List<BitSet> userCurrencies) throws InterruptedException {
+
+        // calculate max amount can transfer to each account so that it is not possible to get long overflow
+        final IntLongHashMap accountsNumPerCurrency = new IntLongHashMap();
+        userCurrencies.forEach(accounts -> accounts.stream().forEach(currency -> accountsNumPerCurrency.addToValue(currency, 1)));
+        final IntLongHashMap amountPerAccount = new IntLongHashMap();
+        accountsNumPerCurrency.forEachKeyValue((currency, numAcc) -> amountPerAccount.put(currency, Long.MAX_VALUE / (numAcc + 1)));
+        // amountPerAccount.forEachKeyValue((k, v) -> log.debug("{}={}", k, v));
 
         final int totalAccounts = userCurrencies.stream().skip(1).mapToInt(BitSet::cardinality).sum();
         final int numUsers = userCurrencies.size() - 1;
@@ -187,12 +194,15 @@ public final class ExchangeTestContainer implements AutoCloseable {
             }
         };
 
-        final long amountToAdd = 1_000_000_000_000L;
-
         IntStream.rangeClosed(1, numUsers).forEach(uid -> {
             api.submitCommand(ApiAddUser.builder().uid(uid).build());
             userCurrencies.get(uid).stream().forEach(currency ->
-                    api.submitCommand(ApiAdjustUserBalance.builder().uid(uid).transactionId(getRandomTransactionId()).amount(amountToAdd).currency(currency).build()));
+                    api.submitCommand(ApiAdjustUserBalance.builder()
+                            .uid(uid)
+                            .transactionId(getRandomTransactionId())
+                            .amount(amountPerAccount.get(currency))
+                            .currency(currency)
+                            .build()));
 
 //            if (uid > 1000000 && uid % 1000000 == 0) {
 //                log.debug("uid: {} usersLatch: {}", uid, usersLatch.getCount());
@@ -203,9 +213,6 @@ public final class ExchangeTestContainer implements AutoCloseable {
         consumer = cmd -> {
         };
 
-        final IntLongHashMap globalAmountPerCurrency = new IntLongHashMap();
-        userCurrencies.forEach(user -> user.stream().forEach(cur -> globalAmountPerCurrency.addToValue(cur, amountToAdd)));
-        return globalAmountPerCurrency;
     }
 
     public void usersInit(int numUsers, Set<Integer> currencies) throws InterruptedException {

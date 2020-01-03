@@ -30,6 +30,8 @@ public final class TestOrdersGeneratorSession {
 
     public final long priceDeviation;
 
+    public final boolean hugeSizeIOC;
+
     public final int numUsers;
     public final UnaryOperator<Integer> uidMapper;
 
@@ -42,7 +44,8 @@ public final class TestOrdersGeneratorSession {
 
     public final List<Integer> orderBookSizeAskStat = new ArrayList<>();
     public final List<Integer> orderBookSizeBidStat = new ArrayList<>();
-    public final List<Integer> orderBookNumOrdersStat = new ArrayList<>();
+    public final List<Integer> orderBookNumOrdersAskStat = new ArrayList<>();
+    public final List<Integer> orderBookNumOrdersBidStat = new ArrayList<>();
 
     @NonNull
     public long lastTradePrice;
@@ -51,7 +54,7 @@ public final class TestOrdersGeneratorSession {
     // set to 1 to make price move up and down
     public int priceDirection;
 
-    public long orderbooksFilledAtSequence = 0;
+    public boolean initialOrdersPlaced = false;
 
     public long numCompleted = 0;
     public long numRejected = 0;
@@ -64,14 +67,19 @@ public final class TestOrdersGeneratorSession {
 
     public int seq = 1;
 
-    public int lastOrderBookOrdersSize = 0;
+    // statistics (updated every 256 orders)
+    public int lastOrderBookOrdersSizeAsk = 0;
+    public int lastOrderBookOrdersSizeBid = 0;
+    public long lastTotalVolumeAsk = 0;
+    public long lastTotalVolumeBid = 0;
 
 //    public SingleWriterRecorder hdrRecorder = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
 
-    public TestOrdersGeneratorSession(IOrderBook orderBook, int targetOrderBookOrders, long priceDeviation, int numUsers, UnaryOperator<Integer> uidMapper, int symbol, long centralPrice, boolean enableSlidingPrice, int seed) {
+    public TestOrdersGeneratorSession(IOrderBook orderBook, int targetOrderBookOrders, long priceDeviation, boolean hugeSizeIOC, int numUsers, UnaryOperator<Integer> uidMapper, int symbol, long centralPrice, boolean enableSlidingPrice, int seed) {
         this.orderBook = orderBook;
         this.targetOrderBookOrders = targetOrderBookOrders;
         this.priceDeviation = priceDeviation;
+        this.hugeSizeIOC = hugeSizeIOC;
         this.numUsers = numUsers;
         this.uidMapper = uidMapper;
         this.symbol = symbol;

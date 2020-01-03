@@ -25,7 +25,6 @@ import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.orderbook.OrderBookNaiveImpl;
-import exchange.core2.core.utils.UnsafeUtils;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -37,8 +36,6 @@ import org.jetbrains.annotations.NotNull;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.LongConsumer;
@@ -47,8 +44,6 @@ import java.util.stream.Collectors;
 import java.util.stream.DoubleStream;
 
 import static exchange.core2.tests.util.TestConstants.SYMBOLSPEC_EUR_USD;
-import static org.hamcrest.Matchers.greaterThan;
-import static org.junit.Assert.assertThat;
 
 @Slf4j
 public final class TestOrdersGenerator {
@@ -69,11 +64,13 @@ public final class TestOrdersGenerator {
     // TODO allow limiting max volume
 
 
-    public static MultiSymbolGenResult generateMultipleSymbols(final List<CoreSymbolSpecification> coreSymbolSpecifications,
-                                                               final int totalTransactionsNumber,
-                                                               final List<BitSet> usersAccounts,
-                                                               final int targetOrderBookOrdersTotal,
-                                                               final int seed) {
+    public static MultiSymbolGenResult generateMultipleSymbols(final TestOrdersGeneratorConfig config) {
+
+        final List<CoreSymbolSpecification> coreSymbolSpecifications = config.coreSymbolSpecifications;
+        final int totalTransactionsNumber = config.totalTransactionsNumber;
+        final List<BitSet> usersAccounts = config.usersAccounts;
+        final int targetOrderBookOrdersTotal = config.targetOrderBookOrdersTotal;
+        final int seed = config.seed;
 
         final long timeGenStart = System.currentTimeMillis();
 
@@ -93,7 +90,7 @@ public final class TestOrdersGenerator {
                 final int[] uidsAvailableForSymbol = UserCurrencyAccountsGenerator.createUserListForSymbol(usersAccounts, spec, commandsNum);
                 final int numUsers = uidsAvailableForSymbol.length;
                 final UnaryOperator<Integer> uidMapper = idx -> uidsAvailableForSymbol[idx];
-                return generateCommands(commandsNum, numOrdersTarget, numUsers, uidMapper, spec.symbolId, false, sharedProgressLogger, seed);
+                return generateCommands(commandsNum, numOrdersTarget, numUsers, uidMapper, spec.symbolId, false, config.hugeSizeIOC, sharedProgressLogger, seed);
             }));
         }
 
@@ -167,16 +164,18 @@ public final class TestOrdersGenerator {
             final UnaryOperator<Integer> uidMapper,
             final int symbol,
             final boolean enableSlidingPrice,
+            final boolean hugeSizeIOC,
             final LongConsumer asyncProgressConsumer,
             final int seed) {
 
-        // TODO specify symbol type
+        // TODO specify symbol type (for testing exchange-bid-move rejects)
         final IOrderBook orderBook = new OrderBookNaiveImpl(SYMBOLSPEC_EUR_USD);
 
         final TestOrdersGeneratorSession session = new TestOrdersGeneratorSession(
                 orderBook,
                 targetOrderBookOrders,
                 PRICE_DEVIATION_DEFAULT,
+                hugeSizeIOC,
                 numUsers,
                 uidMapper,
                 symbol,
@@ -227,14 +226,9 @@ public final class TestOrdersGenerator {
 
         asyncProgressConsumer.accept(transactionsNumber - lastProgress);
 
-        // if transactionsNumber is too small - assume order books filled
-        if (session.orderbooksFilledAtSequence == 0 && transactionsNumber < 10000) {
-            session.orderbooksFilledAtSequence = 1;
-        }
-
         updateOrderBookSizeStat(session);
 
-        assertThat("Orderbook was not filled for target rate " + session.targetOrderBookOrders, session.orderbooksFilledAtSequence, greaterThan(0L)); // check targetOrdersFilled
+//        assertThat("Orderbook was not filled for target rate " + session.targetOrderBookOrders, session.orderbooksFilledAtSequence, greaterThan(0L)); // check targetOrdersFilled
 //        final int commandsListSize = commands.size() - (int) session.orderbooksFilledAtSequence;
 //        log.debug("total commands: {}, post-fill commands: {}", commands.size(), commandsListSize);
 
@@ -267,24 +261,33 @@ public final class TestOrdersGenerator {
         return GenResult.builder().commands(commands)
                 .finalOrderbookHash(orderBook.stateHash())
                 .finalOrderBookSnapshot(l2MarketData)
-                .orderbooksFilledAtSequence((int) session.orderbooksFilledAtSequence)
                 .build();
     }
 
     private static void updateOrderBookSizeStat(TestOrdersGeneratorSession session) {
-        L2MarketData l2MarketDataSnapshot = session.orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE);
-//                log.debug("{}", dumpOrderBook(l2MarketDataSnapshot));
 
-        int ordersNum = session.orderBook.getOrdersNum();
+        final int ordersNumAsk = session.orderBook.getOrdersNum(OrderAction.ASK);
+        final int ordersNumBid = session.orderBook.getOrdersNum(OrderAction.BID);
         // regulating OB size
-        session.lastOrderBookOrdersSize = ordersNum;
-
+        session.lastOrderBookOrdersSizeAsk = ordersNumAsk;
+        session.lastOrderBookOrdersSizeBid = ordersNumBid;
 //        log.debug("ordersNum:{}", ordersNum);
 
-        if (session.orderbooksFilledAtSequence > 0) {
-            session.orderBookSizeAskStat.add(l2MarketDataSnapshot.askSize);
-            session.orderBookSizeBidStat.add(l2MarketDataSnapshot.bidSize);
-            session.orderBookNumOrdersStat.add(ordersNum);
+        if (session.initialOrdersPlaced || session.hugeSizeIOC) {
+            final L2MarketData l2MarketDataSnapshot = session.orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE);
+//                log.debug("{}", dumpOrderBook(l2MarketDataSnapshot));
+
+            if (session.hugeSizeIOC) {
+                session.lastTotalVolumeAsk = l2MarketDataSnapshot.totalOrderBookVolumeAsk();
+                session.lastTotalVolumeBid = l2MarketDataSnapshot.totalOrderBookVolumeBid();
+            }
+
+            if (session.initialOrdersPlaced) {
+                session.orderBookSizeAskStat.add(l2MarketDataSnapshot.askSize);
+                session.orderBookSizeBidStat.add(l2MarketDataSnapshot.bidSize);
+                session.orderBookNumOrdersAskStat.add(ordersNumAsk);
+                session.orderBookNumOrdersBidStat.add(ordersNumBid);
+            }
         }
     }
 
@@ -325,13 +328,13 @@ public final class TestOrdersGenerator {
 
     private static OrderCommand generateRandomOrder(TestOrdersGeneratorSession session) {
 
-        Random rand = session.rand;
+        final Random rand = session.rand;
 
         // TODO move to lastOrderBookOrdersSize writer method
-        int lackOfOrders = session.targetOrderBookOrders - session.lastOrderBookOrdersSize;
-        boolean growOrders = lackOfOrders > 0;
-        if (session.orderbooksFilledAtSequence == 0 && lackOfOrders <= 0) {
-            session.orderbooksFilledAtSequence = session.seq;
+        final int lackOfOrdersAsk = session.targetOrderBookOrders - session.lastOrderBookOrdersSizeAsk;
+        final int lackOfOrdersBid = session.targetOrderBookOrders - session.lastOrderBookOrdersSizeBid;
+        if (!session.initialOrdersPlaced && lackOfOrdersAsk <= 0 && lackOfOrdersBid <= 0) {
+            session.initialOrdersPlaced = true;
 
             session.counterPlaceMarket = 0;
             session.counterPlaceLimit = 0;
@@ -339,28 +342,39 @@ public final class TestOrdersGenerator {
             session.counterMove = 0;
         }
 
-        int cmd = rand.nextInt(growOrders ? (lackOfOrders > (CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND / 2) ? 2 : 10) : 40);
+        final OrderAction action = (rand.nextInt(4) + session.priceDirection >= 2)
+                ? OrderAction.BID
+                : OrderAction.ASK;
+
+        final int lackOfOrders = (action == OrderAction.ASK) ? lackOfOrdersAsk : lackOfOrdersBid;
+
+        final boolean requireFastFill = lackOfOrders > (CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND / 2);
+
+        final boolean growOrders = lackOfOrders > 0;
+
+        final int cmd = rand.nextInt(growOrders
+                ? (requireFastFill ? 2 : 10)
+                : 40);
 
         if (cmd < 2) {
 
-            OrderAction action = (rand.nextInt(4) + session.priceDirection >= 2)
-                    ? OrderAction.BID
-                    : OrderAction.ASK;
-
-            long size = 1 + rand.nextInt(6) * rand.nextInt(6) * rand.nextInt(6);
-
-            OrderType orderType = growOrders ? OrderType.GTC : OrderType.IOC;
             final int uid = session.uidMapper.apply(rand.nextInt(session.numUsers));
 
-            OrderCommand placeCmd = OrderCommand.builder().command(OrderCommandType.PLACE_ORDER).uid(uid).orderId(session.seq).size(size)
-                    .action(action).orderType(orderType).build();
+            final OrderCommand placeCmd = OrderCommand.builder()
+                    .command(OrderCommandType.PLACE_ORDER)
+                    .uid(uid)
+                    .orderId(session.seq)
+                    .action(action)
+                    .build();
 
-            if (orderType == OrderType.GTC) {
+            if (growOrders) {
+                placeCmd.orderType = OrderType.GTC;
+                placeCmd.size = 1 + rand.nextInt(6) * rand.nextInt(6) * rand.nextInt(6);
 
-                int dev = 1 + (int) (Math.pow(rand.nextDouble(), 2) * session.priceDeviation);
+                final int dev = 1 + (int) (Math.pow(rand.nextDouble(), 2) * session.priceDeviation);
 
                 long p = 0;
-                int x = 4;
+                final int x = 4;
                 for (int i = 0; i < x; i++) {
                     p += rand.nextInt(dev);
                 }
@@ -370,7 +384,7 @@ public final class TestOrdersGenerator {
                 }
 
                 //log.debug("p={} action={}", p, action);
-                int price = (int) session.lastTradePrice + (int) p;
+                final int price = (int) session.lastTradePrice + (int) p;
 
                 session.orderPrices.put(session.seq, price);
                 session.orderUids.put(session.seq, uid);
@@ -378,6 +392,27 @@ public final class TestOrdersGenerator {
                 placeCmd.reserveBidPrice = action == OrderAction.BID ? MAX_PRICE : 0; // set limit price
                 session.counterPlaceLimit++;
             } else {
+
+                placeCmd.orderType = OrderType.IOC;
+
+                if (session.hugeSizeIOC) {
+
+                    final long availableVolume = action == OrderAction.ASK ? session.lastTotalVolumeAsk : session.lastTotalVolumeBid;
+
+                    long bigRand = rand.nextLong();
+                    bigRand = bigRand < 0 ? -1 - bigRand : bigRand;
+                    placeCmd.size = 1 + bigRand % (availableVolume + 1);
+
+                    if (action == OrderAction.ASK) {
+                        session.lastTotalVolumeAsk = Math.max(session.lastTotalVolumeAsk - placeCmd.size, 0);
+                    } else {
+                        session.lastTotalVolumeBid = Math.max(session.lastTotalVolumeAsk - placeCmd.size, 0);
+                    }
+//                    log.debug("huge size={} at {}", placeCmd.size, session.seq);
+
+                } else {
+                    placeCmd.size = 1 + rand.nextInt(6) * rand.nextInt(6) * rand.nextInt(6);
+                }
                 placeCmd.price = action == OrderAction.BID ? MAX_PRICE : MIN_PRICE;
                 placeCmd.reserveBidPrice = action == OrderAction.BID ? placeCmd.price : 0; // set limit price
                 session.counterPlaceMarket++;
@@ -499,7 +534,6 @@ public final class TestOrdersGenerator {
         final private L2MarketData finalOrderBookSnapshot;
         final private int finalOrderbookHash;
         final private List<OrderCommand> commands;
-        final private int orderbooksFilledAtSequence;
     }
 
     @Builder

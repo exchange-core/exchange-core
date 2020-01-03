@@ -26,6 +26,8 @@ import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.agrona.collections.Long2ObjectHashMap;
+import org.agrona.collections.MutableInteger;
+import org.agrona.collections.MutableLong;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 
@@ -478,8 +480,19 @@ public final class OrderBookDirectImpl implements IOrderBook {
     }
 
     @Override
-    public int getOrdersNum() {
-        return orderIdIndex.size();
+    public int getOrdersNum(OrderAction action) {
+        final LongAdaptiveRadixTreeMap<Bucket> buckets = action == OrderAction.ASK ? askPriceBuckets : bidPriceBuckets;
+        final MutableInteger accum = new MutableInteger();
+        buckets.forEach((p, b) -> accum.value += b.numOrders, Integer.MAX_VALUE);
+        return accum.value;
+    }
+
+    @Override
+    public long getTotalOrdersVolume(OrderAction action) {
+        final LongAdaptiveRadixTreeMap<Bucket> buckets = action == OrderAction.ASK ? askPriceBuckets : bidPriceBuckets;
+        final MutableLong accum = new MutableLong();
+        buckets.forEach((p, b) -> accum.value += b.volume, Integer.MAX_VALUE);
+        return accum.value;
     }
 
     @Override

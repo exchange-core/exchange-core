@@ -392,16 +392,20 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
     // for testing only
     @Override
-    public int getOrdersNum() {
-
-        int askOrders = askBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
-        int bidOrders = bidBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
+    public int getOrdersNum(OrderAction action) {
+        final NavigableMap<Long, IOrdersBucket> buckets = action == OrderAction.ASK ? askBuckets : bidBuckets;
+        return buckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
+//        int askOrders = askBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
+//        int bidOrders = bidBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
         //log.debug("idMap:{} askOrders:{} bidOrders:{}", idMap.size(), askOrders, bidOrders);
-        int knownOrders = idMap.size();
+//        int knownOrders = idMap.size();
+//        assert knownOrders == askOrders + bidOrders : "inconsistent known orders";
+    }
 
-        assert knownOrders == askOrders + bidOrders : "inconsistent known orders";
-
-        return knownOrders;
+    @Override
+    public long getTotalOrdersVolume(OrderAction action) {
+        final NavigableMap<Long, IOrdersBucket> buckets = action == OrderAction.ASK ? askBuckets : bidBuckets;
+        return buckets.values().stream().mapToLong(IOrdersBucket::getTotalVolume).sum();
     }
 
     @Override
