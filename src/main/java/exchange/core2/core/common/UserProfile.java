@@ -15,6 +15,7 @@
  */
 package exchange.core2.core.common;
 
+import exchange.core2.core.processors.ObjectsPool;
 import exchange.core2.core.utils.HashingUtils;
 import exchange.core2.core.utils.SerializationUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -70,29 +71,12 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
         this.suspended = bytesIn.readBoolean();
     }
 
-    public SymbolPositionRecord getOrCreatePositionRecord(CoreSymbolSpecification spec) {
-        final int symbol = spec.symbolId;
-        SymbolPositionRecord record = positions.get(symbol);
-        if (record == null) {
-            record = new SymbolPositionRecord(uid, symbol, spec.quoteCurrency);
-            positions.put(symbol, record);
-        }
-        return record;
-    }
-
     public SymbolPositionRecord getPositionRecordOrThrowEx(int symbol) {
         final SymbolPositionRecord record = positions.get(symbol);
         if (record == null) {
             throw new IllegalStateException("not found position for symbol " + symbol);
         }
         return record;
-    }
-
-    public void removeRecordIfEmpty(SymbolPositionRecord record) {
-        if (record.isEmpty()) {
-            accounts.addToValue(record.currency, record.profit);
-            positions.removeKey(record.symbol);
-        }
     }
 
     @Override

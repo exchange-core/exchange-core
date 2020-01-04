@@ -15,9 +15,13 @@
  */
 package exchange.core2.core.art;
 
+import exchange.core2.core.processors.ObjectsPool;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -28,20 +32,23 @@ import java.util.Map;
  * are stored at corresponding positions and the keys are sorted.
  */
 @Slf4j
+@RequiredArgsConstructor
 public final class ArtNode4<V> implements IArtNode<V> {
 
     // keys are ordered
     final short[] keys = new short[4];
     final Object[] nodes = new Object[4];
 
+    @Getter
+    final ObjectsPool objectsPool;
+
     long nodeKey;
     int nodeLevel;
 
     byte numChildren;
 
-    // default compact node constructor
     // terminal node has always nodeLevel=0
-    ArtNode4(final long key, final V value) {
+    void initFirstKey(final long key, final V value) {
         // create compact node
         this.numChildren = 1;
         this.keys[0] = (short) (key & 0xFF);
@@ -52,28 +59,40 @@ public final class ArtNode4<V> implements IArtNode<V> {
     }
 
     // split-compact operation constructor
-    // ! smallest key first
-    ArtNode4(final long key1, final Object value1, final long key2, final Object value2, final int level) {
+    void initTwoKeys(final long key1, final Object value1, final long key2, final Object value2, final int level) {
 //        log.debug("new level={} key1={} key2={}", level, key1, key2);
         // create compact node
         this.numChildren = 2;
-        this.keys[0] = (short) ((key1 >> level) & 0xFF);
-        this.nodes[0] = value1;
-        this.keys[1] = (short) ((key2 >> level) & 0xFF);
-        this.nodes[1] = value2;
-
+        final short idx1 = (short) ((key1 >> level) & 0xFF);
+        final short idx2 = (short) ((key2 >> level) & 0xFF);
+        // ! smallest key first
+        if (key1 < key2) {
+            this.keys[0] = idx1;
+            this.nodes[0] = value1;
+            this.keys[1] = idx2;
+            this.nodes[1] = value2;
+        } else {
+            this.keys[0] = idx2;
+            this.nodes[0] = value2;
+            this.keys[1] = idx1;
+            this.nodes[1] = value1;
+        }
         this.nodeKey = key1; // leading part the same for both keys
         this.nodeLevel = level;
     }
 
+    // downsize 16->4
+    void initFromNode16(ArtNode16 artNode16) {
+        // put original node back into pool
+        objectsPool.put(ObjectsPool.ART_NODE_16, artNode16);
 
-    // downsize constructor 16->4
-    ArtNode4(ArtNode16 artNode16) {
         this.numChildren = artNode16.numChildren;
         System.arraycopy(artNode16.keys, 0, this.keys, 0, numChildren);
         System.arraycopy(artNode16.nodes, 0, this.nodes, 0, numChildren);
         this.nodeLevel = artNode16.nodeLevel;
         this.nodeKey = artNode16.nodeKey;
+
+        Arrays.fill(artNode16.nodes, null);
     }
 
     @Override
@@ -128,7 +147,6 @@ public final class ArtNode4<V> implements IArtNode<V> {
                 } else {
                     final IArtNode<V> resizedNode = ((IArtNode<V>) nodes[pos]).put(key, nodeLevel - 8, value);
                     if (resizedNode != null) {
-                        // TODO put old into the pool
                         // update resized node if capacity has increased
                         nodes[pos] = resizedNode;
                     }
@@ -156,19 +174,27 @@ public final class ArtNode4<V> implements IArtNode<V> {
             if (nodeLevel == 0) {
                 nodes[pos] = value;
             } else {
-                // TODO take from pool
-                // TODO create compressed-path node
-
-                final ArtNode4 newSubNode = new ArtNode4(key, value);
+                final ArtNode4<V> newSubNode = objectsPool.get(ObjectsPool.ART_NODE_4, ArtNode4::new);
+                newSubNode.initFirstKey(key, value);
                 nodes[pos] = newSubNode;
-                // TODO create compressed-path node
-                //newSubNode.put();
             }
             numChildren++;
             return null;
         } else {
             // no space left, create a Node16 with new item
-            return new ArtNode16<>(this, nodeIndex, (nodeLevel == 0) ? value : new ArtNode4<>(key, value));
+            final Object newElement;
+            if (nodeLevel == 0) {
+                newElement = value;
+            } else {
+                final ArtNode4<V> newSubNode = objectsPool.get(ObjectsPool.ART_NODE_4, ArtNode4::new);
+                newSubNode.initFirstKey(key, value);
+                newElement = newSubNode;
+            }
+
+            ArtNode16<V> node16 = objectsPool.get(ObjectsPool.ART_NODE_16, ArtNode16::new);
+            node16.initFromNode4(this, nodeIndex, newElement);
+
+            return node16;
         }
     }
 
@@ -236,8 +262,14 @@ public final class ArtNode4<V> implements IArtNode<V> {
             }
         }
 
-        // indicate if removed last one
-        return (numChildren == 0) ? null : this;
+        if (numChildren == 0) {
+            // indicate if removed last one
+            Arrays.fill(nodes, null);
+            objectsPool.put(ObjectsPool.ART_NODE_4, this);
+            return null;
+        } else {
+            return this;
+        }
     }
 
     @Override

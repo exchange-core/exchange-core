@@ -60,6 +60,7 @@ public final class PerfHiccups {
                     TestOrdersGenerator.UID_PLAIN_MAPPER,
                     TestConstants.SYMBOL_MARGIN,
                     false,
+                    false,
                     TestOrdersGenerator.createAsyncProgressLogger(numOrders),
                     920630642);
 

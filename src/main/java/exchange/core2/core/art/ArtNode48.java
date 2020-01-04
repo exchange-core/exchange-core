@@ -15,6 +15,9 @@
  */
 package exchange.core2.core.art;
 
+import exchange.core2.core.processors.ObjectsPool;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.set.mutable.primitive.IntHashSet;
 
@@ -35,6 +38,7 @@ import java.util.Map;
  * only require 6 bits (we use 1 byte for simplicity).
  */
 @Slf4j
+@RequiredArgsConstructor
 public final class ArtNode48<V> implements IArtNode<V> {
 
     private static final int NODE16_SWITCH_THRESHOLD = 12;
@@ -49,7 +53,11 @@ public final class ArtNode48<V> implements IArtNode<V> {
 
     byte numChildren;
 
-    public ArtNode48(ArtNode16<V> node16, short subKey, Object newElement) {
+    @Getter
+    final ObjectsPool objectsPool;
+
+    void initFromNode16(ArtNode16<V> node16, short subKey, Object newElement) {
+
         final byte sourceSize = 16;
         Arrays.fill(this.indexes, (byte) -1);
         this.numChildren = sourceSize + 1;
@@ -64,9 +72,12 @@ public final class ArtNode48<V> implements IArtNode<V> {
         this.indexes[subKey] = sourceSize;
         this.nodes[sourceSize] = newElement;
         this.freeBitMask = (1L << (sourceSize + 1)) - 1;
+
+        Arrays.fill(node16.nodes, null);
+        objectsPool.put(ObjectsPool.ART_NODE_16, node16);
     }
 
-    public ArtNode48(ArtNode256<V> node256) {
+    void initFromNode256(ArtNode256<V> node256) {
         Arrays.fill(this.indexes, (byte) -1);
         this.numChildren = (byte) node256.numChildren;
         this.nodeLevel = node256.nodeLevel;
@@ -84,6 +95,9 @@ public final class ArtNode48<V> implements IArtNode<V> {
             }
         }
         this.freeBitMask = (1L << (numChildren)) - 1;
+
+        Arrays.fill(node256.nodes, null);
+        objectsPool.put(ObjectsPool.ART_NODE_256, node256);
     }
 
     @Override
@@ -139,9 +153,8 @@ public final class ArtNode48<V> implements IArtNode<V> {
             if (nodeLevel == 0) {
                 nodes[freePosition] = value;
             } else {
-                // TODO take from pool
-                // TODO create compressed-path node
-                final ArtNode4 newSubNode = new ArtNode4(key, value);
+                final ArtNode4<V> newSubNode = objectsPool.get(ObjectsPool.ART_NODE_4, ArtNode4::new);
+                newSubNode.initFirstKey(key, value);
                 nodes[freePosition] = newSubNode;
             }
             numChildren++;
@@ -150,7 +163,19 @@ public final class ArtNode48<V> implements IArtNode<V> {
 
         } else {
             // no space left, create a ArtNode256 containing a new item
-            return new ArtNode256<>(this, idx, nodeLevel == 0 ? value : new ArtNode4<>(key, value));
+            final Object newElement;
+            if (nodeLevel == 0) {
+                newElement = value;
+            } else {
+                final ArtNode4<V> newSubNode = objectsPool.get(ObjectsPool.ART_NODE_4, ArtNode4::new);
+                newSubNode.initFirstKey(key, value);
+                newElement = newSubNode;
+            }
+
+            ArtNode256<V> node256 = objectsPool.get(ObjectsPool.ART_NODE_256, ArtNode256::new);
+            node256.initFromNode48(this, idx, newElement);
+
+            return node256;
         }
     }
 
@@ -186,7 +211,13 @@ public final class ArtNode48<V> implements IArtNode<V> {
             }
         }
 
-        return (numChildren == NODE16_SWITCH_THRESHOLD) ? new ArtNode16(this) : this;
+        if (numChildren == NODE16_SWITCH_THRESHOLD) {
+            final ArtNode16<V> newNode = objectsPool.get(ObjectsPool.ART_NODE_16, ArtNode16::new);
+            newNode.initFromNode48(this);
+            return newNode;
+        } else {
+            return this;
+        }
     }
 
     @Override

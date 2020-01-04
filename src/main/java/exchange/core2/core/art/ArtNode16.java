@@ -15,9 +15,13 @@
  */
 package exchange.core2.core.art;
 
+import exchange.core2.core.processors.ObjectsPool;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -30,6 +34,7 @@ import java.util.Map;
  * parallel comparisons using SIMD instructions.
  */
 @Slf4j
+@RequiredArgsConstructor
 public final class ArtNode16<V> implements IArtNode<V> {
 
     private static final int NODE4_SWITCH_THRESHOLD = 3;
@@ -43,7 +48,11 @@ public final class ArtNode16<V> implements IArtNode<V> {
 
     byte numChildren;
 
-    public ArtNode16(ArtNode4<V> node4, short subKey, Object newElement) {
+    @Getter
+    final ObjectsPool objectsPool;
+
+    void initFromNode4(ArtNode4<V> node4, short subKey, Object newElement) {
+
         final byte sourceSize = node4.numChildren;
         this.nodeLevel = node4.nodeLevel;
         this.nodeKey = node4.nodeKey;
@@ -63,9 +72,13 @@ public final class ArtNode16<V> implements IArtNode<V> {
             keys[sourceSize] = subKey;
             nodes[sourceSize] = newElement;
         }
+
+        // put original node back into pool
+        Arrays.fill(node4.nodes, null);
+        objectsPool.put(ObjectsPool.ART_NODE_4, node4);
     }
 
-    public ArtNode16(ArtNode48<V> node48) {
+    void initFromNode48(ArtNode48<V> node48) {
 //        log.debug("48->16 nodeLevel={} (nodekey={})", node48.nodeLevel, node48.nodeKey);
         this.numChildren = node48.numChildren;
         this.nodeLevel = node48.nodeLevel;
@@ -82,6 +95,10 @@ public final class ArtNode16<V> implements IArtNode<V> {
                 break;
             }
         }
+
+        Arrays.fill(node48.nodes, null);
+        Arrays.fill(node48.indexes, (byte) -1);
+        objectsPool.put(ObjectsPool.ART_NODE_48, node48);
     }
 
 
@@ -153,17 +170,28 @@ public final class ArtNode16<V> implements IArtNode<V> {
             if (nodeLevel == 0) {
                 nodes[pos] = value;
             } else {
-                // TODO take from pool
-                final ArtNode4 newSubNode = new ArtNode4(key, value);
+                final ArtNode4<V> newSubNode = objectsPool.get(ObjectsPool.ART_NODE_4, ArtNode4::new);
+                newSubNode.initFirstKey(key, value);
                 nodes[pos] = newSubNode;
-                // TODO create compressed-path node
                 newSubNode.put(key, nodeLevel - 8, value);
             }
             numChildren++;
             return null;
         } else {
             // no space left, create a Node48 with new element
-            return new ArtNode48<>(this, nodeIndex, nodeLevel == 0 ? value : new ArtNode4<>(key, value));
+            final Object newElement;
+            if (nodeLevel == 0) {
+                newElement = value;
+            } else {
+                final ArtNode4<V> newSubNode = objectsPool.get(ObjectsPool.ART_NODE_4, ArtNode4::new);
+                newSubNode.initFirstKey(key, value);
+                newElement = newSubNode;
+            }
+
+            ArtNode48<V> node48 = objectsPool.get(ObjectsPool.ART_NODE_48, ArtNode48::new);
+            node48.initFromNode16(this, nodeIndex, newElement);
+
+            return node48;
         }
     }
 
@@ -200,7 +228,6 @@ public final class ArtNode16<V> implements IArtNode<V> {
         } else {
             final IArtNode<V> resizedNode = ((IArtNode<V>) node).remove(key, nodeLevel - 8);
             if (resizedNode != node) {
-                // TODO put old into the pool
                 // update resized node if capacity has decreased
                 nodes[pos] = resizedNode;
                 if (resizedNode == null) {
@@ -210,7 +237,13 @@ public final class ArtNode16<V> implements IArtNode<V> {
         }
 
         // switch to ArtNode4 if too small
-        return (numChildren == NODE4_SWITCH_THRESHOLD) ? new ArtNode4(this) : this;
+        if (numChildren == NODE4_SWITCH_THRESHOLD) {
+            final ArtNode4<V> newNode = objectsPool.get(ObjectsPool.ART_NODE_4, ArtNode4::new);
+            newNode.initFromNode16(this);
+            return newNode;
+        } else {
+            return this;
+        }
     }
 
     @Override
@@ -367,7 +400,8 @@ public final class ArtNode16<V> implements IArtNode<V> {
     @Override
     public void validateInternalState(int level) {
         if (nodeLevel > level) throw new IllegalStateException("unexpected nodeLevel");
-        if (numChildren > 16 || numChildren <= NODE4_SWITCH_THRESHOLD) throw new IllegalStateException("unexpected numChildren");
+        if (numChildren > 16 || numChildren <= NODE4_SWITCH_THRESHOLD)
+            throw new IllegalStateException("unexpected numChildren");
         short last = -1;
         for (int i = 0; i < 16; i++) {
             Object node = nodes[i];

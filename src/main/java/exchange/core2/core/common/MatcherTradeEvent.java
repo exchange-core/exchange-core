@@ -33,10 +33,7 @@ public final class MatcherTradeEvent {
     public int symbol;
 
     // taker (for TRADE)
-    public long activeOrderId;
-    public long activeOrderUid;
     public boolean activeOrderCompleted; // false, except when activeOrder is completely filled (should be ignored for CANCEL or REJECTION)
-    public OrderAction activeOrderAction; // assume matched order has opposite action
 //    public long activeOrderSeq;
 
     // maker (for TRADE)
@@ -58,10 +55,7 @@ public final class MatcherTradeEvent {
     public MatcherTradeEvent copy() {
         MatcherTradeEvent evt = new MatcherTradeEvent();
         evt.eventType = this.eventType;
-        evt.activeOrderId = this.activeOrderId;
-        evt.activeOrderUid = this.activeOrderUid;
         evt.activeOrderCompleted = this.activeOrderCompleted;
-        evt.activeOrderAction = this.activeOrderAction;
         evt.matchedOrderId = this.matchedOrderId;
         evt.matchedOrderUid = this.matchedOrderUid;
         evt.matchedOrderCompleted = this.matchedOrderCompleted;
@@ -102,10 +96,7 @@ public final class MatcherTradeEvent {
         MatcherTradeEvent other = (MatcherTradeEvent) o;
         return new EqualsBuilder()
                 .append(symbol, other.symbol)
-                .append(activeOrderId, other.activeOrderId)
-                .append(activeOrderUid, other.activeOrderUid)
                 .append(activeOrderCompleted, other.activeOrderCompleted)
-                .append(activeOrderAction, other.activeOrderAction)
                 .append(matchedOrderId, other.matchedOrderId)
                 .append(matchedOrderUid, other.matchedOrderUid)
                 .append(matchedOrderCompleted, other.matchedOrderCompleted)
@@ -124,10 +115,7 @@ public final class MatcherTradeEvent {
     public int hashCode() {
         return Objects.hash(
                 symbol,
-                activeOrderId,
-                activeOrderUid,
                 activeOrderCompleted,
-                activeOrderAction,
                 matchedOrderId,
                 matchedOrderUid,
                 matchedOrderCompleted,
@@ -143,10 +131,7 @@ public final class MatcherTradeEvent {
         return "MatcherTradeEvent{" +
                 "eventType=" + eventType +
                 ", symbol=" + symbol +
-                ", activeOrderId=" + activeOrderId +
-                ", activeOrderUid=" + activeOrderUid +
                 ", activeOrderCompleted=" + activeOrderCompleted +
-                ", activeOrderAction=" + activeOrderAction +
                 ", matchedOrderId=" + matchedOrderId +
                 ", matchedOrderUid=" + matchedOrderUid +
                 ", matchedOrderCompleted=" + matchedOrderCompleted +

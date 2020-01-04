@@ -726,7 +726,15 @@ public class LongAdaptiveRadixTreeMapTest {
 
 
     private void put(long key, String value) {
+//        System.out.println("------------------ put "+ key);
+//        System.out.println("BEFORE");
+//        System.out.println(map.printDiagram());
+
         map.put(key, value);
+
+//        System.out.println("AFTER");
+//        System.out.println(map.printDiagram());
+
         map.validateInternalState();
         origMap.put(key, value);
 
@@ -738,7 +746,16 @@ public class LongAdaptiveRadixTreeMapTest {
     }
 
     private void remove(long key) {
+
+//        System.out.println("------------------ remove "+ key);
+//        System.out.println("BEFORE");
+//        System.out.println(map.printDiagram());
+
         map.remove(key);
+
+//        System.out.println("AFTER");
+//        System.out.println(map.printDiagram());
+
         map.validateInternalState();
         origMap.remove(key);
 

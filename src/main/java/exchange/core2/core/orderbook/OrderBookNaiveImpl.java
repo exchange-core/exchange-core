@@ -191,13 +191,13 @@ public final class OrderBookNaiveImpl implements IOrderBook {
      *
      * @return true if order removed, false if not found (can be removed/matched earlier)
      */
-    public boolean cancelOrder(OrderCommand cmd) {
+    public CommandResultCode cancelOrder(OrderCommand cmd) {
         long orderId = cmd.orderId;
 
         Order order = idMap.get(orderId);
         if (order == null || order.uid != cmd.uid) {
-            // order already matched and removed from orderbook previously
-            return false;
+            // order already matched and removed from order book previously
+            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
 
         // now can remove it
@@ -220,7 +220,10 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         // send cancel event
         OrderBookEventsHelper.sendCancelEvent(cmd, order);
 
-        return true;
+        // fill action fields (for events handling)
+        cmd.action = order.getAction();
+
+        return CommandResultCode.SUCCESS;
     }
 
     @Override
@@ -230,14 +233,8 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         final long newPrice = cmd.price;
 
         final Order order = idMap.get(orderId);
-        if (order == null) {
+        if (order == null || order.uid != cmd.uid) {
             // already matched, moved or cancelled
-            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
-        }
-
-//         log.debug("{}. {}->{}", orderId, order.price, newPrice);
-
-        if (order.uid != cmd.uid) {
             return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
 
@@ -392,16 +389,20 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
     // for testing only
     @Override
-    public int getOrdersNum() {
-
-        int askOrders = askBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
-        int bidOrders = bidBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
+    public int getOrdersNum(OrderAction action) {
+        final NavigableMap<Long, IOrdersBucket> buckets = action == OrderAction.ASK ? askBuckets : bidBuckets;
+        return buckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
+//        int askOrders = askBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
+//        int bidOrders = bidBuckets.values().stream().mapToInt(IOrdersBucket::getNumOrders).sum();
         //log.debug("idMap:{} askOrders:{} bidOrders:{}", idMap.size(), askOrders, bidOrders);
-        int knownOrders = idMap.size();
+//        int knownOrders = idMap.size();
+//        assert knownOrders == askOrders + bidOrders : "inconsistent known orders";
+    }
 
-        assert knownOrders == askOrders + bidOrders : "inconsistent known orders";
-
-        return knownOrders;
+    @Override
+    public long getTotalOrdersVolume(OrderAction action) {
+        final NavigableMap<Long, IOrdersBucket> buckets = action == OrderAction.ASK ? askBuckets : bidBuckets;
+        return buckets.values().stream().mapToLong(IOrdersBucket::getTotalVolume).sum();
     }
 
     @Override

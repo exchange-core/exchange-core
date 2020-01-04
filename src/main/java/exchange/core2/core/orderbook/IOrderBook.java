@@ -19,6 +19,7 @@ import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
+import exchange.core2.core.processors.ObjectsPool;
 import exchange.core2.core.utils.HashingUtils;
 import lombok.Getter;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -45,25 +46,27 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     /**
      * Cancel order
      * <p>
-     * orderId - order Id
+     * fills cmd.action  with original original order action
      *
-     * @return false if order was not found, otherwise always true
+     * @return MATCHING_UNKNOWN_ORDER_ID if order was not found, otherwise SUCCESS
      */
-    boolean cancelOrder(OrderCommand cmd);
+    CommandResultCode cancelOrder(OrderCommand cmd);
 
     /**
-     * Move an order
+     * Move order
      * <p>
-     * orderId  - order Id
      * newPrice - new price (if 0 or same - order will not moved)
-     * newSize  - new size (if higher than current size or 0 - order will not downsized)
+     * fills cmd.action  with original original order action
      *
-     * @return false if order was not found, otherwise always true
+     * @return MATCHING_UNKNOWN_ORDER_ID if order was not found, otherwise SUCCESS
      */
     CommandResultCode moveOrder(OrderCommand cmd);
 
     // testing only ?
-    int getOrdersNum();
+    int getOrdersNum(OrderAction action);
+
+    // testing only ?
+    long getTotalOrdersVolume(OrderAction action);
 
     // testing only ?
     IOrder getOrderById(long orderId);
@@ -147,8 +150,7 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
         } else if (commandType == OrderCommandType.CANCEL_ORDER) {
 
-            boolean isCancelled = orderBook.cancelOrder(cmd);
-            return isCancelled ? CommandResultCode.SUCCESS : CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
+            return orderBook.cancelOrder(cmd);
 
         } else if (commandType == OrderCommandType.PLACE_ORDER) {
 
@@ -167,14 +169,14 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
     }
 
-    static IOrderBook create(BytesIn bytes) {
+    static IOrderBook create(BytesIn bytes, final ObjectsPool objectsPool) {
         switch (OrderBookImplType.of(bytes.readByte())) {
             case NAIVE:
                 return new OrderBookNaiveImpl(bytes);
             case FAST:
                 return new OrderBookFastImpl(bytes);
             case DIRECT:
-                return new OrderBookDirectImpl(bytes);
+                return new OrderBookDirectImpl(bytes, objectsPool);
             default:
                 throw new IllegalArgumentException();
         }

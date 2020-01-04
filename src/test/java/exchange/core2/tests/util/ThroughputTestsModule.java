@@ -47,12 +47,16 @@ public class ThroughputTestsModule {
 
         final List<BitSet> usersAccounts = UserCurrencyAccountsGenerator.generateUsers(numAccounts, currenciesAllowed);
 
+        final TestOrdersGeneratorConfig genConfig = TestOrdersGeneratorConfig.builder()
+                .coreSymbolSpecifications(coreSymbolSpecifications)
+                .totalTransactionsNumber(totalTransactionsNumber)
+                .usersAccounts(usersAccounts)
+                .targetOrderBookOrdersTotal(targetOrderBookOrdersTotal)
+                .seed(1)
+                .build();
+
         final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(
-                coreSymbolSpecifications,
-                totalTransactionsNumber,
-                usersAccounts,
-                targetOrderBookOrdersTotal,
-                1);
+                genConfig);
 
         try (final ExchangeTestContainer container = containerFactory.get();
              final AffinityLock cpuLock = AffinityLock.acquireLock()) {

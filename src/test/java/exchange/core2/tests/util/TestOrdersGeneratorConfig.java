@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 Maksim Zheravin
+ * Copyright 2020 Maksim Zheravin
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,15 +13,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package exchange.core2.core.orderbook;
+package exchange.core2.tests.util;
 
-import exchange.core2.core.processors.ObjectsPool;
-import exchange.core2.tests.util.TestConstants;
+import exchange.core2.core.common.CoreSymbolSpecification;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 
-public class OrderBookDirectImplTest extends OrderBookBaseTest {
+import java.util.BitSet;
+import java.util.List;
 
-    @Override
-    protected IOrderBook createNewOrderBook() {
-        return new OrderBookDirectImpl(TestConstants.SYMBOLSPEC_EUR_USD, ObjectsPool.createDefaultTestPool());
-    }
+@AllArgsConstructor
+@Builder
+public class TestOrdersGeneratorConfig {
+
+    final List<CoreSymbolSpecification> coreSymbolSpecifications;
+    final int totalTransactionsNumber;
+    final List<BitSet> usersAccounts;
+    final int targetOrderBookOrdersTotal;
+    final int seed;
+    final boolean hugeSizeIOC;
+
 }

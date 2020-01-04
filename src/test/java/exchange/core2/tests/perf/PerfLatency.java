@@ -15,33 +15,12 @@
  */
 package exchange.core2.tests.perf;
 
-import exchange.core2.tests.util.*;
-import lombok.extern.slf4j.Slf4j;
-import net.openhft.affinity.AffinityLock;
-import org.HdrHistogram.Histogram;
-import org.HdrHistogram.SingleWriterRecorder;
-import org.junit.Test;
-import exchange.core2.core.common.CoreSymbolSpecification;
-import exchange.core2.core.common.api.ApiCommand;
-import exchange.core2.core.ExchangeApi;
 import exchange.core2.tests.util.ExchangeTestContainer;
-import exchange.core2.tests.util.LatencyTools;
-import exchange.core2.tests.util.TestOrdersGenerator;
-import exchange.core2.tests.util.UserCurrencyAccountsGenerator;
-
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.PrintStream;
-import java.util.BitSet;
-import java.util.List;
-import java.util.Set;
-import java.util.concurrent.CountDownLatch;
-import java.util.function.BiFunction;
-import java.util.function.Supplier;
-import java.util.stream.IntStream;
+import exchange.core2.tests.util.TestConstants;
+import lombok.extern.slf4j.Slf4j;
+import org.junit.Test;
 
 import static exchange.core2.tests.util.LatencyTestsModule.latencyTestImpl;
-import static org.junit.Assert.assertEquals;
 
 @Slf4j
 public final class PerfLatency {

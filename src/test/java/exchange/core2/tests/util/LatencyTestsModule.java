@@ -67,12 +67,15 @@ public class LatencyTestsModule {
 
         final List<BitSet> usersAccounts = UserCurrencyAccountsGenerator.generateUsers(numAccounts, currenciesAllowed);
 
-        final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(
-                coreSymbolSpecifications,
-                totalCommandsNumber,
-                usersAccounts,
-                targetOrderBookOrdersTotal,
-                1);
+        final TestOrdersGeneratorConfig genConfig = TestOrdersGeneratorConfig.builder()
+                .coreSymbolSpecifications(coreSymbolSpecifications)
+                .totalTransactionsNumber(totalCommandsNumber)
+                .usersAccounts(usersAccounts)
+                .targetOrderBookOrdersTotal(targetOrderBookOrdersTotal)
+                .seed(1)
+                .build();
+
+        final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(genConfig);
 
         try (final AffinityLock cpuLock = AffinityLock.acquireLock();
              final ExchangeTestContainer container = containerFactory.get()) {
@@ -167,19 +170,23 @@ public class LatencyTestsModule {
                                              final Set<Integer> currenciesAllowed,
                                              final int numSymbols,
                                              final ExchangeTestContainer.AllowedSymbolTypes allowedSymbolTypes,
-                                             final int warmupCycles) {
+                                             final boolean hugeSizeIOC) {
 
 
         final List<CoreSymbolSpecification> coreSymbolSpecifications = ExchangeTestContainer.generateRandomSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
 
         final List<BitSet> usersAccounts = UserCurrencyAccountsGenerator.generateUsers(numAccounts, currenciesAllowed);
 
-        final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(
-                coreSymbolSpecifications,
-                totalCommandsNumber,
-                usersAccounts,
-                targetOrderBookOrdersTotal,
-                1);
+        final TestOrdersGeneratorConfig genConfig = TestOrdersGeneratorConfig.builder()
+                .coreSymbolSpecifications(coreSymbolSpecifications)
+                .totalTransactionsNumber(totalCommandsNumber)
+                .usersAccounts(usersAccounts)
+                .targetOrderBookOrdersTotal(targetOrderBookOrdersTotal)
+                .seed(1)
+                .hugeSizeIOC(hugeSizeIOC)
+                .build();
+
+        final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(genConfig);
 
         final int[] minLatencies = new int[genResult.apiCommandsBenchmark.size()];
         Arrays.fill(minLatencies, Integer.MAX_VALUE);
@@ -301,9 +308,10 @@ public class LatencyTestsModule {
 
                     slowCommands.sort((o1, o2) -> o2.getFirst().compareTo(o1.getFirst()));
 
-                    log.info("10 slowest commands (theoretical):");
-                    slowCommands.stream().limit(10).forEach(
-                            p -> log.info("{}. {}ns {}", String.format("%06X", p.getSecond().getFirst()), p.getFirst(), p.getSecond().getSecond()));
+                    log.info("Slowest commands (theoretical):");
+                    slowCommands.stream().limit(100).forEach(
+                            p -> log.info("{}. {} {}",
+                                    String.format("%06X", p.getSecond().getFirst()), LatencyTools.formatNanos(p.getFirst()), p.getSecond().getSecond()));
 
                     // compare orderBook final state just to make sure all commands executed same way
                     // TODO compare events, balances, positions

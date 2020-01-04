@@ -40,8 +40,21 @@ public final class PerfLatencyCommands {
                 TestConstants.CURRENCIES_FUTURES,
                 1,
                 ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT,
-                20);
+                false);
     }
+
+    @Test
+    public void testLatencyMarginHugeIoc() {
+        individualLatencyTest(msgsInGroup -> new ExchangeTestContainer(2 * 1024, 1, 1, msgsInGroup, null),
+                1_000_000,
+                1_000,
+                2_000,
+                TestConstants.CURRENCIES_FUTURES,
+                1,
+                ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT,
+                true);
+    }
+
 
     /**
      * - one symbol (exchange mode)
@@ -58,8 +71,21 @@ public final class PerfLatencyCommands {
                 TestConstants.CURRENCIES_EXCHANGE,
                 1,
                 ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR,
-                20);
+                false);
     }
+
+    @Test
+    public void testLatencyExchangeHugeIoc() {
+        individualLatencyTest(msgsInGroup -> new ExchangeTestContainer(2 * 1024, 1, 1, msgsInGroup, null),
+                1_000_000,
+                1_000,
+                2_000,
+                TestConstants.CURRENCIES_EXCHANGE,
+                1,
+                ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR,
+                true);
+    }
+
 
     /**
      * - 1M active users (3M currency accounts)
@@ -78,8 +104,21 @@ public final class PerfLatencyCommands {
                 TestConstants.ALL_CURRENCIES,
                 100_000,
                 ExchangeTestContainer.AllowedSymbolTypes.BOTH,
-                10);
+                false);
     }
+
+    @Test
+    public void testLatencyMultiSymbolMediumHugeIOC() {
+        individualLatencyTest(msgsInGroup -> new ExchangeTestContainer(32 * 1024, 4, 2, msgsInGroup, null),
+                6_000_000,
+                1_000_000,
+                3_300_000,
+                TestConstants.ALL_CURRENCIES,
+                100_000,
+                ExchangeTestContainer.AllowedSymbolTypes.BOTH,
+                true);
+    }
+
 
     /**
      * - 10M active users (33M currency accounts)
@@ -98,7 +137,7 @@ public final class PerfLatencyCommands {
                 TestConstants.ALL_CURRENCIES,
                 200_000,
                 ExchangeTestContainer.AllowedSymbolTypes.BOTH,
-                10);
+                false);
     }
 
 }

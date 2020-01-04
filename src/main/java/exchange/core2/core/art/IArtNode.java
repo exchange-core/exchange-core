@@ -15,6 +15,8 @@
  */
 package exchange.core2.core.art;
 
+import exchange.core2.core.processors.ObjectsPool;
+
 import java.util.List;
 import java.util.Map;
 
@@ -58,4 +60,6 @@ public interface IArtNode<V> {
      */
     List<Map.Entry<Long, V>> entries();
 
+
+    ObjectsPool getObjectsPool();
 }

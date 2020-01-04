@@ -59,6 +59,13 @@
                 <version>${openhft.chronicle.wire.version}</version>
             </dependency>
 
+            <!-- Real Logic Agrona -->
+            <dependency>
+                <groupId>org.agrona</groupId>
+                <artifactId>agrona</artifactId>
+                <version>1.1.0</version>
+            </dependency>
+
             <!-- JMH -->
             <dependency>
                 <groupId>org.openjdk.jmh</groupId>
@@ -216,6 +223,11 @@
         <dependency>
             <groupId>net.openhft</groupId>
             <artifactId>chronicle-wire</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.agrona</groupId>
+            <artifactId>agrona</artifactId>
         </dependency>
 
         <dependency>

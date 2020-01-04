@@ -18,7 +18,6 @@ package exchange.core2.core.orderbook;
 import exchange.core2.core.common.L2MarketData;
 import exchange.core2.core.common.MatcherEventType;
 import exchange.core2.core.common.MatcherTradeEvent;
-import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.tests.util.L2MarketDataHelper;
@@ -200,9 +199,11 @@ public abstract class OrderBookBaseTest {
         expectedState.setBidVolume(1, 1).rollBidOrder(1, false);
         assertEquals(expectedState.build(), orderBook.getL2MarketDataSnapshot(25));
 
+        assertThat(cmd.action, is(BID));
+
         List<MatcherTradeEvent> events = cmd.extractEvents();
         assertThat(events.size(), is(1));
-        checkEventCancel(events.get(0), 5L, BID, 20L, UID_1);
+        checkEventCancel(events.get(0), 20L);
 
         // remove ask order
         cmd = OrderCommand.cancel(2, UID_1);
@@ -211,9 +212,11 @@ public abstract class OrderBookBaseTest {
         expectedState.setAskVolume(0, 25).rollAskOrder(0, false);
         assertEquals(expectedState.build(), orderBook.getL2MarketDataSnapshot(25));
 
+        assertThat(cmd.action, is(ASK));
+
         events = cmd.extractEvents();
         assertThat(events.size(), is(1));
-        checkEventCancel(events.get(0), 2L, ASK, 50L, UID_1);
+        checkEventCancel(events.get(0), 50L);
     }
 
     /**
@@ -224,14 +227,18 @@ public abstract class OrderBookBaseTest {
         OrderCommand cmdCancel2 = OrderCommand.cancel(2, UID_1);
         processAndValidate(cmdCancel2, SUCCESS);
 
+        assertThat(cmdCancel2.action, is(ASK));
+
         List<MatcherTradeEvent> events = cmdCancel2.extractEvents();
         assertThat(events.size(), is(1));
-        checkEventCancel(events.get(0), 2L, ASK, 50L, UID_1);
+        checkEventCancel(events.get(0), 50L);
 
         //log.debug("{}", orderBook.getL2MarketDataSnapshot(10).dumpOrderBook());
 
         OrderCommand cmdCancel3 = OrderCommand.cancel(3, UID_1);
         processAndValidate(cmdCancel3, SUCCESS);
+
+        assertThat(cmdCancel3.action, is(ASK));
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
 
@@ -239,7 +246,7 @@ public abstract class OrderBookBaseTest {
 
         events = cmdCancel3.extractEvents();
         assertThat(events.size(), is(1));
-        checkEventCancel(events.get(0), 3L, ASK, 25L, UID_1);
+        checkEventCancel(events.get(0), 25L);
     }
 
     @Test
@@ -316,7 +323,7 @@ public abstract class OrderBookBaseTest {
 
         List<MatcherTradeEvent> events = cmd.extractEvents();
         assertThat(events.size(), is(1));
-        checkEventTrade(events.get(0), 123L, 4L, 81593, 10L);
+        checkEventTrade(events.get(0), 4L, 81593, 10L);
     }
 
 
@@ -334,7 +341,7 @@ public abstract class OrderBookBaseTest {
 
         List<MatcherTradeEvent> events = cmd.extractEvents();
         assertThat(events.size(), is(1));
-        checkEventTrade(events.get(0), 123L, 4L, 81593, 40L);
+        checkEventTrade(events.get(0), 4L, 81593, 40L);
     }
 
     @Test
@@ -351,8 +358,8 @@ public abstract class OrderBookBaseTest {
 
         List<MatcherTradeEvent> events = cmd.extractEvents();
         assertThat(events.size(), is(2));
-        checkEventTrade(events.get(0), 123L, 4L, 81593, 40L);
-        checkEventTrade(events.get(1), 123L, 5L, 81590, 1L);
+        checkEventTrade(events.get(0), 4L, 81593, 40L);
+        checkEventTrade(events.get(1), 5L, 81590, 1L);
 
         // check orders are removed from map
         assertNull(orderBook.getOrderById(4L));
@@ -374,9 +381,9 @@ public abstract class OrderBookBaseTest {
 
         List<MatcherTradeEvent> events = cmd.extractEvents();
         assertThat(events.size(), is(3));
-        checkEventTrade(events.get(0), 123L, 2L, 81599, 50L);
-        checkEventTrade(events.get(1), 123L, 3L, 81599, 25L);
-        checkEventTrade(events.get(2), 123L, 1L, 81600, 100L);
+        checkEventTrade(events.get(0), 2L, 81599, 50L);
+        checkEventTrade(events.get(1), 3L, 81599, 25L);
+        checkEventTrade(events.get(2), 1L, 81600, 100L);
 
         // check orders are removed from map
         assertNull(orderBook.getOrderById(1L));
@@ -400,7 +407,7 @@ public abstract class OrderBookBaseTest {
         assertThat(events.size(), is(7));
 
         // 7 trades generated and then rejection with size=25 left unmatched
-        checkEventRejection(events.get(6), 123L, 25L);
+        checkEventRejection(events.get(6), 25L);
     }
 
     // MARKETABLE GTC ORDERS
@@ -419,7 +426,7 @@ public abstract class OrderBookBaseTest {
 
         List<MatcherTradeEvent> events = cmd.extractEvents();
         assertThat(events.size(), is(1));
-        checkEventTrade(events.get(0), 123L, 2L, 81599, 1L);
+        checkEventTrade(events.get(0), 2L, 81599, 1L);
     }
 
 
@@ -438,8 +445,8 @@ public abstract class OrderBookBaseTest {
         List<MatcherTradeEvent> events = cmd.extractEvents();
         assertThat(events.size(), is(2));
 
-        checkEventTrade(events.get(0), 123L, 2L, 81599, 50L);
-        checkEventTrade(events.get(1), 123L, 3L, 81599, 25L);
+        checkEventTrade(events.get(0), 2L, 81599, 50L);
+        checkEventTrade(events.get(1), 3L, 81599, 25L);
     }
 
     @Test
@@ -457,9 +464,9 @@ public abstract class OrderBookBaseTest {
         List<MatcherTradeEvent> events = cmd.extractEvents();
         assertThat(events.size(), is(3));
 
-        checkEventTrade(events.get(0), 123L, 2L, 81599, 50L);
-        checkEventTrade(events.get(1), 123L, 3L, 81599, 25L);
-        checkEventTrade(events.get(2), 123L, 1L, 81600, 2L);
+        checkEventTrade(events.get(0), 2L, 81599, 50L);
+        checkEventTrade(events.get(1), 3L, 81599, 25L);
+        checkEventTrade(events.get(2), 1L, 81600, 2L);
     }
 
 
@@ -479,12 +486,12 @@ public abstract class OrderBookBaseTest {
         List<MatcherTradeEvent> events = cmd.extractEvents();
         assertThat(events.size(), is(6));
 
-        checkEventTrade(events.get(0), 123L, 2L, 81599, 50L);
-        checkEventTrade(events.get(1), 123L, 3L, 81599, 25L);
-        checkEventTrade(events.get(2), 123L, 1L, 81600, 100L);
-        checkEventTrade(events.get(3), 123L, 10L, 200954, 10L);
-        checkEventTrade(events.get(4), 123L, 8L, 201000, 28L);
-        checkEventTrade(events.get(5), 123L, 9L, 201000, 32L);
+        checkEventTrade(events.get(0), 2L, 81599, 50L);
+        checkEventTrade(events.get(1), 3L, 81599, 25L);
+        checkEventTrade(events.get(2), 1L, 81600, 100L);
+        checkEventTrade(events.get(3), 10L, 200954, 10L);
+        checkEventTrade(events.get(4), 8L, 201000, 28L);
+        checkEventTrade(events.get(5), 9L, 201000, 32L);
     }
 
 
@@ -513,7 +520,7 @@ public abstract class OrderBookBaseTest {
 
         events = cmd.extractEvents();
         assertThat(events.size(), is(1));
-        checkEventTrade(events.get(0), 83L, 2L, 81599, 20L);
+        checkEventTrade(events.get(0), 2L, 81599, 20L);
     }
 
 
@@ -538,9 +545,9 @@ public abstract class OrderBookBaseTest {
 
         events = cmd.extractEvents();
         assertThat(events.size(), is(3));
-        checkEventTrade(events.get(0), 83L, 2L, 81599, 50L);
-        checkEventTrade(events.get(1), 83L, 3L, 81599, 25L);
-        checkEventTrade(events.get(2), 83L, 1L, 81600, 25L);
+        checkEventTrade(events.get(0), 2L, 81599, 50L);
+        checkEventTrade(events.get(1), 3L, 81599, 25L);
+        checkEventTrade(events.get(2), 1L, 81600, 25L);
 
     }
 
@@ -562,12 +569,12 @@ public abstract class OrderBookBaseTest {
 
         List<MatcherTradeEvent> events = cmd.extractEvents();
         assertThat(events.size(), is(6));
-        checkEventTrade(events.get(0), 83L, 2L, 81599, 50L);
-        checkEventTrade(events.get(1), 83L, 3L, 81599, 25L);
-        checkEventTrade(events.get(2), 83L, 1L, 81600, 100L);
-        checkEventTrade(events.get(3), 83L, 10L, 200954, 10L);
-        checkEventTrade(events.get(4), 83L, 8L, 201000, 28L);
-        checkEventTrade(events.get(5), 83L, 9L, 201000, 32L);
+        checkEventTrade(events.get(0), 2L, 81599, 50L);
+        checkEventTrade(events.get(1), 3L, 81599, 25L);
+        checkEventTrade(events.get(2), 1L, 81600, 100L);
+        checkEventTrade(events.get(3), 10L, 200954, 10L);
+        checkEventTrade(events.get(4), 8L, 201000, 28L);
+        checkEventTrade(events.get(5), 9L, 201000, 32L);
     }
 
 
@@ -586,6 +593,7 @@ public abstract class OrderBookBaseTest {
                 TestOrdersGenerator.UID_PLAIN_MAPPER,
                 0,
                 false,
+                false,
                 TestOrdersGenerator.createAsyncProgressLogger(tranNum),
                 348290254);
 
@@ -602,6 +610,8 @@ public abstract class OrderBookBaseTest {
 
     @Test
     public void multipleCommandsCompareTest() {
+
+        // TODO more efficient - multi-threaded executions with different seed and order book type
 
         long nextUpdateTime = 0;
 
@@ -623,6 +633,7 @@ public abstract class OrderBookBaseTest {
                 TestOrdersGenerator.UID_PLAIN_MAPPER,
                 0,
                 true,
+                false,
                 TestOrdersGenerator.createAsyncProgressLogger(tranNum),
                 1825793762);
 
@@ -680,34 +691,23 @@ public abstract class OrderBookBaseTest {
         orderBook.validateInternalState();
     }
 
-    public void checkEventTrade(MatcherTradeEvent event, long activeId, long matchedId, long price, long size) {
-
+    public void checkEventTrade(MatcherTradeEvent event, long matchedId, long price, long size) {
         assertThat(event.eventType, is(MatcherEventType.TRADE));
-
-        assertThat(event.activeOrderId, is(activeId));
         assertThat(event.matchedOrderId, is(matchedId));
         assertThat(event.price, is(price));
         assertThat(event.size, is(size));
         // TODO add more checks for MatcherTradeEvent
     }
 
-    public void checkEventRejection(MatcherTradeEvent event, long activeId, long size) {
-
+    public void checkEventRejection(MatcherTradeEvent event, long size) {
         assertThat(event.eventType, is(MatcherEventType.REJECTION));
-
-        assertThat(event.activeOrderId, is(activeId));
         assertThat(event.size, is(size));
         // TODO add more checks for MatcherTradeEvent
     }
 
-    public void checkEventCancel(MatcherTradeEvent event, long orderId, OrderAction action, long remainingSize, long uid) {
+    public void checkEventCancel(MatcherTradeEvent event, long remainingSize) {
         assertThat(event.eventType, is(MatcherEventType.CANCEL));
-
-        assertThat(event.activeOrderId, is(orderId));
-        assertThat(event.activeOrderAction, is(action));
         assertThat(event.size, is(remainingSize));
-
-        assertThat(event.activeOrderUid, is(uid));
         // TODO add more checks for MatcherTradeEvent
     }
 

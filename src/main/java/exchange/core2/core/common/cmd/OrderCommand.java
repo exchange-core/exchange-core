@@ -43,10 +43,11 @@ public final class OrderCommand implements IOrder {
     public long size;
 
     @Getter
-    // new orders - reserved price for fast moves of GTC bid orders in exchange mode
+    // new orders INPUT - reserved price for fast moves of GTC bid orders in exchange mode
     public long reserveBidPrice;
 
     // required for PLACE_ORDER only;
+    // for CANCEL/MOVE contains original order action (filled by orderbook)
     @Getter
     public OrderAction action;
 

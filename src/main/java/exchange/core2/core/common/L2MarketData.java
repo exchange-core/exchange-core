@@ -92,6 +92,22 @@ public final class L2MarketData {
         return Arrays.copyOf(bidOrders, bidSize);
     }
 
+    public long totalOrderBookVolumeAsk() {
+        long totalVolume = 0L;
+        for (int i = 0; i < askSize; i++) {
+            totalVolume += askVolumes[i];
+        }
+        return totalVolume;
+    }
+
+    public long totalOrderBookVolumeBid() {
+        long totalVolume = 0L;
+        for (int i = 0; i < bidSize; i++) {
+            totalVolume += bidVolumes[i];
+        }
+        return totalVolume;
+    }
+
     public String dumpOrderBook() {
         int priceWith = maxWidth(2, Arrays.copyOf(askPrices, askSize), Arrays.copyOf(bidPrices, bidSize));
         int volWith = maxWidth(2, Arrays.copyOf(askVolumes, askSize), Arrays.copyOf(bidVolumes, bidSize));
