@@ -364,16 +364,6 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                         symbolOpenInterestShort));
     }
 
-    /**
-     * Post process command
-     *
-     * @param cmd
-     */
-    public boolean handlerRiskRelease(final OrderCommand cmd) {
-        handlerRiskRelease(cmd.symbol, cmd.marketData, cmd.matcherEvent);
-        return false;
-    }
-
     private boolean uidForThisHandler(final long uid) {
         return (shardMask == 0) || ((uid & shardMask) == shardId);
     }
@@ -531,13 +521,16 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         return newRequiredMarginForSymbol <= userProfile.accounts.get(position.currency) + freeMargin;
     }
 
-    public void handlerRiskRelease(final int symbol,
-                                   final L2MarketData marketData,
-                                   MatcherTradeEvent mte) {
+    public boolean handlerRiskRelease(final OrderCommand cmd) {
+
+        final int symbol = cmd.symbol;
+
+        final L2MarketData marketData = cmd.marketData;
+        MatcherTradeEvent mte = cmd.matcherEvent;
 
         // skip events processing if no events (or if contains BINARY EVENT)
         if (marketData == null && (mte == null || mte.eventType == MatcherEventType.BINARY_EVENT)) {
-            return;
+            return false;
         }
 
         final CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(symbol);
@@ -546,15 +539,22 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         }
 
         if (mte != null && mte.eventType != MatcherEventType.BINARY_EVENT) {
+            // at least one event to process, resolving primary/taker user profile
+            final UserProfile takerUp = uidForThisHandler(cmd.uid) ? userProfileService.getUserProfileOrAddSuspended(cmd.uid) : null;
             // TODO processing order is reversed
-            do {
-                if (spec.type == SymbolType.CURRENCY_EXCHANGE_PAIR) {
-                    handleMatcherEventExchange(mte, spec);
-                } else {
-                    handleMatcherEventMargin(mte, spec);
-                }
-                mte = mte.nextEvent;
-            } while (mte != null);
+            if (spec.type == SymbolType.CURRENCY_EXCHANGE_PAIR) {
+                do {
+                    handleMatcherEventExchange(mte, spec, cmd.action, takerUp);
+                    mte = mte.nextEvent;
+                } while (mte != null);
+            } else {
+                // for margin-mode symbols also resolve position record
+                final SymbolPositionRecord takerSpr = (takerUp != null) ? takerUp.getPositionRecordOrThrowEx(symbol) : null;
+                do {
+                    handleMatcherEventMargin(mte, spec, cmd.action, takerUp, takerSpr);
+                    mte = mte.nextEvent;
+                } while (mte != null);
+            }
         }
 
         // Process marked data
@@ -563,108 +563,96 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             record.askPrice = (marketData.askSize != 0) ? marketData.askPrices[0] : Long.MAX_VALUE;
             record.bidPrice = (marketData.bidSize != 0) ? marketData.bidPrices[0] : 0;
         }
+
+        return false;
     }
 
-    private void handleMatcherEventMargin(final MatcherTradeEvent ev, final CoreSymbolSpecification spec) {
-
-        final long size = ev.size;
-
-        if (ev.eventType == MatcherEventType.TRADE) {
-            // TODO group by user profile ??
-            int quoteCurrency = spec.quoteCurrency;
-
-            if (uidForThisHandler(ev.activeOrderUid)) {
+    private void handleMatcherEventMargin(final MatcherTradeEvent ev,
+                                          final CoreSymbolSpecification spec,
+                                          final OrderAction takerAction,
+                                          final UserProfile takerUp,
+                                          final SymbolPositionRecord takerSpr) {
+        if (takerUp != null) {
+            if (ev.eventType == MatcherEventType.TRADE) {
                 // update taker's position
-                final UserProfile taker = userProfileService.getUserProfileOrAddSuspended(ev.activeOrderUid);
-                final SymbolPositionRecord takerSpr = taker.getPositionRecordOrThrowEx(ev.symbol);
-                long sizeOpen = takerSpr.updatePositionForMarginTrade(ev.activeOrderAction, size, ev.price);
+                final long sizeOpen = takerSpr.updatePositionForMarginTrade(takerAction, ev.size, ev.price);
                 final long fee = spec.takerFee * sizeOpen;
-                taker.accounts.addToValue(quoteCurrency, -fee);
-                fees.addToValue(quoteCurrency, fee);
-                if (takerSpr.isEmpty()) {
-                    removePositionRecord(takerSpr, taker);
-                }
-            }
-
-            if (uidForThisHandler(ev.matchedOrderUid)) {
-                // update maker's position
-                final UserProfile maker = userProfileService.getUserProfileOrAddSuspended(ev.matchedOrderUid);
-                final SymbolPositionRecord makerSpr = maker.getPositionRecordOrThrowEx(ev.symbol);
-                long sizeOpen = makerSpr.updatePositionForMarginTrade(ev.activeOrderAction.opposite(), size, ev.price);
-                final long fee = spec.makerFee * sizeOpen;
-                maker.accounts.addToValue(quoteCurrency, -fee);
-                fees.addToValue(quoteCurrency, fee);
-                if (makerSpr.isEmpty()) {
-                    removePositionRecord(makerSpr, maker);
-                }
-            }
-
-        } else if (ev.eventType == MatcherEventType.REJECTION || ev.eventType == MatcherEventType.CANCEL) {
-
-            if (uidForThisHandler(ev.activeOrderUid)) {
+                takerUp.accounts.addToValue(spec.quoteCurrency, -fee);
+                fees.addToValue(spec.quoteCurrency, fee);
+            } else if (ev.eventType == MatcherEventType.REJECTION || ev.eventType == MatcherEventType.CANCEL) {
                 // for cancel/rejection only one party is involved
-                final UserProfile up = userProfileService.getUserProfileOrAddSuspended(ev.activeOrderUid);
-                final SymbolPositionRecord spr = up.getPositionRecordOrThrowEx(ev.symbol);
-                spr.pendingRelease(ev.activeOrderAction, size);
-                if (spr.isEmpty()) {
-                    removePositionRecord(spr, up);
-                }
+                takerSpr.pendingRelease(takerAction, ev.size);
             }
 
-        } else {
-            log.error("unsupported eventType: {}", ev.eventType);
+            if (takerSpr.isEmpty()) {
+                removePositionRecord(takerSpr, takerUp);
+            }
         }
+
+        if (ev.eventType == MatcherEventType.TRADE && uidForThisHandler(ev.matchedOrderUid)) {
+            // update maker's position
+            final UserProfile maker = userProfileService.getUserProfileOrAddSuspended(ev.matchedOrderUid);
+            final SymbolPositionRecord makerSpr = maker.getPositionRecordOrThrowEx(ev.symbol);
+            long sizeOpen = makerSpr.updatePositionForMarginTrade(takerAction.opposite(), ev.size, ev.price);
+            final long fee = spec.makerFee * sizeOpen;
+            maker.accounts.addToValue(spec.quoteCurrency, -fee);
+            fees.addToValue(spec.quoteCurrency, fee);
+            if (makerSpr.isEmpty()) {
+                removePositionRecord(makerSpr, maker);
+            }
+        }
+
     }
 
 
-    private void handleMatcherEventExchange(final MatcherTradeEvent ev, final CoreSymbolSpecification spec) {
+    private void handleMatcherEventExchange(final MatcherTradeEvent ev,
+                                            final CoreSymbolSpecification spec,
+                                            final OrderAction takerAction,
+                                            final UserProfile takerUp) {
+        if (takerUp != null) {
+            if (ev.eventType == MatcherEventType.TRADE) {
+                // TODO group by user profile ??
 
+                // perform account-to-account transfers
 
-        if (ev.eventType == MatcherEventType.TRADE) {
-            // TODO group by user profile ??
-
-            // perform account-to-account transfers
-            if (uidForThisHandler(ev.activeOrderUid)) {
 //                log.debug("Processing release for taker");
-                processExchangeHoldRelease(ev, spec, true);
-            }
+                processExchangeHoldRelease(ev, spec, true, takerAction, takerUp);
 
-            if (uidForThisHandler(ev.matchedOrderUid)) {
-//                log.debug("Processing release for maker");
-                processExchangeHoldRelease(ev, spec, false);
-            }
 
-        } else if (ev.eventType == MatcherEventType.REJECTION || ev.eventType == MatcherEventType.CANCEL) {
-            if (uidForThisHandler(ev.activeOrderUid)) {
+            } else if (ev.eventType == MatcherEventType.REJECTION || ev.eventType == MatcherEventType.CANCEL) {
 
 //                log.debug("CANCEL/REJ uid: {}", ev.activeOrderUid);
 
                 // for cancel/rejection only one party is involved
-                final int currency = (ev.activeOrderAction == OrderAction.ASK) ? spec.baseCurrency : spec.quoteCurrency;
-                final long amountForRelease = CoreArithmeticUtils.calculateHoldAmount(ev.activeOrderAction, ev.size, ev.bidderHoldPrice, spec);
+                final int currency = (takerAction == OrderAction.ASK) ? spec.baseCurrency : spec.quoteCurrency;
+                final long amountForRelease = CoreArithmeticUtils.calculateHoldAmount(takerAction, ev.size, ev.bidderHoldPrice, spec);
 
-                userProfileService.getUserProfileOrAddSuspended(ev.activeOrderUid)
-                        .accounts
-                        .addToValue(currency, amountForRelease);
+                takerUp.accounts.addToValue(currency, amountForRelease);
 
 //                log.debug("REJ/CAN ASK: uid={} amountToRelease = {}  ACC:{}",
 //                        ev.activeOrderUid, amountForRelease, userProfileService.getUserProfile(ev.activeOrderUid).accounts);
 
             }
-        } else {
-            log.error("unsupported eventType: {}", ev.eventType);
+        }
+
+        if (ev.eventType == MatcherEventType.TRADE && uidForThisHandler(ev.matchedOrderUid)) {
+            //                log.debug("Processing release for maker");
+            processExchangeHoldRelease(ev, spec, false, takerAction, takerUp);
         }
     }
 
-    private void processExchangeHoldRelease(MatcherTradeEvent ev, CoreSymbolSpecification spec, boolean isTaker) {
+    private void processExchangeHoldRelease(MatcherTradeEvent ev,
+                                            CoreSymbolSpecification spec,
+                                            boolean isTaker,
+                                            final OrderAction takerAction,
+                                            final UserProfile takerUp) {
         final long size = ev.size;
-        final long uid = isTaker ? ev.activeOrderUid : ev.matchedOrderUid;
-        final UserProfile up = userProfileService.getUserProfileOrAddSuspended(uid);
+        final UserProfile up = isTaker ? takerUp : userProfileService.getUserProfileOrAddSuspended(ev.matchedOrderUid);
 
         final long feeForSize = (isTaker ? spec.takerFee : spec.makerFee) * size;
         fees.addToValue(spec.quoteCurrency, feeForSize);
 
-        final boolean isSelling = ev.activeOrderAction == OrderAction.BID ^ isTaker;
+        final boolean isSelling = takerAction == OrderAction.BID ^ isTaker;
         if (isSelling) {
 
             // selling

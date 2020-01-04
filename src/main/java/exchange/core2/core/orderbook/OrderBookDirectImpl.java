@@ -301,12 +301,12 @@ public final class OrderBookDirectImpl implements IOrderBook {
     }
 
     @Override
-    public boolean cancelOrder(OrderCommand cmd) {
+    public CommandResultCode cancelOrder(OrderCommand cmd) {
 
         // TODO avoid double lookup ?
         final DirectOrder order = orderIdIndex.get(cmd.orderId);
         if (order == null || order.uid != cmd.uid) {
-            return false;
+            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
         orderIdIndex.remove(cmd.orderId);
         objectsPool.put(ObjectsPool.DIRECT_ORDER, order);
@@ -316,9 +316,12 @@ public final class OrderBookDirectImpl implements IOrderBook {
             objectsPool.put(ObjectsPool.DIRECT_BUCKET, freeBucket);
         }
 
+        // fill action fields (for events handling)
+        cmd.action = order.getAction();
+
         OrderBookEventsHelper.sendCancelEvent(cmd, order);
 
-        return true;
+        return CommandResultCode.SUCCESS;
     }
 
     @Override
@@ -340,6 +343,9 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         // update price
         orderToMove.price = cmd.price;
+
+        // fill action fields (for events handling)
+        cmd.action = orderToMove.getAction();
 
         // try match with new price as a taker order
         final long filled = tryMatchInstantly(orderToMove, cmd);

@@ -209,7 +209,7 @@ public final class TestOrdersGenerator {
             commands.add(cmd);
 
             // process and cleanup matcher events
-            cmd.processMatcherEvents(ev -> matcherTradeEventEventHandler(session, ev));
+            cmd.processMatcherEvents(ev -> matcherTradeEventEventHandler(session, ev, (int) cmd.orderId));
             cmd.matcherEvent = null;
 
             if (i >= nextSizeCheck) {
@@ -291,10 +291,10 @@ public final class TestOrdersGenerator {
         }
     }
 
-    private static void matcherTradeEventEventHandler(TestOrdersGeneratorSession session, MatcherTradeEvent ev) {
+    private static void matcherTradeEventEventHandler(TestOrdersGeneratorSession session, MatcherTradeEvent ev, int activeOrderId) {
         if (ev.eventType == MatcherEventType.TRADE) {
             if (ev.activeOrderCompleted) {
-                session.orderUids.remove((int) ev.activeOrderId);
+                session.orderUids.remove(activeOrderId);
                 session.numCompleted++;
             }
             if (ev.matchedOrderCompleted) {
@@ -311,7 +311,7 @@ public final class TestOrdersGenerator {
             }
 
         } else if (ev.eventType == MatcherEventType.REJECTION) {
-            session.orderUids.remove((int) ev.activeOrderId);
+            session.orderUids.remove(activeOrderId);
             session.numRejected++;
 
             // update order book stat if order get rejected
@@ -320,7 +320,7 @@ public final class TestOrdersGenerator {
 
         } else if (ev.eventType == MatcherEventType.CANCEL) {
             // full cancel - forget about this order
-            session.orderUids.remove((int) ev.activeOrderId);
+            session.orderUids.remove(activeOrderId);
             session.numCancelled++;
         }
     }

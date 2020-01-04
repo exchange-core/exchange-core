@@ -46,20 +46,19 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     /**
      * Cancel order
      * <p>
-     * orderId - order Id
+     * fills cmd.action  with original original order action
      *
-     * @return false if order was not found, otherwise always true
+     * @return MATCHING_UNKNOWN_ORDER_ID if order was not found, otherwise SUCCESS
      */
-    boolean cancelOrder(OrderCommand cmd);
+    CommandResultCode cancelOrder(OrderCommand cmd);
 
     /**
-     * Move an order
+     * Move order
      * <p>
-     * orderId  - order Id
      * newPrice - new price (if 0 or same - order will not moved)
-     * newSize  - new size (if higher than current size or 0 - order will not downsized)
+     * fills cmd.action  with original original order action
      *
-     * @return false if order was not found, otherwise always true
+     * @return MATCHING_UNKNOWN_ORDER_ID if order was not found, otherwise SUCCESS
      */
     CommandResultCode moveOrder(OrderCommand cmd);
 
@@ -151,8 +150,7 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
         } else if (commandType == OrderCommandType.CANCEL_ORDER) {
 
-            boolean isCancelled = orderBook.cancelOrder(cmd);
-            return isCancelled ? CommandResultCode.SUCCESS : CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
+            return orderBook.cancelOrder(cmd);
 
         } else if (commandType == OrderCommandType.PLACE_ORDER) {
 

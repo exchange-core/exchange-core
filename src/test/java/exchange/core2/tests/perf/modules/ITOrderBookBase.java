@@ -145,31 +145,31 @@ public abstract class ITOrderBookBase {
 
     // ------------------------------- UTILITY METHODS --------------------------
 
-    public void checkTrade(EventTranslator<MatcherTradeEvent> translatorLambda, long activeId, long matchedId, long price, long size) {
-
-        MatcherTradeEvent event = new MatcherTradeEvent();
-        translatorLambda.translateTo(event, 0);
-
-        assertThat(event.eventType, is(MatcherEventType.TRADE));
-
-        assertThat(event.activeOrderId, is(activeId));
-        assertThat(event.matchedOrderId, is(matchedId));
-        assertThat(event.price, is(price));
-        assertThat(event.size, is(size));
-        // TODO add more checks for MatcherTradeEvent
-    }
-
-    public void checkRejection(EventTranslator<MatcherTradeEvent> translatorLambda, long activeId, long size) {
-
-        MatcherTradeEvent event = new MatcherTradeEvent();
-        translatorLambda.translateTo(event, 0);
-
-        assertThat(event.eventType, is(MatcherEventType.REJECTION));
-
-        assertThat(event.activeOrderId, is(activeId));
-        assertThat(event.size, is(size));
-        // TODO add more checks for MatcherTradeEvent
-    }
+//    public void checkTrade(EventTranslator<MatcherTradeEvent> translatorLambda, long activeId, long matchedId, long price, long size) {
+//
+//        MatcherTradeEvent event = new MatcherTradeEvent();
+//        translatorLambda.translateTo(event, 0);
+//
+//        assertThat(event.eventType, is(MatcherEventType.TRADE));
+//
+//        assertThat(event.activeOrderId, is(activeId));
+//        assertThat(event.matchedOrderId, is(matchedId));
+//        assertThat(event.price, is(price));
+//        assertThat(event.size, is(size));
+//        // TODO add more checks for MatcherTradeEvent
+//    }
+//
+//    public void checkRejection(EventTranslator<MatcherTradeEvent> translatorLambda, long activeId, long size) {
+//
+//        MatcherTradeEvent event = new MatcherTradeEvent();
+//        translatorLambda.translateTo(event, 0);
+//
+//        assertThat(event.eventType, is(MatcherEventType.REJECTION));
+//
+//        assertThat(event.activeOrderId, is(activeId));
+//        assertThat(event.size, is(size));
+//        // TODO add more checks for MatcherTradeEvent
+//    }
 
     @Ignore
     @Test

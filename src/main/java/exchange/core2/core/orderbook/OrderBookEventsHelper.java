@@ -52,11 +52,7 @@ public final class OrderBookEventsHelper {
 
         event.eventType = MatcherEventType.TRADE;
 
-        event.activeOrderId = activeOrder.getOrderId();
-        event.activeOrderUid = activeOrder.getUid();
         event.activeOrderCompleted = takerCompleted;
-        event.activeOrderAction = activeOrder.getAction();
-//        event.activeOrderSeq = activeOrder.seq;
 
         event.matchedOrderId = matchingOrder.getOrderId();
         event.matchedOrderUid = matchingOrder.getUid();
@@ -80,10 +76,7 @@ public final class OrderBookEventsHelper {
 //        log.debug("Cancel ");
         final MatcherTradeEvent event = newMatcherEvent();
         event.eventType = MatcherEventType.CANCEL;
-        event.activeOrderId = order.getOrderId();
-        event.activeOrderUid = order.getUid();
         event.activeOrderCompleted = false;
-        event.activeOrderAction = order.getAction();
 //        event.activeOrderSeq = order.seq;
         event.matchedOrderId = 0;
         event.matchedOrderCompleted = false;
@@ -108,10 +101,7 @@ public final class OrderBookEventsHelper {
 
         event.eventType = MatcherEventType.REJECTION;
 
-        event.activeOrderId = cmd.orderId;
-        event.activeOrderUid = cmd.uid;
         event.activeOrderCompleted = false;
-        event.activeOrderAction = cmd.action;
 //        event.activeOrderSeq = cmd.seq;
 
         event.matchedOrderId = 0;
@@ -133,24 +123,22 @@ public final class OrderBookEventsHelper {
                                                             final int section,
                                                             final NativeBytes<Void> bytes) {
 
-        long[] dataArray = SerializationUtils.bytesToLongArray(bytes, 7);
+        long[] dataArray = SerializationUtils.bytesToLongArray(bytes, 5);
 
         MatcherTradeEvent firstEvent = null;
         MatcherTradeEvent lastEvent = null;
-        for (int i = 0; i < dataArray.length; i += 7) {
+        for (int i = 0; i < dataArray.length; i += 5) {
 
             final MatcherTradeEvent event = newMatcherEvent();
 
             event.eventType = MatcherEventType.BINARY_EVENT;
 
             event.symbol = section;
-            event.activeOrderId = dataArray[i];
-            event.activeOrderUid = dataArray[i + 1];
-            event.matchedOrderId = dataArray[i + 2];
-            event.matchedOrderUid = dataArray[i + 3];
-            event.price = dataArray[i + 4];
-            event.size = dataArray[i + 5];
-            event.bidderHoldPrice = dataArray[i + 6];
+            event.matchedOrderId = dataArray[i];
+            event.matchedOrderUid = dataArray[i + 1];
+            event.price = dataArray[i + 2];
+            event.size = dataArray[i + 3];
+            event.bidderHoldPrice = dataArray[i + 4];
 
             event.timestamp = timestamp;
             event.nextEvent = null;
@@ -179,8 +167,6 @@ public final class OrderBookEventsHelper {
         sections.forEach((section, events) -> {
             final long[] dataArray = events.stream()
                     .flatMap(evt -> Stream.of(
-                            evt.activeOrderId,
-                            evt.activeOrderUid,
                             evt.matchedOrderId,
                             evt.matchedOrderUid,
                             evt.price,

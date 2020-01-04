@@ -403,20 +403,20 @@ public final class OrderBookFastImpl implements IOrderBook {
      * @return true if order removed, false if not found (can be removed/matched earlier)
      */
     @Override
-    public boolean cancelOrder(OrderCommand cmd) {
+    public CommandResultCode cancelOrder(OrderCommand cmd) {
 
         // can not remove because uid is not verified yet
         IOrdersBucket ordersBucket = idMapToBucket.get(cmd.orderId);
         if (ordersBucket == null) {
             // order already matched and removed from order book previously
-            return false;
+            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
 
         // remove order and whole bucket if bucket is empty
         Order removedOrder = ordersBucket.remove(cmd.orderId, cmd.uid);
         if (removedOrder == null) {
             // uid is different
-            return false;
+            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
 
         // remove from map
@@ -430,10 +430,13 @@ public final class OrderBookFastImpl implements IOrderBook {
         // send cancel event
         OrderBookEventsHelper.sendCancelEvent(cmd, removedOrder);
 
+        // fill action fields (for events handling)
+        cmd.action = removedOrder.getAction();
+
         // saving free object back to the pool
         ordersPool.addLast(removedOrder);
 
-        return true;
+        return CommandResultCode.SUCCESS;
     }
 
 
@@ -488,6 +491,9 @@ public final class OrderBookFastImpl implements IOrderBook {
         final long newPrice = cmd.price;
         order.price = newPrice;
 
+        // fill action fields (for events handling)
+        cmd.action = order.getAction();
+
         // try match with new price
         long filled = tryMatchInstantly(order, order.filled, cmd);
         if (filled == order.size) {
@@ -504,6 +510,7 @@ public final class OrderBookFastImpl implements IOrderBook {
             // override cache record
             idMapToBucket.put(orderId, otherBucket);
         }
+
         return CommandResultCode.SUCCESS;
     }
 

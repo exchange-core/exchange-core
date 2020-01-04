@@ -110,10 +110,11 @@ public final class ITExchangeCoreIntegration {
                 List<MatcherTradeEvent> matcherEvents = cmd.extractEvents();
                 assertThat(matcherEvents.size(), is(1));
 
+                assertThat(cmd.action, is(OrderAction.BID));
+                assertThat(cmd.orderId, is(201L));
+                assertThat(cmd.uid, is(UID_2));
+
                 MatcherTradeEvent evt = matcherEvents.get(0);
-                assertThat(evt.activeOrderId, is(201L));
-                assertThat(evt.activeOrderAction, is(OrderAction.BID));
-                assertThat(evt.activeOrderUid, is(UID_2));
                 assertThat(evt.activeOrderCompleted, is(true));
                 assertThat(evt.matchedOrderId, is(101L));
                 assertThat(evt.matchedOrderUid, is(UID_1));
@@ -153,10 +154,11 @@ public final class ITExchangeCoreIntegration {
                 List<MatcherTradeEvent> matcherEvents = cmd.extractEvents();
                 assertThat(matcherEvents.size(), is(1));
 
+                assertThat(cmd.action, is(ASK));
+                assertThat(cmd.orderId, is(101L));
+                assertThat(cmd.uid, is(UID_1));
+
                 MatcherTradeEvent evt = matcherEvents.get(0);
-                assertThat(evt.activeOrderId, is(101L));
-                assertThat(evt.activeOrderAction, is(ASK));
-                assertThat(evt.activeOrderUid, is(UID_1));
                 assertThat(evt.activeOrderCompleted, is(false));
                 assertThat(evt.matchedOrderId, is(202L));
                 assertThat(evt.matchedOrderUid, is(UID_2));
@@ -453,13 +455,13 @@ public final class ITExchangeCoreIntegration {
                         assertThat(cmd.uid, is(UID_1));
                         assertThat(cmd.price, is(16_900L));
                         assertThat(cmd.symbol, is(SYMBOL_EXCHANGE));
+
+                        assertThat(cmd.action, is(ASK));
+
                         final MatcherTradeEvent evt = cmd.matcherEvent;
                         assertNotNull(evt);
                         assertThat(evt.eventType, is(MatcherEventType.TRADE));
-                        assertThat(evt.activeOrderId, is(202L));
-                        assertThat(evt.activeOrderUid, is(UID_1));
                         assertThat(evt.activeOrderCompleted, is(false));
-                        assertThat(evt.activeOrderAction, is(ASK));
                         assertThat(evt.matchedOrderId, is(203L));
                         assertThat(evt.matchedOrderUid, is(UID_2));
                         assertThat(evt.matchedOrderCompleted, is(true));
@@ -495,12 +497,12 @@ public final class ITExchangeCoreIntegration {
                         assertThat(cmd.orderId, is(202L));
                         assertThat(cmd.uid, is(UID_1));
                         assertThat(cmd.symbol, is(SYMBOL_EXCHANGE));
+
+                        assertThat(cmd.action, is(ASK));
+
                         final MatcherTradeEvent evt = cmd.matcherEvent;
                         assertNotNull(evt);
                         assertThat(evt.eventType, is(MatcherEventType.CANCEL));
-                        assertThat(evt.activeOrderId, is(202L));
-                        assertThat(evt.activeOrderUid, is(UID_1));
-                        assertThat(evt.activeOrderAction, is(ASK));
                         assertThat(evt.size, is(500L));
                     });
 
@@ -546,12 +548,12 @@ public final class ITExchangeCoreIntegration {
                         assertThat(cmd.orderId, is(203L));
                         assertThat(cmd.uid, is(UID_2));
                         assertThat(cmd.symbol, is(SYMBOL_EXCHANGE));
+
+                        assertThat(cmd.action, is(OrderAction.BID));
+
                         final MatcherTradeEvent evt = cmd.matcherEvent;
                         assertNotNull(evt);
                         assertThat(evt.eventType, is(MatcherEventType.CANCEL));
-                        assertThat(evt.activeOrderId, is(203L));
-                        assertThat(evt.activeOrderUid, is(UID_2));
-                        assertThat(evt.activeOrderAction, is(OrderAction.BID));
                         assertThat(evt.bidderHoldPrice, is(18_500L));
                         assertThat(evt.size, is(500L));
                     });
