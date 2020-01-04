@@ -308,9 +308,10 @@ public class LatencyTestsModule {
 
                     slowCommands.sort((o1, o2) -> o2.getFirst().compareTo(o1.getFirst()));
 
-                    log.info("10 slowest commands (theoretical):");
-                    slowCommands.stream().limit(10).forEach(
-                            p -> log.info("{}. {}ns {}", String.format("%06X", p.getSecond().getFirst()), p.getFirst(), p.getSecond().getSecond()));
+                    log.info("Slowest commands (theoretical):");
+                    slowCommands.stream().limit(100).forEach(
+                            p -> log.info("{}. {} {}",
+                                    String.format("%06X", p.getSecond().getFirst()), LatencyTools.formatNanos(p.getFirst()), p.getSecond().getSecond()));
 
                     // compare orderBook final state just to make sure all commands executed same way
                     // TODO compare events, balances, positions

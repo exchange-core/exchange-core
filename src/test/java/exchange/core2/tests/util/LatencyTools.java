@@ -27,13 +27,13 @@ public final class LatencyTools {
 
     public static Map<String, String> createLatencyReportFast(Histogram histogram) {
         final Map<String, String> fmt = new LinkedHashMap<>();
-        Arrays.stream(PERCENTILES).forEach(p -> fmt.put(p + "%", formatLatencyValueAsTime((int) histogram.getValueAtPercentile(p))));
-        fmt.put("W", formatLatencyValueAsTime((int) histogram.getMaxValue()));
+        Arrays.stream(PERCENTILES).forEach(p -> fmt.put(p + "%", formatNanos(histogram.getValueAtPercentile(p))));
+        fmt.put("W", formatNanos(histogram.getMaxValue()));
         return fmt;
     }
 
-    private static String formatLatencyValueAsTime(int v) {
-        float value = v / 1000f;
+    public static String formatNanos(long ns) {
+        float value = ns / 1000f;
         String timeUnit = "µs";
         if (value > 1000) {
             value /= 1000;

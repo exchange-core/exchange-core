@@ -43,6 +43,19 @@ public final class PerfLatencyCommands {
                 false);
     }
 
+    @Test
+    public void testLatencyMarginHugeIoc() {
+        individualLatencyTest(msgsInGroup -> new ExchangeTestContainer(2 * 1024, 1, 1, msgsInGroup, null),
+                1_000_000,
+                1_000,
+                2_000,
+                TestConstants.CURRENCIES_FUTURES,
+                1,
+                ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT,
+                true);
+    }
+
+
     /**
      * - one symbol (exchange mode)
      * - ~1K active users (2K currency accounts)
@@ -60,6 +73,19 @@ public final class PerfLatencyCommands {
                 ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR,
                 false);
     }
+
+    @Test
+    public void testLatencyExchangeHugeIoc() {
+        individualLatencyTest(msgsInGroup -> new ExchangeTestContainer(2 * 1024, 1, 1, msgsInGroup, null),
+                1_000_000,
+                1_000,
+                2_000,
+                TestConstants.CURRENCIES_EXCHANGE,
+                1,
+                ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR,
+                true);
+    }
+
 
     /**
      * - 1M active users (3M currency accounts)
@@ -83,7 +109,7 @@ public final class PerfLatencyCommands {
 
     @Test
     public void testLatencyMultiSymbolMediumHugeIOC() {
-        individualLatencyTest(msgsInGroup -> new ExchangeTestContainer(32 * 1024, 4, 4, msgsInGroup, null),
+        individualLatencyTest(msgsInGroup -> new ExchangeTestContainer(32 * 1024, 4, 2, msgsInGroup, null),
                 6_000_000,
                 1_000_000,
                 3_300_000,
