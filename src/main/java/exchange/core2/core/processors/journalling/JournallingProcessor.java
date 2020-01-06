@@ -32,7 +32,7 @@ import java.time.format.DateTimeFormatter;
  * - not thread safe!
  */
 @Slf4j
-public class JournallingProcessor {
+public final class JournallingProcessor {
 
     private static final int MB = 1024 * 1024;
     private static final int FILE_SIZE_TRIGGER = 1024 * MB; // split files by size

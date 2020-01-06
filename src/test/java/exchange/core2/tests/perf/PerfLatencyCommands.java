@@ -18,6 +18,7 @@ package exchange.core2.tests.perf;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.TestConstants;
 import lombok.extern.slf4j.Slf4j;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import static exchange.core2.tests.util.LatencyTestsModule.individualLatencyTest;
@@ -98,7 +99,7 @@ public final class PerfLatencyCommands {
     @Test
     public void testLatencyMultiSymbolMedium() {
         individualLatencyTest(msgsInGroup -> new ExchangeTestContainer(32 * 1024, 4, 2, msgsInGroup, null),
-                6_000_000,
+                3_000_000,
                 1_000_000,
                 3_300_000,
                 TestConstants.ALL_CURRENCIES,
@@ -110,7 +111,7 @@ public final class PerfLatencyCommands {
     @Test
     public void testLatencyMultiSymbolMediumHugeIOC() {
         individualLatencyTest(msgsInGroup -> new ExchangeTestContainer(32 * 1024, 4, 2, msgsInGroup, null),
-                6_000_000,
+                3_000_000,
                 1_000_000,
                 3_300_000,
                 TestConstants.ALL_CURRENCIES,
@@ -128,6 +129,7 @@ public final class PerfLatencyCommands {
      * 12-threads CPU and 32GiB RAM is required for running this test in 2+4 configuration.
      */
     @Test
+    @Ignore
     public void testLatencyMultiSymbolLarge() {
         individualLatencyTest(
                 msgsInGroup -> new ExchangeTestContainer(64 * 1024, 4, 2, msgsInGroup, null),

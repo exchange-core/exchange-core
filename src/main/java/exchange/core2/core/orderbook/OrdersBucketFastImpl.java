@@ -241,7 +241,7 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
             // remove from order book filled orders
             boolean fullMatch = order.size == order.filled;
 
-            OrderBookEventsHelper.sendTradeEvent(triggerCmd, activeOrder, order, fullMatch, volumeToCollect == 0, v);
+            OrderBookEventsHelper.NO_POOL_HELPER.sendTradeEvent(triggerCmd, activeOrder, order, fullMatch, volumeToCollect == 0, v);
 
             if (fullMatch) {
 

@@ -22,7 +22,7 @@ import java.util.function.Consumer;
 
 
 @AllArgsConstructor
-public class OrdersSpliterator implements Spliterator<OrderBookDirectImpl.DirectOrder> {
+public final class OrdersSpliterator implements Spliterator<OrderBookDirectImpl.DirectOrder> {
 
     private OrderBookDirectImpl.DirectOrder pointer;
 

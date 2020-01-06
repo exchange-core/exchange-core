@@ -58,11 +58,14 @@ public final class OrderBookDirectImpl implements IOrderBook {
     // Object pools
     private final ObjectsPool objectsPool;
 
+    private final OrderBookEventsHelper eventsHelper;
+
     public OrderBookDirectImpl(final CoreSymbolSpecification symbolSpec, final ObjectsPool objectsPool) {
         this.symbolSpec = symbolSpec;
         this.objectsPool = objectsPool;
         this.askPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.bidPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
+        this.eventsHelper = new OrderBookEventsHelper(() -> objectsPool.getSharedPool().getChain());
     }
 
     public OrderBookDirectImpl(final BytesIn bytes, final ObjectsPool objectsPool) {
@@ -70,6 +73,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         this.objectsPool = objectsPool;
         this.askPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.bidPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
+        this.eventsHelper = new OrderBookEventsHelper(() -> objectsPool.getSharedPool().getChain());
 
         final int size = bytes.readInt();
         for (int i = 0; i < size; i++) {
@@ -77,7 +81,6 @@ public final class OrderBookDirectImpl implements IOrderBook {
             insertOrder(order, null);
             orderIdIndex.put(order.orderId, order);
         }
-        //validateInternalState();
     }
 
     @Override
@@ -94,14 +97,14 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         if (orderType == OrderType.IOC) {
             // send reject for not-completed ImmediateOrCancel order
-            OrderBookEventsHelper.attachRejectEvent(cmd, size - filledSize);
+            eventsHelper.attachRejectEvent(cmd, size - filledSize);
             return CommandResultCode.SUCCESS;
         }
 
         final long orderId = cmd.orderId;
         if (orderIdIndex.containsKey(orderId)) { // TODO eliminate double hashtable lookup?
             // duplicate order id - can match, but can not place
-            OrderBookEventsHelper.attachRejectEvent(cmd, size - filledSize);
+            eventsHelper.attachRejectEvent(cmd, size - filledSize);
             return CommandResultCode.MATCHING_DUPLICATE_ORDER_ID;
         }
 
@@ -177,7 +180,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
                     makerOrder.parent.numOrders--;
                 }
 
-                OrderBookEventsHelper.sendTradeEvent(triggerCmd, takerOrder, makerOrder, makerCompleted, remainingSize == 0, tradeSize);
+                eventsHelper.sendTradeEvent(triggerCmd, takerOrder, makerOrder, makerCompleted, remainingSize == 0, tradeSize);
 
                 if (!makerCompleted) {
                     // maker not completed -> no unmatched volume left, can exit matching loop
@@ -319,7 +322,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         // fill action fields (for events handling)
         cmd.action = order.getAction();
 
-        OrderBookEventsHelper.sendCancelEvent(cmd, order);
+        eventsHelper.sendCancelEvent(cmd, order);
 
         return CommandResultCode.SUCCESS;
     }

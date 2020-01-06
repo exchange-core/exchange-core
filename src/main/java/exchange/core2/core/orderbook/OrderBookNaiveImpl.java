@@ -74,7 +74,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         }
 
         if (orderType == OrderType.IOC) {
-            OrderBookEventsHelper.attachRejectEvent(cmd, cmd.size - filledSize);
+            OrderBookEventsHelper.NO_POOL_HELPER.attachRejectEvent(cmd, cmd.size - filledSize);
             return CommandResultCode.SUCCESS;
         }
 
@@ -82,7 +82,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         if (idMap.containsKey(newOrderId)) {
 
             // duplicate order id - can match, but can not place
-            OrderBookEventsHelper.attachRejectEvent(cmd, cmd.size - filledSize);
+            OrderBookEventsHelper.NO_POOL_HELPER.attachRejectEvent(cmd, cmd.size - filledSize);
             return CommandResultCode.MATCHING_DUPLICATE_ORDER_ID;
         }
 
@@ -218,7 +218,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         }
 
         // send cancel event
-        OrderBookEventsHelper.sendCancelEvent(cmd, order);
+        OrderBookEventsHelper.NO_POOL_HELPER.sendCancelEvent(cmd, order);
 
         // fill action fields (for events handling)
         cmd.action = order.getAction();

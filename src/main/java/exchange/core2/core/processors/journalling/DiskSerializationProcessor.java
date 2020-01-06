@@ -34,7 +34,7 @@ import java.util.function.Function;
 
 
 @Slf4j
-public class DiskSerializationProcessor implements ISerializationProcessor {
+public final class DiskSerializationProcessor implements ISerializationProcessor {
 
     private final Path dumpsFolder;
 

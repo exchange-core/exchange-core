@@ -27,14 +27,20 @@ import java.util.Objects;
 @AllArgsConstructor
 @NoArgsConstructor
 public final class MatcherTradeEvent {
+    /*
+        CANCEL needs remaining size (can write into size), bidderHoldPrice - can write into price
+        REJECT needs remaining size (can not write into size),
+     */
 
-    public MatcherEventType eventType; // TRADE, CANCEL or REJECTION (rare)
+    // TODO move to the order?
+    public MatcherEventType eventType; // TRADE, CANCEL, REJECTION (rare) or BINARY_EVENT (reports data)
 
-    public int symbol;
+    // TODO join (requires 11+ bits)
+    public int section;
 
     // taker (for TRADE)
+    // TODO move to the order?
     public boolean activeOrderCompleted; // false, except when activeOrder is completely filled (should be ignored for CANCEL or REJECTION)
-//    public long activeOrderSeq;
 
     // maker (for TRADE)
     public long matchedOrderId;
@@ -55,6 +61,7 @@ public final class MatcherTradeEvent {
     public MatcherTradeEvent copy() {
         MatcherTradeEvent evt = new MatcherTradeEvent();
         evt.eventType = this.eventType;
+        evt.section = this.section;
         evt.activeOrderCompleted = this.activeOrderCompleted;
         evt.matchedOrderId = this.matchedOrderId;
         evt.matchedOrderUid = this.matchedOrderUid;
@@ -95,7 +102,7 @@ public final class MatcherTradeEvent {
         if (!(o instanceof MatcherTradeEvent)) return false;
         MatcherTradeEvent other = (MatcherTradeEvent) o;
         return new EqualsBuilder()
-                .append(symbol, other.symbol)
+                .append(section, other.section)
                 .append(activeOrderCompleted, other.activeOrderCompleted)
                 .append(matchedOrderId, other.matchedOrderId)
                 .append(matchedOrderUid, other.matchedOrderUid)
@@ -114,7 +121,7 @@ public final class MatcherTradeEvent {
     @Override
     public int hashCode() {
         return Objects.hash(
-                symbol,
+                section,
                 activeOrderCompleted,
                 matchedOrderId,
                 matchedOrderUid,
@@ -130,7 +137,7 @@ public final class MatcherTradeEvent {
     public String toString() {
         return "MatcherTradeEvent{" +
                 "eventType=" + eventType +
-                ", symbol=" + symbol +
+                ", section=" + section +
                 ", activeOrderCompleted=" + activeOrderCompleted +
                 ", matchedOrderId=" + matchedOrderId +
                 ", matchedOrderUid=" + matchedOrderUid +

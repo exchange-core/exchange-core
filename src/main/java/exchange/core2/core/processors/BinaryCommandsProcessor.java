@@ -51,17 +51,26 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
 
     private final Function<Object, Optional<? extends WriteBytesMarshallable>> completeMessagesHandler;
 
+    private final OrderBookEventsHelper eventsHelper;
+
     private final int section;
 
-    public BinaryCommandsProcessor(Function<Object, Optional<? extends WriteBytesMarshallable>> completeMessagesHandler, int section) {
+    public BinaryCommandsProcessor(final Function<Object, Optional<? extends WriteBytesMarshallable>> completeMessagesHandler,
+                                   final SharedPool sharedPool,
+                                   final int section) {
         this.completeMessagesHandler = completeMessagesHandler;
         this.incomingData = new LongObjectHashMap<>();
+        this.eventsHelper = new OrderBookEventsHelper(sharedPool::getChain);
         this.section = section;
     }
 
-    public BinaryCommandsProcessor(Function<Object, Optional<? extends WriteBytesMarshallable>> completeMessagesHandler, BytesIn bytesIn, int section) {
+    public BinaryCommandsProcessor(final Function<Object, Optional<? extends WriteBytesMarshallable>> completeMessagesHandler,
+                                   final SharedPool sharedPool,
+                                   final BytesIn bytesIn,
+                                   int section) {
         this.completeMessagesHandler = completeMessagesHandler;
         this.incomingData = SerializationUtils.readLongHashMap(bytesIn, b -> new TransferRecord(bytesIn));
+        this.eventsHelper = new OrderBookEventsHelper(sharedPool::getChain);
         this.section = section;
     }
 
@@ -89,7 +98,7 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
             completeMessagesHandler.apply(deserializeObject(bytesIn)).ifPresent(res -> {
                 final NativeBytes<Void> bytes = Bytes.allocateElasticDirect(128);
                 res.writeMarshallable(bytes);
-                final MatcherTradeEvent binaryEventsChain = OrderBookEventsHelper.createBinaryEventsChain(cmd.timestamp, section, bytes);
+                final MatcherTradeEvent binaryEventsChain = eventsHelper.createBinaryEventsChain(cmd.timestamp, section, bytes);
                 UnsafeUtils.appendEventsVolatile(cmd, binaryEventsChain);
             });
 

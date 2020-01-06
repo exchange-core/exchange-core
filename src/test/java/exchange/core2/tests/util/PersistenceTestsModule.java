@@ -39,6 +39,8 @@ import static org.junit.Assert.assertThat;
 @Slf4j
 public class PersistenceTestsModule {
 
+    // TODO current persistence test does not cover positions serialization
+
     public static void persistenceTestImpl(final Function<Long, ExchangeTestContainer> containerFactory,
                                            final int totalTransactionsNumber,
                                            final int targetOrderBookOrdersTotal,

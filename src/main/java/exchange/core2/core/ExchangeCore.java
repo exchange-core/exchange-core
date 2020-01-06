@@ -79,6 +79,11 @@ public final class ExchangeCore {
 
         this.api = new ExchangeApi(disruptor.getRingBuffer());
 
+        // chreating shared objects pool
+
+        final int poolInitialSize = (ringBufferSize + riskEnginesNum) * 8;
+        final SharedPool sharedPool = new SharedPool(poolInitialSize * 4, poolInitialSize, 1024);
+
         // creating and attaching exceptions handler
         final DisruptorExceptionHandler<OrderCommand> exceptionHandler = new DisruptorExceptionHandler<>("main", (ex, seq) -> {
             log.error("Exception thrown on sequence={}", seq, ex);
@@ -92,14 +97,14 @@ public final class ExchangeCore {
         // creating matching engine event handlers array // TODO parallel deserialization
         final EventHandler<OrderCommand>[] matchingEngineHandlers = IntStream.range(0, matchingEnginesNum)
                 .mapToObj(shardId -> {
-                    final MatchingEngineRouter router = new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, orderBookFactory, loadStateId);
+                    final MatchingEngineRouter router = new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, orderBookFactory, sharedPool, loadStateId);
                     return (EventHandler<OrderCommand>) (cmd, seq, eob) -> router.processOrder(cmd);
                 })
                 .toArray(ExchangeCore::newEventHandlersArray);
 
         // creating risk engines array // TODO parallel deserialization
         final List<RiskEngine> riskEngines = IntStream.range(0, riskEnginesNum)
-                .mapToObj(shardId -> new RiskEngine(shardId, riskEnginesNum, serializationProcessor, loadStateId))
+                .mapToObj(shardId -> new RiskEngine(shardId, riskEnginesNum, serializationProcessor, sharedPool, loadStateId))
                 .collect(Collectors.toList());
 
         final List<TwoStepMasterProcessor> procR1 = new ArrayList<>(riskEnginesNum);
@@ -107,7 +112,7 @@ public final class ExchangeCore {
 
         // 1. grouping processor (G)
         final EventHandlerGroup<OrderCommand> afterGrouping =
-                disruptor.handleEventsWith((rb, bs) -> new GroupingProcessor(rb, rb.newBarrier(bs), msgsInGroupLimit, waitStrategy));
+                disruptor.handleEventsWith((rb, bs) -> new GroupingProcessor(rb, rb.newBarrier(bs), msgsInGroupLimit, waitStrategy, sharedPool));
 
         // 2. [journalling (J)] in parallel with risk hold (R1) + matching engine (ME)
         if (journallingHandler != null) {

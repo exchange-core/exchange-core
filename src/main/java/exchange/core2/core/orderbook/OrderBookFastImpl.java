@@ -139,14 +139,14 @@ public final class OrderBookFastImpl implements IOrderBook {
         }
 
         if (orderType == OrderType.IOC) {
-            OrderBookEventsHelper.attachRejectEvent(cmd, size - filledSize);
+            OrderBookEventsHelper.NO_POOL_HELPER.attachRejectEvent(cmd, size - filledSize);
             return CommandResultCode.SUCCESS;
         }
 
         final long orderId = cmd.orderId;
         if (idMapToBucket.containsKey(orderId)) {
             // duplicate order id - can match, but can not place
-            OrderBookEventsHelper.attachRejectEvent(cmd, size - filledSize);
+            OrderBookEventsHelper.NO_POOL_HELPER.attachRejectEvent(cmd, size - filledSize);
             return CommandResultCode.MATCHING_DUPLICATE_ORDER_ID;
         }
 
@@ -428,7 +428,7 @@ public final class OrderBookFastImpl implements IOrderBook {
         }
 
         // send cancel event
-        OrderBookEventsHelper.sendCancelEvent(cmd, removedOrder);
+        OrderBookEventsHelper.NO_POOL_HELPER.sendCancelEvent(cmd, removedOrder);
 
         // fill action fields (for events handling)
         cmd.action = removedOrder.getAction();

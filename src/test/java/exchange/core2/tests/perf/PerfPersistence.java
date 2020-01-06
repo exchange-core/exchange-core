@@ -66,9 +66,9 @@ public final class PerfPersistence {
     public void testPersistenceMultiSymbolMedium() throws Exception {
         PersistenceTestsModule.persistenceTestImpl(
                 stateId -> new ExchangeTestContainer(32 * 1024, 4, 2, 1024, stateId),
-                7_500_000, //16.5
-                1_000_000, // 10
-                3_300_000, // 10
+                7_500_000,
+                1_000_000,
+                3_300_000,
                 25,
                 TestConstants.ALL_CURRENCIES,
                 100_000,
@@ -79,9 +79,9 @@ public final class PerfPersistence {
     public void testPersistenceMultiSymbolLarge() throws Exception {
         PersistenceTestsModule.persistenceTestImpl(
                 stateId -> new ExchangeTestContainer(32 * 1024, 4, 2, 1024, stateId),
-                30_000_000, //16.5
-                20_000_000, // 10
-                20_000_000, // 10
+                30_000_000,
+                20_000_000,
+                20_000_000,
                 25,
                 TestConstants.ALL_CURRENCIES,
                 200_000,
