@@ -75,7 +75,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
     public static final Consumer<OrderCommand> CHECK_SUCCESS = cmd -> assertEquals(CommandResultCode.SUCCESS, cmd.resultCode);
 
     public ExchangeTestContainer() {
-        this(RING_BUFFER_SIZE_DEFAULT, MATCHING_ENGINES_ONE, RISK_ENGINES_ONE, MGS_IN_GROUP_LIMIT_DEFAULT, null);
+        this(createBasicTestConfig());
     }
 
     public ExchangeTestContainer(final int bufferSize,
@@ -84,8 +84,26 @@ public final class ExchangeTestContainer implements AutoCloseable {
                                  final int msgsInGroupLimit,
                                  final Long stateId) {
 
-        this.exchangeCore = ExchangeCore.builder()
+        this(createTestConfig(bufferSize, matchingEnginesNum, riskEnginesNum, msgsInGroupLimit, stateId));
+    }
+
+    public ExchangeTestContainer(final ExchangeCore.ExchangeCoreBuilder config) {
+
+        this.exchangeCore = config // Loading from persisted state
                 .resultsConsumer((cmd, seq) -> consumer.accept(cmd))
+                .build();
+
+        this.exchangeCore.startup();
+        api = this.exchangeCore.getApi();
+    }
+
+    public static ExchangeCore.ExchangeCoreBuilder createBasicTestConfig() {
+        return createTestConfig(RING_BUFFER_SIZE_DEFAULT, MATCHING_ENGINES_ONE, RISK_ENGINES_ONE, MGS_IN_GROUP_LIMIT_DEFAULT, null);
+    }
+
+    public static ExchangeCore.ExchangeCoreBuilder createTestConfig(int bufferSize, int matchingEnginesNum, int riskEnginesNum, int msgsInGroupLimit, Long stateId) {
+        return ExchangeCore.builder()
+
                 .serializationProcessor(new DiskSerializationProcessor("./dumps"))
                 .ringBufferSize(bufferSize)
                 .matchingEnginesNum(matchingEnginesNum)
@@ -96,20 +114,8 @@ public final class ExchangeTestContainer implements AutoCloseable {
 //                .orderBookFactory(symbolType -> new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH, symbolType))
                 .orderBookFactory(OrderBookDirectImpl::new)
 //                .orderBookFactory(OrderBookNaiveImpl::new)
-                .loadStateId(stateId) // Loading from persisted state
-                .build();
-
-        this.exchangeCore.startup();
-        api = this.exchangeCore.getApi();
+                .loadStateId(stateId);
     }
-
-//    public ExchangeTestContainer(final ExchangeCore exchangeCore) {
-//
-//        this.exchangeCore = exchangeCore;
-//        this.exchangeCore.startup();
-//        api = this.exchangeCore.getApi();
-//    }
-
 
     public void initBasicSymbols() {
 

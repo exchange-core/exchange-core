@@ -75,7 +75,11 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
      * @param fundingTransactionId
      * @return result code
      */
-    public CommandResultCode balanceAdjustment(final long uid, final int currency, final long amount, final long fundingTransactionId) {
+    public CommandResultCode balanceAdjustment(final long uid,
+                                               final int currency,
+                                               final long amount,
+                                               final long fundingTransactionId,
+                                               final boolean disableNfsReject) {
 
         final UserProfile userProfile = getUserProfile(uid);
         if (userProfile == null) {
@@ -96,7 +100,7 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
         }
 
         // validate balance for withdrawals
-        if (amount < 0 && (userProfile.accounts.get(currency) + amount < 0)) {
+        if (!disableNfsReject && amount < 0 && (userProfile.accounts.get(currency) + amount < 0)) {
             return CommandResultCode.USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_NSF;
         }
 

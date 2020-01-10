@@ -60,15 +60,22 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
     // configuration
     private final int shardId;
     private final long shardMask;
+    private final boolean disableNfsReject;
 
     private final ISerializationProcessor serializationProcessor;
 
-    public RiskEngine(final int shardId, final long numShards, final ISerializationProcessor serializationProcessor, final Long loadStateId) {
+    public RiskEngine(final int shardId,
+                      final long numShards,
+                      final boolean riskDisableNfsReject,
+                      final ISerializationProcessor serializationProcessor,
+                      final Long loadStateId) {
+
         if (Long.bitCount(numShards) != 1) {
             throw new IllegalArgumentException("Invalid number of shards " + numShards + " - must be power of 2");
         }
         this.shardId = shardId;
         this.shardMask = numShards - 1;
+        this.disableNfsReject = riskDisableNfsReject;
         this.serializationProcessor = serializationProcessor;
 
         // initialize object pools
@@ -251,7 +258,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
 
     private CommandResultCode adjustBalance(long uid, int currency, long amountDiff, long fundingTransactionId, BalanceAdjustmentType adjustmentType) {
-        final CommandResultCode res = userProfileService.balanceAdjustment(uid, currency, amountDiff, fundingTransactionId);
+        final CommandResultCode res = userProfileService.balanceAdjustment(uid, currency, amountDiff, fundingTransactionId, disableNfsReject);
         if (res == CommandResultCode.SUCCESS) {
             switch (adjustmentType) {
                 case ADJUSTMENT: // adjust total adjustments amount
@@ -464,7 +471,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         // speculative change balance
         long newBalance = userProfile.accounts.addToValue(currency, -orderAmount);
 
-        final boolean canPlace = newBalance + freeFuturesMargin >= 0;
+        final boolean canPlace = disableNfsReject || (newBalance + freeFuturesMargin >= 0);
 
         if (!canPlace) {
             // revert balance change
@@ -488,6 +495,10 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                                         final UserProfile userProfile,
                                         final CoreSymbolSpecification spec,
                                         final SymbolPositionRecord position) {
+
+        if (disableNfsReject) {
+            return true;
+        }
 
         final long newRequiredMarginForSymbol = position.calculateRequiredMarginForOrder(spec, cmd.action, cmd.size);
         if (newRequiredMarginForSymbol == -1) {

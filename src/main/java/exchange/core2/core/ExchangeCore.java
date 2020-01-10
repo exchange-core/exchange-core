@@ -64,6 +64,7 @@ public final class ExchangeCore {
                         final UnsafeUtils.ThreadAffinityMode threadAffinityMode,
                         final CoreWaitStrategy waitStrategy,
                         final BiFunction<CoreSymbolSpecification, ObjectsPool, IOrderBook> orderBookFactory,
+                        final boolean riskDisableNfsReject,
                         final Long loadStateId) {
 
         if (msgsInGroupLimit >= ringBufferSize) {
@@ -99,7 +100,7 @@ public final class ExchangeCore {
 
         // creating risk engines array // TODO parallel deserialization
         final List<RiskEngine> riskEngines = IntStream.range(0, riskEnginesNum)
-                .mapToObj(shardId -> new RiskEngine(shardId, riskEnginesNum, serializationProcessor, loadStateId))
+                .mapToObj(shardId -> new RiskEngine(shardId, riskEnginesNum, riskDisableNfsReject, serializationProcessor, loadStateId))
                 .collect(Collectors.toList());
 
         final List<TwoStepMasterProcessor> procR1 = new ArrayList<>(riskEnginesNum);
