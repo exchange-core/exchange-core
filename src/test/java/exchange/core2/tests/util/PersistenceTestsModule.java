@@ -61,6 +61,7 @@ public class PersistenceTestsModule {
                     .usersAccounts(usersAccounts)
                     .targetOrderBookOrdersTotal(targetOrderBookOrdersTotal)
                     .seed(iteration)
+                    .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER_PLUS_QUARTER)
                     .build();
 
             final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(genConfig);
@@ -102,7 +103,7 @@ public class PersistenceTestsModule {
 
                 log.info("Persisting...");
                 final long tc = System.currentTimeMillis();
-                stateId = tc;
+                stateId = tc * 1000 + iteration;
                 container.submitMultiCommandSync(ApiPersistState.builder().dumpId(stateId).build());
                 final float persistTimeSec = (float) (System.currentTimeMillis() - tc) / 1000.0f;
                 log.debug("Persisting time: {}s", String.format("%.3f", persistTimeSec));
@@ -119,14 +120,12 @@ public class PersistenceTestsModule {
                     apiCommandsBenchmark.forEach(api::submitCommand);
                     latchBenchmark.await();
                     final long tDuration = System.currentTimeMillis() - tStart;
-
-                    assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
-
                     return apiCommandsBenchmark.size() / (float) tDuration / 1000.0f;
                 });
 
-                log.info("{}. original speed: {} MT/s", iteration, String.format("%.3f", originalPerfMt));
+                assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
 
+                log.info("{}. original throughput: {} MT/s", iteration, String.format("%.3f", originalPerfMt));
             }
 
 
@@ -167,7 +166,7 @@ public class PersistenceTestsModule {
                 });
 
                 final float perfRatioPerc = perfMt / originalPerfMt * 100f;
-                log.info("{}. restored speed: {} MT/s ({}%)", iteration, String.format("%.3f", perfMt), String.format("%.1f", perfRatioPerc));
+                log.info("{}. restored throughput: {} MT/s ({}%)", iteration, String.format("%.3f", perfMt), String.format("%.1f", perfRatioPerc));
             }
 
             System.gc();

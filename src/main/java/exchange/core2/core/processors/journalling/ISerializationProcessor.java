@@ -15,6 +15,7 @@
  */
 package exchange.core2.core.processors.journalling;
 
+import lombok.AllArgsConstructor;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 
@@ -26,9 +27,12 @@ public interface ISerializationProcessor {
 
     <T> T loadData(long snapshotId, SerializedModuleType type, int instanceId, Function<BytesIn, T> initFunc);
 
+    @AllArgsConstructor
     enum SerializedModuleType {
-        RISK_ENGINE,
-        MATCHING_ENGINE_ROUTER
+        RISK_ENGINE("RE"),
+        MATCHING_ENGINE_ROUTER("ME");
+
+        final String code;
     }
 
 }

@@ -74,7 +74,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
     }
 
     private Path resolvePath(long snapshotId, SerializedModuleType type, int instanceId) {
-        return dumpsFolder.resolve("state_" + snapshotId + "_" + type + "_" + instanceId);
+        return dumpsFolder.resolve("state_" + snapshotId + "_" + type.code + instanceId);
     }
 
     @Override

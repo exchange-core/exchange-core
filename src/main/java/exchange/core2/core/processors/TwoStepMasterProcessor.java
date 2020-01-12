@@ -97,7 +97,7 @@ public final class TwoStepMasterProcessor implements EventProcessor {
 
     private void processEvents() {
 
-        Thread.currentThread().setName(name);
+        Thread.currentThread().setName("Thread-"+name);
 
         long nextSequence = sequence.get() + 1L;
 

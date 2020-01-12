@@ -53,6 +53,7 @@ public class ThroughputTestsModule {
                 .usersAccounts(usersAccounts)
                 .targetOrderBookOrdersTotal(targetOrderBookOrdersTotal)
                 .seed(1)
+                .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
                 .build();
 
         final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(
