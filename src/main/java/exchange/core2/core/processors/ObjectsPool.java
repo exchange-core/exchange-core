@@ -15,6 +15,7 @@
  */
 package exchange.core2.core.processors;
 
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.HashMap;
@@ -37,6 +38,9 @@ public final class ObjectsPool {
 
     private final ArrayStack[] pools;
 
+    @Getter
+    private final SharedPool sharedPool;
+
     public static ObjectsPool createDefaultTestPool() {
 
         // initialize object pools
@@ -48,15 +52,17 @@ public final class ObjectsPool {
         objectsPoolConfig.put(ObjectsPool.ART_NODE_48, 64);
         objectsPoolConfig.put(ObjectsPool.ART_NODE_256, 32);
 
-        return new ObjectsPool(objectsPoolConfig);
+        return new ObjectsPool(objectsPoolConfig, new SharedPool(8, 4, 256));
     }
 
-    public ObjectsPool(final Map<Integer, Integer> sizesConfig) {
+    // TODO specify Global Shared Pool
+    public ObjectsPool(final Map<Integer, Integer> sizesConfig, SharedPool sharedPool) {
         int maxStack = sizesConfig.keySet().stream().max(Integer::compareTo).orElse(0);
         this.pools = new ArrayStack[maxStack + 1];
         sizesConfig.forEach((type, size) -> this.pools[type] = new ArrayStack(size));
-    }
 
+        this.sharedPool = sharedPool;
+    }
 
     public <T> T get(final int type, final Supplier<T> supplier) {
         final T obj = (T) pools[type].pop();  // pollFirst is cheaper for empty pool

@@ -17,11 +17,14 @@ package exchange.core2.core.processors;
 
 import com.lmax.disruptor.*;
 import exchange.core2.core.common.CoreWaitStrategy;
+import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.concurrent.atomic.AtomicInteger;
+
+import static exchange.core2.core.ExchangeCore.EVENTS_POOLING;
 
 @Slf4j
 public final class GroupingProcessor implements EventProcessor {
@@ -40,13 +43,16 @@ public final class GroupingProcessor implements EventProcessor {
     private final WaitSpinningHelper waitSpinningHelper;
     private final Sequence sequence = new Sequence(Sequencer.INITIAL_CURSOR_VALUE);
 
+    private final SharedPool sharedPool;
+
     private final long msgsInGroupLimit;
 
-    public GroupingProcessor(RingBuffer<OrderCommand> ringBuffer, SequenceBarrier sequenceBarrier, long msgsInGroupLimit, CoreWaitStrategy coreWaitStrategy) {
+    public GroupingProcessor(RingBuffer<OrderCommand> ringBuffer, SequenceBarrier sequenceBarrier, long msgsInGroupLimit, CoreWaitStrategy coreWaitStrategy, SharedPool sharedPool) {
         this.ringBuffer = ringBuffer;
         this.sequenceBarrier = sequenceBarrier;
         this.waitSpinningHelper = new WaitSpinningHelper(ringBuffer, sequenceBarrier, GROUP_SPIN_LIMIT, coreWaitStrategy);
         this.msgsInGroupLimit = msgsInGroupLimit;
+        this.sharedPool = sharedPool;
     }
 
     @Override
@@ -103,6 +109,11 @@ public final class GroupingProcessor implements EventProcessor {
         long l2dataLastNs = 0;
         boolean triggerL2DataRequest = false;
 
+        final int tradeEventChainLengthTarget = sharedPool.getChainLength();
+        MatcherTradeEvent tradeEventHead = null;
+        MatcherTradeEvent tradeEventTail = null;
+        int tradeEventCounter = 0; // counter
+
         while (true) {
             try {
 
@@ -131,9 +142,38 @@ public final class GroupingProcessor implements EventProcessor {
                             cmd.serviceFlags = 1;
                         }
 
-                        // cleaning attached objects
-                        cmd.marketData = null;
+                        // cleaning attached events
+                        if (EVENTS_POOLING && cmd.matcherEvent != null) {
+
+                            // update tail
+                            if (tradeEventTail == null) {
+                                tradeEventHead = cmd.matcherEvent; //?
+                            } else {
+                                tradeEventTail.nextEvent = cmd.matcherEvent;
+                            }
+
+                            tradeEventTail = cmd.matcherEvent;
+                            tradeEventCounter++;
+
+                            // find last element in the chain and update tail accourdingly
+                            while (tradeEventTail.nextEvent != null) {
+                                tradeEventTail = tradeEventTail.nextEvent;
+                                tradeEventCounter++;
+                            }
+
+                            if (tradeEventCounter >= tradeEventChainLengthTarget) {
+                                // chain is big enough -> send to the shared pool
+                                tradeEventCounter = 0;
+                                sharedPool.putChain(tradeEventHead);
+                                tradeEventTail = null;
+                                tradeEventHead = null;
+                            }
+
+                        }
                         cmd.matcherEvent = null;
+
+                        // TODO collect to shared buffer
+                        cmd.marketData = null;
 
                         if (cmd.command == OrderCommandType.NOP) {
                             // just set next group and pass
@@ -176,5 +216,12 @@ public final class GroupingProcessor implements EventProcessor {
                 nextSequence++;
             }
         }
+    }
+
+    @Override
+    public String toString() {
+        return "GroupingProcessor{" +
+                "GL=" + msgsInGroupLimit +
+                '}';
     }
 }

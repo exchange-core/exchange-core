@@ -63,7 +63,11 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
     private final ISerializationProcessor serializationProcessor;
 
-    public RiskEngine(final int shardId, final long numShards, final ISerializationProcessor serializationProcessor, final Long loadStateId) {
+    public RiskEngine(final int shardId,
+                      final long numShards,
+                      final ISerializationProcessor serializationProcessor,
+                      final SharedPool sharedPool,
+                      final Long loadStateId) {
         if (Long.bitCount(numShards) != 1) {
             throw new IllegalArgumentException("Invalid number of shards " + numShards + " - must be power of 2");
         }
@@ -74,12 +78,12 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         // initialize object pools
         final HashMap<Integer, Integer> objectsPoolConfig = new HashMap<>();
         objectsPoolConfig.put(ObjectsPool.SYMBOL_POSITION_RECORD, 1024 * 256);
-        this.objectsPool = new ObjectsPool(objectsPoolConfig);
+        this.objectsPool = new ObjectsPool(objectsPoolConfig, sharedPool);
 
         if (loadStateId == null) {
             this.symbolSpecificationProvider = new SymbolSpecificationProvider();
             this.userProfileService = new UserProfileService();
-            this.binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, shardId);
+            this.binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, sharedPool, shardId);
             this.lastPriceCache = new IntObjectHashMap<>();
             this.fees = new IntLongHashMap();
             this.adjustments = new IntLongHashMap();
@@ -100,7 +104,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                         }
                         final SymbolSpecificationProvider symbolSpecificationProvider = new SymbolSpecificationProvider(bytesIn);
                         final UserProfileService userProfileService = new UserProfileService(bytesIn);
-                        final BinaryCommandsProcessor binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, bytesIn, shardId);
+                        final BinaryCommandsProcessor binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, sharedPool, bytesIn, shardId);
                         final IntObjectHashMap<LastPriceCacheRecord> lastPriceCache = SerializationUtils.readIntHashMap(bytesIn, LastPriceCacheRecord::new);
                         final IntLongHashMap fees = SerializationUtils.readIntLongHashMap(bytesIn);
                         final IntLongHashMap adjustments = SerializationUtils.readIntLongHashMap(bytesIn);
@@ -592,7 +596,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         if (ev.eventType == MatcherEventType.TRADE && uidForThisHandler(ev.matchedOrderUid)) {
             // update maker's position
             final UserProfile maker = userProfileService.getUserProfileOrAddSuspended(ev.matchedOrderUid);
-            final SymbolPositionRecord makerSpr = maker.getPositionRecordOrThrowEx(ev.symbol);
+            final SymbolPositionRecord makerSpr = maker.getPositionRecordOrThrowEx(spec.symbolId);
             long sizeOpen = makerSpr.updatePositionForMarginTrade(takerAction.opposite(), ev.size, ev.price);
             final long fee = spec.makerFee * sizeOpen;
             maker.accounts.addToValue(spec.quoteCurrency, -fee);

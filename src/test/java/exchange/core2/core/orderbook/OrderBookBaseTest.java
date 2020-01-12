@@ -62,7 +62,6 @@ public abstract class OrderBookBaseTest {
     static final int UID_1 = 412;
     static final int UID_2 = 413;
 
-
     protected abstract IOrderBook createNewOrderBook();
 
 

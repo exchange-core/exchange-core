@@ -30,13 +30,14 @@ import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.processors.*;
 import exchange.core2.core.processors.journalling.ISerializationProcessor;
 import exchange.core2.core.processors.journalling.JournallingProcessor;
-import exchange.core2.core.utils.UnsafeUtils;
 import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ArrayUtils;
+import org.apache.commons.lang3.tuple.Pair;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ThreadFactory;
 import java.util.function.BiFunction;
 import java.util.function.ObjLongConsumer;
 import java.util.stream.Collectors;
@@ -53,6 +54,9 @@ public final class ExchangeCore {
     private boolean started = false;
     private boolean stopped = false;
 
+    // enable MatcherTradeEvent pooling
+    public static boolean EVENTS_POOLING = false;
+
     @Builder
     public ExchangeCore(final ObjLongConsumer<OrderCommand> resultsConsumer,
                         final JournallingProcessor journallingHandler,
@@ -61,7 +65,7 @@ public final class ExchangeCore {
                         final int matchingEnginesNum,
                         final int riskEnginesNum,
                         final int msgsInGroupLimit,
-                        final UnsafeUtils.ThreadAffinityMode threadAffinityMode,
+                        final ThreadFactory threadFactory,
                         final CoreWaitStrategy waitStrategy,
                         final BiFunction<CoreSymbolSpecification, ObjectsPool, IOrderBook> orderBookFactory,
                         final Long loadStateId) {
@@ -73,11 +77,16 @@ public final class ExchangeCore {
         this.disruptor = new Disruptor<>(
                 OrderCommand::new,
                 ringBufferSize,
-                UnsafeUtils.affinedThreadFactory(threadAffinityMode),
+                threadFactory,
                 ProducerType.MULTI, // multiple gateway threads are writing
                 waitStrategy.create());
 
         this.api = new ExchangeApi(disruptor.getRingBuffer());
+
+        // creating shared objects pool
+        final int poolInitialSize = (matchingEnginesNum + riskEnginesNum) * 8;
+        final int chainLength = EVENTS_POOLING ? 1024 : 1;
+        final SharedPool sharedPool = new SharedPool(poolInitialSize * 4, poolInitialSize, chainLength);
 
         // creating and attaching exceptions handler
         final DisruptorExceptionHandler<OrderCommand> exceptionHandler = new DisruptorExceptionHandler<>("main", (ex, seq) -> {
@@ -92,14 +101,14 @@ public final class ExchangeCore {
         // creating matching engine event handlers array // TODO parallel deserialization
         final EventHandler<OrderCommand>[] matchingEngineHandlers = IntStream.range(0, matchingEnginesNum)
                 .mapToObj(shardId -> {
-                    final MatchingEngineRouter router = new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, orderBookFactory, loadStateId);
+                    final MatchingEngineRouter router = new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, orderBookFactory, sharedPool, loadStateId);
                     return (EventHandler<OrderCommand>) (cmd, seq, eob) -> router.processOrder(cmd);
                 })
                 .toArray(ExchangeCore::newEventHandlersArray);
 
-        // creating risk engines array // TODO parallel deserialization
-        final List<RiskEngine> riskEngines = IntStream.range(0, riskEnginesNum)
-                .mapToObj(shardId -> new RiskEngine(shardId, riskEnginesNum, serializationProcessor, loadStateId))
+        // creating risk engines array // TODO parallel deserialization & create as IntObjMap
+        final List<Pair<Integer, RiskEngine>> riskEngines = IntStream.range(0, riskEnginesNum)
+                .mapToObj(shardId -> Pair.of(shardId, new RiskEngine(shardId, riskEnginesNum, serializationProcessor, sharedPool, loadStateId)))
                 .collect(Collectors.toList());
 
         final List<TwoStepMasterProcessor> procR1 = new ArrayList<>(riskEnginesNum);
@@ -107,16 +116,17 @@ public final class ExchangeCore {
 
         // 1. grouping processor (G)
         final EventHandlerGroup<OrderCommand> afterGrouping =
-                disruptor.handleEventsWith((rb, bs) -> new GroupingProcessor(rb, rb.newBarrier(bs), msgsInGroupLimit, waitStrategy));
+                disruptor.handleEventsWith((rb, bs) -> new GroupingProcessor(rb, rb.newBarrier(bs), msgsInGroupLimit, waitStrategy, sharedPool));
 
         // 2. [journalling (J)] in parallel with risk hold (R1) + matching engine (ME)
         if (journallingHandler != null) {
             afterGrouping.handleEventsWith(journallingHandler::onEvent);
         }
 
-        riskEngines.forEach(riskEngine -> afterGrouping.handleEventsWith(
+        riskEngines.forEach(rePair -> afterGrouping.handleEventsWith(
                 (rb, bs) -> {
-                    final TwoStepMasterProcessor r1 = new TwoStepMasterProcessor(rb, rb.newBarrier(bs), riskEngine::preProcessCommand, exceptionHandler, waitStrategy);
+                    final RiskEngine riskEngine = rePair.getValue();
+                    final TwoStepMasterProcessor r1 = new TwoStepMasterProcessor(rb, rb.newBarrier(bs), riskEngine::preProcessCommand, exceptionHandler, waitStrategy, "R0-" + rePair.getKey());
                     procR1.add(r1);
                     return r1;
                 }));
@@ -126,8 +136,9 @@ public final class ExchangeCore {
         // 3. risk release (R2) after matching engine (ME)
         final EventHandlerGroup<OrderCommand> afterMatchingEngine = disruptor.after(matchingEngineHandlers);
 
-        riskEngines.forEach(riskEngine -> afterMatchingEngine.handleEventsWith(
+        riskEngines.forEach(rePair -> afterMatchingEngine.handleEventsWith(
                 (rb, bs) -> {
+                    final RiskEngine riskEngine = rePair.getValue();
                     final TwoStepSlaveProcessor r2 = new TwoStepSlaveProcessor(rb, rb.newBarrier(bs), riskEngine::handlerRiskRelease, exceptionHandler);
                     procR2.add(r2);
                     return r2;

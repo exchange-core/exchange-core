@@ -22,11 +22,10 @@ import exchange.core2.core.common.OrderType;
 import exchange.core2.core.common.api.ApiCommand;
 import exchange.core2.core.common.api.ApiMoveOrder;
 import exchange.core2.core.common.api.ApiPlaceOrder;
+import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import net.openhft.affinity.AffinityLock;
 import org.HdrHistogram.Histogram;
 import org.HdrHistogram.SingleWriterRecorder;
-import org.apache.commons.math3.util.Pair;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -77,8 +76,7 @@ public class LatencyTestsModule {
 
         final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(genConfig);
 
-        try (final AffinityLock cpuLock = AffinityLock.acquireLock();
-             final ExchangeTestContainer container = containerFactory.get()) {
+        try (final ExchangeTestContainer container = containerFactory.get()) {
 
             final ExchangeApi api = container.getApi();
             final SingleWriterRecorder hdrRecorder = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
@@ -151,19 +149,21 @@ public class LatencyTestsModule {
                 }
             };
 
-            log.debug("Warming up {} cycles...", warmupCycles);
-            IntStream.range(0, warmupCycles)
-                    .forEach(i -> testIteration.apply(warmupTps, true));
-            log.debug("Warmup done, starting tests");
+            container.executeTestingThread(() -> {
+                log.debug("Warming up {} cycles...", warmupCycles);
+                IntStream.range(0, warmupCycles)
+                        .forEach(i -> testIteration.apply(warmupTps, true));
+                log.debug("Warmup done, starting tests");
 
-            final boolean ignore = IntStream.range(0, 10000)
-                    .map(i -> targetTps + targetTpsStep * i)
-                    .mapToObj(tps -> testIteration.apply(tps, false))
-                    .allMatch(x -> x);
+                return IntStream.range(0, 10000)
+                        .map(i -> targetTps + targetTpsStep * i)
+                        .mapToObj(tps -> testIteration.apply(tps, false))
+                        .allMatch(x -> x);
+            });
         }
     }
 
-    public static void individualLatencyTest(final Function<Integer, ExchangeTestContainer> containerFactory,
+    public static void individualLatencyTest(final Supplier<ExchangeTestContainer> containerFactory,
                                              final int totalCommandsNumber,
                                              final int targetOrderBookOrdersTotal,
                                              final int numAccounts,
@@ -191,11 +191,7 @@ public class LatencyTestsModule {
         final int[] minLatencies = new int[genResult.apiCommandsBenchmark.size()];
         Arrays.fill(minLatencies, Integer.MAX_VALUE);
 
-        final int groupSize = 256;
-
-        try (final AffinityLock cpuLock = AffinityLock.acquireLock();
-             final ExchangeTestContainer container = containerFactory.apply(groupSize)) {
-
+        try (final ExchangeTestContainer container = containerFactory.get()) {
 
             // TODO - first run should validate the output (orders are accepted and processed properly)
 
@@ -259,23 +255,23 @@ public class LatencyTestsModule {
                     SingleWriterRecorder minLatenciesHdr = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
 
                     // TODO change to case based
-                    List<Pair<Integer, Pair<Integer, ApiCommand>>> slowCommands = new ArrayList<>(apiCommandsBenchmark.size());
+                    List<SlowCommandRecord> slowCommands = new ArrayList<>(apiCommandsBenchmark.size());
 
                     for (int i = 0; i < apiCommandsBenchmark.size(); i++) {
-                        int latency = latencies[i];
-                        int minLatency = Math.min(minLatencies[i], latency);
+                        final int latency = latencies[i];
+                        final int minLatency = Math.min(minLatencies[i], latency);
                         minLatencies[i] = minLatency;
                         minLatenciesHdr.recordValue(minLatency);
 
-                        int matcherEventsNum = matcherEvents[i];
-                        ApiCommand apiCommand = apiCommandsBenchmark.get(i);
-                        Class<? extends ApiCommand> aClass = apiCommand.getClass();
-                        SingleWriterRecorder hdrSvr = commandsClassLatencies.compute(aClass, (k, v) -> v == null
+                        final int matcherEventsNum = matcherEvents[i];
+                        final ApiCommand apiCommand = apiCommandsBenchmark.get(i);
+                        final Class<? extends ApiCommand> aClass = apiCommand.getClass();
+                        final SingleWriterRecorder hdrSvr = commandsClassLatencies.compute(aClass, (k, v) -> v == null
                                 ? (new SingleWriterRecorder(Integer.MAX_VALUE, 2))
                                 : v);
                         hdrSvr.recordValue(minLatency);
 
-                        slowCommands.add(Pair.create(minLatency, Pair.create(i, apiCommand)));
+                        slowCommands.add(new SlowCommandRecord(minLatency, i, apiCommand, matcherEventsNum));
 
                         if (apiCommand instanceof ApiPlaceOrder) {
                             if (((ApiPlaceOrder) apiCommand).orderType == OrderType.GTC) {
@@ -305,19 +301,18 @@ public class LatencyTestsModule {
                     log.info("  Move 1  evt {}", LatencyTools.createLatencyReportFast(moveOrderEvts1.getIntervalHistogram()));
                     log.info("  Move 2+ evt {}", LatencyTools.createLatencyReportFast(moveOrderEvts2.getIntervalHistogram()));
 
-
-                    slowCommands.sort((o1, o2) -> o2.getFirst().compareTo(o1.getFirst()));
+                    slowCommands.sort(COMPARATOR_LATENCY_DESC);
 
                     log.info("Slowest commands (theoretical):");
                     slowCommands.stream().limit(100).forEach(
-                            p -> log.info("{}. {} {}",
-                                    String.format("%06X", p.getSecond().getFirst()), LatencyTools.formatNanos(p.getFirst()), p.getSecond().getSecond()));
+                            p -> log.info("{}. {} {} events:{} {}",
+                                    String.format("%06X", p.seqNumber), LatencyTools.formatNanos(p.minLatency), p.apiCommand, p.eventsNum,
+                                    p.eventsNum > 0 ? String.format("(%dns per matching)", p.minLatency / p.eventsNum) : ""));
 
                     // compare orderBook final state just to make sure all commands executed same way
                     // TODO compare events, balances, positions
                     coreSymbolSpecifications.forEach(
                             symbol -> assertEquals(genResult.getGenResults().get(symbol.symbolId).getFinalOrderBookSnapshot(), container.requestCurrentOrderBook(symbol.symbolId)));
-
 
                     container.resetExchangeCore();
 
@@ -332,11 +327,20 @@ public class LatencyTestsModule {
                 }
             };
 
-            final boolean ignore = IntStream.range(0, 32)
-                    .mapToObj(testIteration::apply)
-                    .allMatch(x -> x);
+            // running tests
+            container.executeTestingThread(() -> IntStream.range(0, 32).mapToObj(testIteration::apply).allMatch(x -> x));
         }
     }
+
+    @AllArgsConstructor
+    private static class SlowCommandRecord {
+        int minLatency;
+        int seqNumber;
+        ApiCommand apiCommand;
+        int eventsNum;
+    }
+
+    static Comparator<SlowCommandRecord> COMPARATOR_LATENCY_DESC = Comparator.<SlowCommandRecord>comparingInt(c -> c.minLatency).reversed();
 }
 
 

@@ -16,11 +16,12 @@
 package exchange.core2.core.orderbook;
 
 
+import exchange.core2.core.common.MatcherTradeEvent;
+import exchange.core2.core.common.Order;
+import exchange.core2.core.common.cmd.OrderCommand;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Before;
 import org.junit.Test;
-import exchange.core2.core.common.Order;
-import exchange.core2.core.common.cmd.OrderCommand;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -44,6 +45,8 @@ public abstract class OrdersBucketBaseTest {
     static final int UID_9 = 419;
 
     protected abstract IOrdersBucket createNewBucket();
+
+    protected final OrderBookEventsHelper eventsHelper = new OrderBookEventsHelper(MatcherTradeEvent::new);
 
     public final static Consumer<Order> IGNORE_CMD_CONSUMER = cmd -> {
     };
@@ -195,7 +198,7 @@ public abstract class OrdersBucketBaseTest {
         }
 
         OrderCommand triggerOrd = OrderCommand.update(8182, UID_9, 1000);
-        bucket.match(expectedVolume, triggerOrd, triggerOrd, IGNORE_CMD_CONSUMER);
+        bucket.match(expectedVolume, triggerOrd, triggerOrd, IGNORE_CMD_CONSUMER, eventsHelper);
         assertThat(triggerOrd.extractEvents().size(), is(expectedNumOrders));
 
         assertThat(bucket.getNumOrders(), is(0));
@@ -249,7 +252,7 @@ public abstract class OrdersBucketBaseTest {
             long toMatch = expectedVolume / 2;
 
             OrderCommand triggerOrd = OrderCommand.update(119283900, UID_9, 1000);
-            long totalVolume = bucket.match(toMatch, triggerOrd, triggerOrd, IGNORE_CMD_CONSUMER);
+            long totalVolume = bucket.match(toMatch, triggerOrd, triggerOrd, IGNORE_CMD_CONSUMER, eventsHelper);
             assertThat(totalVolume, is(toMatch));
             expectedVolume -= totalVolume;
             assertThat(bucket.getTotalVolume(), is(expectedVolume));
@@ -259,7 +262,7 @@ public abstract class OrdersBucketBaseTest {
         }
 
         OrderCommand triggerOrd = OrderCommand.update(1238729387, UID_9, 1000);
-        bucket.match(expectedVolume, triggerOrd, triggerOrd, IGNORE_CMD_CONSUMER);
+        bucket.match(expectedVolume, triggerOrd, triggerOrd, IGNORE_CMD_CONSUMER, eventsHelper);
         assertThat(triggerOrd.extractEvents().size(), is(expectedNumOrders));
 
         assertThat(bucket.getNumOrders(), is(0));

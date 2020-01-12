@@ -18,6 +18,7 @@ package exchange.core2.tests.perf;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.TestConstants;
 import lombok.extern.slf4j.Slf4j;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import static exchange.core2.tests.util.LatencyTestsModule.individualLatencyTest;
@@ -33,7 +34,7 @@ public final class PerfLatencyCommands {
      */
     @Test
     public void testLatencyMargin() {
-        individualLatencyTest(msgsInGroup -> new ExchangeTestContainer(2 * 1024, 1, 1, msgsInGroup, null),
+        individualLatencyTest(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, null),
                 1_000_000,
                 1_000,
                 2_000,
@@ -43,9 +44,12 @@ public final class PerfLatencyCommands {
                 false);
     }
 
+    /**
+     * Huge IoC orders test to verify matching performance for big-size taker orders.
+     */
     @Test
     public void testLatencyMarginHugeIoc() {
-        individualLatencyTest(msgsInGroup -> new ExchangeTestContainer(2 * 1024, 1, 1, msgsInGroup, null),
+        individualLatencyTest(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, null),
                 1_000_000,
                 1_000,
                 2_000,
@@ -64,7 +68,7 @@ public final class PerfLatencyCommands {
      */
     @Test
     public void testLatencyExchange() {
-        individualLatencyTest(msgsInGroup -> new ExchangeTestContainer(2 * 1024, 1, 1, msgsInGroup, null),
+        individualLatencyTest(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, null),
                 1_000_000,
                 1_000,
                 2_000,
@@ -74,9 +78,12 @@ public final class PerfLatencyCommands {
                 false);
     }
 
+    /**
+     * Huge IoC orders test to verify matching performance for big-size taker orders.
+     */
     @Test
     public void testLatencyExchangeHugeIoc() {
-        individualLatencyTest(msgsInGroup -> new ExchangeTestContainer(2 * 1024, 1, 1, msgsInGroup, null),
+        individualLatencyTest(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, null),
                 1_000_000,
                 1_000,
                 2_000,
@@ -97,8 +104,8 @@ public final class PerfLatencyCommands {
      */
     @Test
     public void testLatencyMultiSymbolMedium() {
-        individualLatencyTest(msgsInGroup -> new ExchangeTestContainer(32 * 1024, 4, 2, msgsInGroup, null),
-                6_000_000,
+        individualLatencyTest(() -> new ExchangeTestContainer(64 * 1024, 4, 2, 256, null),
+                3_000_000,
                 1_000_000,
                 3_300_000,
                 TestConstants.ALL_CURRENCIES,
@@ -107,10 +114,16 @@ public final class PerfLatencyCommands {
                 false);
     }
 
+    /**
+     * Huge IoC orders test to verify matching performance for big-size taker orders. </br>
+     * Why 4R1M configuration:</br>
+     * Less matching engines provides better individual command latency - due to less interference. </br>
+     * More risk engines provide better individual command latency because of parallel processing R2 stage (0.5 + 0.5/N) </br>
+     */
     @Test
     public void testLatencyMultiSymbolMediumHugeIOC() {
-        individualLatencyTest(msgsInGroup -> new ExchangeTestContainer(32 * 1024, 4, 2, msgsInGroup, null),
-                6_000_000,
+        individualLatencyTest(() -> new ExchangeTestContainer(64 * 1024, 1, 4, 256, null),
+                3_000_000,
                 1_000_000,
                 3_300_000,
                 TestConstants.ALL_CURRENCIES,
@@ -128,9 +141,9 @@ public final class PerfLatencyCommands {
      * 12-threads CPU and 32GiB RAM is required for running this test in 2+4 configuration.
      */
     @Test
+    @Ignore
     public void testLatencyMultiSymbolLarge() {
-        individualLatencyTest(
-                msgsInGroup -> new ExchangeTestContainer(64 * 1024, 4, 2, msgsInGroup, null),
+        individualLatencyTest(() -> new ExchangeTestContainer(64 * 1024, 4, 2, 256, null),
                 40_000_000,
                 30_000_000,
                 33_000_000,

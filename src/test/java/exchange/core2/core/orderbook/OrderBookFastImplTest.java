@@ -17,6 +17,7 @@ package exchange.core2.core.orderbook;
 
 import exchange.core2.core.common.L2MarketData;
 import exchange.core2.core.common.cmd.OrderCommand;
+import exchange.core2.core.processors.ObjectsPool;
 import exchange.core2.tests.util.TestConstants;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
@@ -40,7 +41,7 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
     @Override
     protected IOrderBook createNewOrderBook() {
 
-        return new OrderBookFastImpl(HOT_PRICES_RANGE, TestConstants.SYMBOLSPEC_EUR_USD);
+        return new OrderBookFastImpl(HOT_PRICES_RANGE, TestConstants.SYMBOLSPEC_EUR_USD, ObjectsPool.createDefaultTestPool());
     }
 
 

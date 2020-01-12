@@ -174,7 +174,7 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
             case NAIVE:
                 return new OrderBookNaiveImpl(bytes);
             case FAST:
-                return new OrderBookFastImpl(bytes);
+                return new OrderBookFastImpl(bytes, objectsPool);
             case DIRECT:
                 return new OrderBookDirectImpl(bytes, objectsPool);
             default:

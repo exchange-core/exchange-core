@@ -16,6 +16,8 @@
 package exchange.core2.tests.perf.modules;
 
 
+import exchange.core2.core.common.MatcherTradeEvent;
+import exchange.core2.core.orderbook.OrderBookEventsHelper;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Before;
 import org.junit.Test;
@@ -42,6 +44,8 @@ public abstract class ITOrdersBucketBase {
     private static final int UID_9 = 419;
 
     private IOrdersBucket bucket;
+
+    protected OrderBookEventsHelper helper = new OrderBookEventsHelper(MatcherTradeEvent::new);
 
     protected abstract IOrdersBucket createNewOrdersBucket();
 
@@ -123,7 +127,7 @@ public abstract class ITOrdersBucketBase {
 
             long toMatch = expectedVolume / 2;
             OrderCommand triggerOrder = OrderCommand.update(1238729387, UID_9, 1000);
-            long totalVolume = bucket.match(toMatch, triggerOrder, triggerOrder, IGNORE_CMD_CONSUMER);
+            long totalVolume = bucket.match(toMatch, triggerOrder, triggerOrder, IGNORE_CMD_CONSUMER, helper);
             assertThat(totalVolume, is(toMatch));
             expectedVolume -= totalVolume;
             assertThat(bucket.getTotalVolume(), is(expectedVolume));
@@ -133,7 +137,7 @@ public abstract class ITOrdersBucketBase {
         }
 
         OrderCommand triggerOrder = OrderCommand.update(1238729387, UID_9, 1000);
-        bucket.match(expectedVolume, triggerOrder, triggerOrder, IGNORE_CMD_CONSUMER);
+        bucket.match(expectedVolume, triggerOrder, triggerOrder, IGNORE_CMD_CONSUMER, helper);
         assertThat(triggerOrder.extractEvents().size(), is(expectedNumOrders));
 
         assertThat(bucket.getNumOrders(), is(0));
@@ -216,7 +220,7 @@ public abstract class ITOrdersBucketBase {
             s = System.nanoTime();
 
             OrderCommand triggerOrd = OrderCommand.update(1238729387, UID_9, 1000);
-            long matchingTotalVol = bucket.match(toMatch, triggerOrd, triggerOrd, IGNORE_CMD_CONSUMER);
+            long matchingTotalVol = bucket.match(toMatch, triggerOrd, triggerOrd, IGNORE_CMD_CONSUMER, helper);
 
             timeAccum += System.nanoTime() - s;
             assertThat(matchingTotalVol, is(toMatch));

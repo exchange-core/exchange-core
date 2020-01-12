@@ -67,6 +67,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
                                 final long numShards,
                                 final ISerializationProcessor serializationProcessor,
                                 final BiFunction<CoreSymbolSpecification, ObjectsPool, IOrderBook> orderBookFactory,
+                                final SharedPool sharedPool,
                                 final Long loadStateId) {
 
         if (Long.bitCount(numShards) != 1) {
@@ -85,7 +86,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         objectsPoolConfig.put(ObjectsPool.ART_NODE_16, 1024 * 16);
         objectsPoolConfig.put(ObjectsPool.ART_NODE_48, 1024 * 8);
         objectsPoolConfig.put(ObjectsPool.ART_NODE_256, 1024 * 4);
-        this.objectsPool = new ObjectsPool(objectsPoolConfig);
+        this.objectsPool = new ObjectsPool(objectsPoolConfig, sharedPool);
 
         if (loadStateId != null) {
             final Pair<BinaryCommandsProcessor, IntObjectHashMap<IOrderBook>> deserialized = serializationProcessor.loadData(
@@ -99,7 +100,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
                         if (shardMask != bytesIn.readLong()) {
                             throw new IllegalStateException("wrong shardMask");
                         }
-                        final BinaryCommandsProcessor bcp = new BinaryCommandsProcessor(this::handleBinaryMessage, bytesIn, shardId + 1024);
+                        final BinaryCommandsProcessor bcp = new BinaryCommandsProcessor(this::handleBinaryMessage, sharedPool, bytesIn, shardId + 1024);
                         final IntObjectHashMap<IOrderBook> ob = SerializationUtils.readIntHashMap(bytesIn, bytes -> IOrderBook.create(bytes, objectsPool));
                         return Pair.of(bcp, ob);
                     });
@@ -108,7 +109,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
             this.orderBooks = deserialized.getRight();
 
         } else {
-            this.binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, shardId + 1024);
+            this.binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, sharedPool, shardId + 1024);
             this.orderBooks = new IntObjectHashMap<>();
         }
     }
@@ -223,7 +224,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
 
     private CommandResultCode addSymbol(final CoreSymbolSpecification symbolSpecification) {
 
-//        log.debug("symbolSpecification: {}", symbolSpecification);
+//        log.debug("ME add symbolSpecification: {}", symbolSpecification);
 
         final int symbolId = symbolSpecification.symbolId;
         if (orderBooks.get(symbolId) != null) {

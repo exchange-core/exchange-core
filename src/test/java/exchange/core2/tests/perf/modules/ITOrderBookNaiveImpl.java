@@ -15,9 +15,9 @@
  */
 package exchange.core2.tests.perf.modules;
 
-import exchange.core2.tests.util.TestConstants;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.orderbook.OrderBookNaiveImpl;
+import exchange.core2.tests.util.TestConstants;
 
 public class ITOrderBookNaiveImpl extends ITOrderBookBase {
 

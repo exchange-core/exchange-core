@@ -56,7 +56,7 @@ public interface IOrdersBucket extends Comparable<IOrdersBucket>, WriteBytesMars
      * @param removeOrderCallback // TODO better solution?
      * @return - total matched volume
      */
-    long match(long volumeToCollect, IOrder activeOrder, OrderCommand triggerCmd, Consumer<Order> removeOrderCallback);
+    long match(long volumeToCollect, IOrder activeOrder, OrderCommand triggerCmd, Consumer<Order> removeOrderCallback, OrderBookEventsHelper helper);
 
     /**
      * Get number of orders in the bucket

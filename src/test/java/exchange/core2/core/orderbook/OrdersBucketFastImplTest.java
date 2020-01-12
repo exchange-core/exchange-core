@@ -95,8 +95,8 @@ public class OrdersBucketFastImplTest extends OrdersBucketBaseTest {
             OrderCommand trig = OrderCommand.update(1238729387, UID_9, 1000);
             OrderCommand trigRef = OrderCommand.update(1238729387, UID_9, 1000);
 
-            long totalVolume = bucket.match(toMatch, trig, trig,IGNORE_CMD_CONSUMER);
-            bucketRef.match(toMatch, trigRef, trigRef, IGNORE_CMD_CONSUMER);
+            long totalVolume = bucket.match(toMatch, trig, trig, IGNORE_CMD_CONSUMER, eventsHelper);
+            bucketRef.match(toMatch, trigRef, trigRef, IGNORE_CMD_CONSUMER, eventsHelper);
             expectedVolume -= totalVolume;
             MatcherAssert.assertThat(bucket, is(bucketRef));
 //            MatcherAssert.assertThat(events, is(eventsRef));
@@ -106,8 +106,8 @@ public class OrdersBucketFastImplTest extends OrdersBucketBaseTest {
 //        TradeEventCallback.TradeEventCollector eventsRef = new TradeEventCallback.TradeEventCollector();
         OrderCommand trig = OrderCommand.update(1238729387, UID_9, 1000);
         OrderCommand trigRef = OrderCommand.update(1238729387, UID_9, 1000);
-        bucket.match(expectedVolume, trig, trig, IGNORE_CMD_CONSUMER);
-        bucketRef.match(expectedVolume, trigRef, trigRef, IGNORE_CMD_CONSUMER);
+        bucket.match(expectedVolume, trig, trig, IGNORE_CMD_CONSUMER, eventsHelper);
+        bucketRef.match(expectedVolume, trigRef, trigRef, IGNORE_CMD_CONSUMER, eventsHelper);
         MatcherAssert.assertThat(bucket, is(bucketRef));
 //        MatcherAssert.assertThat(events, is(eventsRef));
     }

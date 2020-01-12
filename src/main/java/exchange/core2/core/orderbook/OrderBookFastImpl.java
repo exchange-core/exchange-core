@@ -19,6 +19,7 @@ import com.google.common.collect.ObjectArrays;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
+import exchange.core2.core.processors.ObjectsPool;
 import exchange.core2.core.utils.SerializationUtils;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -60,11 +61,16 @@ public final class OrderBookFastImpl implements IOrderBook {
     // Hashtable for fast (cached) resolving OrderId -> Bucket
     private final LongObjectHashMap<IOrdersBucket> idMapToBucket = new LongObjectHashMap<>();
 
-    // Object pools
+    // Object pools // TODO use objects pool
     private final ArrayDeque<Order> ordersPool = new ArrayDeque<>(16384);
     private final ArrayDeque<IOrdersBucket> bucketsPool = new ArrayDeque<>(16384);
 
-    public OrderBookFastImpl(final int hotPricesRange, final CoreSymbolSpecification symbolSpec) {
+    // Object pools
+    private final ObjectsPool objectsPool;
+
+    private final OrderBookEventsHelper eventsHelper;
+
+    public OrderBookFastImpl(final int hotPricesRange, final CoreSymbolSpecification symbolSpec, final ObjectsPool objectsPool) {
         // must be aligned by 64 bit, can not be lower than 1024
         if ((hotPricesRange & 63) != 0 || hotPricesRange < 1024) {
             throw new IllegalArgumentException("invalid hotPricesRange=" + hotPricesRange);
@@ -77,9 +83,12 @@ public final class OrderBookFastImpl implements IOrderBook {
         this.hotBidBuckets = new LongObjectHashMap<>();
         this.farAskBuckets = new TreeMap<>();
         this.farBidBuckets = new TreeMap<>(Collections.reverseOrder());
+        this.objectsPool = objectsPool;
+        this.eventsHelper = new OrderBookEventsHelper(() -> objectsPool.getSharedPool().getChain());
+
     }
 
-    public OrderBookFastImpl(final BytesIn bytes) {
+    public OrderBookFastImpl(final BytesIn bytes, final ObjectsPool objectsPool) {
 
         this.symbolSpec = new CoreSymbolSpecification(bytes);
 
@@ -100,6 +109,9 @@ public final class OrderBookFastImpl implements IOrderBook {
 
         this.farAskBuckets = SerializationUtils.readLongMap(bytes, TreeMap::new, IOrdersBucket::create);
         this.farBidBuckets = SerializationUtils.readLongMap(bytes, () -> new TreeMap<>(Collections.reverseOrder()), IOrdersBucket::create);
+
+        this.objectsPool = objectsPool;
+        this.eventsHelper = new OrderBookEventsHelper(() -> objectsPool.getSharedPool().getChain());
 
         // reconstruct ordersId-> Bucket cache
         // TODO check resulting performance
@@ -139,14 +151,14 @@ public final class OrderBookFastImpl implements IOrderBook {
         }
 
         if (orderType == OrderType.IOC) {
-            OrderBookEventsHelper.attachRejectEvent(cmd, size - filledSize);
+            eventsHelper.attachRejectEvent(cmd, size - filledSize);
             return CommandResultCode.SUCCESS;
         }
 
         final long orderId = cmd.orderId;
         if (idMapToBucket.containsKey(orderId)) {
             // duplicate order id - can match, but can not place
-            OrderBookEventsHelper.attachRejectEvent(cmd, size - filledSize);
+            eventsHelper.attachRejectEvent(cmd, size - filledSize);
             return CommandResultCode.MATCHING_DUPLICATE_ORDER_ID;
         }
 
@@ -324,7 +336,7 @@ public final class OrderBookFastImpl implements IOrderBook {
             // matching orders within bucket
             final long sizeLeft = activeOrder.getSize() - filled;
             // log.debug("bucket {} match size: {}", bucket.getPrice(), sizeLeft);
-            filled += bucket.match(sizeLeft, activeOrder, triggerCmd, this::removeFullyMatchedOrder);
+            filled += bucket.match(sizeLeft, activeOrder, triggerCmd, this::removeFullyMatchedOrder, eventsHelper);
 
             // remove bucket if its empty
             if (bucket.getTotalVolume() == 0) {
@@ -428,7 +440,7 @@ public final class OrderBookFastImpl implements IOrderBook {
         }
 
         // send cancel event
-        OrderBookEventsHelper.sendCancelEvent(cmd, removedOrder);
+        eventsHelper.sendCancelEvent(cmd, removedOrder);
 
         // fill action fields (for events handling)
         cmd.action = removedOrder.getAction();

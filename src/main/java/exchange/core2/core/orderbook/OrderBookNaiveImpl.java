@@ -38,10 +38,13 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
     private final LongObjectHashMap<Order> idMap = new LongObjectHashMap<>();
 
+    private final OrderBookEventsHelper eventsHelper;
+
     public OrderBookNaiveImpl(final CoreSymbolSpecification symbolSpec) {
         this.symbolSpec = symbolSpec;
         this.askBuckets = new TreeMap<>();
         this.bidBuckets = new TreeMap<>(Collections.reverseOrder());
+        this.eventsHelper = new OrderBookEventsHelper(() -> MatcherTradeEvent.createEventChain(512));
     }
 
     public OrderBookNaiveImpl(final BytesIn bytes) {
@@ -49,6 +52,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         this.askBuckets = SerializationUtils.readLongMap(bytes, TreeMap::new, IOrdersBucket::create);
         this.bidBuckets = SerializationUtils.readLongMap(bytes, () -> new TreeMap<>(Collections.reverseOrder()), IOrdersBucket::create);
 
+        this.eventsHelper = new OrderBookEventsHelper(() -> MatcherTradeEvent.createEventChain(512));
         // reconstruct ordersId-> Order cache
         // TODO check resulting performance
         askBuckets.values().forEach(bucket -> bucket.forEachOrder(order -> idMap.put(order.orderId, order)));
@@ -74,7 +78,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         }
 
         if (orderType == OrderType.IOC) {
-            OrderBookEventsHelper.attachRejectEvent(cmd, cmd.size - filledSize);
+            eventsHelper.attachRejectEvent(cmd, cmd.size - filledSize);
             return CommandResultCode.SUCCESS;
         }
 
@@ -82,7 +86,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         if (idMap.containsKey(newOrderId)) {
 
             // duplicate order id - can match, but can not place
-            OrderBookEventsHelper.attachRejectEvent(cmd, cmd.size - filledSize);
+            eventsHelper.attachRejectEvent(cmd, cmd.size - filledSize);
             return CommandResultCode.MATCHING_DUPLICATE_ORDER_ID;
         }
 
@@ -152,7 +156,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
             final long sizeLeft = orderSize - filled;
 
-            filled += bucket.match(sizeLeft, activeOrder, triggerCmd, this::removeFullyMatchedOrder);
+            filled += bucket.match(sizeLeft, activeOrder, triggerCmd, this::removeFullyMatchedOrder, eventsHelper);
 
 //            log.debug("Matching orders: {}", matchingOrders);
 //            log.debug("order.filled: {}", activeOrder.filled);
@@ -218,7 +222,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         }
 
         // send cancel event
-        OrderBookEventsHelper.sendCancelEvent(cmd, order);
+        eventsHelper.sendCancelEvent(cmd, order);
 
         // fill action fields (for events handling)
         cmd.action = order.getAction();
