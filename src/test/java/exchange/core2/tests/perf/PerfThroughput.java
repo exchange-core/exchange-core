@@ -83,7 +83,7 @@ public final class PerfThroughput {
     @Test
     public void testThroughputMultiSymbolMedium() throws Exception {
         ThroughputTestsModule.throughputTestImpl(
-                () -> new ExchangeTestContainer(64 * 1024, 4, 2, 2048, null),
+                () -> new ExchangeTestContainer(64 * 1024, 4, 4, 2048, null),
                 6_000_000,
                 1_000_000,
                 3_300_000,
@@ -106,7 +106,7 @@ public final class PerfThroughput {
     @Test
     public void testThroughputMultiSymbolLarge() throws Exception {
         ThroughputTestsModule.throughputTestImpl(
-                () -> new ExchangeTestContainer(64 * 1024, 4, 2, 2048, null),
+                () -> new ExchangeTestContainer(64 * 1024, 4, 4, 2048, null),
                 40_000_000,
                 30_000_000,
                 33_000_000,

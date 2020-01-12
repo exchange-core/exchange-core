@@ -15,14 +15,15 @@
  */
 package exchange.core2.tests.perf.modules;
 
-import exchange.core2.tests.util.TestConstants;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.orderbook.OrderBookFastImpl;
+import exchange.core2.core.processors.ObjectsPool;
+import exchange.core2.tests.util.TestConstants;
 
 public class ITOrderBookFastImpl extends ITOrderBookBase {
 
     @Override
     protected IOrderBook createNewOrderBook() {
-        return new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH, TestConstants.SYMBOLSPEC_EUR_USD);
+        return new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH, TestConstants.SYMBOLSPEC_EUR_USD, ObjectsPool.createDefaultTestPool());
     }
 }

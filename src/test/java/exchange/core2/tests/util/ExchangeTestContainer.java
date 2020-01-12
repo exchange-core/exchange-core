@@ -28,6 +28,7 @@ import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.orderbook.OrderBookDirectImpl;
 import exchange.core2.core.processors.journalling.DiskSerializationProcessor;
+import exchange.core2.core.utils.AffinityThreadFactory;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -46,7 +47,6 @@ import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
-import static exchange.core2.core.utils.UnsafeUtils.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -64,6 +64,9 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
     @Getter
     private final ExchangeApi api;
+
+    @Getter
+    private final AffinityThreadFactory threadFactory;
 
     private AtomicLong uniqueIdCounterLong = new AtomicLong();
     private AtomicInteger uniqueIdCounterInt = new AtomicInteger();
@@ -84,6 +87,10 @@ public final class ExchangeTestContainer implements AutoCloseable {
                                  final int msgsInGroupLimit,
                                  final Long stateId) {
 
+        //log.debug("CREATING exchange container");
+
+        this.threadFactory = new AffinityThreadFactory(AffinityThreadFactory.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE);
+
         this.exchangeCore = ExchangeCore.builder()
                 .resultsConsumer((cmd, seq) -> consumer.accept(cmd))
                 .serializationProcessor(new DiskSerializationProcessor("./dumps"))
@@ -91,7 +98,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
                 .matchingEnginesNum(matchingEnginesNum)
                 .riskEnginesNum(riskEnginesNum)
                 .msgsInGroupLimit(msgsInGroupLimit)
-                .threadAffinityMode(THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE)
+                .threadFactory(threadFactory)
                 .waitStrategy(CoreWaitStrategy.BUSY_SPIN)
 //                .orderBookFactory(symbolType -> new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH, symbolType))
                 .orderBookFactory(OrderBookDirectImpl::new)
@@ -99,7 +106,10 @@ public final class ExchangeTestContainer implements AutoCloseable {
                 .loadStateId(stateId) // Loading from persisted state
                 .build();
 
+        //log.debug("STARTING exchange container");
         this.exchangeCore.startup();
+
+        //log.debug("STARTED exchange container");
         api = this.exchangeCore.getApi();
     }
 
@@ -460,6 +470,23 @@ public final class ExchangeTestContainer implements AutoCloseable {
         }
         return result;
     }
+
+    /**
+     * Run test using threads factory.
+     * This is needed for correct cpu pinning.
+     *
+     * @param test - test lambda
+     * @param <V>  return parameter type
+     * @return result from test lambda
+     */
+    public <V> V executeTestingThread(final Callable<V> test) {
+        try {
+            return Executors.newFixedThreadPool(1, threadFactory).submit(test).get();
+        } catch (ExecutionException | InterruptedException ex) {
+            throw new RuntimeException(ex);
+        }
+    }
+
 
     @Override
     public void close() {

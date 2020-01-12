@@ -38,6 +38,7 @@ public final class TwoStepMasterProcessor implements EventProcessor {
     private final WaitSpinningHelper waitSpinningHelper;
     private final SimpleEventHandler eventHandler;
     private final ExceptionHandler<OrderCommand> exceptionHandler;
+    private final String name;
     private final Sequence sequence = new Sequence(Sequencer.INITIAL_CURSOR_VALUE);
 
     @Setter
@@ -47,12 +48,14 @@ public final class TwoStepMasterProcessor implements EventProcessor {
                                   final SequenceBarrier sequenceBarrier,
                                   final SimpleEventHandler eventHandler,
                                   final ExceptionHandler<OrderCommand> exceptionHandler,
-                                  final CoreWaitStrategy coreWaitStrategy) {
+                                  final CoreWaitStrategy coreWaitStrategy,
+                                  final String name) {
         this.dataProvider = ringBuffer;
         this.sequenceBarrier = sequenceBarrier;
         this.waitSpinningHelper = new WaitSpinningHelper(ringBuffer, sequenceBarrier, MASTER_SPIN_LIMIT, coreWaitStrategy);
         this.eventHandler = eventHandler;
         this.exceptionHandler = exceptionHandler;
+        this.name = name;
     }
 
     @Override
@@ -89,17 +92,13 @@ public final class TwoStepMasterProcessor implements EventProcessor {
             } finally {
                 running.set(IDLE);
             }
-        } else {
-            // This is a little bit of guess work.  The running state could of changed to HALTED by
-            // this point.  However, Java does not have compareAndExchange which is the only way
-            // to get it exactly correct.
-            if (running.get() == RUNNING) {
-                throw new IllegalStateException("Thread is already running");
-            }
         }
     }
 
     private void processEvents() {
+
+        Thread.currentThread().setName(name);
+
         long nextSequence = sequence.get() + 1L;
 
         long currentSequenceGroup = 0;
@@ -159,4 +158,9 @@ public final class TwoStepMasterProcessor implements EventProcessor {
         }
     }
 
+
+    @Override
+    public String toString() {
+        return "TwoStepMasterProcessor{" + name + "}";
+    }
 }

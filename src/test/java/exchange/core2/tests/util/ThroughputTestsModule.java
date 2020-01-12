@@ -18,13 +18,13 @@ package exchange.core2.tests.util;
 import exchange.core2.core.ExchangeApi;
 import exchange.core2.core.common.CoreSymbolSpecification;
 import lombok.extern.slf4j.Slf4j;
-import net.openhft.affinity.AffinityLock;
 
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Supplier;
 
 import static junit.framework.TestCase.assertTrue;
@@ -58,50 +58,54 @@ public class ThroughputTestsModule {
         final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(
                 genConfig);
 
-        try (final ExchangeTestContainer container = containerFactory.get();
-             final AffinityLock cpuLock = AffinityLock.acquireLock()) {
+        try (final ExchangeTestContainer container = containerFactory.get()) {
 
-            final ExchangeApi api = container.getApi();
+            final float avgMt = container.executeTestingThread(() -> {
+                final ExchangeApi api = container.getApi();
+                try {
+                    final List<Float> perfResults = new ArrayList<>();
+                    for (int j = 0; j < iterations; j++) {
 
+                        container.addSymbols(coreSymbolSpecifications);
+                        container.userAccountsInit(usersAccounts);
 
-            List<Float> perfResults = new ArrayList<>();
-            for (int j = 0; j < iterations; j++) {
+                        assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
 
-                container.addSymbols(coreSymbolSpecifications);
-                container.userAccountsInit(usersAccounts);
+                        final CountDownLatch latchFill = new CountDownLatch(genResult.getApiCommandsFill().size());
+                        container.setConsumer(cmd -> latchFill.countDown());
+                        genResult.getApiCommandsFill().forEach(api::submitCommand);
+                        latchFill.await();
 
-                assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
+                        final CountDownLatch latchBenchmark = new CountDownLatch(genResult.getApiCommandsBenchmark().size());
+                        container.setConsumer(cmd -> latchBenchmark.countDown());
+                        long t = System.currentTimeMillis();
+                        genResult.getApiCommandsBenchmark().forEach(api::submitCommand);
+                        latchBenchmark.await();
+                        t = System.currentTimeMillis() - t;
+                        final float perfMt = (float) genResult.getApiCommandsBenchmark().size() / (float) t / 1000.0f;
+                        log.info("{}. {} MT/s", j, String.format("%.3f", perfMt));
+                        perfResults.add(perfMt);
 
-                final CountDownLatch latchFill = new CountDownLatch(genResult.getApiCommandsFill().size());
-                container.setConsumer(cmd -> latchFill.countDown());
-                genResult.getApiCommandsFill().forEach(api::submitCommand);
-                latchFill.await();
+                        assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
 
-                final CountDownLatch latchBenchmark = new CountDownLatch(genResult.getApiCommandsBenchmark().size());
-                container.setConsumer(cmd -> latchBenchmark.countDown());
-                long t = System.currentTimeMillis();
-                genResult.getApiCommandsBenchmark().forEach(api::submitCommand);
-                latchBenchmark.await();
-                t = System.currentTimeMillis() - t;
-                float perfMt = (float) genResult.getApiCommandsBenchmark().size() / (float) t / 1000.0f;
-                log.info("{}. {} MT/s", j, String.format("%.3f", perfMt));
-                perfResults.add(perfMt);
+                        // compare orderBook final state just to make sure all commands executed same way
+                        // TODO compare events, balances, positions
+                        coreSymbolSpecifications.forEach(
+                                symbol -> assertEquals(genResult.getGenResults().get(symbol.symbolId).getFinalOrderBookSnapshot(), container.requestCurrentOrderBook(symbol.symbolId)));
 
-                assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
+                        container.resetExchangeCore();
 
-                // compare orderBook final state just to make sure all commands executed same way
-                // TODO compare events, balances, positions
-                coreSymbolSpecifications.forEach(
-                        symbol -> assertEquals(genResult.getGenResults().get(symbol.symbolId).getFinalOrderBookSnapshot(), container.requestCurrentOrderBook(symbol.symbolId)));
+                        System.gc();
+                        Thread.sleep(300);
+                    }
+                    return (float) perfResults.stream().mapToDouble(x -> x).average().orElse(0);
 
-                container.resetExchangeCore();
+                } catch (final InterruptedException | ExecutionException ex) {
+                    throw new IllegalStateException(ex);
+                }
+            });
 
-                System.gc();
-                Thread.sleep(300);
-            }
-
-            float avg = (float) perfResults.stream().mapToDouble(x -> x).average().orElse(0);
-            log.info("Average: {} MT/s", avg);
+            log.info("Average: {} MT/s", avgMt);
         }
     }
 

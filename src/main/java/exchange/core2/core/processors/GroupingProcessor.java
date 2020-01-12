@@ -24,6 +24,8 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static exchange.core2.core.ExchangeCore.EVENTS_POOLING;
+
 @Slf4j
 public final class GroupingProcessor implements EventProcessor {
     private static final int IDLE = 0;
@@ -141,7 +143,7 @@ public final class GroupingProcessor implements EventProcessor {
                         }
 
                         // cleaning attached events
-                        if (cmd.matcherEvent != null) {
+                        if (EVENTS_POOLING && cmd.matcherEvent != null) {
 
                             // update tail
                             if (tradeEventTail == null) {
@@ -167,8 +169,8 @@ public final class GroupingProcessor implements EventProcessor {
                                 tradeEventHead = null;
                             }
 
-                            cmd.matcherEvent = null;
                         }
+                        cmd.matcherEvent = null;
 
                         // TODO collect to shared buffer
                         cmd.marketData = null;
@@ -214,5 +216,12 @@ public final class GroupingProcessor implements EventProcessor {
                 nextSequence++;
             }
         }
+    }
+
+    @Override
+    public String toString() {
+        return "GroupingProcessor{" +
+                "GL=" + msgsInGroupLimit +
+                '}';
     }
 }

@@ -63,8 +63,7 @@ public final class WaitSpinningHelper {
                 : sequencer.getHighestPublishedSequence(seq, availableSequence);
     }
 
-
-    public static <T> Sequencer extractSequencer(RingBuffer<T> ringBuffer) {
+    private static <T> Sequencer extractSequencer(RingBuffer<T> ringBuffer) {
         try {
             Field f = getField(RingBuffer.class, "sequencer");
             f.setAccessible(true);

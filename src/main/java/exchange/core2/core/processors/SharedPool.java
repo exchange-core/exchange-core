@@ -17,9 +17,11 @@ package exchange.core2.core.processors;
 
 import exchange.core2.core.common.MatcherTradeEvent;
 import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.concurrent.LinkedBlockingQueue;
 
+@Slf4j
 public final class SharedPool {
 
     private final LinkedBlockingQueue<MatcherTradeEvent> eventChainsBuffer;
@@ -44,13 +46,7 @@ public final class SharedPool {
         this.chainLength = chainLength;
 
         for (int i = 0; i < poolInitialSize; i++) {
-            final MatcherTradeEvent head = new MatcherTradeEvent();
-            MatcherTradeEvent prev = head;
-            for (int j = 1; j < chainLength; j++) {
-                prev.nextEvent = new MatcherTradeEvent();
-                prev = prev.nextEvent;
-            }
-            this.eventChainsBuffer.add(head);
+            this.eventChainsBuffer.add(MatcherTradeEvent.createEventChain(chainLength));
         }
     }
 
@@ -61,7 +57,13 @@ public final class SharedPool {
      * @return chain, otherwise null
      */
     public MatcherTradeEvent getChain() {
-        return eventChainsBuffer.poll();
+        MatcherTradeEvent poll = eventChainsBuffer.poll();
+//        log.debug("<<< POLL CHAIN HEAD  size={}", poll == null ? 0 : poll.getChainSize());
+        if (poll == null) {
+            poll = MatcherTradeEvent.createEventChain(chainLength);
+        }
+
+        return poll;
     }
 
     /**
@@ -71,7 +73,8 @@ public final class SharedPool {
      * @param head - pointer to the first element
      */
     public void putChain(MatcherTradeEvent head) {
-        eventChainsBuffer.offer(head);
+        boolean offer = eventChainsBuffer.offer(head);
+//        log.debug(">>> OFFER CHAIN HEAD  size={} orrder={}", head.getChainSize(), offer);
     }
 
 }

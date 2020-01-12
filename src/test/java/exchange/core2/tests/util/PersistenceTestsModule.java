@@ -22,7 +22,6 @@ import exchange.core2.core.common.api.ApiPersistState;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import lombok.extern.slf4j.Slf4j;
-import net.openhft.affinity.AffinityLock;
 
 import java.util.BitSet;
 import java.util.List;
@@ -69,64 +68,67 @@ public class PersistenceTestsModule {
             final long originalPrefillStateHash;
             final float originalPerfMt;
 
-            try (AffinityLock cpuLock = AffinityLock.acquireLock()) {
-                try (final ExchangeTestContainer container = containerFactory.apply(null)) {
+            try (final ExchangeTestContainer container = containerFactory.apply(null)) {
 
-                    final ExchangeApi api = container.getApi();
+                final ExchangeApi api = container.getApi();
 
-                    log.info("Init basic symbols...");
-                    container.initBasicSymbols();
+                log.info("Init basic symbols...");
+                container.initBasicSymbols();
 
-                    log.info("Loading {} symbols...", coreSymbolSpecifications.size());
-                    container.addSymbols(coreSymbolSpecifications);
+                log.info("Loading {} symbols...", coreSymbolSpecifications.size());
+                container.addSymbols(coreSymbolSpecifications);
 
-                    log.info("Loading {} users having {} accounts...", usersAccounts.size(), usersAccounts.stream().mapToInt(BitSet::cardinality).sum());
-                    container.userAccountsInit(usersAccounts);
+                log.info("Loading {} users having {} accounts...", usersAccounts.size(), usersAccounts.stream().mapToInt(BitSet::cardinality).sum());
+                container.userAccountsInit(usersAccounts);
 
-                    final List<ApiCommand> apiCommandsFill = genResult.getApiCommandsFill();
-                    log.info("Order books pre-fill with {} orders...", apiCommandsFill.size());
-                    final CountDownLatch latchFill = new CountDownLatch(apiCommandsFill.size());
-                    container.setConsumer(cmd -> {
-                        if (cmd.resultCode == CommandResultCode.SUCCESS
-                                && (cmd.command == OrderCommandType.MOVE_ORDER || cmd.command == OrderCommandType.CANCEL_ORDER || cmd.command == OrderCommandType.PLACE_ORDER)) {
-                            latchFill.countDown();
-                        } else {
-                            throw new IllegalStateException("Unexpected command");
-                        }
-                    });
-                    apiCommandsFill.forEach(api::submitCommand);
-                    latchFill.await();
+                final List<ApiCommand> apiCommandsFill = genResult.getApiCommandsFill();
+                log.info("Order books pre-fill with {} orders...", apiCommandsFill.size());
+                final CountDownLatch latchFill = new CountDownLatch(apiCommandsFill.size());
+                container.setConsumer(cmd -> {
+                    if (cmd.resultCode == CommandResultCode.SUCCESS
+                            && (cmd.command == OrderCommandType.MOVE_ORDER || cmd.command == OrderCommandType.CANCEL_ORDER || cmd.command == OrderCommandType.PLACE_ORDER)) {
+                        latchFill.countDown();
+                    } else {
+                        throw new IllegalStateException("Unexpected command");
+                    }
+                });
+                apiCommandsFill.forEach(api::submitCommand);
+                latchFill.await();
 
-                    container.setConsumer(cmd -> {
-                    });
+                container.setConsumer(cmd -> {
+                });
 
-                    assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
+                assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
 
-                    log.info("Persisting...");
-                    final long tc = System.currentTimeMillis();
-                    stateId = tc;
-                    container.submitMultiCommandSync(ApiPersistState.builder().dumpId(stateId).build());
-                    final float persistTimeSec = (float) (System.currentTimeMillis() - tc) / 1000.0f;
-                    log.debug("Persisting time: {}s", String.format("%.3f", persistTimeSec));
+                log.info("Persisting...");
+                final long tc = System.currentTimeMillis();
+                stateId = tc;
+                container.submitMultiCommandSync(ApiPersistState.builder().dumpId(stateId).build());
+                final float persistTimeSec = (float) (System.currentTimeMillis() - tc) / 1000.0f;
+                log.debug("Persisting time: {}s", String.format("%.3f", persistTimeSec));
 
-                    originalPrefillStateHash = container.requestStateHash();
+                originalPrefillStateHash = container.requestStateHash();
 
-                    log.info("Benchmarking original state...");
-                    List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
-                    final CountDownLatch latchBenchmark = new CountDownLatch(apiCommandsBenchmark.size());
-                    container.setConsumer(cmd -> latchBenchmark.countDown());
-                    long t = System.currentTimeMillis();
+                log.info("Benchmarking original state...");
+                List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
+                final CountDownLatch latchBenchmark = new CountDownLatch(apiCommandsBenchmark.size());
+                container.setConsumer(cmd -> latchBenchmark.countDown());
+
+                originalPerfMt = container.executeTestingThread(() -> {
+                    final long tStart = System.currentTimeMillis();
                     apiCommandsBenchmark.forEach(api::submitCommand);
                     latchBenchmark.await();
-                    t = System.currentTimeMillis() - t;
+                    final long tDuration = System.currentTimeMillis() - tStart;
 
                     assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
 
-                    originalPerfMt = (float) apiCommandsBenchmark.size() / (float) t / 1000.0f;
-                    log.info("{}. original speed: {} MT/s", iteration, String.format("%.3f", originalPerfMt));
-                }
+                    return apiCommandsBenchmark.size() / (float) tDuration / 1000.0f;
+                });
+
+                log.info("{}. original speed: {} MT/s", iteration, String.format("%.3f", originalPerfMt));
 
             }
+
 
             System.gc();
             Thread.sleep(200);
@@ -141,29 +143,31 @@ public class PersistenceTestsModule {
                 float loadTimeSec = (float) (System.currentTimeMillis() - tLoad) / 1000.0f;
                 log.debug("Load+start time: {}s", String.format("%.3f", loadTimeSec));
 
-                try (AffinityLock cpuLock = AffinityLock.acquireCore()) {
+                final long restoredPrefillStateHash = recreatedContainer.requestStateHash();
+                assertThat(restoredPrefillStateHash, is(originalPrefillStateHash));
 
-                    final long restoredPrefillStateHash = recreatedContainer.requestStateHash();
-                    assertThat(restoredPrefillStateHash, is(originalPrefillStateHash));
+                assertTrue(recreatedContainer.totalBalanceReport().isGlobalBalancesAllZero());
+                log.info("Restored snapshot is valid, benchmarking original state...");
 
-                    assertTrue(recreatedContainer.totalBalanceReport().isGlobalBalancesAllZero());
+                final ExchangeApi api = recreatedContainer.getApi();
+                List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
+                final CountDownLatch latchBenchmark = new CountDownLatch(apiCommandsBenchmark.size());
+                recreatedContainer.setConsumer(cmd -> latchBenchmark.countDown());
 
-                    log.info("Restored snapshot is valid, benchmarking original state...");
-                    final ExchangeApi api = recreatedContainer.getApi();
-                    List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
-                    final CountDownLatch latchBenchmark = new CountDownLatch(apiCommandsBenchmark.size());
-                    recreatedContainer.setConsumer(cmd -> latchBenchmark.countDown());
-                    long t = System.currentTimeMillis();
+                final float perfMt = recreatedContainer.executeTestingThread(() -> {
+
+                    final long tStart = System.currentTimeMillis();
                     apiCommandsBenchmark.forEach(api::submitCommand);
                     latchBenchmark.await();
-                    t = System.currentTimeMillis() - t;
+                    final long tDuration = System.currentTimeMillis() - tStart;
 
                     assertTrue(recreatedContainer.totalBalanceReport().isGlobalBalancesAllZero());
 
-                    final float perfMt = (float) apiCommandsBenchmark.size() / (float) t / 1000.0f;
-                    final float perfRatioPerc = perfMt / originalPerfMt * 100f;
-                    log.info("{}. restored speed: {} MT/s ({}%)", iteration, String.format("%.3f", perfMt), String.format("%.1f", perfRatioPerc));
-                }
+                    return apiCommandsBenchmark.size() / (float) tDuration / 1000.0f;
+                });
+
+                final float perfRatioPerc = perfMt / originalPerfMt * 100f;
+                log.info("{}. restored speed: {} MT/s ({}%)", iteration, String.format("%.3f", perfMt), String.format("%.1f", perfRatioPerc));
             }
 
             System.gc();

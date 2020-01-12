@@ -49,7 +49,9 @@ public final class OrderBookDirectImpl implements IOrderBook {
     private final CoreSymbolSpecification symbolSpec;
 
     // index: orderId -> order
-    private final Long2ObjectHashMap<DirectOrder> orderIdIndex = new Long2ObjectHashMap<>();
+    private final LongAdaptiveRadixTreeMap<DirectOrder> orderIdIndex;
+    //private final Long2ObjectHashMap<DirectOrder> orderIdIndex = new Long2ObjectHashMap<>();
+    //private final LongObjectHashMap<DirectOrder> orderIdIndex = new LongObjectHashMap<>();
 
     // heads (nullable)
     private DirectOrder bestAskOrder = null;
@@ -66,6 +68,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         this.askPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.bidPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.eventsHelper = new OrderBookEventsHelper(() -> objectsPool.getSharedPool().getChain());
+        this.orderIdIndex = new LongAdaptiveRadixTreeMap<>(objectsPool);
     }
 
     public OrderBookDirectImpl(final BytesIn bytes, final ObjectsPool objectsPool) {
@@ -74,6 +77,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         this.askPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.bidPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.eventsHelper = new OrderBookEventsHelper(() -> objectsPool.getSharedPool().getChain());
+        this.orderIdIndex = new LongAdaptiveRadixTreeMap<>(objectsPool);
 
         final int size = bytes.readInt();
         for (int i = 0; i < size; i++) {
@@ -102,7 +106,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
         }
 
         final long orderId = cmd.orderId;
-        if (orderIdIndex.containsKey(orderId)) { // TODO eliminate double hashtable lookup?
+        // TODO eliminate double hashtable lookup?
+        if (orderIdIndex.get(orderId) != null) { // containsKey for hashtable
             // duplicate order id - can match, but can not place
             eventsHelper.attachRejectEvent(cmd, size - filledSize);
             return CommandResultCode.MATCHING_DUPLICATE_ORDER_ID;
@@ -155,6 +160,9 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         DirectOrder priceBucketTail = makerOrder.parent.tail;
 
+        final long takerReserveBidPrice = takerOrder.getReserveBidPrice();
+//        final long takerOrderTimestamp = takerOrder.getTimestamp();
+
         // stack of own orders
         DirectOrder skipOwnOrders = null;
 
@@ -175,12 +183,16 @@ public final class OrderBookDirectImpl implements IOrderBook {
                 remainingSize -= tradeSize;
 
                 // remove from order book filled orders
-                boolean makerCompleted = makerOrder.size == makerOrder.filled;
+                final boolean makerCompleted = makerOrder.size == makerOrder.filled;
                 if (makerCompleted) {
                     makerOrder.parent.numOrders--;
                 }
 
-                eventsHelper.sendTradeEvent(triggerCmd, takerOrder, makerOrder, makerCompleted, remainingSize == 0, tradeSize);
+                final MatcherTradeEvent tradeEvent = eventsHelper.sendTradeEvent(makerOrder, makerCompleted, remainingSize == 0, tradeSize,
+                        isBidAction ? takerReserveBidPrice : makerOrder.reserveBidPrice);
+
+                tradeEvent.nextEvent = triggerCmd.matcherEvent;
+                triggerCmd.matcherEvent = tradeEvent;
 
                 if (!makerCompleted) {
                     // maker not completed -> no unmatched volume left, can exit matching loop
@@ -511,7 +523,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
     @Override
     public void validateInternalState() {
-        final Long2ObjectHashMap<DirectOrder> ordersInChain = new Long2ObjectHashMap<>(orderIdIndex.size(), 0.8f);
+        final Long2ObjectHashMap<DirectOrder> ordersInChain = new Long2ObjectHashMap<>(orderIdIndex.size(Integer.MAX_VALUE), 0.8f);
         validateChain(true, ordersInChain);
         validateChain(false, ordersInChain);
 //        log.debug("ordersInChain={}", ordersInChain);
@@ -519,8 +531,14 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
 //        log.debug("orderIdIndex.keySet()={}", orderIdIndex.keySet().toSortedArray());
 //        log.debug("ordersInChain=        {}", ordersInChain.toSortedArray());
-        if (!orderIdIndex.equals(ordersInChain)) {
-            thrw("orderIdIndex does not match to the chained orders");
+        orderIdIndex.forEach((k, v) -> {
+            if (ordersInChain.remove(k) != v) {
+                thrw("chained orders does not contain orderId=" + k);
+            }
+        }, Integer.MAX_VALUE);
+
+        if (ordersInChain.size() != 0) {
+            thrw("orderIdIndex does not contain each order from chains");
         }
     }
 
@@ -656,7 +674,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
                         .timestamp(order.timestamp)
                         .build());
             }
-        });
+        }, Integer.MAX_VALUE);
 
         return list;
     }
@@ -712,7 +730,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
     public void writeMarshallable(BytesOut bytes) {
         bytes.writeByte(getImplementationType().getCode());
         symbolSpec.writeMarshallable(bytes);
-        bytes.writeInt(orderIdIndex.size());
+        bytes.writeInt(orderIdIndex.size(Integer.MAX_VALUE));
         askOrdersStream(true).forEach(order -> order.writeMarshallable(bytes));
         bidOrdersStream(true).forEach(order -> order.writeMarshallable(bytes));
     }

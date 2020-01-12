@@ -19,6 +19,7 @@ package exchange.core2.core.common;
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
 import org.apache.commons.lang3.builder.EqualsBuilder;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -49,7 +50,7 @@ public final class MatcherTradeEvent {
 
     public long price; // actual price of the deal (from maker order), 0 for rejection
     public long size;  // trade size, or unmatched size for REJECTION or CANCEL
-    public long timestamp; // same as activeOrder related event timestamp
+    //public long timestamp; // same as activeOrder related event timestamp
 
     public long bidderHoldPrice; // frozen price from BID order owner (depends on activeOrderAction)
 
@@ -68,7 +69,7 @@ public final class MatcherTradeEvent {
         evt.matchedOrderCompleted = this.matchedOrderCompleted;
         evt.price = this.price;
         evt.size = this.size;
-        evt.timestamp = this.timestamp;
+//        evt.timestamp = this.timestamp;
         evt.bidderHoldPrice = this.bidderHoldPrice;
         return evt;
     }
@@ -81,6 +82,29 @@ public final class MatcherTradeEvent {
         }
         return tail;
     }
+
+    public int getChainSize() {
+        MatcherTradeEvent tail = this;
+        int c = 1;
+        while (tail.nextEvent != null) {
+            tail = tail.nextEvent;
+            c++;
+        }
+        return c;
+    }
+
+    @NotNull
+    public static MatcherTradeEvent createEventChain(int chainLength) {
+        final MatcherTradeEvent head = new MatcherTradeEvent();
+        MatcherTradeEvent prev = head;
+        for (int j = 1; j < chainLength; j++) {
+            MatcherTradeEvent nextEvent = new MatcherTradeEvent();
+            prev.nextEvent = nextEvent;
+            prev = nextEvent;
+        }
+        return head;
+    }
+
 
     // testing only
     public static List<MatcherTradeEvent> asList(MatcherTradeEvent next) {
@@ -144,7 +168,7 @@ public final class MatcherTradeEvent {
                 ", matchedOrderCompleted=" + matchedOrderCompleted +
                 ", price=" + price +
                 ", size=" + size +
-                ", timestamp=" + timestamp +
+//                ", timestamp=" + timestamp +
                 ", bidderHoldPrice=" + bidderHoldPrice +
                 ", nextEvent=" + (nextEvent != null) +
                 '}';

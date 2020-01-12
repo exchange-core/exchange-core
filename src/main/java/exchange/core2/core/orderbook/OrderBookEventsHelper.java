@@ -18,7 +18,6 @@ package exchange.core2.core.orderbook;
 import exchange.core2.core.common.IOrder;
 import exchange.core2.core.common.MatcherEventType;
 import exchange.core2.core.common.MatcherTradeEvent;
-import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.utils.SerializationUtils;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +33,8 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static exchange.core2.core.ExchangeCore.EVENTS_POOLING;
+
 @Slf4j
 @RequiredArgsConstructor
 public final class OrderBookEventsHelper {
@@ -42,14 +43,12 @@ public final class OrderBookEventsHelper {
 
     private MatcherTradeEvent eventsChainHead;
 
-    public static final OrderBookEventsHelper NO_POOL_HELPER = new OrderBookEventsHelper(() -> null);
-
-    public void sendTradeEvent(final OrderCommand cmd,
-                               final IOrder activeOrder,
-                               final IOrder matchingOrder,
-                               final boolean makerCompleted,
-                               final boolean takerCompleted,
-                               final long size) {
+    public MatcherTradeEvent sendTradeEvent(final IOrder matchingOrder,
+                                            final boolean makerCompleted,
+                                            final boolean takerCompleted,
+                                            final long size,
+                                            final long bidderHoldPrice) {
+                                            //final long takerOrderTimestamp
 
 //        log.debug("** sendTradeEvent: active id:{} matched id:{}", activeOrder.orderId, matchingOrder.orderId);
 //        log.debug("** sendTradeEvent: price:{} v:{}", price, v);
@@ -67,15 +66,12 @@ public final class OrderBookEventsHelper {
 
         event.price = matchingOrder.getPrice();
         event.size = size;
-        event.timestamp = activeOrder.getTimestamp();
 
         // set order reserved price for correct released EBids
-        event.bidderHoldPrice = activeOrder.getAction() == OrderAction.BID ? activeOrder.getReserveBidPrice() : matchingOrder.getReserveBidPrice();
+        event.bidderHoldPrice = bidderHoldPrice;
 
-        event.nextEvent = cmd.matcherEvent;
-        cmd.matcherEvent = event;
+        return event;
 
-//        log.debug(" currentCmd.matcherEvent={}", currentCmd.matcherEvent);
     }
 
     public void sendCancelEvent(final OrderCommand cmd, final IOrder order) {
@@ -89,7 +85,6 @@ public final class OrderBookEventsHelper {
         event.matchedOrderCompleted = false;
         event.price = order.getPrice();
         event.size = order.getSize() - order.getFilled();
-        event.timestamp = cmd.timestamp;
 
         event.bidderHoldPrice = order.getReserveBidPrice(); // set order reserved price for correct released EBids
 
@@ -117,7 +112,6 @@ public final class OrderBookEventsHelper {
 
         event.price = cmd.price;
         event.size = rejectedSize;
-        event.timestamp = cmd.timestamp;
 
         event.bidderHoldPrice = cmd.reserveBidPrice; // set command reserved price for correct released EBids
 
@@ -147,7 +141,6 @@ public final class OrderBookEventsHelper {
             event.size = dataArray[i + 3];
             event.bidderHoldPrice = dataArray[i + 4];
 
-            event.timestamp = timestamp;
             event.nextEvent = null;
 
 //            log.debug("BIN EVENT: {}", event);
@@ -194,16 +187,17 @@ public final class OrderBookEventsHelper {
 
     private MatcherTradeEvent newMatcherEvent() {
 
-        if (eventsChainHead == null) {
-            eventsChainHead = eventChainsSupplier.get();
-        }
-        if (eventsChainHead != null) {
+        if (EVENTS_POOLING) {
+            if (eventsChainHead == null) {
+                eventsChainHead = eventChainsSupplier.get();
+//            log.debug("UPDATED HEAD size={}", eventsChainHead == null ? 0 : eventsChainHead.getChainSize());
+            }
             final MatcherTradeEvent res = eventsChainHead;
             eventsChainHead = eventsChainHead.nextEvent;
             return res;
+        } else {
+            return new MatcherTradeEvent();
         }
-
-        return new MatcherTradeEvent();
     }
 
 }

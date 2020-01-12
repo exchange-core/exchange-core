@@ -52,7 +52,7 @@ public final class ObjectsPool {
         objectsPoolConfig.put(ObjectsPool.ART_NODE_48, 64);
         objectsPoolConfig.put(ObjectsPool.ART_NODE_256, 32);
 
-        return new ObjectsPool(objectsPoolConfig, new SharedPool(64, 32, 256));
+        return new ObjectsPool(objectsPoolConfig, new SharedPool(8, 4, 256));
     }
 
     // TODO specify Global Shared Pool

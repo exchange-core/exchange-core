@@ -19,11 +19,6 @@ import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import lombok.extern.slf4j.Slf4j;
-import net.openhft.affinity.AffinityLock;
-
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
-import java.util.function.Supplier;
 
 import static net.openhft.chronicle.core.UnsafeMemory.UNSAFE;
 
@@ -45,31 +40,6 @@ public class UnsafeUtils {
             OFFSET_EVENT = UNSAFE.objectFieldOffset(OrderCommand.class.getDeclaredField("matcherEvent"));
         } catch (NoSuchFieldException ex) {
             throw new IllegalStateException(ex);
-        }
-    }
-
-    public enum ThreadAffinityMode {
-        THREAD_AFFINITY_ENABLE_PER_PHYSICAL_CORE,
-        THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE,
-        THREAD_AFFINITY_DISABLE
-    }
-
-    public static synchronized ThreadFactory affinedThreadFactory(final ThreadAffinityMode threadAffinityMode) {
-
-        if (threadAffinityMode == ThreadAffinityMode.THREAD_AFFINITY_DISABLE) {
-            return Executors.defaultThreadFactory();
-
-        } else {
-            final Supplier<AffinityLock> lockSupplier = threadAffinityMode == ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_PHYSICAL_CORE
-                    ? AffinityLock::acquireCore
-                    : AffinityLock::acquireLock;
-
-            return eventProcessor -> new Thread(() -> {
-                try (AffinityLock lock = lockSupplier.get()) {
-                    log.debug("{} pinned to {}", Thread.currentThread(), lock.cpuId());
-                    eventProcessor.run();
-                }
-            });
         }
     }
 

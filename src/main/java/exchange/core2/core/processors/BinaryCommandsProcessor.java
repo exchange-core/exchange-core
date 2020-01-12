@@ -86,14 +86,12 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
         record.addWord(cmd.size);
         record.addWord(cmd.uid);
 
-
         if (cmd.symbol == -1) {
             // all frames received
-            //log.debug("OBJ={}", object);
+
             incomingData.removeKey(transferId);
 
             final BytesIn bytesIn = SerializationUtils.longsToWire(record.dataArray).bytes();
-
 
             completeMessagesHandler.apply(deserializeObject(bytesIn)).ifPresent(res -> {
                 final NativeBytes<Void> bytes = Bytes.allocateElasticDirect(128);

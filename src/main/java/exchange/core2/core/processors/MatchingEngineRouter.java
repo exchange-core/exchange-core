@@ -224,7 +224,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
 
     private CommandResultCode addSymbol(final CoreSymbolSpecification symbolSpecification) {
 
-//        log.debug("symbolSpecification: {}", symbolSpecification);
+//        log.debug("ME add symbolSpecification: {}", symbolSpecification);
 
         final int symbolId = symbolSpecification.symbolId;
         if (orderBooks.get(symbolId) != null) {
