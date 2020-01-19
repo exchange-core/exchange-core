@@ -63,6 +63,7 @@ public final class TestOrdersGenerator {
 
     // TODO allow limiting max volume
 
+    // TODO allow limiting number of opened positions (currently it just grows)
 
     public static MultiSymbolGenResult generateMultipleSymbols(final TestOrdersGeneratorConfig config) {
 
@@ -114,10 +115,12 @@ public final class TestOrdersGenerator {
 
         final List<OrderCommand> allCommands = RandomCollectionsMerger.mergeCollections(commandsLists, 1L);
 
-        printStatistics(targetOrderBookOrdersTotal, allCommands);
+        final int readyAtSeq = config.preFillMode.calculateReadySeqFunc.apply(config);
 
-        final List<ApiCommand> apiCommandsFill = TestOrdersGenerator.convertToApiCommand(allCommands, 0, targetOrderBookOrdersTotal);
-        final List<ApiCommand> apiCommandsBenchmark = TestOrdersGenerator.convertToApiCommand(allCommands, targetOrderBookOrdersTotal, allCommands.size());
+        printStatistics(readyAtSeq, allCommands);
+
+        final List<ApiCommand> apiCommandsFill = TestOrdersGenerator.convertToApiCommand(allCommands, 0, readyAtSeq);
+        final List<ApiCommand> apiCommandsBenchmark = TestOrdersGenerator.convertToApiCommand(allCommands, readyAtSeq, allCommands.size());
 
         return MultiSymbolGenResult.builder()
                 .genResults(genResults)

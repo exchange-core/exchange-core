@@ -72,6 +72,7 @@ public class LatencyTestsModule {
                 .usersAccounts(usersAccounts)
                 .targetOrderBookOrdersTotal(targetOrderBookOrdersTotal)
                 .seed(1)
+                .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
                 .build();
 
         final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(genConfig);
@@ -184,6 +185,7 @@ public class LatencyTestsModule {
                 .targetOrderBookOrdersTotal(targetOrderBookOrdersTotal)
                 .seed(1)
                 .hugeSizeIOC(hugeSizeIOC)
+                .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
                 .build();
 
         final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(genConfig);

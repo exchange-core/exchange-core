@@ -18,12 +18,15 @@ package exchange.core2.tests.util;
 import exchange.core2.core.common.CoreSymbolSpecification;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
+import lombok.Getter;
 
 import java.util.BitSet;
 import java.util.List;
+import java.util.function.Function;
 
 @AllArgsConstructor
 @Builder
+@Getter
 public class TestOrdersGeneratorConfig {
 
     final List<CoreSymbolSpecification> coreSymbolSpecifications;
@@ -32,5 +35,14 @@ public class TestOrdersGeneratorConfig {
     final int targetOrderBookOrdersTotal;
     final int seed;
     final boolean hugeSizeIOC;
+    final PreFillMode preFillMode;
 
+    @AllArgsConstructor
+    public enum PreFillMode {
+
+        ORDERS_NUMBER(TestOrdersGeneratorConfig::getTargetOrderBookOrdersTotal),
+        ORDERS_NUMBER_PLUS_QUARTER(config -> config.targetOrderBookOrdersTotal * 5 / 4);
+
+        final Function<TestOrdersGeneratorConfig, Integer> calculateReadySeqFunc;
+    }
 }

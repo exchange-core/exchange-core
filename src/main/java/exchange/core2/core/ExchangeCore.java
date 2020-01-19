@@ -33,11 +33,11 @@ import exchange.core2.core.processors.journalling.JournallingProcessor;
 import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ArrayUtils;
-import org.apache.commons.lang3.tuple.Pair;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ThreadFactory;
+import java.util.Map;
+import java.util.concurrent.*;
 import java.util.function.BiFunction;
 import java.util.function.ObjLongConsumer;
 import java.util.stream.Collectors;
@@ -98,18 +98,50 @@ public final class ExchangeCore {
 
         disruptor.setDefaultExceptionHandler(exceptionHandler);
 
-        // creating matching engine event handlers array // TODO parallel deserialization
-        final EventHandler<OrderCommand>[] matchingEngineHandlers = IntStream.range(0, matchingEnginesNum)
-                .mapToObj(shardId -> {
-                    final MatchingEngineRouter router = new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, orderBookFactory, sharedPool, loadStateId);
-                    return (EventHandler<OrderCommand>) (cmd, seq, eob) -> router.processOrder(cmd);
+        // advice completable future to use the same socket as disruptor
+        final ExecutorService loaderExecutor = Executors.newFixedThreadPool(matchingEnginesNum + riskEnginesNum, threadFactory);
+
+        // start creating matching engines
+        final Map<Integer, CompletableFuture<MatchingEngineRouter>> matchingEngineFutures = IntStream.range(0, matchingEnginesNum)
+                .boxed()
+                .collect(Collectors.toMap(
+                        shardId -> shardId,
+                        shardId -> CompletableFuture.supplyAsync(
+                                () -> new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, orderBookFactory, sharedPool, loadStateId),
+                                loaderExecutor)));
+
+
+        // start creating risk engines
+        final Map<Integer, CompletableFuture<RiskEngine>> riskEngineFutures = IntStream.range(0, riskEnginesNum)
+                .boxed()
+                .collect(Collectors.toMap(
+                        shardId -> shardId,
+                        shardId -> CompletableFuture.supplyAsync(
+                                () -> new RiskEngine(shardId, riskEnginesNum, serializationProcessor, sharedPool, loadStateId),
+                                loaderExecutor)));
+
+        final EventHandler<OrderCommand>[] matchingEngineHandlers = matchingEngineFutures.values().stream()
+                .map(merFuture -> {
+                    try {
+                        return merFuture.get();
+                    } catch (InterruptedException | ExecutionException ex) {
+                        throw new RuntimeException(ex);
+                    }
                 })
+                .map(mer -> (EventHandler<OrderCommand>) (cmd, seq, eob) -> mer.processOrder(cmd))
                 .toArray(ExchangeCore::newEventHandlersArray);
 
-        // creating risk engines array // TODO parallel deserialization & create as IntObjMap
-        final List<Pair<Integer, RiskEngine>> riskEngines = IntStream.range(0, riskEnginesNum)
-                .mapToObj(shardId -> Pair.of(shardId, new RiskEngine(shardId, riskEnginesNum, serializationProcessor, sharedPool, loadStateId)))
-                .collect(Collectors.toList());
+        final Map<Integer, RiskEngine> riskEngines = riskEngineFutures.entrySet().stream()
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        entry -> {
+                            try {
+                                return entry.getValue().get();
+                            } catch (InterruptedException | ExecutionException ex) {
+                                throw new RuntimeException(ex);
+                            }
+                        }));
+
 
         final List<TwoStepMasterProcessor> procR1 = new ArrayList<>(riskEnginesNum);
         final List<TwoStepSlaveProcessor> procR2 = new ArrayList<>(riskEnginesNum);
@@ -123,10 +155,9 @@ public final class ExchangeCore {
             afterGrouping.handleEventsWith(journallingHandler::onEvent);
         }
 
-        riskEngines.forEach(rePair -> afterGrouping.handleEventsWith(
+        riskEngines.forEach((idx, riskEngine) -> afterGrouping.handleEventsWith(
                 (rb, bs) -> {
-                    final RiskEngine riskEngine = rePair.getValue();
-                    final TwoStepMasterProcessor r1 = new TwoStepMasterProcessor(rb, rb.newBarrier(bs), riskEngine::preProcessCommand, exceptionHandler, waitStrategy, "R0-" + rePair.getKey());
+                    final TwoStepMasterProcessor r1 = new TwoStepMasterProcessor(rb, rb.newBarrier(bs), riskEngine::preProcessCommand, exceptionHandler, waitStrategy, "R" + idx);
                     procR1.add(r1);
                     return r1;
                 }));
@@ -136,9 +167,8 @@ public final class ExchangeCore {
         // 3. risk release (R2) after matching engine (ME)
         final EventHandlerGroup<OrderCommand> afterMatchingEngine = disruptor.after(matchingEngineHandlers);
 
-        riskEngines.forEach(rePair -> afterMatchingEngine.handleEventsWith(
+        riskEngines.forEach((idx, riskEngine) -> afterMatchingEngine.handleEventsWith(
                 (rb, bs) -> {
-                    final RiskEngine riskEngine = rePair.getValue();
                     final TwoStepSlaveProcessor r2 = new TwoStepSlaveProcessor(rb, rb.newBarrier(bs), riskEngine::handlerRiskRelease, exceptionHandler);
                     procR2.add(r2);
                     return r2;
@@ -154,6 +184,12 @@ public final class ExchangeCore {
         // attach slave processors to master processor
         Streams.forEachPair(procR1.stream(), procR2.stream(), TwoStepMasterProcessor::setSlaveProcessor);
 
+        try {
+            loaderExecutor.shutdown();
+            loaderExecutor.awaitTermination(1, TimeUnit.SECONDS);
+        } catch (InterruptedException ex) {
+            throw new RuntimeException(ex);
+        }
     }
 
     public synchronized void startup() {
