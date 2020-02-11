@@ -30,6 +30,9 @@ public final class ApiBinaryDataCommand extends ApiCommand {
     // serializable object
     public final WriteBytesMarshallable data;
 
+    // is query (read-only report, will not modify exchange state)
+    public final boolean isQuery;
+
     @Override
     public String toString() {
         return "[BINARY_DATA tid=" + transferId + " data=" + data + "]";

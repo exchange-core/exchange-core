@@ -129,7 +129,8 @@ public final class GroupingProcessor implements EventProcessor {
                         // some commands should trigger R2 stage to avoid unprocessed state in events
                         if (cmd.command == OrderCommandType.RESET
                                 || cmd.command == OrderCommandType.PERSIST_STATE_MATCHING
-                                || cmd.command == OrderCommandType.BINARY_DATA) {
+                                || cmd.command == OrderCommandType.BINARY_DATA_COMMAND
+                                || cmd.command == OrderCommandType.BINARY_DATA_QUERY) {
                             groupCounter++;
                             msgsInGroup = 0;
                         }
@@ -155,7 +156,7 @@ public final class GroupingProcessor implements EventProcessor {
                             tradeEventTail = cmd.matcherEvent;
                             tradeEventCounter++;
 
-                            // find last element in the chain and update tail accourdingly
+                            // find last element in the chain and update tail accordingly
                             while (tradeEventTail.nextEvent != null) {
                                 tradeEventTail = tradeEventTail.nextEvent;
                                 tradeEventCounter++;
@@ -174,11 +175,6 @@ public final class GroupingProcessor implements EventProcessor {
 
                         // TODO collect to shared buffer
                         cmd.marketData = null;
-
-                        if (cmd.command == OrderCommandType.NOP) {
-                            // just set next group and pass
-                            continue;
-                        }
 
                         msgsInGroup++;
 

@@ -90,8 +90,6 @@ public final class ExchangeApi {
             publishPersistCmd((ApiPersistState) cmd);
         } else if (cmd instanceof ApiReset) {
             ringBuffer.publishEvent(RESET_TRANSLATOR, (ApiReset) cmd);
-        } else if (cmd instanceof ApiNoOp) {
-            ringBuffer.publishEvent(NOOP_TRANSLATOR, (ApiNoOp) cmd);
         } else {
             throw new IllegalArgumentException("Unsupported command type: " + cmd.getClass().getSimpleName());
         }
@@ -114,10 +112,11 @@ public final class ExchangeApi {
     public void submitBinaryCommandAsync(
             final WriteBytesMarshallable data,
             final int transferId,
-            final Consumer<OrderCommand> consumer) {
+            final Consumer<OrderCommand> consumer,
+            final boolean isQuery) {
 
         publishBinaryData(
-                ApiBinaryDataCommand.builder().data(data).transferId(transferId).build(),
+                ApiBinaryDataCommand.builder().data(data).transferId(transferId).isQuery(isQuery).build(),
                 seq -> promises.put(seq, consumer));
     }
 
@@ -134,6 +133,8 @@ public final class ExchangeApi {
 
     public void publishBinaryData(final ApiBinaryDataCommand apiCmd, final LongConsumer endSeqConsumer) {
 
+        final OrderCommandType cmdType = apiCmd.isQuery ? OrderCommandType.BINARY_DATA_QUERY : OrderCommandType.BINARY_DATA_COMMAND;
+
         final int longsPerMessage = 5;
         long[] longArray = SerializationUtils.bytesToLongArray(BinaryCommandsProcessor.serializeObject(apiCmd.data), longsPerMessage);
 
@@ -148,7 +149,7 @@ public final class ExchangeApi {
             for (long seq = lowSeq; seq <= highSeq; seq++) {
 
                 OrderCommand cmd = ringBuffer.get(seq);
-                cmd.command = OrderCommandType.BINARY_DATA;
+                cmd.command = cmdType;
                 cmd.userCookie = apiCmd.transferId;
                 cmd.symbol = seq == highSeq ? -1 : 0;
 
@@ -229,7 +230,6 @@ public final class ExchangeApi {
     private static final EventTranslatorOneArg<OrderCommand, ApiMoveOrder> MOVE_ORDER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.MOVE_ORDER;
         cmd.price = api.newPrice;
-        //cmd.price2
         cmd.orderId = api.id;
         cmd.symbol = api.symbol;
         cmd.uid = api.uid;
@@ -240,8 +240,6 @@ public final class ExchangeApi {
     private static final EventTranslatorOneArg<OrderCommand, ApiCancelOrder> CANCEL_ORDER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.CANCEL_ORDER;
         cmd.orderId = api.id;
-        cmd.price = -1;
-        cmd.size = -1;
         cmd.symbol = api.symbol;
         cmd.uid = api.uid;
         cmd.timestamp = api.timestamp;
@@ -250,9 +248,7 @@ public final class ExchangeApi {
 
     private static final EventTranslatorOneArg<OrderCommand, ApiOrderBookRequest> ORDER_BOOK_REQUEST_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.ORDER_BOOK_REQUEST;
-        cmd.orderId = -1;
         cmd.symbol = api.symbol;
-        cmd.price = -1;
         cmd.size = api.size;
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
@@ -260,8 +256,6 @@ public final class ExchangeApi {
 
     private static final EventTranslatorOneArg<OrderCommand, ApiAddUser> ADD_USER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.ADD_USER;
-        cmd.orderId = -1;
-        cmd.symbol = -1;
         cmd.uid = api.uid;
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
@@ -269,8 +263,6 @@ public final class ExchangeApi {
 
     private static final EventTranslatorOneArg<OrderCommand, ApiSuspendUser> SUSPEND_USER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.SUSPEND_USER;
-        cmd.orderId = -1;
-        cmd.symbol = -1;
         cmd.uid = api.uid;
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
@@ -278,8 +270,6 @@ public final class ExchangeApi {
 
     private static final EventTranslatorOneArg<OrderCommand, ApiResumeUser> RESUME_USER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.RESUME_USER;
-        cmd.orderId = -1;
-        cmd.symbol = -1;
         cmd.uid = api.uid;
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
@@ -298,24 +288,9 @@ public final class ExchangeApi {
 
     private static final EventTranslatorOneArg<OrderCommand, ApiReset> RESET_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.RESET;
-        cmd.orderId = -1;
-        cmd.symbol = -1;
-        cmd.uid = -1;
-        cmd.price = -1;
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
     };
-
-    private static final EventTranslatorOneArg<OrderCommand, ApiNoOp> NOOP_TRANSLATOR = (cmd, seq, api) -> {
-        cmd.command = OrderCommandType.NOP;
-        cmd.orderId = -1;
-        cmd.symbol = -1;
-        cmd.uid = -1;
-        cmd.price = -1;
-        cmd.timestamp = api.timestamp;
-        cmd.resultCode = CommandResultCode.NEW;
-    };
-
 
     public void createUser(long userId, Consumer<OrderCommand> callback) {
         ringBuffer.publishEvent(((cmd, seq) -> {

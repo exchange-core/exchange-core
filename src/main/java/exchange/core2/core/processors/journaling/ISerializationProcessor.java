@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package exchange.core2.core.processors.journalling;
+package exchange.core2.core.processors.journaling;
 
 import lombok.AllArgsConstructor;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -26,6 +26,8 @@ public interface ISerializationProcessor {
     boolean storeData(long snapshotId, SerializedModuleType type, int instanceId, WriteBytesMarshallable obj);
 
     <T> T loadData(long snapshotId, SerializedModuleType type, int instanceId, Function<BytesIn, T> initFunc);
+
+    // TODO get available snapshots
 
     @AllArgsConstructor
     enum SerializedModuleType {

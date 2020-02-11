@@ -26,8 +26,11 @@ import exchange.core2.core.common.api.reports.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
+import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.orderbook.OrderBookDirectImpl;
-import exchange.core2.core.processors.journalling.DiskSerializationProcessor;
+import exchange.core2.core.processors.journaling.DiskJournalingProcessor;
+import exchange.core2.core.processors.journaling.DiskSerializationProcessor;
+import exchange.core2.core.processors.journaling.IJournalingProcessor;
 import exchange.core2.core.utils.AffinityThreadFactory;
 import lombok.Getter;
 import lombok.Setter;
@@ -81,19 +84,40 @@ public final class ExchangeTestContainer implements AutoCloseable {
         this(RING_BUFFER_SIZE_DEFAULT, MATCHING_ENGINES_ONE, RISK_ENGINES_ONE, MGS_IN_GROUP_LIMIT_DEFAULT, null);
     }
 
+
+    // TODO builder
+
     public ExchangeTestContainer(final int bufferSize,
                                  final int matchingEnginesNum,
                                  final int riskEnginesNum,
                                  final int msgsInGroupLimit,
-                                 final Long stateId) {
+                                 final InitialStateConfiguration initStateCfg) {
+
+        this(bufferSize, matchingEnginesNum, riskEnginesNum, msgsInGroupLimit, initStateCfg, false);
+
+    }
+
+    public ExchangeTestContainer(final int bufferSize,
+                                 final int matchingEnginesNum,
+                                 final int riskEnginesNum,
+                                 final int msgsInGroupLimit,
+                                 final InitialStateConfiguration initStateCfg,
+                                 final boolean enableJournaling) {
 
         //log.debug("CREATING exchange container");
 
         this.threadFactory = new AffinityThreadFactory(AffinityThreadFactory.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE);
 
+        final IJournalingProcessor journalingHandler = enableJournaling
+                ? new DiskJournalingProcessor("./dumps", initStateCfg.getSnapshotConf().getSnapshotId())
+                : null;
+
+        final DiskSerializationProcessor serializationProcessor = new DiskSerializationProcessor("./dumps");
+
         this.exchangeCore = ExchangeCore.builder()
                 .resultsConsumer((cmd, seq) -> consumer.accept(cmd))
-                .serializationProcessor(new DiskSerializationProcessor("./dumps"))
+                .serializationProcessor(serializationProcessor)
+                .journalingHandler(journalingHandler)
                 .ringBufferSize(bufferSize)
                 .matchingEnginesNum(matchingEnginesNum)
                 .riskEnginesNum(riskEnginesNum)
@@ -103,7 +127,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
 //                .orderBookFactory(symbolType -> new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH, symbolType))
                 .orderBookFactory(OrderBookDirectImpl::new)
 //                .orderBookFactory(OrderBookNaiveImpl::new)
-                .loadStateId(stateId) // Loading from persisted state
+                .initialStateConfiguration(initStateCfg) // Loading from persisted state
                 .build();
 
         //log.debug("STARTING exchange container");
@@ -322,7 +346,8 @@ public final class ExchangeTestContainer implements AutoCloseable {
     public void submitMultiCommandSync(ApiCommand dataCommand) {
         final CountDownLatch latch = new CountDownLatch(1);
         consumer = cmd -> {
-            if (cmd.command != OrderCommandType.BINARY_DATA
+            if (cmd.command != OrderCommandType.BINARY_DATA_COMMAND
+                    && cmd.command != OrderCommandType.BINARY_DATA_QUERY
                     && cmd.command != OrderCommandType.PERSIST_STATE_RISK
                     && cmd.command != OrderCommandType.PERSIST_STATE_MATCHING) {
                 throw new IllegalStateException("Unexpected command");

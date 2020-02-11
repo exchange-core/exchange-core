@@ -13,15 +13,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package exchange.core2.core.common.api;
+package exchange.core2.core.processors.journaling;
 
+import exchange.core2.core.common.cmd.OrderCommand;
 
-import lombok.Builder;
+import java.io.IOException;
 
-@Builder
-public final class ApiNoOp extends ApiCommand {
-    @Override
-    public String toString() {
-        return "[RESET]";
-    }
+public interface IJournalingProcessor {
+
+    /**
+     * Write command into journal
+     *
+     * @param cmd
+     * @param seq
+     * @param eob - if true, journal should commit all previous data synchronously
+     * @throws IOException
+     */
+    void onEvent(OrderCommand cmd, long seq, boolean eob) throws IOException;
+
 }

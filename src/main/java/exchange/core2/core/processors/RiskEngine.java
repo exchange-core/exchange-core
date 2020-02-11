@@ -21,7 +21,8 @@ import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
 import exchange.core2.core.common.api.reports.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
-import exchange.core2.core.processors.journalling.ISerializationProcessor;
+import exchange.core2.core.common.config.InitSnapshotConfiguration;
+import exchange.core2.core.processors.journaling.ISerializationProcessor;
 import exchange.core2.core.utils.CoreArithmeticUtils;
 import exchange.core2.core.utils.HashingUtils;
 import exchange.core2.core.utils.SerializationUtils;
@@ -67,7 +68,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                       final long numShards,
                       final ISerializationProcessor serializationProcessor,
                       final SharedPool sharedPool,
-                      final Long loadStateId) {
+                      final InitSnapshotConfiguration initSnapshotConfiguration) {
         if (Long.bitCount(numShards) != 1) {
             throw new IllegalArgumentException("Invalid number of shards " + numShards + " - must be power of 2");
         }
@@ -80,7 +81,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         objectsPoolConfig.put(ObjectsPool.SYMBOL_POSITION_RECORD, 1024 * 256);
         this.objectsPool = new ObjectsPool(objectsPoolConfig, sharedPool);
 
-        if (loadStateId == null) {
+        if (initSnapshotConfiguration.noSnapshot()) {
             this.symbolSpecificationProvider = new SymbolSpecificationProvider();
             this.userProfileService = new UserProfileService();
             this.binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, sharedPool, shardId);
@@ -92,7 +93,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         } else {
             // TODO refactor, change to creator (simpler init)
             final State state = serializationProcessor.loadData(
-                    loadStateId,
+                    initSnapshotConfiguration.getSnapshotId(),
                     ISerializationProcessor.SerializedModuleType.RISK_ENGINE,
                     shardId,
                     bytesIn -> {
@@ -219,7 +220,8 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 }
                 return false;
 
-            case BINARY_DATA:
+            case BINARY_DATA_COMMAND:
+            case BINARY_DATA_QUERY:
                 binaryCommandsProcessor.acceptBinaryFrame(cmd);
                 if (shardId == 0) {
                     cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
@@ -228,12 +230,6 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
             case RESET:
                 reset();
-                if (shardId == 0) {
-                    cmd.resultCode = CommandResultCode.SUCCESS;
-                }
-                return false;
-
-            case NOP:
                 if (shardId == 0) {
                     cmd.resultCode = CommandResultCode.SUCCESS;
                 }

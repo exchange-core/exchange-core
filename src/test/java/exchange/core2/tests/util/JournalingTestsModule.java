@@ -37,18 +37,17 @@ import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 
 @Slf4j
-public class PersistenceTestsModule {
+public class JournalingTestsModule {
 
-    // TODO current persistence test does not cover positions serialization
 
-    public static void persistenceTestImpl(final Function<InitialStateConfiguration, ExchangeTestContainer> containerFactory,
-                                           final int totalTransactionsNumber,
-                                           final int targetOrderBookOrdersTotal,
-                                           final int numAccounts,
-                                           final int iterations,
-                                           final Set<Integer> currenciesAllowed,
-                                           final int numSymbols,
-                                           final ExchangeTestContainer.AllowedSymbolTypes allowedSymbolTypes) throws InterruptedException, ExecutionException {
+    public static void journalingTestImpl(final Function<InitialStateConfiguration, ExchangeTestContainer> containerFactory,
+                                          final int totalTransactionsNumber,
+                                          final int targetOrderBookOrdersTotal,
+                                          final int numAccounts,
+                                          final int iterations,
+                                          final Set<Integer> currenciesAllowed,
+                                          final int numSymbols,
+                                          final ExchangeTestContainer.AllowedSymbolTypes allowedSymbolTypes) throws InterruptedException, ExecutionException {
 
         for (int iteration = 0; iteration < iterations; iteration++) {
 
