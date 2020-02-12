@@ -181,7 +181,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
      *
      * @param cmd - command
      */
-    public boolean preProcessCommand(final OrderCommand cmd) {
+    public boolean preProcessCommand(final long seq, final OrderCommand cmd) {
         switch (cmd.command) {
             case MOVE_ORDER:
             case CANCEL_ORDER:
@@ -242,7 +242,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 return true;// true = publish sequence before finishing processing whole batch
 
             case PERSIST_STATE_RISK:
-                final boolean isSuccess = serializationProcessor.storeData(cmd.orderId, ISerializationProcessor.SerializedModuleType.RISK_ENGINE, shardId, this);
+                final boolean isSuccess = serializationProcessor.storeData(cmd.orderId, seq, ISerializationProcessor.SerializedModuleType.RISK_ENGINE, shardId, this);
                 UnsafeUtils.setResultVolatile(cmd, isSuccess, CommandResultCode.SUCCESS, CommandResultCode.STATE_PERSIST_RISK_ENGINE_FAILED);
                 return false;
         }
@@ -521,7 +521,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         return newRequiredMarginForSymbol <= userProfile.accounts.get(position.currency) + freeMargin;
     }
 
-    public boolean handlerRiskRelease(final OrderCommand cmd) {
+    public boolean handlerRiskRelease(final long seq, final OrderCommand cmd) {
 
         final int symbol = cmd.symbol;
 

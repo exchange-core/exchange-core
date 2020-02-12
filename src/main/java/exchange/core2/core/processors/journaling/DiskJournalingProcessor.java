@@ -38,12 +38,13 @@ public final class DiskJournalingProcessor implements IJournalingProcessor {
 
     private static final long MB = 1024 * 1024;
     private static final long FILE_SIZE_TRIGGER = 4 * 1024 * MB; // split files by size
-    private static final String FILE_NAME_PATTERN = "%s_%04d.eclog";
+    private static final String FILE_NAME_PATTERN = "%s_%04d.ecj";
     private static final String DATE_FORMAT = "yyyy-MM-dd_HHmmss";
 
     private static final int BUFFER_SIZE = 128 * 1024;
     private static final int BUFFER_FLUSH_TRIGER = BUFFER_SIZE - 256;
 
+    private final String exchangeId; // TODO validate
 
     private final Path journalFolder;
 
@@ -59,12 +60,14 @@ public final class DiskJournalingProcessor implements IJournalingProcessor {
     private final String today = LocalDateTime.now().format(DateTimeFormatter.ofPattern(DATE_FORMAT));
 
 
-    public DiskJournalingProcessor(final Path journalFolder, final long baseSnapshotId) {
+    public DiskJournalingProcessor(final String exchangeId, final Path journalFolder, final long baseSnapshotId) {
+        this.exchangeId = exchangeId;
         this.journalFolder = journalFolder;
         this.baseSnapshotId = baseSnapshotId;
     }
 
-    public DiskJournalingProcessor(final String journalFolder, final long baseSnapshotId) {
+    public DiskJournalingProcessor(final String exchangeId, final String journalFolder, final long baseSnapshotId) {
+        this.exchangeId = exchangeId;
         this.journalFolder = Paths.get(journalFolder);
         this.baseSnapshotId = baseSnapshotId;
     }
@@ -231,6 +234,6 @@ public final class DiskJournalingProcessor implements IJournalingProcessor {
 
 
     private Path resolvePath(int partitionId) {
-        return journalFolder.resolve("journal_" + baseSnapshotId + "_" + partitionId + String.format(FILE_NAME_PATTERN, today, filesCounter));
+        return journalFolder.resolve(exchangeId + "_journal_" + baseSnapshotId + "_" + partitionId + String.format(FILE_NAME_PATTERN, today, filesCounter));
     }
 }

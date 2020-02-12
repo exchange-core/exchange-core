@@ -24,6 +24,6 @@ public interface SimpleEventHandler {
      * @param event - event
      * @return true to forcibly publish sequence (batches)
      */
-    boolean onEvent(OrderCommand event);
+    boolean onEvent(long seq, OrderCommand event);
 
 }

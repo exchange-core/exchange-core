@@ -115,7 +115,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         }
     }
 
-    public void processOrder(OrderCommand cmd) {
+    public void processOrder(long seq, OrderCommand cmd) {
 
         final OrderCommandType command = cmd.command;
 
@@ -140,7 +140,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
             }
 
         } else if (command == OrderCommandType.PERSIST_STATE_MATCHING) {
-            final boolean isSuccess = serializationProcessor.storeData(cmd.orderId, ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER, shardId, this);
+            final boolean isSuccess = serializationProcessor.storeData(cmd.orderId, seq, ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER, shardId, this);
             // Send ACCEPTED because this is a first command in series. Risk engine is second - so it will return SUCCESS
             UnsafeUtils.setResultVolatile(cmd, isSuccess, CommandResultCode.ACCEPTED, CommandResultCode.STATE_PERSIST_MATCHING_ENGINE_FAILED);
         }

@@ -67,10 +67,12 @@ public class PersistenceTestsModule {
 
             final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(genConfig);
 
+            final String exchangeId = String.format("%012X", System.currentTimeMillis());
+
             final long originalPrefillStateHash;
             final float originalPerfMt;
 
-            try (final ExchangeTestContainer container = containerFactory.apply(InitialStateConfiguration.CLEAN_START)) {
+            try (final ExchangeTestContainer container = containerFactory.apply(InitialStateConfiguration.cleanStart(exchangeId))) {
 
                 final ExchangeApi api = container.getApi();
 
@@ -135,7 +137,7 @@ public class PersistenceTestsModule {
 
             log.debug("Creating new exchange from persisted state...");
             final long tLoad = System.currentTimeMillis();
-            try (final ExchangeTestContainer recreatedContainer = containerFactory.apply(InitialStateConfiguration.fromSnapshotOnly(stateId))) {
+            try (final ExchangeTestContainer recreatedContainer = containerFactory.apply(InitialStateConfiguration.fromSnapshotOnly(exchangeId, stateId))) {
 
                 // simple sync query in order to wait until core is started to respond
                 recreatedContainer.validateUserState(0, IGNORING_CONSUMER, IGNORING_CONSUMER);

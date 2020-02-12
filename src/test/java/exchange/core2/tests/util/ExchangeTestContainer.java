@@ -109,10 +109,10 @@ public final class ExchangeTestContainer implements AutoCloseable {
         this.threadFactory = new AffinityThreadFactory(AffinityThreadFactory.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE);
 
         final IJournalingProcessor journalingHandler = enableJournaling
-                ? new DiskJournalingProcessor("./dumps", initStateCfg.getSnapshotConf().getSnapshotId())
+                ? new DiskJournalingProcessor(initStateCfg.getExchangeId(), "./dumps", initStateCfg.getSnapshotConf().getSnapshotId())
                 : null;
 
-        final DiskSerializationProcessor serializationProcessor = new DiskSerializationProcessor("./dumps");
+        final DiskSerializationProcessor serializationProcessor = new DiskSerializationProcessor(initStateCfg.getExchangeId(), "./dumps");
 
         this.exchangeCore = ExchangeCore.builder()
                 .resultsConsumer((cmd, seq) -> consumer.accept(cmd))

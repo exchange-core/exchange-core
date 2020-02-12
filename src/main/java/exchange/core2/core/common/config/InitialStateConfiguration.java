@@ -7,16 +7,24 @@ import lombok.Getter;
 @Getter
 public final class InitialStateConfiguration {
 
-    public static final InitialStateConfiguration CLEAN_START = new InitialStateConfiguration(
-            InitSnapshotConfiguration.CLEAN_START, InitJournalConfiguration.IGNORE_JOURNAL);
+    final String exchangeId;
 
     final InitSnapshotConfiguration snapshotConf;
 
     final InitJournalConfiguration journalConf;
 
-    public static InitialStateConfiguration fromSnapshotOnly(final long snapshotId) {
+    public static InitialStateConfiguration cleanStart(String exchangeId) {
 
         return new InitialStateConfiguration(
+                exchangeId,
+                InitSnapshotConfiguration.CLEAN_START,
+                InitJournalConfiguration.IGNORE_JOURNAL);
+    }
+
+    public static InitialStateConfiguration fromSnapshotOnly(String exchangeId, long snapshotId) {
+
+        return new InitialStateConfiguration(
+                exchangeId,
                 InitSnapshotConfiguration.fromSnapshotId(snapshotId),
                 InitJournalConfiguration.IGNORE_JOURNAL);
     }

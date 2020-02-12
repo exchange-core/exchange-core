@@ -15,6 +15,7 @@
  */
 package exchange.core2.core.processors.journaling;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -34,20 +35,20 @@ import java.util.function.Function;
 
 
 @Slf4j
+@RequiredArgsConstructor
 public final class DiskSerializationProcessor implements ISerializationProcessor {
+
+    private final String exchangeId; // TODO validate
 
     private final Path dumpsFolder;
 
-    public DiskSerializationProcessor(final Path dumpsFolder) {
-        this.dumpsFolder = dumpsFolder;
-    }
-
-    public DiskSerializationProcessor(final String dumpsFolder) {
+    public DiskSerializationProcessor(String exchangeId, String dumpsFolder) {
+        this.exchangeId = exchangeId;
         this.dumpsFolder = Paths.get(dumpsFolder);
     }
 
     @Override
-    public boolean storeData(long snapshotId, SerializedModuleType type, int instanceId, WriteBytesMarshallable obj) {
+    public boolean storeData(long snapshotId, long seq, SerializedModuleType type, int instanceId, WriteBytesMarshallable obj) {
 
         final Path path = resolvePath(snapshotId, type, instanceId);
 
@@ -65,16 +66,32 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
             wireToOutputStream.flush();
             //bos.flush();
             log.debug("completed {}", path);
-            return true;
 
         } catch (final IOException ex) {
             log.error("Can not write snapshot file: ", ex);
             return false;
         }
+
+        synchronized (this) {
+            try (final OutputStream os = Files.newOutputStream(resolveMainLogPath(), StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
+                os.write((System.currentTimeMillis() + " seq=" + seq + " snapshotId=" + snapshotId + " type=" + type.code + " instance=" + instanceId + "\n").getBytes());
+            } catch (final IOException ex) {
+                log.error("Can not write main log file: ", ex);
+                return false;
+            }
+        }
+
+        return true;
+
     }
 
     private Path resolvePath(long snapshotId, SerializedModuleType type, int instanceId) {
-        return dumpsFolder.resolve("state_" + snapshotId + "_" + type.code + instanceId);
+
+        return dumpsFolder.resolve(String.format("%s_state_%d_%s%d.ecs", exchangeId, snapshotId, type.code, instanceId));
+    }
+
+    private Path resolveMainLogPath() {
+        return dumpsFolder.resolve(String.format("%s.eca", exchangeId));
     }
 
     @Override
