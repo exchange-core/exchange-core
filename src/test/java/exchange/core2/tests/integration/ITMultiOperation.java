@@ -15,10 +15,11 @@
  */
 package exchange.core2.tests.integration;
 
-import org.junit.Test;
+import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
-import exchange.core2.tests.util.ThroughputTestsModule;
 import exchange.core2.tests.util.TestConstants;
+import exchange.core2.tests.util.ThroughputTestsModule;
+import org.junit.Test;
 
 
 public class ITMultiOperation {
@@ -26,7 +27,7 @@ public class ITMultiOperation {
     @Test(timeout = 60000L)
     public void shouldPerformMarginOperations() throws Exception {
         ThroughputTestsModule.throughputTestImpl(
-                () -> new ExchangeTestContainer(2 * 1024, 1, 1, 1536, null),
+                () -> new ExchangeTestContainer(2 * 1024, 1, 1, 1536, InitialStateConfiguration.TEST_CONFIG),
                 1_000_000,
                 1_000,
                 2_000,
@@ -39,7 +40,7 @@ public class ITMultiOperation {
     @Test(timeout = 60000L)
     public void shouldPerformExchangeOperations() throws Exception {
         ThroughputTestsModule.throughputTestImpl(
-                () -> new ExchangeTestContainer(2 * 1024, 1, 1, 1536, null),
+                () -> new ExchangeTestContainer(2 * 1024, 1, 1, 1536, InitialStateConfiguration.TEST_CONFIG),
                 1_000_000,
                 1_000,
                 2_000,
@@ -53,7 +54,7 @@ public class ITMultiOperation {
     @Test(timeout = 60000L)
     public void shouldPerformSharded() throws Exception {
         ThroughputTestsModule.throughputTestImpl(
-                () -> new ExchangeTestContainer(32 * 1024, 2, 2, 1536, null),
+                () -> new ExchangeTestContainer(32 * 1024, 2, 2, 1536, InitialStateConfiguration.TEST_CONFIG),
                 1_000_000,
                 10_000,
                 50_000,

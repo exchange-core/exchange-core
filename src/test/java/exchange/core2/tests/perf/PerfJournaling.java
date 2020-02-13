@@ -28,7 +28,7 @@ public final class PerfJournaling {
     @Test
     public void testJournalingMargin() throws Exception {
         JournalingTestsModule.journalingTestImpl(
-                initStateCfg -> new ExchangeTestContainer(64 * 1024, 1, 1, 512, initStateCfg, true),
+                initStateCfg -> new ExchangeTestContainer(64 * 1024, 1, 1, 512, initStateCfg),
                 3_000_000,
                 1000,
                 2000,
@@ -42,7 +42,7 @@ public final class PerfJournaling {
     @Test
     public void testJournalingMultiSymbolLarge() throws Exception {
         JournalingTestsModule.journalingTestImpl(
-                initStateCfg -> new ExchangeTestContainer(32 * 1024, 4, 4, 1024, initStateCfg, true),
+                initStateCfg -> new ExchangeTestContainer(32 * 1024, 4, 4, 1024, initStateCfg),
                 10_000_000,
                 4_000_000,
                 10_000_000,
@@ -56,7 +56,7 @@ public final class PerfJournaling {
     @Test
     public void testJournalingMultiSymbolHuge() throws Exception {
         JournalingTestsModule.journalingTestImpl(
-                initStateCfg -> new ExchangeTestContainer(64 * 1024, 4, 4, 1024, initStateCfg, true),
+                initStateCfg -> new ExchangeTestContainer(64 * 1024, 4, 4, 1024, initStateCfg),
                 30_000_000,
                 20_000_000,
                 20_000_000,

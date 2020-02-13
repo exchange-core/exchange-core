@@ -15,6 +15,7 @@
  */
 package exchange.core2.tests.perf;
 
+import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.TestConstants;
 import lombok.extern.slf4j.Slf4j;
@@ -34,7 +35,7 @@ public final class PerfLatency {
      */
     @Test
     public void testLatencyMargin() {
-        latencyTestImpl(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, null),
+        latencyTestImpl(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, InitialStateConfiguration.TEST_CONFIG),
                 3_000_000,
                 1_000,
                 2_000,
@@ -53,7 +54,7 @@ public final class PerfLatency {
      */
     @Test
     public void testLatencyExchange() {
-        latencyTestImpl(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, null),
+        latencyTestImpl(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, InitialStateConfiguration.TEST_CONFIG),
                 3_000_000,
                 1_000,
                 2_000,
@@ -74,7 +75,7 @@ public final class PerfLatency {
      */
     @Test
     public void testLatencyMultiSymbolMedium() {
-        latencyTestImpl(() -> new ExchangeTestContainer(32 * 1024, 4, 2, 256, null),
+        latencyTestImpl(() -> new ExchangeTestContainer(32 * 1024, 4, 2, 256, InitialStateConfiguration.TEST_CONFIG),
                 6_000_000,
                 1_000_000,
                 3_300_000,
@@ -95,7 +96,7 @@ public final class PerfLatency {
     @Test
     public void testLatencyMultiSymbolLarge() {
         latencyTestImpl(
-                () -> new ExchangeTestContainer(64 * 1024, 4, 2, 256, null),
+                () -> new ExchangeTestContainer(64 * 1024, 4, 2, 256, InitialStateConfiguration.TEST_CONFIG),
                 40_000_000,
                 30_000_000,
                 33_000_000,

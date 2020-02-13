@@ -15,10 +15,12 @@
  */
 package exchange.core2.core.processors.journaling;
 
+import exchange.core2.core.common.cmd.OrderCommand;
 import lombok.AllArgsConstructor;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 
+import java.io.IOException;
 import java.util.function.Function;
 
 public interface ISerializationProcessor {
@@ -26,6 +28,17 @@ public interface ISerializationProcessor {
     boolean storeData(long snapshotId, long seq, SerializedModuleType type, int instanceId, WriteBytesMarshallable obj);
 
     <T> T loadData(long snapshotId, SerializedModuleType type, int instanceId, Function<BytesIn, T> initFunc);
+
+
+    /**
+     * Write command into journal
+     *
+     * @param cmd
+     * @param seq
+     * @param eob - if true, journal should commit all previous data synchronously
+     * @throws IOException
+     */
+    void writeToJournal(OrderCommand cmd, long seq, boolean eob) throws IOException;
 
     // TODO get available snapshots
 

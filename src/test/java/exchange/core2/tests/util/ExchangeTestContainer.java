@@ -28,9 +28,7 @@ import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.orderbook.OrderBookDirectImpl;
-import exchange.core2.core.processors.journaling.DiskJournalingProcessor;
 import exchange.core2.core.processors.journaling.DiskSerializationProcessor;
-import exchange.core2.core.processors.journaling.IJournalingProcessor;
 import exchange.core2.core.utils.AffinityThreadFactory;
 import lombok.Getter;
 import lombok.Setter;
@@ -81,9 +79,8 @@ public final class ExchangeTestContainer implements AutoCloseable {
     public static final Consumer<OrderCommand> CHECK_SUCCESS = cmd -> assertEquals(CommandResultCode.SUCCESS, cmd.resultCode);
 
     public ExchangeTestContainer() {
-        this(RING_BUFFER_SIZE_DEFAULT, MATCHING_ENGINES_ONE, RISK_ENGINES_ONE, MGS_IN_GROUP_LIMIT_DEFAULT, null);
+        this(RING_BUFFER_SIZE_DEFAULT, MATCHING_ENGINES_ONE, RISK_ENGINES_ONE, MGS_IN_GROUP_LIMIT_DEFAULT, InitialStateConfiguration.TEST_CONFIG);
     }
-
 
     // TODO builder
 
@@ -93,31 +90,18 @@ public final class ExchangeTestContainer implements AutoCloseable {
                                  final int msgsInGroupLimit,
                                  final InitialStateConfiguration initStateCfg) {
 
-        this(bufferSize, matchingEnginesNum, riskEnginesNum, msgsInGroupLimit, initStateCfg, false);
-
-    }
-
-    public ExchangeTestContainer(final int bufferSize,
-                                 final int matchingEnginesNum,
-                                 final int riskEnginesNum,
-                                 final int msgsInGroupLimit,
-                                 final InitialStateConfiguration initStateCfg,
-                                 final boolean enableJournaling) {
-
         //log.debug("CREATING exchange container");
 
         this.threadFactory = new AffinityThreadFactory(AffinityThreadFactory.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE);
 
-        final IJournalingProcessor journalingHandler = enableJournaling
-                ? new DiskJournalingProcessor(initStateCfg.getExchangeId(), "./dumps", initStateCfg.getSnapshotConf().getSnapshotId())
-                : null;
-
-        final DiskSerializationProcessor serializationProcessor = new DiskSerializationProcessor(initStateCfg.getExchangeId(), "./dumps");
+        final DiskSerializationProcessor serializationProcessor = new DiskSerializationProcessor(
+                initStateCfg.getExchangeId(),
+                "./dumps",
+                initStateCfg.getSnapshotId());
 
         this.exchangeCore = ExchangeCore.builder()
                 .resultsConsumer((cmd, seq) -> consumer.accept(cmd))
                 .serializationProcessor(serializationProcessor)
-                .journalingHandler(journalingHandler)
                 .ringBufferSize(bufferSize)
                 .matchingEnginesNum(matchingEnginesNum)
                 .riskEnginesNum(riskEnginesNum)

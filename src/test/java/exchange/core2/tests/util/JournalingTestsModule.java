@@ -71,7 +71,7 @@ public class JournalingTestsModule {
 
             final String exchangeId = String.format("%012X", System.currentTimeMillis());
 
-            try (final ExchangeTestContainer container = containerFactory.apply(InitialStateConfiguration.cleanStart(exchangeId))) {
+            try (final ExchangeTestContainer container = containerFactory.apply(InitialStateConfiguration.cleanStartJournalling(exchangeId))) {
 
                 final ExchangeApi api = container.getApi();
 

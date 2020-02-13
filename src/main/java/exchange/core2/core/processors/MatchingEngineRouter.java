@@ -25,7 +25,7 @@ import exchange.core2.core.common.api.reports.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
-import exchange.core2.core.common.config.InitSnapshotConfiguration;
+import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.processors.journaling.ISerializationProcessor;
 import exchange.core2.core.utils.CoreArithmeticUtils;
@@ -69,7 +69,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
                                 final ISerializationProcessor serializationProcessor,
                                 final BiFunction<CoreSymbolSpecification, ObjectsPool, IOrderBook> orderBookFactory,
                                 final SharedPool sharedPool,
-                                final InitSnapshotConfiguration initSnapshotConfiguration) {
+                                final InitialStateConfiguration initialStateConfiguration) {
 
         if (Long.bitCount(numShards) != 1) {
             throw new IllegalArgumentException("Invalid number of shards " + numShards + " - must be power of 2");
@@ -88,14 +88,9 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         objectsPoolConfig.put(ObjectsPool.ART_NODE_48, 1024 * 8);
         objectsPoolConfig.put(ObjectsPool.ART_NODE_256, 1024 * 4);
         this.objectsPool = new ObjectsPool(objectsPoolConfig, sharedPool);
-
-        if (initSnapshotConfiguration.noSnapshot()) {
-            this.binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, sharedPool, shardId + 1024);
-            this.orderBooks = new IntObjectHashMap<>();
-
-        } else {
+        if (initialStateConfiguration.fromSnapshot()) {
             final Pair<BinaryCommandsProcessor, IntObjectHashMap<IOrderBook>> deserialized = serializationProcessor.loadData(
-                    initSnapshotConfiguration.getSnapshotId(),
+                    initialStateConfiguration.getSnapshotId(),
                     ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER,
                     shardId,
                     bytesIn -> {
@@ -112,7 +107,12 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
 
             this.binaryCommandsProcessor = deserialized.getLeft();
             this.orderBooks = deserialized.getRight();
+
+        } else {
+            this.binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, sharedPool, shardId + 1024);
+            this.orderBooks = new IntObjectHashMap<>();
         }
+
     }
 
     public void processOrder(long seq, OrderCommand cmd) {

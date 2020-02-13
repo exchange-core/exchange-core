@@ -29,7 +29,6 @@ import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.processors.*;
-import exchange.core2.core.processors.journaling.IJournalingProcessor;
 import exchange.core2.core.processors.journaling.ISerializationProcessor;
 import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
@@ -60,7 +59,6 @@ public final class ExchangeCore {
 
     @Builder
     public ExchangeCore(final ObjLongConsumer<OrderCommand> resultsConsumer,
-                        final IJournalingProcessor journalingHandler,
                         final ISerializationProcessor serializationProcessor,
                         final int ringBufferSize,
                         final int matchingEnginesNum,
@@ -108,7 +106,7 @@ public final class ExchangeCore {
                 .collect(Collectors.toMap(
                         shardId -> shardId,
                         shardId -> CompletableFuture.supplyAsync(
-                                () -> new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, orderBookFactory, sharedPool, initialStateConfiguration.getSnapshotConf()),
+                                () -> new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, orderBookFactory, sharedPool, initialStateConfiguration),
                                 loaderExecutor)));
 
 
@@ -118,7 +116,7 @@ public final class ExchangeCore {
                 .collect(Collectors.toMap(
                         shardId -> shardId,
                         shardId -> CompletableFuture.supplyAsync(
-                                () -> new RiskEngine(shardId, riskEnginesNum, serializationProcessor, sharedPool, initialStateConfiguration.getSnapshotConf()),
+                                () -> new RiskEngine(shardId, riskEnginesNum, serializationProcessor, sharedPool, initialStateConfiguration),
                                 loaderExecutor)));
 
         final EventHandler<OrderCommand>[] matchingEngineHandlers = matchingEngineFutures.values().stream()
@@ -153,8 +151,10 @@ public final class ExchangeCore {
 
         // 2. [journaling (J)] in parallel with risk hold (R1) + matching engine (ME)
 
-        final EventHandler<OrderCommand> jh =  journalingHandler != null ? journalingHandler::onEvent : null;
-        if (jh != null) {
+        boolean enableJournaling = initialStateConfiguration.isEnableJournaling();
+        final EventHandler<OrderCommand> jh = enableJournaling ? serializationProcessor::writeToJournal : null;
+
+        if (enableJournaling) {
             afterGrouping.handleEventsWith(jh);
         }
 
@@ -178,7 +178,7 @@ public final class ExchangeCore {
                 }));
 
         // 4. results handler (E) after matching engine (ME) + [journaling (J)]
-        (jh != null ? disruptor.after(ArrayUtils.add(matchingEngineHandlers, jh)) : afterMatchingEngine)
+        (enableJournaling ? disruptor.after(ArrayUtils.add(matchingEngineHandlers, jh)) : afterMatchingEngine)
                 .handleEventsWith((cmd, seq, eob) -> {
                     resultsConsumer.accept(cmd, seq);
                     api.processResult(seq, cmd); // TODO SLOW ?(volatile operations)
