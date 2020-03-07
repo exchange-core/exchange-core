@@ -137,7 +137,7 @@ public class PersistenceTestsModule {
 
             log.debug("Creating new exchange from persisted state...");
             final long tLoad = System.currentTimeMillis();
-            try (final ExchangeTestContainer recreatedContainer = containerFactory.apply(InitialStateConfiguration.fromSnapshotOnly(exchangeId, stateId))) {
+            try (final ExchangeTestContainer recreatedContainer = containerFactory.apply(InitialStateConfiguration.fromSnapshotOnly(exchangeId, stateId, 0))) {
 
                 // simple sync query in order to wait until core is started to respond
                 recreatedContainer.validateUserState(0, IGNORING_CONSUMER, IGNORING_CONSUMER);

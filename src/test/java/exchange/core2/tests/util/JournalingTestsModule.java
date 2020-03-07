@@ -66,12 +66,12 @@ public class JournalingTestsModule {
 
             final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(genConfig);
 
-            final long originalPrefillStateHash;
+            final long originalFinalStateHash;
             final float originalPerfMt;
 
             final String exchangeId = String.format("%012X", System.currentTimeMillis());
 
-            try (final ExchangeTestContainer container = containerFactory.apply(InitialStateConfiguration.cleanStartJournalling(exchangeId))) {
+            try (final ExchangeTestContainer container = containerFactory.apply(InitialStateConfiguration.cleanStartJournaling(exchangeId))) {
 
                 final ExchangeApi api = container.getApi();
 
@@ -107,14 +107,26 @@ public class JournalingTestsModule {
                 final long tc = System.currentTimeMillis();
                 stateId = tc * 1000 + iteration;
                 container.submitMultiCommandSync(ApiPersistState.builder().dumpId(stateId).build());
-                final float persistTimeSec = (float) (System.currentTimeMillis() - tc) / 1000.0f;
-                log.debug("Persisting time: {}s", String.format("%.3f", persistTimeSec));
 
-                originalPrefillStateHash = container.requestStateHash();
 
                 log.info("Benchmarking original state...");
+                // TODO benchmark latency ?
+//                List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
+//                final CountDownLatch latchBenchmark = new CountDownLatch(apiCommandsBenchmark.size());
+//                container.setConsumer(cmd -> latchBenchmark.countDown());
+//
+//                originalPerfMt = container.executeTestingThread(() -> {
+//                    final long tStart = System.currentTimeMillis();
+//                    apiCommandsBenchmark.forEach(api::submitCommand);
+//                    latchBenchmark.await();
+//                    final long tDuration = System.currentTimeMillis() - tStart;
+//                    return apiCommandsBenchmark.size() / (float) tDuration / 1000.0f;
+//                });
+
                 List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
-                final CountDownLatch latchBenchmark = new CountDownLatch(apiCommandsBenchmark.size());
+                int size = apiCommandsBenchmark.size();
+//                int size = 200;
+                final CountDownLatch latchBenchmark = new CountDownLatch(size);
                 container.setConsumer(cmd -> latchBenchmark.countDown());
 
                 originalPerfMt = container.executeTestingThread(() -> {
@@ -122,53 +134,60 @@ public class JournalingTestsModule {
                     apiCommandsBenchmark.forEach(api::submitCommand);
                     latchBenchmark.await();
                     final long tDuration = System.currentTimeMillis() - tStart;
-                    return apiCommandsBenchmark.size() / (float) tDuration / 1000.0f;
+                    return size / (float) tDuration / 1000.0f;
                 });
 
                 assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
+                originalFinalStateHash = container.requestStateHash();
 
-                log.info("{}. original throughput: {} MT/s", iteration, String.format("%.3f", originalPerfMt));
+                //  log.info("{}. original throughput: {} MT/s", iteration, String.format("%.3f", originalPerfMt));
+
+                // TODO save hash?
             }
-
 
             System.gc();
             Thread.sleep(200);
 
+
+            // TODO Discover snapshots and journals with DiskSerializationProcessor
+            final long snapshotBaseSeq = 0L;
+
             log.debug("Creating new exchange from persisted state...");
             final long tLoad = System.currentTimeMillis();
-            try (final ExchangeTestContainer recreatedContainer = containerFactory.apply(InitialStateConfiguration.fromSnapshotOnly(exchangeId, stateId))) {
+            try (final ExchangeTestContainer recreatedContainer = containerFactory.apply(
+                    InitialStateConfiguration.lastKnownStateFromJournal(exchangeId, stateId, snapshotBaseSeq))) {
 
                 // simple sync query in order to wait until core is started to respond
                 recreatedContainer.validateUserState(0, IGNORING_CONSUMER, IGNORING_CONSUMER);
 
                 float loadTimeSec = (float) (System.currentTimeMillis() - tLoad) / 1000.0f;
-                log.debug("Load+start time: {}s", String.format("%.3f", loadTimeSec));
+                log.debug("Load+start+replay time: {}s", String.format("%.3f", loadTimeSec));
 
-                final long restoredPrefillStateHash = recreatedContainer.requestStateHash();
-                assertThat(restoredPrefillStateHash, is(originalPrefillStateHash));
+                final long restoredStateHash = recreatedContainer.requestStateHash();
+                assertThat(restoredStateHash, is(originalFinalStateHash));
 
                 assertTrue(recreatedContainer.totalBalanceReport().isGlobalBalancesAllZero());
-                log.info("Restored snapshot is valid, benchmarking original state...");
+                log.info("Restored snapshot+journal is valid");
 
-                final ExchangeApi api = recreatedContainer.getApi();
-                List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
-                final CountDownLatch latchBenchmark = new CountDownLatch(apiCommandsBenchmark.size());
-                recreatedContainer.setConsumer(cmd -> latchBenchmark.countDown());
+//                final ExchangeApi api = recreatedContainer.getApi();
+//                List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
+//                final CountDownLatch latchBenchmark = new CountDownLatch(apiCommandsBenchmark.size());
+//                recreatedContainer.setConsumer(cmd -> latchBenchmark.countDown());
+//
+//                final float perfMt = recreatedContainer.executeTestingThread(() -> {
+//
+//                    final long tStart = System.currentTimeMillis();
+//                    apiCommandsBenchmark.forEach(api::submitCommand);
+//                    latchBenchmark.await();
+//                    final long tDuration = System.currentTimeMillis() - tStart;
+//
+//                    assertTrue(recreatedContainer.totalBalanceReport().isGlobalBalancesAllZero());
+//
+//                    return apiCommandsBenchmark.size() / (float) tDuration / 1000.0f;
+//                });
 
-                final float perfMt = recreatedContainer.executeTestingThread(() -> {
-
-                    final long tStart = System.currentTimeMillis();
-                    apiCommandsBenchmark.forEach(api::submitCommand);
-                    latchBenchmark.await();
-                    final long tDuration = System.currentTimeMillis() - tStart;
-
-                    assertTrue(recreatedContainer.totalBalanceReport().isGlobalBalancesAllZero());
-
-                    return apiCommandsBenchmark.size() / (float) tDuration / 1000.0f;
-                });
-
-                final float perfRatioPerc = perfMt / originalPerfMt * 100f;
-                log.info("{}. restored throughput: {} MT/s ({}%)", iteration, String.format("%.3f", perfMt), String.format("%.1f", perfRatioPerc));
+//                final float perfRatioPerc = perfMt / originalPerfMt * 100f;
+//                log.info("{}. restored throughput: {} MT/s ({}%)", iteration, String.format("%.3f", perfMt), String.format("%.1f", perfRatioPerc));
             }
 
             System.gc();

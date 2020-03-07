@@ -18,6 +18,7 @@ package exchange.core2.core.processors;
 import com.lmax.disruptor.*;
 import exchange.core2.core.common.CoreWaitStrategy;
 import exchange.core2.core.common.MatcherTradeEvent;
+import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import lombok.extern.slf4j.Slf4j;
@@ -114,6 +115,8 @@ public final class GroupingProcessor implements EventProcessor {
         MatcherTradeEvent tradeEventTail = null;
         int tradeEventCounter = 0; // counter
 
+        boolean groupingEnabled = true;
+
         while (true) {
             try {
 
@@ -123,24 +126,40 @@ public final class GroupingProcessor implements EventProcessor {
                 if (nextSequence <= availableSequence) {
                     while (nextSequence <= availableSequence) {
 
-                        OrderCommand cmd = ringBuffer.get(nextSequence);
+                        final OrderCommand cmd = ringBuffer.get(nextSequence);
+
                         nextSequence++;
+
+                        if (cmd.command == OrderCommandType.GROUPING_CONTROL) {
+                            groupingEnabled = cmd.orderId == 1;
+                            cmd.resultCode = CommandResultCode.SUCCESS;
+                        }
+
+                        if (!groupingEnabled) {
+                            // TODO pooling
+                            cmd.matcherEvent = null;
+                            cmd.marketData = null;
+                            continue;
+                        }
 
                         // some commands should trigger R2 stage to avoid unprocessed state in events
                         if (cmd.command == OrderCommandType.RESET
                                 || cmd.command == OrderCommandType.PERSIST_STATE_MATCHING
                                 || cmd.command == OrderCommandType.BINARY_DATA_COMMAND
-                                || cmd.command == OrderCommandType.BINARY_DATA_QUERY) {
+                                || cmd.command == OrderCommandType.BINARY_DATA_QUERY
+                                || cmd.command == OrderCommandType.GROUPING_CONTROL) {
                             groupCounter++;
                             msgsInGroup = 0;
                         }
 
                         cmd.eventsGroup = groupCounter;
 
-                        cmd.serviceFlags = 0;
+
                         if (triggerL2DataRequest) {
                             triggerL2DataRequest = false;
                             cmd.serviceFlags = 1;
+                        } else {
+                            cmd.serviceFlags = 0;
                         }
 
                         // cleaning attached events

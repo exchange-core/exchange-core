@@ -243,7 +243,13 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 return true;// true = publish sequence before finishing processing whole batch
 
             case PERSIST_STATE_RISK:
-                final boolean isSuccess = serializationProcessor.storeData(cmd.orderId, seq, ISerializationProcessor.SerializedModuleType.RISK_ENGINE, shardId, this);
+                final boolean isSuccess = serializationProcessor.storeData(
+                        cmd.orderId,
+                        seq,
+                        cmd.timestamp,
+                        ISerializationProcessor.SerializedModuleType.RISK_ENGINE,
+                        shardId,
+                        this);
                 UnsafeUtils.setResultVolatile(cmd, isSuccess, CommandResultCode.SUCCESS, CommandResultCode.STATE_PERSIST_RISK_ENGINE_FAILED);
                 return false;
         }

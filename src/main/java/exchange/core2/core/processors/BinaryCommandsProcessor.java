@@ -93,7 +93,8 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
 
             final BytesIn bytesIn = SerializationUtils.longsToWire(record.dataArray).bytes();
 
-            completeMessagesHandler.apply(deserializeObject(bytesIn)).ifPresent(res -> {
+            final Object deserializedMessage = deserializeObject(bytesIn);
+            completeMessagesHandler.apply(deserializedMessage).ifPresent(res -> {
                 final NativeBytes<Void> bytes = Bytes.allocateElasticDirect(128);
                 res.writeMarshallable(bytes);
                 final MatcherTradeEvent binaryEventsChain = eventsHelper.createBinaryEventsChain(cmd.timestamp, section, bytes);

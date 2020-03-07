@@ -18,6 +18,7 @@ package exchange.core2.core.common.api.reports;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 
@@ -26,6 +27,7 @@ import java.util.stream.Stream;
 
 @AllArgsConstructor
 @Getter
+@Slf4j
 public class StateHashReportResult implements ReportResult {
 
     // state hash
@@ -43,12 +45,15 @@ public class StateHashReportResult implements ReportResult {
 
     public static StateHashReportResult merge(final Stream<BytesIn> pieces) {
 
-        return new StateHashReportResult(
-                Arrays.hashCode(pieces
-                        .map(StateHashReportResult::new)
-                        .mapToInt(StateHashReportResult::getStateHash)
-                        .sorted() // make deterministic
-                        .toArray()));
+        final int[] pieceHashes = pieces
+                .map(StateHashReportResult::new)
+                .mapToInt(StateHashReportResult::getStateHash)
+                .sorted() // make deterministic
+                .toArray();
+
+        final int stateHash = Arrays.hashCode(pieceHashes);
+//        log.info("merged stateHash={} ",stateHash);
+        return new StateHashReportResult(stateHash);
     }
 
 }

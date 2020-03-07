@@ -18,6 +18,8 @@ package exchange.core2.core.common.cmd;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
+import java.util.HashMap;
+
 @Getter
 @AllArgsConstructor
 public enum OrderCommandType {
@@ -38,11 +40,30 @@ public enum OrderCommandType {
     PERSIST_STATE_MATCHING((byte) 110, true),
     PERSIST_STATE_RISK((byte) 111, true),
 
+    GROUPING_CONTROL((byte) 118, false),
+    NOP((byte) 120, false),
     RESET((byte) 124, true),
     SHUTDOWN_SIGNAL((byte) 127, false);
 
     private byte code;
     private boolean mutate;
+
+    public static OrderCommandType fromCode(byte code) {
+        // TODO try if-else
+        final OrderCommandType result = codes.get(code);
+        if (result == null) {
+            throw new IllegalArgumentException("Unknown order command type code:" + code);
+        }
+        return result;
+    }
+
+    private static HashMap<Byte, OrderCommandType> codes = new HashMap<>();
+
+    static {
+        for (OrderCommandType x : values()) {
+            codes.put(x.code, x);
+        }
+    }
 
 
 }

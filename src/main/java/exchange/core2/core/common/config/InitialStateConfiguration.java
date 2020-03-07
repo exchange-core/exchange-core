@@ -17,7 +17,9 @@ public final class InitialStateConfiguration {
 
     private final long snapshotId;
 
-    private final long timestampNs; // exclusive timestamp,
+    private final long snapshotBaseSeq;
+
+    private final long journalTimestampNs; // exclusive timestamp (for reports),
     // Long.MAX_VALUE to read full available journal (or until reading error)
     // 0 to ignore the journal
 
@@ -36,22 +38,45 @@ public final class InitialStateConfiguration {
                 .build();
     }
 
-    public static InitialStateConfiguration cleanStartJournalling(String exchangeId) {
+    public static InitialStateConfiguration cleanStartJournaling(String exchangeId) {
 
         return InitialStateConfiguration.builder()
                 .exchangeId(exchangeId)
                 .enableJournaling(true)
                 .snapshotId(0)
+                .snapshotBaseSeq(0)
                 .build();
     }
 
 
-    public static InitialStateConfiguration fromSnapshotOnly(String exchangeId, long snapshotId) {
+    public static InitialStateConfiguration fromSnapshotOnly(String exchangeId, long snapshotId, long baseSeq) {
 
         return InitialStateConfiguration.builder()
                 .exchangeId(exchangeId)
                 .enableJournaling(false)
                 .snapshotId(snapshotId)
+                .snapshotBaseSeq(baseSeq)
+                .build();
+    }
+
+
+    /**
+     * Load exchange from last known state including journal
+     * Journal ON
+     *
+     * @param exchangeId
+     * @param snapshotId
+     * @param baseSeq
+     * @return
+     */
+    public static InitialStateConfiguration lastKnownStateFromJournal(String exchangeId, long snapshotId, long baseSeq) {
+
+        return InitialStateConfiguration.builder()
+                .exchangeId(exchangeId)
+                .enableJournaling(true)
+                .snapshotId(snapshotId)
+                .snapshotBaseSeq(baseSeq)
+                .journalTimestampNs(Long.MAX_VALUE)
                 .build();
     }
 }

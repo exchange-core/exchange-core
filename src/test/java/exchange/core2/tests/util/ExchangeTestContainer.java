@@ -84,6 +84,8 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
     // TODO builder
 
+    // TODO ProcessingPipelineConfiguration (bufferSize, matchingEnginesNum, riskEnginesNum, msgsInGroupLimit)
+
     public ExchangeTestContainer(final int bufferSize,
                                  final int matchingEnginesNum,
                                  final int riskEnginesNum,
@@ -97,7 +99,10 @@ public final class ExchangeTestContainer implements AutoCloseable {
         final DiskSerializationProcessor serializationProcessor = new DiskSerializationProcessor(
                 initStateCfg.getExchangeId(),
                 "./dumps",
-                initStateCfg.getSnapshotId());
+                initStateCfg.getSnapshotBaseSeq(),
+                initStateCfg.getSnapshotId(),
+                matchingEnginesNum,
+                riskEnginesNum);
 
         this.exchangeCore = ExchangeCore.builder()
                 .resultsConsumer((cmd, seq) -> consumer.accept(cmd))
@@ -118,7 +123,13 @@ public final class ExchangeTestContainer implements AutoCloseable {
         this.exchangeCore.startup();
 
         //log.debug("STARTED exchange container");
-        api = this.exchangeCore.getApi();
+        this.api = this.exchangeCore.getApi();
+
+        long enableJournalingAfterSeq = serializationProcessor.replayJournalFull(initStateCfg, api);
+
+        serializationProcessor.enableJournaling(enableJournalingAfterSeq, api);
+        // replay journal
+
     }
 
 //    public ExchangeTestContainer(final ExchangeCore exchangeCore) {
@@ -333,7 +344,8 @@ public final class ExchangeTestContainer implements AutoCloseable {
             if (cmd.command != OrderCommandType.BINARY_DATA_COMMAND
                     && cmd.command != OrderCommandType.BINARY_DATA_QUERY
                     && cmd.command != OrderCommandType.PERSIST_STATE_RISK
-                    && cmd.command != OrderCommandType.PERSIST_STATE_MATCHING) {
+                    && cmd.command != OrderCommandType.PERSIST_STATE_MATCHING
+                    && cmd.command != OrderCommandType.GROUPING_CONTROL) {
                 throw new IllegalStateException("Unexpected command");
             }
             if (cmd.resultCode == CommandResultCode.SUCCESS) {

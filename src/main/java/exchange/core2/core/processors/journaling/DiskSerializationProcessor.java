@@ -15,9 +15,13 @@
  */
 package exchange.core2.core.processors.journaling;
 
+import exchange.core2.core.ExchangeApi;
+import exchange.core2.core.common.BalanceAdjustmentType;
+import exchange.core2.core.common.OrderAction;
+import exchange.core2.core.common.OrderType;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
-import lombok.RequiredArgsConstructor;
+import exchange.core2.core.common.config.InitialStateConfiguration;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -32,14 +36,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+import java.util.NavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
 
 @Slf4j
-@RequiredArgsConstructor
 public final class DiskSerializationProcessor implements ISerializationProcessor {
 
 
@@ -54,8 +57,16 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
     private final String exchangeId; // TODO validate
     private final Path folder;
 
+    private final long baseSeq;
+
+    private SnapshotDescriptor lastSnapshotDescriptor;
+    private JournalDescriptor lastJournalDescriptor;
+
+    private ConcurrentSkipListMap<Long, SnapshotDescriptor> snapshotsIndex;
 
     private long baseSnapshotId;
+
+    private long enableJournalAfterSeq = -1;
 
     private RandomAccessFile raf;
     private ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
@@ -63,24 +74,36 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
     private long writtenBytes = 0;
 
-    private final String today = LocalDateTime.now().format(DateTimeFormatter.ofPattern(DATE_FORMAT));
+    /**
+     * total number of modules (for each module type)
+     *
+     * @param exchangeId
+     * @param folder
+     * @param baseSnapshotId
+     */
+    public DiskSerializationProcessor(String exchangeId,
+                                      String folder,
+                                      long baseSeq,
+                                      long baseSnapshotId,
+                                      int numMatchingEngines,
+                                      int numRiskEngines) {
 
-
-    public DiskSerializationProcessor(final String exchangeId, final Path folder, final long baseSnapshotId) {
-        this.exchangeId = exchangeId;
-        this.folder = folder;
-        this.baseSnapshotId = baseSnapshotId;
-    }
-
-    public DiskSerializationProcessor(final String exchangeId, final String folder, final long baseSnapshotId) {
         this.exchangeId = exchangeId;
         this.folder = Paths.get(folder);
         this.baseSnapshotId = baseSnapshotId;
+        this.baseSeq = baseSeq;
+
+        this.lastJournalDescriptor = null; // no journal
+        this.lastSnapshotDescriptor = SnapshotDescriptor.createEmpty(numMatchingEngines, numRiskEngines);
     }
 
-
     @Override
-    public boolean storeData(long snapshotId, long seq, SerializedModuleType type, int instanceId, WriteBytesMarshallable obj) {
+    public boolean storeData(long snapshotId,
+                             long seq,
+                             long timestampNs,
+                             SerializedModuleType type,
+                             int instanceId,
+                             WriteBytesMarshallable obj) {
 
         final Path path = resolveSnapshotPath(snapshotId, type, instanceId);
 
@@ -106,7 +129,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
         synchronized (this) {
             try (final OutputStream os = Files.newOutputStream(resolveMainLogPath(), StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
-                os.write((System.currentTimeMillis() + " seq=" + seq + " snapshotId=" + snapshotId + " type=" + type.code + " instance=" + instanceId + "\n").getBytes());
+                os.write((System.currentTimeMillis() + " seq=" + seq + " timestampNs=" + timestampNs + " snapshotId=" + snapshotId + " type=" + type.code + " instance=" + instanceId + "\n").getBytes());
             } catch (final IOException ex) {
                 log.error("Can not write main log file: ", ex);
                 return false;
@@ -114,11 +137,13 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
         }
 
         return true;
-
     }
 
     @Override
-    public <T> T loadData(long snapshotId, SerializedModuleType type, int instanceId, Function<BytesIn, T> initFunc) {
+    public <T> T loadData(long snapshotId,
+                          SerializedModuleType type,
+                          int instanceId,
+                          Function<BytesIn, T> initFunc) {
 
         final Path path = resolveSnapshotPath(snapshotId, type, instanceId);
 
@@ -179,8 +204,20 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
     // TODO asynchronously create new file and then switch reference
 
+    // single threaded
     @Override
-    public void writeToJournal(OrderCommand cmd, long seq, boolean eob) throws IOException {
+    public void writeToJournal(OrderCommand cmd, long dSeq, boolean eob) throws IOException {
+
+        // TODO improve checks logic
+        // skip
+        if (enableJournalAfterSeq == -1 || dSeq + baseSeq <= enableJournalAfterSeq) {
+            return;
+        }
+        if (dSeq + baseSeq == enableJournalAfterSeq + 1) {
+            log.info("Enabled journaling at seq = {} ({}+{})", enableJournalAfterSeq + 1, baseSeq, dSeq);
+        }
+
+        boolean debug = false;
 
 //        log.debug("Writing {}", cmd);
 
@@ -191,48 +228,62 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
         final OrderCommandType cmdType = cmd.command;
 
         if (!cmdType.isMutate()) {
-            // skip commands
+            // skip queries
             return;
         }
 
         if (raf == null) {
-            startNewFile();
+            startNewFile(false, cmd.timestamp);
         }
 
-
-        // 9 bytes mandatory fields
+        // mandatory fields
+        buffer.putLong(baseSeq + dSeq); // 8 bytes - can be compressed as delta
         buffer.putLong(cmd.timestamp); // 8 bytes - can be compressed as delta
+        buffer.putInt(cmd.serviceFlags); // 4 bytes - can be compressed as dictionary
+        buffer.putLong(cmd.eventsGroup); // 8 bytes - can be compressed as delta
         buffer.put(cmdType.getCode()); // 1 byte
+
+        if (debug)
+            log.debug("LOG {} eventsGroup={} serviceFlags={}", String.format("seq=%d t=%d cmd=%X (%s) ", baseSeq + dSeq, cmd.timestamp, cmdType.getCode(), cmdType), cmd.eventsGroup, cmd.serviceFlags);
 
         if (cmdType == OrderCommandType.MOVE_ORDER) {
 
             buffer.putLong(cmd.uid); // 8 bytes can be compressed as dictionary
-            buffer.putLong(cmd.symbol); // 4 bytes can be compressed as dictionary
+            buffer.putInt(cmd.symbol); // 4 bytes can be compressed as dictionary
             buffer.putLong(cmd.orderId); // 8 bytes - can be compressed as delta
             buffer.putLong(cmd.price); // 8 bytes - can be compressed as delta
+
+            if (debug) log.debug("move order seq={} t={} orderId={} symbol={} uid={} price={}", baseSeq + dSeq, cmd.timestamp, cmd.orderId, cmd.symbol, cmd.uid, cmd.price);
 
         } else if (cmdType == OrderCommandType.CANCEL_ORDER) {
 
             buffer.putLong(cmd.uid); // 8 bytes can be compressed as dictionary
-            buffer.putLong(cmd.symbol); // 4 bytes can be compressed as dictionary
+            buffer.putInt(cmd.symbol); // 4 bytes can be compressed as dictionary
             buffer.putLong(cmd.orderId); // 8 bytes - can be compressed as delta
+
+            if (debug) log.debug("cancel order seq={} t={} orderId={} symbol={} uid={}", baseSeq + dSeq, cmd.timestamp, cmd.orderId, cmd.symbol, cmd.uid);
 
         } else if (cmdType == OrderCommandType.PLACE_ORDER) {
 
             buffer.putLong(cmd.uid); // 8 bytes can be compressed as dictionary
-            buffer.putLong(cmd.symbol); // 4 bytes can be compressed as dictionary
+            buffer.putInt(cmd.symbol); // 4 bytes can be compressed as dictionary
             buffer.putLong(cmd.orderId); // 8 bytes - can be compressed as delta
             buffer.putLong(cmd.price); // 8 bytes - can be compressed as delta
             buffer.putLong(cmd.reserveBidPrice); // 8 bytes - can be compressed (diff to price or 0)
             buffer.putLong(cmd.size); // 8 bytes - can be compressed
+            buffer.putInt(cmd.userCookie); // 4 bytes can be log-compressed
 
-            final int actionAndType = (cmd.action.getCode() << 2) & cmd.orderType.getCode();
-            buffer.put((byte) actionAndType); // 1 byte
+            final int actionAndType = (cmd.action.getCode() << 2) | cmd.orderType.getCode();
+            byte actionAndType1 = (byte) actionAndType;
+            buffer.put(actionAndType1); // 1 byte
+
+            if (debug) log.debug("place order seq={} t={} orderId={} symbol={} uid={} price={} reserveBidPrice={} size={} userCookie={} {}/{} actionAndType={}",
+                    baseSeq + dSeq, cmd.timestamp, cmd.orderId, cmd.symbol, cmd.uid, cmd.price, cmd.reserveBidPrice, cmd.size, cmd.userCookie, cmd.action, cmd.orderType, actionAndType1);
 
         } else if (cmdType == OrderCommandType.BALANCE_ADJUSTMENT) {
 
             buffer.putLong(cmd.uid); // 8 bytes can be compressed as dictionary
-            buffer.putLong(cmd.symbol); // 4 bytes can be compressed as dictionary (currency)
+            buffer.putInt(cmd.symbol); // 4 bytes can be compressed as dictionary (currency)
             buffer.putLong(cmd.orderId); // 8 bytes can be compressed as delta (transaction)
             buffer.putLong(cmd.price); // 8 bytes - can be compressed as low value (amount)
             buffer.put(cmd.orderType.getCode()); // 1 byte (adjustment or suspend)
@@ -245,97 +296,270 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
         } else if (cmdType == OrderCommandType.BINARY_DATA_COMMAND) {
 
-            buffer.putLong((byte) cmd.symbol); // 1 byte (0 or -1)
+//            if (debug) log.debug("LOG BINARY_DATA_COMMAND {}", String.format("seq=%d f=%d word0=%X word1=%X word2=%X word3=%X word4=%X",
+//                    dSeq + baseSeq, (byte) cmd.symbol, cmd.orderId, cmd.price, cmd.reserveBidPrice, cmd.size, cmd.uid));
+
+            buffer.put((byte) cmd.symbol); // 1 byte (0 or -1)
             buffer.putLong(cmd.orderId); // 8 bytes word0
             buffer.putLong(cmd.price); // 8 bytes word1
             buffer.putLong(cmd.reserveBidPrice); // 8 bytes word2
             buffer.putLong(cmd.size); // 8 bytes word3
             buffer.putLong(cmd.uid); // 8 bytes word4
 
-        } else if (cmdType == OrderCommandType.PERSIST_STATE_MATCHING ||
-                cmdType == OrderCommandType.PERSIST_STATE_RISK) {
-            buffer.putLong(cmd.orderId); // 8 bytes
+//        } else if (cmdType == OrderCommandType.PERSIST_STATE_MATCHING ||
+//                cmdType == OrderCommandType.PERSIST_STATE_RISK) {
+//            buffer.putLong(cmd.orderId); // 8 bytes
         }
 
         if (cmdType == OrderCommandType.PERSIST_STATE_RISK) {
+
+            // register snapshot change
+            registerNextSnapshot(cmd.orderId, baseSeq + dSeq, cmd.timestamp);
+
             // start new file
             baseSnapshotId = cmd.orderId;
-            flushBufferSync(true);
+
+            flushBufferSync(true, cmd.timestamp);
 
         } else if (eob || buffer.position() >= BUFFER_FLUSH_TRIGGER) {
             // flushing on end of batch or when buffer is full
-            // log.debug("Flushing {} bytes", buffer.position());
-            flushBufferSync(false);
+
+            flushBufferSync(false, cmd.timestamp);
         }
 
     }
 
-    private void flushBufferSync(final boolean forceNewFile) throws IOException {
+    @Override
+    public void enableJournaling(long afterSeq, ExchangeApi api) {
+        enableJournalAfterSeq = afterSeq;
+        api.groupingControl(0, 1);
+    }
+
+    public static String byteArrayToHex(byte[] a) {
+        StringBuilder sb = new StringBuilder(a.length * 2);
+        for (byte b : a)
+            sb.append(String.format("%02x ", b));
+        return sb.toString();
+    }
+
+    @Override
+    public NavigableMap<Long, SnapshotDescriptor> findAllSnapshotPoints() {
+        return snapshotsIndex;
+    }
+
+    @Override
+    public void replayJournalStep(long snapshotId, long seqFrom, long seqTo, ExchangeApi exchangeApi) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public long replayJournalFull(InitialStateConfiguration initialCfg, ExchangeApi api) {
+        if (initialCfg.getJournalTimestampNs() == 0) {
+            log.debug("No need to replay journal, returning baseSeq={}", baseSeq);
+
+            return baseSeq;
+        }
+        log.debug("Replaying journal...");
+
+//        log.info("Read total: {} bytes ", totalBytesRead);
+
+        api.groupingControl(0, 0);
+
+        // todo add counter
+
+
+        long lastSeq = 0;
+
+        final Path path = resolveJournalPath(1, initialCfg.getSnapshotId());
+        try (JournalReader jr = new JournalReader(path)) {
+
+
+            while (true) {
+
+                boolean debug = false;
+
+                final long seq = jr.readLong();
+                if (seq != lastSeq + 1) {
+                    log.warn("Sequence gap {}->{} ({})", lastSeq, seq, seq - lastSeq);
+                }
+                lastSeq = seq;
+
+                final long timestampNs = jr.readLong();
+
+                final int serviceFlags = jr.readInt();
+                final long eventsGroup = jr.readLong();
+
+
+                final byte cmd = jr.readByte();
+
+                OrderCommandType cmdType = OrderCommandType.fromCode(cmd);
+//                log.debug("command seq={} {}", lastSeq, cmdType);
+
+                if (debug) log.debug("eventsGroup={} serviceFlags={}", eventsGroup, serviceFlags);
+
+                if (cmdType == OrderCommandType.MOVE_ORDER) {
+
+                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                    final int symbol = jr.readInt();// 4 bytes can be compressed as dictionary
+                    final long orderId = jr.readLong(); // 8 bytes - can be compressed as delta
+                    final long price = jr.readLong(); // 8 bytes - can be compressed as delta
+
+                    if (debug) log.debug("move order seq={} t={} orderId={} symbol={} uid={} price={}", lastSeq, timestampNs, orderId, symbol, uid, price);
+
+                    api.moveOrder(serviceFlags, eventsGroup, timestampNs, price, orderId, symbol, uid);
+
+                } else if (cmdType == OrderCommandType.CANCEL_ORDER) {
+
+                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                    final int symbol = jr.readInt();// 4 bytes can be compressed as dictionary
+                    final long orderId = jr.readLong(); // 8 bytes - can be compressed as delta
+
+                    if (debug) log.debug("cancel order seq={} t={} orderId={} symbol={} uid={}", lastSeq, timestampNs, orderId, symbol, uid);
+
+                    api.cancelOrder(serviceFlags, eventsGroup, timestampNs, orderId, symbol, uid);
+
+                } else if (cmdType == OrderCommandType.PLACE_ORDER) {
+
+                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                    final int symbol = jr.readInt();// 4 bytes can be compressed as dictionary
+                    final long orderId = jr.readLong(); // 8 bytes - can be compressed as delta
+                    final long price = jr.readLong(); // 8 bytes - can be compressed as delta
+                    final long reservedBidPrice = jr.readLong(); // 8 bytes - can be compressed (diff to price or 0)
+                    final long size = jr.readLong(); // 8 bytes - can be compressed
+                    final int userCookie = jr.readInt(); // 4 bytes can be compressed as a optional low value
+
+                    final byte actionAndType = jr.readByte(); // 1 byte
+                    final OrderAction orderAction = OrderAction.of((byte) ((actionAndType >> 2) & 0b11));
+                    final OrderType orderType = OrderType.of((byte) (actionAndType & 0b11));
+
+                    if (debug)
+                        log.debug("place order seq={} t={} orderId={} symbol={} uid={} price={} reserveBidPrice={} size={} userCookie={} {}/{} actionAndType={}", lastSeq, timestampNs, orderId, symbol, uid, price, reservedBidPrice, size, userCookie, orderAction, orderType, actionAndType);
+
+                    api.placeNewOrder(serviceFlags, eventsGroup, timestampNs, orderId, userCookie, price, reservedBidPrice, size, orderAction, orderType, symbol, uid);
+
+                } else if (cmdType == OrderCommandType.BALANCE_ADJUSTMENT) {
+
+                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                    final int currency = jr.readInt();// 4 bytes can be compressed as dictionary (currency)
+                    final long transactionId = jr.readLong(); // 8 bytes can be compressed as delta (transaction)
+                    final long amount = jr.readLong(); // 8 bytes - can be compressed as low value (amount)
+                    final BalanceAdjustmentType adjustmentType = BalanceAdjustmentType.of(jr.readByte()); // 1 byte (adjustment or suspend)
+
+                    if (debug) log.debug("balanceAdjustment seq={}  {} uid:{} curre:{}", lastSeq, timestampNs, uid, currency);
+
+                    api.balanceAdjustment(serviceFlags, eventsGroup, timestampNs, uid, transactionId, currency, amount, adjustmentType);
+
+                } else if (cmdType == OrderCommandType.ADD_USER) {
+
+                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+
+                    if (debug) log.debug("add user  seq={}  {} uid:{} ", lastSeq, timestampNs, uid);
+
+                    api.createUser(serviceFlags, eventsGroup, timestampNs, uid);
+
+                } else if (cmdType == OrderCommandType.SUSPEND_USER) {
+
+                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+
+                    if (debug) log.debug("suspend user seq={}  {} uid:{} ", lastSeq, timestampNs, uid);
+
+                    api.suspendUser(serviceFlags, eventsGroup, timestampNs, uid);
+
+                } else if (cmdType == OrderCommandType.RESUME_USER) {
+
+                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+
+                    if (debug) log.debug("resume user seq={}  {} uid:{} ", lastSeq, timestampNs, uid);
+
+                    api.resumeUser(serviceFlags, eventsGroup, timestampNs, uid);
+
+                } else if (cmdType == OrderCommandType.BINARY_DATA_COMMAND) {
+
+                    final byte lastFlag = jr.readByte(); // 1 byte (0 or -1)
+                    final long word0 = jr.readLong(); // 8 bytes word0
+                    final long word1 = jr.readLong(); // 8 bytes word1
+                    final long word2 = jr.readLong(); // 8 bytes word2
+                    final long word3 = jr.readLong(); // 8 bytes word3
+                    final long word4 = jr.readLong(); // 8 bytes word4
+
+                    if (debug)
+                        log.debug("binary data seq={} t:{} {}", lastSeq, timestampNs, String.format("f=%d word0=%X word1=%X word2=%X word3=%X word4=%X", lastFlag, word0, word1, word2, word3, word4));
+
+                    api.binaryData(serviceFlags, eventsGroup, timestampNs, lastFlag, word0, word1, word2, word3, word4);
+
+                } else {
+                    throw new IllegalStateException("unexpected command");
+                }
+
+            }
+
+        } catch (IOException ex) {
+
+            log.debug("File end reached??");
+        }
+
+        log.debug("return lastSeq={}", lastSeq);
+        return lastSeq;
+
+    }
+
+    private void flushBufferSync(final boolean switchBaseSnapshot, final long timestampNs) throws IOException {
+
+//        log.debug("Flushing {} bytes {}", buffer.position(), byteArrayToHex(ArrayUtils.subarray(buffer.array(), 0, buffer.position())));
+
         raf.write(buffer.array(), 0, buffer.position());
         writtenBytes += buffer.position();
-        buffer.clear();
+        //buffer.reset();
+        buffer = ByteBuffer.allocate(BUFFER_SIZE);
 
-        if (forceNewFile || writtenBytes >= FILE_SIZE_TRIGGER) {
+        if (switchBaseSnapshot || writtenBytes >= FILE_SIZE_TRIGGER) {
             // todo start preparing new file asynchronously, but ONLY ONCE
-            startNewFile();
+            startNewFile(true, timestampNs);
             writtenBytes = 0;
         }
     }
 
-    //@PostConstruct
-    private void startNewFile() throws IOException {
-        filesCounter++;
+    private void startNewFile(final boolean switchBaseSnapshot, final long timestampNs) throws IOException {
+        filesCounter = switchBaseSnapshot ? 1 : filesCounter + 1;
         if (raf != null) {
             raf.close();
         }
-        raf = new RandomAccessFile(resolveJournalPath(filesCounter).toString(), "rwd");
-    }
-//
-//    public void replayJournal(long lastTimestamp){
-//
-//        try {
-//            File file = new File(filename);
-//            session.folder = file.getParentFile();
-//            log.info("Reading descriptor: {} Folder: {}", session.fileName, session.folder);
-//
-//            try (FileInputStream fileInputStream = new FileInputStream(file)) {
-//
-//                session.descriptorFileInputStream = fileInputStream;
-//                session.descriptorInputStream = new BufferedInputStream(fileInputStream);
-//
-//                while (session.descriptorInputStream.available() > 0) {
-//                    SystemDataRecordType recordType = readSystemDataRecordType(session);
-//
-//                    if (session.debug > 0) log.debug("........ Parsing {} .......", recordType);
-//
-//                    if (recordType.equals(SystemDataRecordType.STATUS)) {
-//                        readStatus(session);
-//                    } else if (recordType.equals(SystemDataRecordType.ADD_SYMBOL)) {
-////                        readAddSymbol(session, executorService);
-//                    } else if (recordType.equals(SystemDataRecordType.VERSION_INFO)) {
-////                        readVersionInfo(session);
-//                    } else {
-//                        throw new DataReadException("Unsupported record type:" + recordType);
-//                    }
-//                }
-//
-//            } catch (DataReadException e) {
-//                e.addMoreDeatails(null);
-//                throw e;
-//            }
-//
-//            // TODO index .fdr files - can load using fork-join-pool to avoid waiting for biggest file to finish
-//            // wait for all threads and merge events
-//            for (Future<List<MarketEnvelope>> symbolFeature : session.symbolFeatures) {
-//                // TODO fix incorrect order
-//                session.list.addAll(symbolFeature.get());
-//            }
-//        } catch (InterruptedException e) {
-//
-//
-//    }
-//
+        final Path fileName = resolveJournalPath(filesCounter, baseSnapshotId);
+        log.debug("Starting new journal file: {}", fileName);
 
+        if (Files.exists(fileName)) {
+            throw new IllegalStateException("File already exists: " + fileName);
+        }
+
+        raf = new RandomAccessFile(fileName.toString(), "rwd");
+        registerNextJournal(baseSnapshotId, timestampNs); // TODO fix time
+    }
+
+    /**
+     * call only from journal thread
+     *
+     * @param seq
+     * @param timestampNs
+     */
+    private void registerNextJournal(long seq, long timestampNs) {
+
+        lastJournalDescriptor = new JournalDescriptor(timestampNs, seq, lastSnapshotDescriptor, lastJournalDescriptor);
+    }
+
+
+    /**
+     * call only from journal thread
+     *
+     * @param snapshotId
+     * @param seq
+     * @param timestampNs
+     */
+    private void registerNextSnapshot(long snapshotId,
+                                      long seq,
+                                      long timestampNs) {
+
+        lastSnapshotDescriptor = lastSnapshotDescriptor.createNext(snapshotId, seq, timestampNs);
+    }
 
     private Path resolveSnapshotPath(long snapshotId, SerializedModuleType type, int instanceId) {
 
@@ -346,7 +570,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
         return folder.resolve(String.format("%s.eca", exchangeId));
     }
 
-    private Path resolveJournalPath(int partitionId) {
-        return folder.resolve(String.format("%s_journal_%d_%d_%s_%04d.ecj", exchangeId, baseSnapshotId, partitionId, today, filesCounter));
+    private Path resolveJournalPath(int partitionId, long snapshotId) {
+        return folder.resolve(String.format("%s_journal_%d_%d.ecj", exchangeId, snapshotId, partitionId));
     }
 }

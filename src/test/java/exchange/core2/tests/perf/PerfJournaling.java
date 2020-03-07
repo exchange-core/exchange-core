@@ -28,7 +28,7 @@ public final class PerfJournaling {
     @Test
     public void testJournalingMargin() throws Exception {
         JournalingTestsModule.journalingTestImpl(
-                initStateCfg -> new ExchangeTestContainer(64 * 1024, 1, 1, 512, initStateCfg),
+                initStateCfg -> new ExchangeTestContainer(32 * 1024, 1, 1, 512, initStateCfg),
                 3_000_000,
                 1000,
                 2000,
@@ -38,6 +38,18 @@ public final class PerfJournaling {
                 ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT);
     }
 
+    @Test
+    public void testJournalingMultiSymbolSmall() throws Exception {
+        JournalingTestsModule.journalingTestImpl(
+                initStateCfg -> new ExchangeTestContainer(32 * 1024, 2, 2, 1024, initStateCfg),
+                3_000_000,
+                50_000,
+                100_000,
+                25,
+                TestConstants.ALL_CURRENCIES,
+                1_000,
+                ExchangeTestContainer.AllowedSymbolTypes.BOTH);
+    }
 
     @Test
     public void testJournalingMultiSymbolLarge() throws Exception {
