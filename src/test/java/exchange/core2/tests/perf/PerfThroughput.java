@@ -118,10 +118,14 @@ public final class PerfThroughput {
     }
 
 
+    /*
+     * -------------- Disk Journaling tests -----------------
+     */
+
     @Test
     public void testThroughputPeakJournaling() throws Exception {
         ThroughputTestsModule.throughputTestImpl(
-                () -> new ExchangeTestContainer(64 * 1024, 4, 2, 2048, InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId())),
+                () -> new ExchangeTestContainer(128 * 1024, 4, 2, 2048, InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId())),
                 3_000_000,
                 10_000,
                 10_000,

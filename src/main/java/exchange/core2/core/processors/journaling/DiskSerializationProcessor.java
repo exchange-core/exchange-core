@@ -32,6 +32,7 @@ import net.openhft.chronicle.wire.WireType;
 
 import java.io.*;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -49,8 +50,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
     private static final long ONE_MEGABYTE = 1024 * 1024;
     private static final long FILE_SIZE_TRIGGER = 4 * 1024 * ONE_MEGABYTE; // split files by size
 
-    private static final int BUFFER_SIZE = 32 * 1024;
-    private static final int BUFFER_FLUSH_TRIGGER = BUFFER_SIZE - 256;
+    private static final int BUFFER_SIZE = 256 * 1024;
+    private static final int BUFFER_FLUSH_TRIGGER = BUFFER_SIZE - 256; // less than max command size in bytes
 
 
     private final String exchangeId; // TODO validate
@@ -68,7 +69,9 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
     private long enableJournalAfterSeq = -1;
 
     private RandomAccessFile raf;
-    private ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
+    private FileChannel channel;
+
+    private ByteBuffer buffer = ByteBuffer.allocateDirect(BUFFER_SIZE);
     private int filesCounter = 0;
 
     private long writtenBytes = 0;
@@ -231,7 +234,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
             return;
         }
 
-        if (raf == null) {
+        if (channel == null) {
             startNewFile(cmd.timestamp);
         }
 
@@ -322,8 +325,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
             flushBufferSync(true, cmd.timestamp);
 
         } else if (eob || buffer.position() >= BUFFER_FLUSH_TRIGGER) {
-            // flushing on end of batch or when buffer is full
 
+            // flushing on end of batch or when buffer is full
             flushBufferSync(false, cmd.timestamp);
         }
 
@@ -513,12 +516,12 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
     private void flushBufferSync(final boolean switchBaseSnapshot, final long timestampNs) throws IOException {
 
-//        log.debug("Flushing {} bytes {}", buffer.position(), byteArrayToHex(ArrayUtils.subarray(buffer.array(), 0, buffer.position())));
+//        log.debug("Flushing buffer position={}", buffer.position());
 
-        raf.write(buffer.array(), 0, buffer.position());
         writtenBytes += buffer.position();
-        //buffer.reset();
-        buffer = ByteBuffer.allocate(BUFFER_SIZE);
+        buffer.flip();
+        channel.write(buffer);
+        buffer.clear();
 
         if (switchBaseSnapshot || writtenBytes >= FILE_SIZE_TRIGGER) {
             // todo start preparing new file asynchronously, but ONLY ONCE
@@ -529,7 +532,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
     private void startNewFile(final long timestampNs) throws IOException {
         filesCounter++;
-        if (raf != null) {
+        if (channel != null) {
+            channel.close();
             raf.close();
         }
         final Path fileName = resolveJournalPath(filesCounter, baseSnapshotId);
@@ -540,6 +544,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
         }
 
         raf = new RandomAccessFile(fileName.toString(), "rwd");
+        channel = raf.getChannel();
+
         registerNextJournal(baseSnapshotId, timestampNs); // TODO fix time
     }
 
