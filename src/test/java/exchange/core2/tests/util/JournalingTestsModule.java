@@ -69,7 +69,7 @@ public class JournalingTestsModule {
             final long originalFinalStateHash;
             final float originalPerfMt;
 
-            final String exchangeId = String.format("%012X", System.currentTimeMillis());
+            final String exchangeId = ExchangeTestContainer.timeBasedExchangeId();
 
             try (final ExchangeTestContainer container = containerFactory.apply(InitialStateConfiguration.cleanStartJournaling(exchangeId))) {
 
@@ -110,22 +110,8 @@ public class JournalingTestsModule {
 
 
                 log.info("Benchmarking original state...");
-                // TODO benchmark latency ?
-//                List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
-//                final CountDownLatch latchBenchmark = new CountDownLatch(apiCommandsBenchmark.size());
-//                container.setConsumer(cmd -> latchBenchmark.countDown());
-//
-//                originalPerfMt = container.executeTestingThread(() -> {
-//                    final long tStart = System.currentTimeMillis();
-//                    apiCommandsBenchmark.forEach(api::submitCommand);
-//                    latchBenchmark.await();
-//                    final long tDuration = System.currentTimeMillis() - tStart;
-//                    return apiCommandsBenchmark.size() / (float) tDuration / 1000.0f;
-//                });
-
-                List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
-                int size = apiCommandsBenchmark.size();
-//                int size = 200;
+                final List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
+                final int size = apiCommandsBenchmark.size();
                 final CountDownLatch latchBenchmark = new CountDownLatch(size);
                 container.setConsumer(cmd -> latchBenchmark.countDown());
 
@@ -140,7 +126,7 @@ public class JournalingTestsModule {
                 assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
                 originalFinalStateHash = container.requestStateHash();
 
-                //  log.info("{}. original throughput: {} MT/s", iteration, String.format("%.3f", originalPerfMt));
+                log.info("{}. original throughput: {} MT/s", iteration, String.format("%.3f", originalPerfMt));
 
                 // TODO save hash?
             }

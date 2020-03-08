@@ -116,4 +116,19 @@ public final class PerfThroughput {
                 200_000,
                 ExchangeTestContainer.AllowedSymbolTypes.BOTH);
     }
+
+
+    @Test
+    public void testThroughputPeakJournaling() throws Exception {
+        ThroughputTestsModule.throughputTestImpl(
+                () -> new ExchangeTestContainer(64 * 1024, 4, 2, 2048, InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId())),
+                3_000_000,
+                10_000,
+                10_000,
+                50,
+                TestConstants.ALL_CURRENCIES,
+                100,
+                ExchangeTestContainer.AllowedSymbolTypes.BOTH);
+    }
+
 }

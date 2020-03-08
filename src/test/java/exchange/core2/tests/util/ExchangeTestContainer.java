@@ -78,6 +78,10 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
     public static final Consumer<OrderCommand> CHECK_SUCCESS = cmd -> assertEquals(CommandResultCode.SUCCESS, cmd.resultCode);
 
+    public static String timeBasedExchangeId() {
+        return String.format("%012X", System.currentTimeMillis());
+    }
+
     public ExchangeTestContainer() {
         this(RING_BUFFER_SIZE_DEFAULT, MATCHING_ENGINES_ONE, RISK_ENGINES_ONE, MGS_IN_GROUP_LIMIT_DEFAULT, InitialStateConfiguration.TEST_CONFIG);
     }

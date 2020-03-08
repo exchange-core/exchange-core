@@ -636,4 +636,13 @@ public final class ExchangeApi {
 
     }
 
+    public void reset(long timestampNs) {
+
+        ringBuffer.publishEvent((cmd, seq) -> {
+            cmd.command = OrderCommandType.RESET;
+            cmd.resultCode = CommandResultCode.NEW;
+            cmd.timestamp = timestampNs;
+        });
+
+    }
 }

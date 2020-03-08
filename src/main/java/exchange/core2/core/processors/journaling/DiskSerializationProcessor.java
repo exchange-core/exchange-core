@@ -46,11 +46,10 @@ import java.util.function.Function;
 public final class DiskSerializationProcessor implements ISerializationProcessor {
 
 
-    private static final long MB = 1024 * 1024;
-    private static final long FILE_SIZE_TRIGGER = 4 * 1024 * MB; // split files by size
-    private static final String DATE_FORMAT = "yyyy-MM-dd_HHmmss";
+    private static final long ONE_MEGABYTE = 1024 * 1024;
+    private static final long FILE_SIZE_TRIGGER = 4 * 1024 * ONE_MEGABYTE; // split files by size
 
-    private static final int BUFFER_SIZE = 128 * 1024;
+    private static final int BUFFER_SIZE = 32 * 1024;
     private static final int BUFFER_FLUSH_TRIGGER = BUFFER_SIZE - 256;
 
 
@@ -233,7 +232,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
         }
 
         if (raf == null) {
-            startNewFile(false, cmd.timestamp);
+            startNewFile(cmd.timestamp);
         }
 
         // mandatory fields
@@ -318,6 +317,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
             // start new file
             baseSnapshotId = cmd.orderId;
+            filesCounter = 0;
 
             flushBufferSync(true, cmd.timestamp);
 
@@ -365,141 +365,149 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
         api.groupingControl(0, 0);
 
-        // todo add counter
-
-
         long lastSeq = 0;
 
-        final Path path = resolveJournalPath(1, initialCfg.getSnapshotId());
-        try (JournalReader jr = new JournalReader(path)) {
+        // TODO refactor reading, use EOF flag
+
+        int partitionCounter = 1;
+        while (true) {
+
+            final Path path = resolveJournalPath(partitionCounter, initialCfg.getSnapshotId());
+
+            try (JournalReader jr = new JournalReader(path)) {
+
+                while (true) {
+
+                    boolean debug = false;
+
+                    final long seq = jr.readLong();
+                    if (seq != lastSeq + 1) {
+                        log.warn("Sequence gap {}->{} ({})", lastSeq, seq, seq - lastSeq);
+                    }
+                    lastSeq = seq;
+
+                    final long timestampNs = jr.readLong();
+
+                    final int serviceFlags = jr.readInt();
+                    final long eventsGroup = jr.readLong();
 
 
-            while (true) {
+                    final byte cmd = jr.readByte();
 
-                boolean debug = false;
-
-                final long seq = jr.readLong();
-                if (seq != lastSeq + 1) {
-                    log.warn("Sequence gap {}->{} ({})", lastSeq, seq, seq - lastSeq);
-                }
-                lastSeq = seq;
-
-                final long timestampNs = jr.readLong();
-
-                final int serviceFlags = jr.readInt();
-                final long eventsGroup = jr.readLong();
-
-
-                final byte cmd = jr.readByte();
-
-                OrderCommandType cmdType = OrderCommandType.fromCode(cmd);
+                    OrderCommandType cmdType = OrderCommandType.fromCode(cmd);
 //                log.debug("command seq={} {}", lastSeq, cmdType);
 
-                if (debug) log.debug("eventsGroup={} serviceFlags={}", eventsGroup, serviceFlags);
+                    if (debug) log.debug("eventsGroup={} serviceFlags={}", eventsGroup, serviceFlags);
 
-                if (cmdType == OrderCommandType.MOVE_ORDER) {
+                    if (cmdType == OrderCommandType.MOVE_ORDER) {
 
-                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
-                    final int symbol = jr.readInt();// 4 bytes can be compressed as dictionary
-                    final long orderId = jr.readLong(); // 8 bytes - can be compressed as delta
-                    final long price = jr.readLong(); // 8 bytes - can be compressed as delta
+                        final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                        final int symbol = jr.readInt();// 4 bytes can be compressed as dictionary
+                        final long orderId = jr.readLong(); // 8 bytes - can be compressed as delta
+                        final long price = jr.readLong(); // 8 bytes - can be compressed as delta
 
-                    if (debug) log.debug("move order seq={} t={} orderId={} symbol={} uid={} price={}", lastSeq, timestampNs, orderId, symbol, uid, price);
+                        if (debug) log.debug("move order seq={} t={} orderId={} symbol={} uid={} price={}", lastSeq, timestampNs, orderId, symbol, uid, price);
 
-                    api.moveOrder(serviceFlags, eventsGroup, timestampNs, price, orderId, symbol, uid);
+                        api.moveOrder(serviceFlags, eventsGroup, timestampNs, price, orderId, symbol, uid);
 
-                } else if (cmdType == OrderCommandType.CANCEL_ORDER) {
+                    } else if (cmdType == OrderCommandType.CANCEL_ORDER) {
 
-                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
-                    final int symbol = jr.readInt();// 4 bytes can be compressed as dictionary
-                    final long orderId = jr.readLong(); // 8 bytes - can be compressed as delta
+                        final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                        final int symbol = jr.readInt();// 4 bytes can be compressed as dictionary
+                        final long orderId = jr.readLong(); // 8 bytes - can be compressed as delta
 
-                    if (debug) log.debug("cancel order seq={} t={} orderId={} symbol={} uid={}", lastSeq, timestampNs, orderId, symbol, uid);
+                        if (debug) log.debug("cancel order seq={} t={} orderId={} symbol={} uid={}", lastSeq, timestampNs, orderId, symbol, uid);
 
-                    api.cancelOrder(serviceFlags, eventsGroup, timestampNs, orderId, symbol, uid);
+                        api.cancelOrder(serviceFlags, eventsGroup, timestampNs, orderId, symbol, uid);
 
-                } else if (cmdType == OrderCommandType.PLACE_ORDER) {
+                    } else if (cmdType == OrderCommandType.PLACE_ORDER) {
 
-                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
-                    final int symbol = jr.readInt();// 4 bytes can be compressed as dictionary
-                    final long orderId = jr.readLong(); // 8 bytes - can be compressed as delta
-                    final long price = jr.readLong(); // 8 bytes - can be compressed as delta
-                    final long reservedBidPrice = jr.readLong(); // 8 bytes - can be compressed (diff to price or 0)
-                    final long size = jr.readLong(); // 8 bytes - can be compressed
-                    final int userCookie = jr.readInt(); // 4 bytes can be compressed as a optional low value
+                        final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                        final int symbol = jr.readInt();// 4 bytes can be compressed as dictionary
+                        final long orderId = jr.readLong(); // 8 bytes - can be compressed as delta
+                        final long price = jr.readLong(); // 8 bytes - can be compressed as delta
+                        final long reservedBidPrice = jr.readLong(); // 8 bytes - can be compressed (diff to price or 0)
+                        final long size = jr.readLong(); // 8 bytes - can be compressed
+                        final int userCookie = jr.readInt(); // 4 bytes can be compressed as a optional low value
 
-                    final byte actionAndType = jr.readByte(); // 1 byte
-                    final OrderAction orderAction = OrderAction.of((byte) ((actionAndType >> 2) & 0b11));
-                    final OrderType orderType = OrderType.of((byte) (actionAndType & 0b11));
+                        final byte actionAndType = jr.readByte(); // 1 byte
+                        final OrderAction orderAction = OrderAction.of((byte) ((actionAndType >> 2) & 0b11));
+                        final OrderType orderType = OrderType.of((byte) (actionAndType & 0b11));
 
-                    if (debug)
-                        log.debug("place order seq={} t={} orderId={} symbol={} uid={} price={} reserveBidPrice={} size={} userCookie={} {}/{} actionAndType={}", lastSeq, timestampNs, orderId, symbol, uid, price, reservedBidPrice, size, userCookie, orderAction, orderType, actionAndType);
+                        if (debug)
+                            log.debug("place order seq={} t={} orderId={} symbol={} uid={} price={} reserveBidPrice={} size={} userCookie={} {}/{} actionAndType={}", lastSeq, timestampNs, orderId, symbol, uid, price, reservedBidPrice, size, userCookie, orderAction, orderType, actionAndType);
 
-                    api.placeNewOrder(serviceFlags, eventsGroup, timestampNs, orderId, userCookie, price, reservedBidPrice, size, orderAction, orderType, symbol, uid);
+                        api.placeNewOrder(serviceFlags, eventsGroup, timestampNs, orderId, userCookie, price, reservedBidPrice, size, orderAction, orderType, symbol, uid);
 
-                } else if (cmdType == OrderCommandType.BALANCE_ADJUSTMENT) {
+                    } else if (cmdType == OrderCommandType.BALANCE_ADJUSTMENT) {
 
-                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
-                    final int currency = jr.readInt();// 4 bytes can be compressed as dictionary (currency)
-                    final long transactionId = jr.readLong(); // 8 bytes can be compressed as delta (transaction)
-                    final long amount = jr.readLong(); // 8 bytes - can be compressed as low value (amount)
-                    final BalanceAdjustmentType adjustmentType = BalanceAdjustmentType.of(jr.readByte()); // 1 byte (adjustment or suspend)
+                        final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                        final int currency = jr.readInt();// 4 bytes can be compressed as dictionary (currency)
+                        final long transactionId = jr.readLong(); // 8 bytes can be compressed as delta (transaction)
+                        final long amount = jr.readLong(); // 8 bytes - can be compressed as low value (amount)
+                        final BalanceAdjustmentType adjustmentType = BalanceAdjustmentType.of(jr.readByte()); // 1 byte (adjustment or suspend)
 
-                    if (debug) log.debug("balanceAdjustment seq={}  {} uid:{} curre:{}", lastSeq, timestampNs, uid, currency);
+                        if (debug) log.debug("balanceAdjustment seq={}  {} uid:{} curre:{}", lastSeq, timestampNs, uid, currency);
 
-                    api.balanceAdjustment(serviceFlags, eventsGroup, timestampNs, uid, transactionId, currency, amount, adjustmentType);
+                        api.balanceAdjustment(serviceFlags, eventsGroup, timestampNs, uid, transactionId, currency, amount, adjustmentType);
 
-                } else if (cmdType == OrderCommandType.ADD_USER) {
+                    } else if (cmdType == OrderCommandType.ADD_USER) {
 
-                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                        final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
 
-                    if (debug) log.debug("add user  seq={}  {} uid:{} ", lastSeq, timestampNs, uid);
+                        if (debug) log.debug("add user  seq={}  {} uid:{} ", lastSeq, timestampNs, uid);
 
-                    api.createUser(serviceFlags, eventsGroup, timestampNs, uid);
+                        api.createUser(serviceFlags, eventsGroup, timestampNs, uid);
 
-                } else if (cmdType == OrderCommandType.SUSPEND_USER) {
+                    } else if (cmdType == OrderCommandType.SUSPEND_USER) {
 
-                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                        final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
 
-                    if (debug) log.debug("suspend user seq={}  {} uid:{} ", lastSeq, timestampNs, uid);
+                        if (debug) log.debug("suspend user seq={}  {} uid:{} ", lastSeq, timestampNs, uid);
 
-                    api.suspendUser(serviceFlags, eventsGroup, timestampNs, uid);
+                        api.suspendUser(serviceFlags, eventsGroup, timestampNs, uid);
 
-                } else if (cmdType == OrderCommandType.RESUME_USER) {
+                    } else if (cmdType == OrderCommandType.RESUME_USER) {
 
-                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                        final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
 
-                    if (debug) log.debug("resume user seq={}  {} uid:{} ", lastSeq, timestampNs, uid);
+                        if (debug) log.debug("resume user seq={}  {} uid:{} ", lastSeq, timestampNs, uid);
 
-                    api.resumeUser(serviceFlags, eventsGroup, timestampNs, uid);
+                        api.resumeUser(serviceFlags, eventsGroup, timestampNs, uid);
 
-                } else if (cmdType == OrderCommandType.BINARY_DATA_COMMAND) {
+                    } else if (cmdType == OrderCommandType.BINARY_DATA_COMMAND) {
 
-                    final byte lastFlag = jr.readByte(); // 1 byte (0 or -1)
-                    final long word0 = jr.readLong(); // 8 bytes word0
-                    final long word1 = jr.readLong(); // 8 bytes word1
-                    final long word2 = jr.readLong(); // 8 bytes word2
-                    final long word3 = jr.readLong(); // 8 bytes word3
-                    final long word4 = jr.readLong(); // 8 bytes word4
+                        final byte lastFlag = jr.readByte(); // 1 byte (0 or -1)
+                        final long word0 = jr.readLong(); // 8 bytes word0
+                        final long word1 = jr.readLong(); // 8 bytes word1
+                        final long word2 = jr.readLong(); // 8 bytes word2
+                        final long word3 = jr.readLong(); // 8 bytes word3
+                        final long word4 = jr.readLong(); // 8 bytes word4
 
-                    if (debug)
-                        log.debug("binary data seq={} t:{} {}", lastSeq, timestampNs, String.format("f=%d word0=%X word1=%X word2=%X word3=%X word4=%X", lastFlag, word0, word1, word2, word3, word4));
+                        if (debug)
+                            log.debug("binary data seq={} t:{} {}", lastSeq, timestampNs, String.format("f=%d word0=%X word1=%X word2=%X word3=%X word4=%X", lastFlag, word0, word1, word2, word3, word4));
 
-                    api.binaryData(serviceFlags, eventsGroup, timestampNs, lastFlag, word0, word1, word2, word3, word4);
+                        api.binaryData(serviceFlags, eventsGroup, timestampNs, lastFlag, word0, word1, word2, word3, word4);
 
-                } else {
-                    throw new IllegalStateException("unexpected command");
+                    } else if (cmdType == OrderCommandType.RESET) {
+
+                        api.reset(timestampNs);
+
+                    } else {
+                        throw new IllegalStateException("unexpected command");
+                    }
+
                 }
+            } catch (FileNotFoundException ex) {
+                log.debug("return lastSeq={}, file not found: {}", lastSeq, ex.getMessage());
+                return lastSeq;
 
+            } catch (IOException ex) {
+                partitionCounter++;
+                log.debug("File end reached??");
             }
 
-        } catch (IOException ex) {
-
-            log.debug("File end reached??");
         }
-
-        log.debug("return lastSeq={}", lastSeq);
-        return lastSeq;
 
     }
 
@@ -514,13 +522,13 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
         if (switchBaseSnapshot || writtenBytes >= FILE_SIZE_TRIGGER) {
             // todo start preparing new file asynchronously, but ONLY ONCE
-            startNewFile(true, timestampNs);
+            startNewFile(timestampNs);
             writtenBytes = 0;
         }
     }
 
-    private void startNewFile(final boolean switchBaseSnapshot, final long timestampNs) throws IOException {
-        filesCounter = switchBaseSnapshot ? 1 : filesCounter + 1;
+    private void startNewFile(final long timestampNs) throws IOException {
+        filesCounter++;
         if (raf != null) {
             raf.close();
         }
@@ -571,6 +579,6 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
     }
 
     private Path resolveJournalPath(int partitionId, long snapshotId) {
-        return folder.resolve(String.format("%s_journal_%d_%d.ecj", exchangeId, snapshotId, partitionId));
+        return folder.resolve(String.format("%s_journal_%d_%04X.ecj", exchangeId, snapshotId, partitionId));
     }
 }
