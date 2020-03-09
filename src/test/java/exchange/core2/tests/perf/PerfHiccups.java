@@ -16,6 +16,7 @@
 package exchange.core2.tests.perf;
 
 import exchange.core2.core.ExchangeApi;
+import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.TestConstants;
 import exchange.core2.tests.util.TestOrdersGenerator;
@@ -50,7 +51,7 @@ public final class PerfHiccups {
 
         final int targetTps = 500_000; // transactions per second
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer(16 * 1024, 1, 1, 512, null);
+        try (final ExchangeTestContainer container = new ExchangeTestContainer(16 * 1024, 1, 1, 512, InitialStateConfiguration.TEST_CONFIG);
              final AffinityLock cpuLock = AffinityLock.acquireLock()) {
 
             final TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(

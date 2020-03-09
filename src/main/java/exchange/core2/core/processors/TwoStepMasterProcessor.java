@@ -126,7 +126,7 @@ public final class TwoStepMasterProcessor implements EventProcessor {
                             currentSequenceGroup = cmd.eventsGroup;
                         }
 
-                        boolean forcedPublish = eventHandler.onEvent(cmd);
+                        boolean forcedPublish = eventHandler.onEvent(nextSequence, cmd);
                         nextSequence++;
 
                         if (forcedPublish) {

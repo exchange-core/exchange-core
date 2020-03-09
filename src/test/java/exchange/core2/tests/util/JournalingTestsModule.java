@@ -37,18 +37,17 @@ import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 
 @Slf4j
-public class PersistenceTestsModule {
+public class JournalingTestsModule {
 
-    // TODO current persistence test does not cover positions serialization
 
-    public static void persistenceTestImpl(final Function<InitialStateConfiguration, ExchangeTestContainer> containerFactory,
-                                           final int totalTransactionsNumber,
-                                           final int targetOrderBookOrdersTotal,
-                                           final int numAccounts,
-                                           final int iterations,
-                                           final Set<Integer> currenciesAllowed,
-                                           final int numSymbols,
-                                           final ExchangeTestContainer.AllowedSymbolTypes allowedSymbolTypes) throws InterruptedException, ExecutionException {
+    public static void journalingTestImpl(final Function<InitialStateConfiguration, ExchangeTestContainer> containerFactory,
+                                          final int totalTransactionsNumber,
+                                          final int targetOrderBookOrdersTotal,
+                                          final int numAccounts,
+                                          final int iterations,
+                                          final Set<Integer> currenciesAllowed,
+                                          final int numSymbols,
+                                          final ExchangeTestContainer.AllowedSymbolTypes allowedSymbolTypes) throws InterruptedException, ExecutionException {
 
         for (int iteration = 0; iteration < iterations; iteration++) {
 
@@ -67,12 +66,12 @@ public class PersistenceTestsModule {
 
             final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(genConfig);
 
-            final String exchangeId = String.format("%012X", System.currentTimeMillis());
-
-            final long originalPrefillStateHash;
+            final long originalFinalStateHash;
             final float originalPerfMt;
 
-            try (final ExchangeTestContainer container = containerFactory.apply(InitialStateConfiguration.cleanStart(exchangeId))) {
+            final String exchangeId = ExchangeTestContainer.timeBasedExchangeId();
+
+            try (final ExchangeTestContainer container = containerFactory.apply(InitialStateConfiguration.cleanStartJournaling(exchangeId))) {
 
                 final ExchangeApi api = container.getApi();
 
@@ -108,14 +107,12 @@ public class PersistenceTestsModule {
                 final long tc = System.currentTimeMillis();
                 stateId = tc * 1000 + iteration;
                 container.submitMultiCommandSync(ApiPersistState.builder().dumpId(stateId).build());
-                final float persistTimeSec = (float) (System.currentTimeMillis() - tc) / 1000.0f;
-                log.debug("Persisting time: {}s", String.format("%.3f", persistTimeSec));
 
-                originalPrefillStateHash = container.requestStateHash();
 
                 log.info("Benchmarking original state...");
-                List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
-                final CountDownLatch latchBenchmark = new CountDownLatch(apiCommandsBenchmark.size());
+                final List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
+                final int size = apiCommandsBenchmark.size();
+                final CountDownLatch latchBenchmark = new CountDownLatch(size);
                 container.setConsumer(cmd -> latchBenchmark.countDown());
 
                 originalPerfMt = container.executeTestingThread(() -> {
@@ -123,53 +120,60 @@ public class PersistenceTestsModule {
                     apiCommandsBenchmark.forEach(api::submitCommand);
                     latchBenchmark.await();
                     final long tDuration = System.currentTimeMillis() - tStart;
-                    return apiCommandsBenchmark.size() / (float) tDuration / 1000.0f;
+                    return size / (float) tDuration / 1000.0f;
                 });
 
                 assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
+                originalFinalStateHash = container.requestStateHash();
 
                 log.info("{}. original throughput: {} MT/s", iteration, String.format("%.3f", originalPerfMt));
-            }
 
+                // TODO save hash?
+            }
 
             System.gc();
             Thread.sleep(200);
 
+
+            // TODO Discover snapshots and journals with DiskSerializationProcessor
+            final long snapshotBaseSeq = 0L;
+
             log.debug("Creating new exchange from persisted state...");
             final long tLoad = System.currentTimeMillis();
-            try (final ExchangeTestContainer recreatedContainer = containerFactory.apply(InitialStateConfiguration.fromSnapshotOnly(exchangeId, stateId, 0))) {
+            try (final ExchangeTestContainer recreatedContainer = containerFactory.apply(
+                    InitialStateConfiguration.lastKnownStateFromJournal(exchangeId, stateId, snapshotBaseSeq))) {
 
                 // simple sync query in order to wait until core is started to respond
                 recreatedContainer.validateUserState(0, IGNORING_CONSUMER, IGNORING_CONSUMER);
 
                 float loadTimeSec = (float) (System.currentTimeMillis() - tLoad) / 1000.0f;
-                log.debug("Load+start time: {}s", String.format("%.3f", loadTimeSec));
+                log.debug("Load+start+replay time: {}s", String.format("%.3f", loadTimeSec));
 
-                final long restoredPrefillStateHash = recreatedContainer.requestStateHash();
-                assertThat(restoredPrefillStateHash, is(originalPrefillStateHash));
+                final long restoredStateHash = recreatedContainer.requestStateHash();
+                assertThat(restoredStateHash, is(originalFinalStateHash));
 
                 assertTrue(recreatedContainer.totalBalanceReport().isGlobalBalancesAllZero());
-                log.info("Restored snapshot is valid, benchmarking original state...");
+                log.info("Restored snapshot+journal is valid");
 
-                final ExchangeApi api = recreatedContainer.getApi();
-                List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
-                final CountDownLatch latchBenchmark = new CountDownLatch(apiCommandsBenchmark.size());
-                recreatedContainer.setConsumer(cmd -> latchBenchmark.countDown());
+//                final ExchangeApi api = recreatedContainer.getApi();
+//                List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
+//                final CountDownLatch latchBenchmark = new CountDownLatch(apiCommandsBenchmark.size());
+//                recreatedContainer.setConsumer(cmd -> latchBenchmark.countDown());
+//
+//                final float perfMt = recreatedContainer.executeTestingThread(() -> {
+//
+//                    final long tStart = System.currentTimeMillis();
+//                    apiCommandsBenchmark.forEach(api::submitCommand);
+//                    latchBenchmark.await();
+//                    final long tDuration = System.currentTimeMillis() - tStart;
+//
+//                    assertTrue(recreatedContainer.totalBalanceReport().isGlobalBalancesAllZero());
+//
+//                    return apiCommandsBenchmark.size() / (float) tDuration / 1000.0f;
+//                });
 
-                final float perfMt = recreatedContainer.executeTestingThread(() -> {
-
-                    final long tStart = System.currentTimeMillis();
-                    apiCommandsBenchmark.forEach(api::submitCommand);
-                    latchBenchmark.await();
-                    final long tDuration = System.currentTimeMillis() - tStart;
-
-                    assertTrue(recreatedContainer.totalBalanceReport().isGlobalBalancesAllZero());
-
-                    return apiCommandsBenchmark.size() / (float) tDuration / 1000.0f;
-                });
-
-                final float perfRatioPerc = perfMt / originalPerfMt * 100f;
-                log.info("{}. restored throughput: {} MT/s ({}%)", iteration, String.format("%.3f", perfMt), String.format("%.1f", perfRatioPerc));
+//                final float perfRatioPerc = perfMt / originalPerfMt * 100f;
+//                log.info("{}. restored throughput: {} MT/s ({}%)", iteration, String.format("%.3f", perfMt), String.format("%.1f", perfRatioPerc));
             }
 
             System.gc();

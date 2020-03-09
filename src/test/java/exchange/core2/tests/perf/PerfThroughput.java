@@ -15,6 +15,7 @@
  */
 package exchange.core2.tests.perf;
 
+import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.TestConstants;
 import exchange.core2.tests.util.ThroughputTestsModule;
@@ -36,7 +37,7 @@ public final class PerfThroughput {
     @Test
     public void testThroughputMargin() throws Exception {
         ThroughputTestsModule.throughputTestImpl(
-                () -> new ExchangeTestContainer(2 * 1024, 1, 1, 1536, null),
+                () -> new ExchangeTestContainer(2 * 1024, 1, 1, 1536, InitialStateConfiguration.TEST_CONFIG),
                 3_000_000,
                 1000,
                 2000,
@@ -49,7 +50,7 @@ public final class PerfThroughput {
     @Test
     public void testThroughputExchange() throws Exception {
         ThroughputTestsModule.throughputTestImpl(
-                () -> new ExchangeTestContainer(2 * 1024, 1, 1, 1536, null),
+                () -> new ExchangeTestContainer(2 * 1024, 1, 1, 1536, InitialStateConfiguration.TEST_CONFIG),
                 3_000_000,
                 1000,
                 2000,
@@ -62,7 +63,7 @@ public final class PerfThroughput {
     @Test
     public void testThroughputPeak() throws Exception {
         ThroughputTestsModule.throughputTestImpl(
-                () -> new ExchangeTestContainer(64 * 1024, 4, 2, 2048, null),
+                () -> new ExchangeTestContainer(64 * 1024, 4, 2, 2048, InitialStateConfiguration.TEST_CONFIG),
                 3_000_000,
                 10_000,
                 10_000,
@@ -83,7 +84,7 @@ public final class PerfThroughput {
     @Test
     public void testThroughputMultiSymbolMedium() throws Exception {
         ThroughputTestsModule.throughputTestImpl(
-                () -> new ExchangeTestContainer(64 * 1024, 4, 4, 2048, null),
+                () -> new ExchangeTestContainer(64 * 1024, 4, 4, 2048, InitialStateConfiguration.TEST_CONFIG),
                 6_000_000,
                 1_000_000,
                 3_300_000,
@@ -106,7 +107,7 @@ public final class PerfThroughput {
     @Test
     public void testThroughputMultiSymbolLarge() throws Exception {
         ThroughputTestsModule.throughputTestImpl(
-                () -> new ExchangeTestContainer(64 * 1024, 4, 4, 2048, null),
+                () -> new ExchangeTestContainer(64 * 1024, 4, 4, 2048, InitialStateConfiguration.TEST_CONFIG),
                 40_000_000,
                 30_000_000,
                 33_000_000,
@@ -115,4 +116,23 @@ public final class PerfThroughput {
                 200_000,
                 ExchangeTestContainer.AllowedSymbolTypes.BOTH);
     }
+
+
+    /*
+     * -------------- Disk Journaling tests -----------------
+     */
+
+    @Test
+    public void testThroughputPeakJournaling() throws Exception {
+        ThroughputTestsModule.throughputTestImpl(
+                () -> new ExchangeTestContainer(128 * 1024, 4, 2, 2048, InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId())),
+                3_000_000,
+                10_000,
+                10_000,
+                50,
+                TestConstants.ALL_CURRENCIES,
+                100,
+                ExchangeTestContainer.AllowedSymbolTypes.BOTH);
+    }
+
 }

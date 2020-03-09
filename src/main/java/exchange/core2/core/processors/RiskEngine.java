@@ -21,7 +21,8 @@ import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
 import exchange.core2.core.common.api.reports.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
-import exchange.core2.core.processors.journalling.ISerializationProcessor;
+import exchange.core2.core.common.config.InitialStateConfiguration;
+import exchange.core2.core.processors.journaling.ISerializationProcessor;
 import exchange.core2.core.utils.CoreArithmeticUtils;
 import exchange.core2.core.utils.HashingUtils;
 import exchange.core2.core.utils.SerializationUtils;
@@ -67,7 +68,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                       final long numShards,
                       final ISerializationProcessor serializationProcessor,
                       final SharedPool sharedPool,
-                      final Long loadStateId) {
+                      final InitialStateConfiguration initialStateConfiguration) {
         if (Long.bitCount(numShards) != 1) {
             throw new IllegalArgumentException("Invalid number of shards " + numShards + " - must be power of 2");
         }
@@ -80,19 +81,11 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         objectsPoolConfig.put(ObjectsPool.SYMBOL_POSITION_RECORD, 1024 * 256);
         this.objectsPool = new ObjectsPool(objectsPoolConfig, sharedPool);
 
-        if (loadStateId == null) {
-            this.symbolSpecificationProvider = new SymbolSpecificationProvider();
-            this.userProfileService = new UserProfileService();
-            this.binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, sharedPool, shardId);
-            this.lastPriceCache = new IntObjectHashMap<>();
-            this.fees = new IntLongHashMap();
-            this.adjustments = new IntLongHashMap();
-            this.suspends = new IntLongHashMap();
+        if (initialStateConfiguration.fromSnapshot()) {
 
-        } else {
             // TODO refactor, change to creator (simpler init)
             final State state = serializationProcessor.loadData(
-                    loadStateId,
+                    initialStateConfiguration.getSnapshotId(),
                     ISerializationProcessor.SerializedModuleType.RISK_ENGINE,
                     shardId,
                     bytesIn -> {
@@ -127,6 +120,15 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             this.fees = state.fees;
             this.adjustments = state.adjustments;
             this.suspends = state.suspends;
+
+        } else {
+            this.symbolSpecificationProvider = new SymbolSpecificationProvider();
+            this.userProfileService = new UserProfileService();
+            this.binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, sharedPool, shardId);
+            this.lastPriceCache = new IntObjectHashMap<>();
+            this.fees = new IntLongHashMap();
+            this.adjustments = new IntLongHashMap();
+            this.suspends = new IntLongHashMap();
         }
     }
 
@@ -180,7 +182,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
      *
      * @param cmd - command
      */
-    public boolean preProcessCommand(final OrderCommand cmd) {
+    public boolean preProcessCommand(final long seq, final OrderCommand cmd) {
         switch (cmd.command) {
             case MOVE_ORDER:
             case CANCEL_ORDER:
@@ -219,7 +221,8 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 }
                 return false;
 
-            case BINARY_DATA:
+            case BINARY_DATA_COMMAND:
+            case BINARY_DATA_QUERY:
                 binaryCommandsProcessor.acceptBinaryFrame(cmd);
                 if (shardId == 0) {
                     cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
@@ -233,12 +236,6 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 }
                 return false;
 
-            case NOP:
-                if (shardId == 0) {
-                    cmd.resultCode = CommandResultCode.SUCCESS;
-                }
-                return false;
-
             case PERSIST_STATE_MATCHING:
                 if (shardId == 0) {
                     cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
@@ -246,7 +243,13 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 return true;// true = publish sequence before finishing processing whole batch
 
             case PERSIST_STATE_RISK:
-                final boolean isSuccess = serializationProcessor.storeData(cmd.orderId, ISerializationProcessor.SerializedModuleType.RISK_ENGINE, shardId, this);
+                final boolean isSuccess = serializationProcessor.storeData(
+                        cmd.orderId,
+                        seq,
+                        cmd.timestamp,
+                        ISerializationProcessor.SerializedModuleType.RISK_ENGINE,
+                        shardId,
+                        this);
                 UnsafeUtils.setResultVolatile(cmd, isSuccess, CommandResultCode.SUCCESS, CommandResultCode.STATE_PERSIST_RISK_ENGINE_FAILED);
                 return false;
         }
@@ -525,7 +528,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         return newRequiredMarginForSymbol <= userProfile.accounts.get(position.currency) + freeMargin;
     }
 
-    public boolean handlerRiskRelease(final OrderCommand cmd) {
+    public boolean handlerRiskRelease(final long seq, final OrderCommand cmd) {
 
         final int symbol = cmd.symbol;
 

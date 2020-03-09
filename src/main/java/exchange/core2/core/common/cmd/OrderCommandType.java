@@ -15,36 +15,55 @@
  */
 package exchange.core2.core.common.cmd;
 
+import lombok.AllArgsConstructor;
 import lombok.Getter;
 
+import java.util.HashMap;
+
 @Getter
+@AllArgsConstructor
 public enum OrderCommandType {
-    PLACE_ORDER(1),
-    CANCEL_ORDER(2),
-    MOVE_ORDER(3),
+    PLACE_ORDER((byte) 1, true),
+    CANCEL_ORDER((byte) 2, true),
+    MOVE_ORDER((byte) 3, true),
 
-    ORDER_BOOK_REQUEST(6),
+    ORDER_BOOK_REQUEST((byte) 6, false),
 
-    ADD_USER(10),
-    BALANCE_ADJUSTMENT(11),
-    SUSPEND_USER(12),
-    RESUME_USER(13),
+    ADD_USER((byte) 10, true),
+    BALANCE_ADJUSTMENT((byte) 11, true),
+    SUSPEND_USER((byte) 12, true),
+    RESUME_USER((byte) 13, true),
 
-    CLEARING_OPERATION(30),
+    BINARY_DATA_QUERY((byte) 90, false),
+    BINARY_DATA_COMMAND((byte) 91, true),
 
-    BINARY_DATA(90),
+    PERSIST_STATE_MATCHING((byte) 110, true),
+    PERSIST_STATE_RISK((byte) 111, true),
 
-    PERSIST_STATE_MATCHING(110),
-    PERSIST_STATE_RISK(111),
-
-    NOP(120),
-    RESET(124),
-    SHUTDOWN_SIGNAL(127);
+    GROUPING_CONTROL((byte) 118, false),
+    NOP((byte) 120, false),
+    RESET((byte) 124, true),
+    SHUTDOWN_SIGNAL((byte) 127, false);
 
     private byte code;
+    private boolean mutate;
 
-    OrderCommandType(int code) {
-        this.code = (byte) code;
+    public static OrderCommandType fromCode(byte code) {
+        // TODO try if-else
+        final OrderCommandType result = codes.get(code);
+        if (result == null) {
+            throw new IllegalArgumentException("Unknown order command type code:" + code);
+        }
+        return result;
     }
+
+    private static HashMap<Byte, OrderCommandType> codes = new HashMap<>();
+
+    static {
+        for (OrderCommandType x : values()) {
+            codes.put(x.code, x);
+        }
+    }
+
 
 }

@@ -15,6 +15,7 @@
  */
 package exchange.core2.tests.perf;
 
+import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.TestConstants;
 import lombok.extern.slf4j.Slf4j;
@@ -34,7 +35,7 @@ public final class PerfLatency {
      */
     @Test
     public void testLatencyMargin() {
-        latencyTestImpl(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, null),
+        latencyTestImpl(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, InitialStateConfiguration.TEST_CONFIG),
                 3_000_000,
                 1_000,
                 2_000,
@@ -53,7 +54,7 @@ public final class PerfLatency {
      */
     @Test
     public void testLatencyExchange() {
-        latencyTestImpl(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, null),
+        latencyTestImpl(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, InitialStateConfiguration.TEST_CONFIG),
                 3_000_000,
                 1_000,
                 2_000,
@@ -74,7 +75,7 @@ public final class PerfLatency {
      */
     @Test
     public void testLatencyMultiSymbolMedium() {
-        latencyTestImpl(() -> new ExchangeTestContainer(32 * 1024, 4, 2, 256, null),
+        latencyTestImpl(() -> new ExchangeTestContainer(32 * 1024, 4, 2, 256, InitialStateConfiguration.TEST_CONFIG),
                 6_000_000,
                 1_000_000,
                 3_300_000,
@@ -95,7 +96,7 @@ public final class PerfLatency {
     @Test
     public void testLatencyMultiSymbolLarge() {
         latencyTestImpl(
-                () -> new ExchangeTestContainer(64 * 1024, 4, 2, 256, null),
+                () -> new ExchangeTestContainer(64 * 1024, 4, 2, 256, InitialStateConfiguration.TEST_CONFIG),
                 40_000_000,
                 30_000_000,
                 33_000_000,
@@ -105,4 +106,56 @@ public final class PerfLatency {
                 10);
     }
 
+    /*
+     * -------------- Disk Journaling tests -----------------
+     */
+
+    @Test
+    public void testLatencyMarginJournaling() {
+        latencyTestImpl(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId())),
+                3_000_000,
+                1_000,
+                2_000,
+                TestConstants.CURRENCIES_FUTURES,
+                1,
+                ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT,
+                5);
+    }
+
+    @Test
+    public void testLatencyExchangeJournaling() {
+        latencyTestImpl(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId())),
+                3_000_000,
+                1_000,
+                2_000,
+                TestConstants.CURRENCIES_EXCHANGE,
+                1,
+                ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR,
+                20);
+    }
+
+    @Test
+    public void testLatencyMultiSymbolMediumJournaling() {
+        latencyTestImpl(() -> new ExchangeTestContainer(32 * 1024, 4, 2, 256, InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId())),
+                6_000_000,
+                1_000_000,
+                3_300_000,
+                TestConstants.ALL_CURRENCIES,
+                100_000,
+                ExchangeTestContainer.AllowedSymbolTypes.BOTH,
+                10);
+    }
+
+    @Test
+    public void testLatencyMultiSymbolLargeJournaling() {
+        latencyTestImpl(
+                () -> new ExchangeTestContainer(64 * 1024, 4, 2, 256, InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId())),
+                40_000_000,
+                30_000_000,
+                33_000_000,
+                TestConstants.ALL_CURRENCIES,
+                200_000,
+                ExchangeTestContainer.AllowedSymbolTypes.BOTH,
+                10);
+    }
 }

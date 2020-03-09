@@ -26,10 +26,10 @@ import exchange.core2.core.common.CoreWaitStrategy;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
+import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.processors.*;
-import exchange.core2.core.processors.journalling.ISerializationProcessor;
-import exchange.core2.core.processors.journalling.JournallingProcessor;
+import exchange.core2.core.processors.journaling.ISerializationProcessor;
 import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ArrayUtils;
@@ -59,7 +59,6 @@ public final class ExchangeCore {
 
     @Builder
     public ExchangeCore(final ObjLongConsumer<OrderCommand> resultsConsumer,
-                        final JournallingProcessor journallingHandler,
                         final ISerializationProcessor serializationProcessor,
                         final int ringBufferSize,
                         final int matchingEnginesNum,
@@ -68,7 +67,7 @@ public final class ExchangeCore {
                         final ThreadFactory threadFactory,
                         final CoreWaitStrategy waitStrategy,
                         final BiFunction<CoreSymbolSpecification, ObjectsPool, IOrderBook> orderBookFactory,
-                        final Long loadStateId) {
+                        final InitialStateConfiguration initialStateConfiguration) {
 
         if (msgsInGroupLimit >= ringBufferSize) {
             throw new IllegalArgumentException("msgsInGroupLimit should be less than ringBufferSize");
@@ -107,7 +106,7 @@ public final class ExchangeCore {
                 .collect(Collectors.toMap(
                         shardId -> shardId,
                         shardId -> CompletableFuture.supplyAsync(
-                                () -> new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, orderBookFactory, sharedPool, loadStateId),
+                                () -> new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, orderBookFactory, sharedPool, initialStateConfiguration),
                                 loaderExecutor)));
 
 
@@ -117,7 +116,7 @@ public final class ExchangeCore {
                 .collect(Collectors.toMap(
                         shardId -> shardId,
                         shardId -> CompletableFuture.supplyAsync(
-                                () -> new RiskEngine(shardId, riskEnginesNum, serializationProcessor, sharedPool, loadStateId),
+                                () -> new RiskEngine(shardId, riskEnginesNum, serializationProcessor, sharedPool, initialStateConfiguration),
                                 loaderExecutor)));
 
         final EventHandler<OrderCommand>[] matchingEngineHandlers = matchingEngineFutures.values().stream()
@@ -128,7 +127,7 @@ public final class ExchangeCore {
                         throw new RuntimeException(ex);
                     }
                 })
-                .map(mer -> (EventHandler<OrderCommand>) (cmd, seq, eob) -> mer.processOrder(cmd))
+                .map(mer -> (EventHandler<OrderCommand>) (cmd, seq, eob) -> mer.processOrder(seq, cmd))
                 .toArray(ExchangeCore::newEventHandlersArray);
 
         final Map<Integer, RiskEngine> riskEngines = riskEngineFutures.entrySet().stream()
@@ -150,9 +149,13 @@ public final class ExchangeCore {
         final EventHandlerGroup<OrderCommand> afterGrouping =
                 disruptor.handleEventsWith((rb, bs) -> new GroupingProcessor(rb, rb.newBarrier(bs), msgsInGroupLimit, waitStrategy, sharedPool));
 
-        // 2. [journalling (J)] in parallel with risk hold (R1) + matching engine (ME)
-        if (journallingHandler != null) {
-            afterGrouping.handleEventsWith(journallingHandler::onEvent);
+        // 2. [journaling (J)] in parallel with risk hold (R1) + matching engine (ME)
+
+        boolean enableJournaling = initialStateConfiguration.isEnableJournaling();
+        final EventHandler<OrderCommand> jh = enableJournaling ? serializationProcessor::writeToJournal : null;
+
+        if (enableJournaling) {
+            afterGrouping.handleEventsWith(jh);
         }
 
         riskEngines.forEach((idx, riskEngine) -> afterGrouping.handleEventsWith(
@@ -174,8 +177,8 @@ public final class ExchangeCore {
                     return r2;
                 }));
 
-        // 4. results handler (E) after matching engine (ME) + [journalling (J)]
-        (journallingHandler != null ? disruptor.after(ArrayUtils.add(matchingEngineHandlers, journallingHandler::onEvent)) : afterMatchingEngine)
+        // 4. results handler (E) after matching engine (ME) + [journaling (J)]
+        (enableJournaling ? disruptor.after(ArrayUtils.add(matchingEngineHandlers, jh)) : afterMatchingEngine)
                 .handleEventsWith((cmd, seq, eob) -> {
                     resultsConsumer.accept(cmd, seq);
                     api.processResult(seq, cmd); // TODO SLOW ?(volatile operations)

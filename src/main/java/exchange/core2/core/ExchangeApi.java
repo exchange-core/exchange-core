@@ -90,8 +90,6 @@ public final class ExchangeApi {
             publishPersistCmd((ApiPersistState) cmd);
         } else if (cmd instanceof ApiReset) {
             ringBuffer.publishEvent(RESET_TRANSLATOR, (ApiReset) cmd);
-        } else if (cmd instanceof ApiNoOp) {
-            ringBuffer.publishEvent(NOOP_TRANSLATOR, (ApiNoOp) cmd);
         } else {
             throw new IllegalArgumentException("Unsupported command type: " + cmd.getClass().getSimpleName());
         }
@@ -100,12 +98,13 @@ public final class ExchangeApi {
     public <R> Future<R> submitBinaryCommandAsync(
             final WriteBytesMarshallable data,
             final int transferId,
+            final boolean isQuery,
             final Function<OrderCommand, R> translator) {
 
         final CompletableFuture<R> future = new CompletableFuture<>();
 
         publishBinaryData(
-                ApiBinaryDataCommand.builder().data(data).transferId(transferId).build(),
+                ApiBinaryDataCommand.builder().data(data).transferId(transferId).isQuery(isQuery).build(),
                 seq -> promises.put(seq, orderCommand -> future.complete(translator.apply(orderCommand))));
 
         return future;
@@ -114,10 +113,11 @@ public final class ExchangeApi {
     public void submitBinaryCommandAsync(
             final WriteBytesMarshallable data,
             final int transferId,
-            final Consumer<OrderCommand> consumer) {
+            final Consumer<OrderCommand> consumer,
+            final boolean isQuery) {
 
         publishBinaryData(
-                ApiBinaryDataCommand.builder().data(data).transferId(transferId).build(),
+                ApiBinaryDataCommand.builder().data(data).transferId(transferId).isQuery(isQuery).build(),
                 seq -> promises.put(seq, consumer));
     }
 
@@ -126,6 +126,7 @@ public final class ExchangeApi {
         return submitBinaryCommandAsync(
                 query,
                 transferId,
+                true,
                 cmd -> {
                     final Stream<BytesIn> sections = OrderBookEventsHelper.deserializeEvents(cmd.matcherEvent).values().stream().map(Wire::bytes);
                     return query.getResultBuilder().apply(sections);
@@ -133,6 +134,8 @@ public final class ExchangeApi {
     }
 
     public void publishBinaryData(final ApiBinaryDataCommand apiCmd, final LongConsumer endSeqConsumer) {
+
+        final OrderCommandType cmdType = apiCmd.isQuery ? OrderCommandType.BINARY_DATA_QUERY : OrderCommandType.BINARY_DATA_COMMAND;
 
         final int longsPerMessage = 5;
         long[] longArray = SerializationUtils.bytesToLongArray(BinaryCommandsProcessor.serializeObject(apiCmd.data), longsPerMessage);
@@ -148,7 +151,7 @@ public final class ExchangeApi {
             for (long seq = lowSeq; seq <= highSeq; seq++) {
 
                 OrderCommand cmd = ringBuffer.get(seq);
-                cmd.command = OrderCommandType.BINARY_DATA;
+                cmd.command = cmdType;
                 cmd.userCookie = apiCmd.transferId;
                 cmd.symbol = seq == highSeq ? -1 : 0;
 
@@ -160,6 +163,9 @@ public final class ExchangeApi {
 
                 cmd.timestamp = apiCmd.timestamp;
                 cmd.resultCode = CommandResultCode.NEW;
+
+//                log.debug("ORIG {}", String.format("f=%d word0=%X word1=%X word2=%X word3=%X word4=%X",
+//                cmd.symbol, longArray[i], longArray[i + 1], longArray[i + 2], longArray[i + 3], longArray[i + 4]));
 
 //                log.debug("seq={} cmd.size={} data={}", seq, cmd.size, cmd.price);
 
@@ -229,7 +235,6 @@ public final class ExchangeApi {
     private static final EventTranslatorOneArg<OrderCommand, ApiMoveOrder> MOVE_ORDER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.MOVE_ORDER;
         cmd.price = api.newPrice;
-        //cmd.price2
         cmd.orderId = api.id;
         cmd.symbol = api.symbol;
         cmd.uid = api.uid;
@@ -240,8 +245,6 @@ public final class ExchangeApi {
     private static final EventTranslatorOneArg<OrderCommand, ApiCancelOrder> CANCEL_ORDER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.CANCEL_ORDER;
         cmd.orderId = api.id;
-        cmd.price = -1;
-        cmd.size = -1;
         cmd.symbol = api.symbol;
         cmd.uid = api.uid;
         cmd.timestamp = api.timestamp;
@@ -250,9 +253,7 @@ public final class ExchangeApi {
 
     private static final EventTranslatorOneArg<OrderCommand, ApiOrderBookRequest> ORDER_BOOK_REQUEST_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.ORDER_BOOK_REQUEST;
-        cmd.orderId = -1;
         cmd.symbol = api.symbol;
-        cmd.price = -1;
         cmd.size = api.size;
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
@@ -260,8 +261,6 @@ public final class ExchangeApi {
 
     private static final EventTranslatorOneArg<OrderCommand, ApiAddUser> ADD_USER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.ADD_USER;
-        cmd.orderId = -1;
-        cmd.symbol = -1;
         cmd.uid = api.uid;
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
@@ -269,8 +268,6 @@ public final class ExchangeApi {
 
     private static final EventTranslatorOneArg<OrderCommand, ApiSuspendUser> SUSPEND_USER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.SUSPEND_USER;
-        cmd.orderId = -1;
-        cmd.symbol = -1;
         cmd.uid = api.uid;
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
@@ -278,8 +275,6 @@ public final class ExchangeApi {
 
     private static final EventTranslatorOneArg<OrderCommand, ApiResumeUser> RESUME_USER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.RESUME_USER;
-        cmd.orderId = -1;
-        cmd.symbol = -1;
         cmd.uid = api.uid;
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
@@ -298,24 +293,29 @@ public final class ExchangeApi {
 
     private static final EventTranslatorOneArg<OrderCommand, ApiReset> RESET_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.RESET;
-        cmd.orderId = -1;
-        cmd.symbol = -1;
-        cmd.uid = -1;
-        cmd.price = -1;
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
     };
 
-    private static final EventTranslatorOneArg<OrderCommand, ApiNoOp> NOOP_TRANSLATOR = (cmd, seq, api) -> {
-        cmd.command = OrderCommandType.NOP;
-        cmd.orderId = -1;
-        cmd.symbol = -1;
-        cmd.uid = -1;
-        cmd.price = -1;
-        cmd.timestamp = api.timestamp;
-        cmd.resultCode = CommandResultCode.NEW;
-    };
+    public void binaryData(int serviceFlags, long eventsGroup, long timestampNs, byte lastFlag, long word0, long word1, long word2, long word3, long word4) {
+        ringBuffer.publishEvent(((cmd, seq) -> {
 
+            cmd.serviceFlags = serviceFlags;
+            cmd.eventsGroup = eventsGroup;
+
+            cmd.command = OrderCommandType.BINARY_DATA_COMMAND;
+            cmd.symbol = lastFlag;
+            cmd.orderId = word0;
+            cmd.price = word1;
+            cmd.reserveBidPrice = word2;
+            cmd.size = word3;
+            cmd.uid = word4;
+            cmd.timestamp = timestampNs;
+            cmd.resultCode = CommandResultCode.NEW;
+//            log.debug("REPLAY {}", String.format("f=%d word0=%X word1=%X word2=%X word3=%X word4=%X", lastFlag, word0, word1, word2, word3, word4));
+//            log.debug("REPLAY seq={} cmd={}", seq, cmd);
+        }));
+    }
 
     public void createUser(long userId, Consumer<OrderCommand> callback) {
         ringBuffer.publishEvent(((cmd, seq) -> {
@@ -356,7 +356,55 @@ public final class ExchangeApi {
         }));
     }
 
-    public void balanceAdjustment(long userId,
+    public void createUser(int serviceFlags, long eventsGroup, long timestampNs, long userId) {
+        ringBuffer.publishEvent(((cmd, seq) -> {
+
+            cmd.serviceFlags = serviceFlags;
+            cmd.eventsGroup = eventsGroup;
+
+            cmd.command = OrderCommandType.ADD_USER;
+            cmd.orderId = -1;
+            cmd.symbol = -1;
+            cmd.uid = userId;
+            cmd.timestamp = timestampNs;
+            cmd.resultCode = CommandResultCode.NEW;
+
+        }));
+    }
+
+    public void suspendUser(int serviceFlags, long eventsGroup, long timestampNs, long userId) {
+        ringBuffer.publishEvent(((cmd, seq) -> {
+
+            cmd.serviceFlags = serviceFlags;
+            cmd.eventsGroup = eventsGroup;
+
+            cmd.command = OrderCommandType.SUSPEND_USER;
+            cmd.orderId = -1;
+            cmd.symbol = -1;
+            cmd.uid = userId;
+            cmd.timestamp = timestampNs;
+            cmd.resultCode = CommandResultCode.NEW;
+
+        }));
+    }
+
+    public void resumeUser(int serviceFlags, long eventsGroup, long timestampNs, long userId) {
+        ringBuffer.publishEvent(((cmd, seq) -> {
+
+            cmd.serviceFlags = serviceFlags;
+            cmd.eventsGroup = eventsGroup;
+
+            cmd.command = OrderCommandType.RESUME_USER;
+            cmd.orderId = -1;
+            cmd.symbol = -1;
+            cmd.uid = userId;
+            cmd.timestamp = timestampNs;
+            cmd.resultCode = CommandResultCode.NEW;
+
+        }));
+    }
+
+    public void balanceAdjustment(long uid,
                                   long transactionId,
                                   int currency,
                                   long longAmount,
@@ -367,7 +415,7 @@ public final class ExchangeApi {
             cmd.command = OrderCommandType.BALANCE_ADJUSTMENT;
             cmd.orderId = transactionId;
             cmd.symbol = currency;
-            cmd.uid = userId;
+            cmd.uid = uid;
             cmd.price = longAmount;
             cmd.orderType = OrderType.of(adjustmentType.getCode());
             cmd.size = 0;
@@ -378,6 +426,31 @@ public final class ExchangeApi {
         }));
 
     }
+
+    public void balanceAdjustment(int serviceFlags,
+                                  long eventsGroup,
+                                  long timestampNs,
+                                  long uid,
+                                  long transactionId,
+                                  int currency,
+                                  long longAmount,
+                                  BalanceAdjustmentType adjustmentType) {
+
+        ringBuffer.publishEvent(((cmd, seq) -> {
+            cmd.serviceFlags = serviceFlags;
+            cmd.eventsGroup = eventsGroup;
+            cmd.command = OrderCommandType.BALANCE_ADJUSTMENT;
+            cmd.orderId = transactionId;
+            cmd.symbol = currency;
+            cmd.uid = uid;
+            cmd.price = longAmount;
+            cmd.orderType = OrderType.of(adjustmentType.getCode());
+            cmd.size = 0;
+            cmd.timestamp = timestampNs;
+            cmd.resultCode = CommandResultCode.NEW;
+        }));
+    }
+
 
     public void orderBookRequest(int symbolId, int depth, Consumer<OrderCommand> callback) {
 
@@ -430,6 +503,40 @@ public final class ExchangeApi {
         return seq;
     }
 
+
+    public void placeNewOrder(int serviceFlags,
+                              long eventsGroup,
+                              long timestampNs,
+                              long orderId,
+                              int userCookie,
+                              long price,
+                              long reservedBidPrice,
+                              long size,
+                              OrderAction action,
+                              OrderType orderType,
+                              int symbol,
+                              long uid) {
+
+        ringBuffer.publishEvent((cmd, seq) -> {
+            cmd.serviceFlags = serviceFlags;
+            cmd.eventsGroup = eventsGroup;
+
+            cmd.command = OrderCommandType.PLACE_ORDER;
+            cmd.resultCode = CommandResultCode.NEW;
+
+            cmd.price = price;
+            cmd.reserveBidPrice = reservedBidPrice;
+            cmd.size = size;
+            cmd.orderId = orderId;
+            cmd.timestamp = timestampNs;
+            cmd.action = action;
+            cmd.orderType = orderType;
+            cmd.symbol = symbol;
+            cmd.uid = uid;
+            cmd.userCookie = userCookie;
+        });
+    }
+
     public void moveOrder(
             long price,
             long orderId,
@@ -448,6 +555,30 @@ public final class ExchangeApi {
             cmd.uid = uid;
 
             promises.put(seq, callback);
+        });
+    }
+
+    public void moveOrder(int serviceFlags,
+                          long eventsGroup,
+                          long timestampNs,
+                          long price,
+                          long orderId,
+                          int symbol,
+                          long uid) {
+
+        ringBuffer.publishEvent((cmd, seq) -> {
+
+            cmd.serviceFlags = serviceFlags;
+            cmd.eventsGroup = eventsGroup;
+
+            cmd.command = OrderCommandType.MOVE_ORDER;
+            cmd.resultCode = CommandResultCode.NEW;
+
+            cmd.price = price;
+            cmd.orderId = orderId;
+            cmd.timestamp = timestampNs;
+            cmd.symbol = symbol;
+            cmd.uid = uid;
         });
     }
 
@@ -471,4 +602,47 @@ public final class ExchangeApi {
 
     }
 
+    public void cancelOrder(int serviceFlags,
+                            long eventsGroup,
+                            long timestampNs,
+                            long orderId,
+                            int symbol,
+                            long uid) {
+
+        ringBuffer.publishEvent((cmd, seq) -> {
+
+            cmd.serviceFlags = serviceFlags;
+            cmd.eventsGroup = eventsGroup;
+
+            cmd.command = OrderCommandType.CANCEL_ORDER;
+            cmd.resultCode = CommandResultCode.NEW;
+
+            cmd.orderId = orderId;
+            cmd.timestamp = timestampNs;
+            cmd.symbol = symbol;
+            cmd.uid = uid;
+        });
+    }
+
+    public void groupingControl(long timestampNs, long mode) {
+
+        ringBuffer.publishEvent((cmd, seq) -> {
+            cmd.command = OrderCommandType.GROUPING_CONTROL;
+            cmd.resultCode = CommandResultCode.NEW;
+
+            cmd.orderId = mode;
+            cmd.timestamp = timestampNs;
+        });
+
+    }
+
+    public void reset(long timestampNs) {
+
+        ringBuffer.publishEvent((cmd, seq) -> {
+            cmd.command = OrderCommandType.RESET;
+            cmd.resultCode = CommandResultCode.NEW;
+            cmd.timestamp = timestampNs;
+        });
+
+    }
 }

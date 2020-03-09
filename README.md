@@ -35,7 +35,7 @@ Benchmark configuration:
 - 3,000,000 inbound messages are distributed as follows: 9% GTC orders, 3% IOC orders, 6% cancel commands, 82% move commands. About 6% of all messages are triggering one or more trades.
 - 1,000 active user accounts.
 - In average ~1,000 limit orders are active, placed in ~750 different price slots.
-- Latency results are only for risk processing and orders matching. Other stuff like network interface latency, IPC, journalling is not included.
+- Latency results are only for risk processing and orders matching. Other stuff like network interface latency, IPC, journaling is not included.
 - Test data is not bursty, meaning constant interval between commands (0.2~8µs depending on target throughput).
 - BBO prices are not changing significantly throughout the test. No avalanche orders.
 - No coordinated omission effect for latency benchmark. Any processing delay affects measurements for next following messages.
@@ -62,7 +62,7 @@ Benchmark configuration:
 - Core reports (user balances, open interest).
 
 ### TODOs
-- Journalling and journal replay support (Event-sourcing)
+- Journaling and journal replay support (Event-sourcing)
 - Market data feeds (full order log, L2 market data, BBO, trades).
 - Clearing and settlement.
 - FIX and REST API gateways.

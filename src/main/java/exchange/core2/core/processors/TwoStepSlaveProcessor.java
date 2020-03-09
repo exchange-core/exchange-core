@@ -89,7 +89,7 @@ public final class TwoStepSlaveProcessor implements EventProcessor {
                 // process batch
                 while (nextSequence <= availableSequence && nextSequence < processUpToSequence) {
                     event = dataProvider.get(nextSequence);
-                    eventHandler.onEvent(event);
+                    eventHandler.onEvent(nextSequence, event); // TODO check if nextSequence is correct (not nextSequence+-1)?
                     nextSequence++;
                 }
 

@@ -25,8 +25,9 @@ import exchange.core2.core.common.api.reports.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
+import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.orderbook.IOrderBook;
-import exchange.core2.core.processors.journalling.ISerializationProcessor;
+import exchange.core2.core.processors.journaling.ISerializationProcessor;
 import exchange.core2.core.utils.CoreArithmeticUtils;
 import exchange.core2.core.utils.HashingUtils;
 import exchange.core2.core.utils.SerializationUtils;
@@ -68,7 +69,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
                                 final ISerializationProcessor serializationProcessor,
                                 final BiFunction<CoreSymbolSpecification, ObjectsPool, IOrderBook> orderBookFactory,
                                 final SharedPool sharedPool,
-                                final Long loadStateId) {
+                                final InitialStateConfiguration initialStateConfiguration) {
 
         if (Long.bitCount(numShards) != 1) {
             throw new IllegalArgumentException("Invalid number of shards " + numShards + " - must be power of 2");
@@ -87,10 +88,9 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         objectsPoolConfig.put(ObjectsPool.ART_NODE_48, 1024 * 8);
         objectsPoolConfig.put(ObjectsPool.ART_NODE_256, 1024 * 4);
         this.objectsPool = new ObjectsPool(objectsPoolConfig, sharedPool);
-
-        if (loadStateId != null) {
+        if (initialStateConfiguration.fromSnapshot()) {
             final Pair<BinaryCommandsProcessor, IntObjectHashMap<IOrderBook>> deserialized = serializationProcessor.loadData(
-                    loadStateId,
+                    initialStateConfiguration.getSnapshotId(),
                     ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER,
                     shardId,
                     bytesIn -> {
@@ -112,9 +112,10 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
             this.binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, sharedPool, shardId + 1024);
             this.orderBooks = new IntObjectHashMap<>();
         }
+
     }
 
-    public void processOrder(OrderCommand cmd) {
+    public void processOrder(long seq, OrderCommand cmd) {
 
         final OrderCommandType command = cmd.command;
 
@@ -123,7 +124,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
             if (symbolForThisHandler(cmd.symbol)) {
                 processMatchingCommand(cmd);
             }
-        } else if (command == OrderCommandType.BINARY_DATA) {
+        } else if (command == OrderCommandType.BINARY_DATA_QUERY || command == OrderCommandType.BINARY_DATA_COMMAND) {
 
             final boolean isLastFrame = binaryCommandsProcessor.acceptBinaryFrame(cmd);
             if (shardId == 0) {
@@ -139,7 +140,13 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
             }
 
         } else if (command == OrderCommandType.PERSIST_STATE_MATCHING) {
-            final boolean isSuccess = serializationProcessor.storeData(cmd.orderId, ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER, shardId, this);
+            final boolean isSuccess = serializationProcessor.storeData(
+                    cmd.orderId,
+                    seq,
+                    cmd.timestamp,
+                    ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER,
+                    shardId,
+                    this);
             // Send ACCEPTED because this is a first command in series. Risk engine is second - so it will return SUCCESS
             UnsafeUtils.setResultVolatile(cmd, isSuccess, CommandResultCode.ACCEPTED, CommandResultCode.STATE_PERSIST_MATCHING_ENGINE_FAILED);
         }
