@@ -50,6 +50,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -67,6 +68,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
     private static final int RISK_ENGINES_ONE = 1;
     private static final int MATCHING_ENGINES_ONE = 1;
     private static final int MGS_IN_GROUP_LIMIT_DEFAULT = 128;
+    private static final long TIMEOUT_CMD = 5;
 
 
     private final ExchangeCore exchangeCore;
@@ -352,12 +354,14 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
     public void submitCommandSync(ApiCommand apiCommand, CommandResultCode expectedResultCode) throws InterruptedException {
         final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<CommandResultCode> resultCode = new AtomicReference<>();
         consumer = cmd -> {
-            assertThat(cmd.resultCode, Is.is(expectedResultCode));
+            resultCode.set(cmd.resultCode);
             latch.countDown();
         };
         api.submitCommand(apiCommand);
-        latch.await();
+        assertTrue("The async command has not finished in time.", latch.await(TIMEOUT_CMD, TimeUnit.SECONDS));
+        assertThat(resultCode.get(), Is.is(expectedResultCode));
         consumer = cmd -> {
         };
     }
@@ -370,7 +374,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
             latch.countDown();
         };
         api.submitCommand(apiCommand);
-        latch.await();
+        assertTrue("The async command has not finished in time.", latch.await(TIMEOUT_CMD, TimeUnit.SECONDS));
         consumer = cmd -> {
         };
     }
@@ -393,7 +397,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
         };
         api.submitCommand(dataCommand);
         try {
-            latch.await();
+            assertTrue("The async command has not finished in time.", latch.await(TIMEOUT_CMD, TimeUnit.SECONDS));
         } catch (InterruptedException ex) {
             throw new IllegalStateException(ex);
         }
@@ -404,12 +408,14 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
     void submitCommandsSync(List<ApiCommand> apiCommand) throws InterruptedException {
         final CountDownLatch latch = new CountDownLatch(apiCommand.size());
+        final AtomicReference<CommandResultCode> resultCode = new AtomicReference<>();
         consumer = cmd -> {
-            assertTrue(CommandResultCode.SUCCESS == cmd.resultCode || CommandResultCode.ACCEPTED == cmd.resultCode);
+            resultCode.set(cmd.resultCode);
             latch.countDown();
         };
         apiCommand.forEach(api::submitCommand);
-        latch.await();
+        assertTrue("The async command has not finished in time.", latch.await(TIMEOUT_CMD, TimeUnit.SECONDS));
+        assertTrue(CommandResultCode.SUCCESS == resultCode.get() || CommandResultCode.ACCEPTED == resultCode.get());
         consumer = cmd -> {
         };
     }
@@ -537,7 +543,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
     @Override
     public void close() {
-        exchangeCore.shutdown();
+        exchangeCore.shutdown(1000, TimeUnit.MILLISECONDS);
     }
 
     public enum AllowedSymbolTypes {
