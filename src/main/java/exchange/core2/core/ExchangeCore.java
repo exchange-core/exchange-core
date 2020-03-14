@@ -26,7 +26,9 @@ import exchange.core2.core.common.CoreWaitStrategy;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
+import exchange.core2.core.common.config.ExchangeConfiguration;
 import exchange.core2.core.common.config.InitialStateConfiguration;
+import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.processors.*;
 import exchange.core2.core.processors.journaling.ISerializationProcessor;
@@ -40,6 +42,7 @@ import java.util.Map;
 import java.util.concurrent.*;
 import java.util.function.BiFunction;
 import java.util.function.ObjLongConsumer;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -50,6 +53,10 @@ public final class ExchangeCore {
 
     private final ExchangeApi api;
 
+    private final ISerializationProcessor serializationProcessor;
+
+    private final ExchangeConfiguration exchangeConfiguration;
+
     // core can be started and stopped only once
     private boolean started = false;
     private boolean stopped = false;
@@ -59,16 +66,15 @@ public final class ExchangeCore {
 
     @Builder
     public ExchangeCore(final ObjLongConsumer<OrderCommand> resultsConsumer,
-                        final ISerializationProcessor serializationProcessor,
-                        final int ringBufferSize,
-                        final int matchingEnginesNum,
-                        final int riskEnginesNum,
-                        final int msgsInGroupLimit,
-                        final ThreadFactory threadFactory,
-                        final CoreWaitStrategy waitStrategy,
-                        final BiFunction<CoreSymbolSpecification, ObjectsPool, IOrderBook> orderBookFactory,
-                        final InitialStateConfiguration initialStateConfiguration) {
+                        final Supplier<? extends ISerializationProcessor> serializationProcessorFactory,
+                        final ExchangeConfiguration exchangeConfiguration) {
 
+        this.exchangeConfiguration = exchangeConfiguration;
+
+        final PerformanceConfiguration perfCfg = exchangeConfiguration.getPerfCfg();
+
+        final int msgsInGroupLimit = perfCfg.getMsgsInGroupLimit();
+        final int ringBufferSize = perfCfg.getRingBufferSize();
         if (msgsInGroupLimit >= ringBufferSize) {
             throw new IllegalArgumentException("msgsInGroupLimit should be less than ringBufferSize");
         }
@@ -76,11 +82,24 @@ public final class ExchangeCore {
         this.disruptor = new Disruptor<>(
                 OrderCommand::new,
                 ringBufferSize,
-                threadFactory,
+                perfCfg.getThreadFactory(),
                 ProducerType.MULTI, // multiple gateway threads are writing
-                waitStrategy.create());
+                perfCfg.getWaitStrategy().create());
 
         this.api = new ExchangeApi(disruptor.getRingBuffer());
+
+        final InitialStateConfiguration initStateCfg = exchangeConfiguration.getInitStateCfg();
+
+
+        final ThreadFactory threadFactory = perfCfg.getThreadFactory();
+        final BiFunction<CoreSymbolSpecification, ObjectsPool, IOrderBook> orderBookFactory = perfCfg.getOrderBookFactory();
+        final CoreWaitStrategy waitStrategy = perfCfg.getWaitStrategy();
+
+        final int matchingEnginesNum = perfCfg.getMatchingEnginesNum();
+        final int riskEnginesNum = perfCfg.getRiskEnginesNum();
+
+        // creating serialization processor
+        serializationProcessor = serializationProcessorFactory.get();
 
         // creating shared objects pool
         final int poolInitialSize = (matchingEnginesNum + riskEnginesNum) * 8;
@@ -97,7 +116,7 @@ public final class ExchangeCore {
 
         disruptor.setDefaultExceptionHandler(exceptionHandler);
 
-        // advice completable future to use the same socket as disruptor
+        // advice completable future to use the same CPU socket as disruptor
         final ExecutorService loaderExecutor = Executors.newFixedThreadPool(matchingEnginesNum + riskEnginesNum, threadFactory);
 
         // start creating matching engines
@@ -106,7 +125,7 @@ public final class ExchangeCore {
                 .collect(Collectors.toMap(
                         shardId -> shardId,
                         shardId -> CompletableFuture.supplyAsync(
-                                () -> new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, orderBookFactory, sharedPool, initialStateConfiguration),
+                                () -> new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, orderBookFactory, sharedPool, initStateCfg),
                                 loaderExecutor)));
 
 
@@ -116,7 +135,7 @@ public final class ExchangeCore {
                 .collect(Collectors.toMap(
                         shardId -> shardId,
                         shardId -> CompletableFuture.supplyAsync(
-                                () -> new RiskEngine(shardId, riskEnginesNum, serializationProcessor, sharedPool, initialStateConfiguration),
+                                () -> new RiskEngine(shardId, riskEnginesNum, serializationProcessor, sharedPool, initStateCfg),
                                 loaderExecutor)));
 
         final EventHandler<OrderCommand>[] matchingEngineHandlers = matchingEngineFutures.values().stream()
@@ -151,7 +170,7 @@ public final class ExchangeCore {
 
         // 2. [journaling (J)] in parallel with risk hold (R1) + matching engine (ME)
 
-        boolean enableJournaling = initialStateConfiguration.isEnableJournaling();
+        boolean enableJournaling = initStateCfg.isEnableJournaling();
         final EventHandler<OrderCommand> jh = enableJournaling ? serializationProcessor::writeToJournal : null;
 
         if (enableJournaling) {
@@ -200,6 +219,9 @@ public final class ExchangeCore {
             log.debug("Starting disruptor...");
             disruptor.start();
             started = true;
+
+            final long enableJournalingAfterSeq = serializationProcessor.replayJournalFull(exchangeConfiguration.getInitStateCfg(), api);
+            serializationProcessor.enableJournaling(enableJournalingAfterSeq, api);
         }
     }
 

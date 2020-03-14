@@ -7,9 +7,9 @@
 [Eclipse Collections](https://www.eclipse.org/collections/) (ex. Goldman Sachs GS Collections) 
 and [Adaptive Radix Trees](https://db.in.tum.de/~leis/papers/ART.pdf).
 
-Designed for high scalability and pauseless 24/7 operation under high load conditions and providing low-latency responses:
-- 1M users having 3M accounts;
-- 100K order books;
+Designed for high scalability and pauseless 24/7 operation under high-load conditions and providing low-latency responses:
+- 1M users having 3M accounts int total;
+- 100K symbols (order books);
 - 1M+ orders book operations per second;
 - less than 1ms worst wire-to-wire latency.
 
@@ -45,24 +45,22 @@ Benchmark configuration:
 
 ### Main features
 - HFT optimized. Priority is a limit-order-move operation mean latency (currently ~0.5µs). Cancel operation takes ~0.7µs, placing new order ~1.0µs;
-- In-memory working state.
+- In-memory working state for accounting data and order books.
+- Event-sourcing - disk journaling and journal replay support, state snapshots (serialization) and restore operations.
 - Lock-free and contention-free orders matching and risk control algorithms.
-- No floating-point operations, no accuracy loss.
+- No floating-point arithmetic, no loss of significance is possible.
 - Matching engine and risk control operations are atomic and deterministic.
 - Pipelined multi-core processing (based on LMAX Disruptor): each CPU core is responsible for certain processing stage, user accounts shard, or symbol order books shard.
-- Low GC pressure, objects pooling.
 - Two different risk processing modes (specified per symbol): direct-exchange and margin-trade.
-- Maker/taker fees (fixed in currency units).
-- Supports crossing Ask-Bid orders for market makers.
+- Maker/taker fees (defined in quote currency units).
 - 3 implementations of matching engine: reference simple implementation ("Naive"), small order books optimized ("Fast"), scalability optimized ("Direct").
 - Testing - unit-tests, integration tests, stress tests, integrity/consistency tests.
-- Automatic threads affinity (requires JNA).
-- State snapshots (serialization) and restore operations.
+- Low GC pressure, objects pooling, single ring-buffer.
+- Threads affinity (requires JNA).
 - User suspend/resume operation (reduces memory consumption).
-- Core reports (user balances, open interest).
+- Core reports API (user balances, open interest).
 
 ### TODOs
-- Journaling and journal replay support (Event-sourcing)
 - Market data feeds (full order log, L2 market data, BBO, trades).
 - Clearing and settlement.
 - FIX and REST API gateways.

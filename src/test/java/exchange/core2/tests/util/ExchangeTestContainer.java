@@ -26,9 +26,12 @@ import exchange.core2.core.common.api.reports.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
+import exchange.core2.core.common.config.ExchangeConfiguration;
 import exchange.core2.core.common.config.InitialStateConfiguration;
+import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.core.orderbook.OrderBookDirectImpl;
 import exchange.core2.core.processors.journaling.DiskSerializationProcessor;
+import exchange.core2.core.processors.journaling.DiskSerializationProcessorConfiguration;
 import exchange.core2.core.utils.AffinityThreadFactory;
 import lombok.Getter;
 import lombok.Setter;
@@ -100,27 +103,27 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
         this.threadFactory = new AffinityThreadFactory(AffinityThreadFactory.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE);
 
-        final DiskSerializationProcessor serializationProcessor = new DiskSerializationProcessor(
-                initStateCfg.getExchangeId(),
-                "./dumps",
-                initStateCfg.getSnapshotBaseSeq(),
-                initStateCfg.getSnapshotId(),
-                matchingEnginesNum,
-                riskEnginesNum);
-
-        this.exchangeCore = ExchangeCore.builder()
-                .resultsConsumer((cmd, seq) -> consumer.accept(cmd))
-                .serializationProcessor(serializationProcessor)
+        final PerformanceConfiguration perfCfg = PerformanceConfiguration.builder()
                 .ringBufferSize(bufferSize)
                 .matchingEnginesNum(matchingEnginesNum)
                 .riskEnginesNum(riskEnginesNum)
                 .msgsInGroupLimit(msgsInGroupLimit)
                 .threadFactory(threadFactory)
                 .waitStrategy(CoreWaitStrategy.BUSY_SPIN)
-//                .orderBookFactory(symbolType -> new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH, symbolType))
                 .orderBookFactory(OrderBookDirectImpl::new)
-//                .orderBookFactory(OrderBookNaiveImpl::new)
-                .initialStateConfiguration(initStateCfg) // Loading from persisted state
+                //.orderBookFactory(symbolType -> new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH, symbolType))
+                //.orderBookFactory(OrderBookNaiveImpl::new)
+                .build();
+
+        final ExchangeConfiguration exchangeConfiguration = ExchangeConfiguration.builder()
+                .initStateCfg(initStateCfg)
+                .perfCfg(perfCfg)
+                .build();
+
+        this.exchangeCore = ExchangeCore.builder()
+                .resultsConsumer((cmd, seq) -> consumer.accept(cmd))
+                .serializationProcessorFactory(() -> new DiskSerializationProcessor(exchangeConfiguration, DiskSerializationProcessorConfiguration.createDefaultConfig()))
+                .exchangeConfiguration(exchangeConfiguration)
                 .build();
 
         //log.debug("STARTING exchange container");
@@ -128,21 +131,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
         //log.debug("STARTED exchange container");
         this.api = this.exchangeCore.getApi();
-
-        long enableJournalingAfterSeq = serializationProcessor.replayJournalFull(initStateCfg, api);
-
-        serializationProcessor.enableJournaling(enableJournalingAfterSeq, api);
-        // replay journal
-
     }
-
-//    public ExchangeTestContainer(final ExchangeCore exchangeCore) {
-//
-//        this.exchangeCore = exchangeCore;
-//        this.exchangeCore.startup();
-//        api = this.exchangeCore.getApi();
-//    }
-
 
     public void initBasicSymbols() {
 

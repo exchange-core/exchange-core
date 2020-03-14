@@ -21,7 +21,9 @@ import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.OrderType;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
+import exchange.core2.core.common.config.ExchangeConfiguration;
 import exchange.core2.core.common.config.InitialStateConfiguration;
+import exchange.core2.core.common.config.PerformanceConfiguration;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -46,18 +48,16 @@ import java.util.function.Function;
 @Slf4j
 public final class DiskSerializationProcessor implements ISerializationProcessor {
 
-
-    private static final long ONE_MEGABYTE = 1024 * 1024;
-    private static final long FILE_SIZE_TRIGGER = 4 * 1024 * ONE_MEGABYTE; // split files by size
-
-    private static final int BUFFER_SIZE = 256 * 1024;
-    private static final int BUFFER_FLUSH_TRIGGER = BUFFER_SIZE - 256; // less than max command size in bytes
-
+    private final int journalBufferFlushTrigger;
+    private final long journalFileMaxSize;
 
     private final String exchangeId; // TODO validate
     private final Path folder;
 
     private final long baseSeq;
+
+    private final ByteBuffer journalWriteBuffer;
+
 
     private SnapshotDescriptor lastSnapshotDescriptor;
     private JournalDescriptor lastJournalDescriptor;
@@ -71,32 +71,29 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
     private RandomAccessFile raf;
     private FileChannel channel;
 
-    private ByteBuffer buffer = ByteBuffer.allocateDirect(BUFFER_SIZE);
     private int filesCounter = 0;
 
     private long writtenBytes = 0;
 
-    /**
-     * total number of modules (for each module type)
-     *
-     * @param exchangeId
-     * @param folder
-     * @param baseSnapshotId
-     */
-    public DiskSerializationProcessor(String exchangeId,
-                                      String folder,
-                                      long baseSeq,
-                                      long baseSnapshotId,
-                                      int numMatchingEngines,
-                                      int numRiskEngines) {
+    public DiskSerializationProcessor(ExchangeConfiguration exchangeConfig,
+                                      DiskSerializationProcessorConfiguration diskConfig) {
 
-        this.exchangeId = exchangeId;
-        this.folder = Paths.get(folder);
-        this.baseSnapshotId = baseSnapshotId;
-        this.baseSeq = baseSeq;
+        final InitialStateConfiguration initStateCfg = exchangeConfig.getInitStateCfg();
+
+        this.exchangeId = initStateCfg.getExchangeId();
+        this.folder = Paths.get(diskConfig.getStorageFolder());
+        this.baseSnapshotId = initStateCfg.getSnapshotId();
+        this.baseSeq = initStateCfg.getSnapshotBaseSeq();
+
+        final PerformanceConfiguration perfCfg = exchangeConfig.getPerfCfg();
 
         this.lastJournalDescriptor = null; // no journal
-        this.lastSnapshotDescriptor = SnapshotDescriptor.createEmpty(numMatchingEngines, numRiskEngines);
+        this.lastSnapshotDescriptor = SnapshotDescriptor.createEmpty(perfCfg.getMatchingEnginesNum(), perfCfg.getRiskEnginesNum());
+
+        this.journalFileMaxSize = diskConfig.getJournalFileMaxSize();
+        this.journalBufferFlushTrigger = diskConfig.getJournalBufferSize() - 256; // less than max command size in bytes
+
+        this.journalWriteBuffer = ByteBuffer.allocateDirect(diskConfig.getJournalBufferSize());
     }
 
     @Override
@@ -238,6 +235,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
             startNewFile(cmd.timestamp);
         }
 
+        final ByteBuffer buffer = journalWriteBuffer;
+
         // mandatory fields
         buffer.putLong(baseSeq + dSeq); // 8 bytes - can be compressed as delta
         buffer.putLong(cmd.timestamp); // 8 bytes - can be compressed as delta
@@ -324,7 +323,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
             flushBufferSync(true, cmd.timestamp);
 
-        } else if (eob || buffer.position() >= BUFFER_FLUSH_TRIGGER) {
+        } else if (eob || buffer.position() >= journalBufferFlushTrigger) {
 
             // flushing on end of batch or when buffer is full
             flushBufferSync(false, cmd.timestamp);
@@ -518,12 +517,12 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
 //        log.debug("Flushing buffer position={}", buffer.position());
 
-        writtenBytes += buffer.position();
-        buffer.flip();
-        channel.write(buffer);
-        buffer.clear();
+        writtenBytes += journalWriteBuffer.position();
+        journalWriteBuffer.flip();
+        channel.write(journalWriteBuffer);
+        journalWriteBuffer.clear();
 
-        if (switchBaseSnapshot || writtenBytes >= FILE_SIZE_TRIGGER) {
+        if (switchBaseSnapshot || writtenBytes >= journalFileMaxSize) {
             // todo start preparing new file asynchronously, but ONLY ONCE
             startNewFile(timestampNs);
             writtenBytes = 0;
