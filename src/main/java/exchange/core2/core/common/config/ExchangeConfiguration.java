@@ -10,7 +10,9 @@ import lombok.Getter;
 @Builder
 public final class ExchangeConfiguration {
 
+    // TODO basic config
+
     private final PerformanceConfiguration perfCfg;
     private final InitialStateConfiguration initStateCfg;
-
+    private final ReportsQueriesConfiguration reportsQueriesCfg;
 }

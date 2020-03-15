@@ -16,36 +16,33 @@
 package exchange.core2.core.processors;
 
 import exchange.core2.core.common.CoreSymbolSpecification;
-import exchange.core2.core.common.Order;
 import exchange.core2.core.common.StateHash;
-import exchange.core2.core.common.SymbolType;
 import exchange.core2.core.common.api.binary.BatchAddAccountsCommand;
 import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
 import exchange.core2.core.common.api.reports.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
-import exchange.core2.core.common.config.InitialStateConfiguration;
+import exchange.core2.core.common.config.ExchangeConfiguration;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.processors.journaling.ISerializationProcessor;
-import exchange.core2.core.utils.CoreArithmeticUtils;
 import exchange.core2.core.utils.HashingUtils;
 import exchange.core2.core.utils.SerializationUtils;
 import exchange.core2.core.utils.UnsafeUtils;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.apache.commons.lang3.tuple.Pair;
-import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.BiFunction;
 
 @Slf4j
+@Getter
 public final class MatchingEngineRouter implements WriteBytesMarshallable, StateHash {
 
     // state
@@ -69,7 +66,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
                                 final ISerializationProcessor serializationProcessor,
                                 final BiFunction<CoreSymbolSpecification, ObjectsPool, IOrderBook> orderBookFactory,
                                 final SharedPool sharedPool,
-                                final InitialStateConfiguration initialStateConfiguration) {
+                                final ExchangeConfiguration exchangeConfiguration) {
 
         if (Long.bitCount(numShards) != 1) {
             throw new IllegalArgumentException("Invalid number of shards " + numShards + " - must be power of 2");
@@ -79,7 +76,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         this.serializationProcessor = serializationProcessor;
         this.orderBookFactory = orderBookFactory;
 
-        // initialize object pools
+        // initialize object pools // TODO move to perf config
         final HashMap<Integer, Integer> objectsPoolConfig = new HashMap<>();
         objectsPoolConfig.put(ObjectsPool.DIRECT_ORDER, 1024 * 1024);
         objectsPoolConfig.put(ObjectsPool.DIRECT_BUCKET, 1024 * 64);
@@ -88,9 +85,9 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         objectsPoolConfig.put(ObjectsPool.ART_NODE_48, 1024 * 8);
         objectsPoolConfig.put(ObjectsPool.ART_NODE_256, 1024 * 4);
         this.objectsPool = new ObjectsPool(objectsPoolConfig, sharedPool);
-        if (initialStateConfiguration.fromSnapshot()) {
+        if (exchangeConfiguration.getInitStateCfg().fromSnapshot()) {
             final Pair<BinaryCommandsProcessor, IntObjectHashMap<IOrderBook>> deserialized = serializationProcessor.loadData(
-                    initialStateConfiguration.getSnapshotId(),
+                    exchangeConfiguration.getInitStateCfg().getSnapshotId(),
                     ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER,
                     shardId,
                     bytesIn -> {
@@ -100,7 +97,15 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
                         if (shardMask != bytesIn.readLong()) {
                             throw new IllegalStateException("wrong shardMask");
                         }
-                        final BinaryCommandsProcessor bcp = new BinaryCommandsProcessor(this::handleBinaryMessage, sharedPool, bytesIn, shardId + 1024);
+
+                        final BinaryCommandsProcessor bcp = new BinaryCommandsProcessor(
+                                this::handleBinaryMessage,
+                                this::handleReportQuery,
+                                sharedPool,
+                                exchangeConfiguration.getReportsQueriesCfg(),
+                                bytesIn,
+                                shardId + 1024);
+
                         final IntObjectHashMap<IOrderBook> ob = SerializationUtils.readIntHashMap(bytesIn, bytes -> IOrderBook.create(bytes, objectsPool));
                         return Pair.of(bcp, ob);
                     });
@@ -109,7 +114,13 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
             this.orderBooks = deserialized.getRight();
 
         } else {
-            this.binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, sharedPool, shardId + 1024);
+            this.binaryCommandsProcessor = new BinaryCommandsProcessor(
+                    this::handleBinaryMessage,
+                    this::handleReportQuery,
+                    sharedPool,
+                    exchangeConfiguration.getReportsQueriesCfg(),
+                    shardId + 1024);
+
             this.orderBooks = new IntObjectHashMap<>();
         }
 
@@ -126,9 +137,9 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
             }
         } else if (command == OrderCommandType.BINARY_DATA_QUERY || command == OrderCommandType.BINARY_DATA_COMMAND) {
 
-            final boolean isLastFrame = binaryCommandsProcessor.acceptBinaryFrame(cmd);
+            final CommandResultCode resultCode = binaryCommandsProcessor.acceptBinaryFrame(cmd);
             if (shardId == 0) {
-                cmd.resultCode = isLastFrame ? CommandResultCode.SUCCESS : CommandResultCode.ACCEPTED;
+                cmd.resultCode = resultCode;
             }
 
         } else if (command == OrderCommandType.RESET) {
@@ -163,64 +174,13 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         } else if (message instanceof BatchAddAccountsCommand) {
             // do nothing
             return Optional.empty();
-        } else if (message instanceof ReportQuery) {
-            return processReport((ReportQuery) message);
         } else {
             return Optional.empty();
         }
     }
 
-
-    private Optional<? extends WriteBytesMarshallable> processReport(ReportQuery reportQuery) {
-
-        switch (reportQuery.getReportType()) {
-
-            case STATE_HASH:
-                return reportStateHash();
-
-            case SINGLE_USER_REPORT:
-                return reportSingleUser((SingleUserReportQuery) reportQuery);
-
-
-            case TOTAL_CURRENCY_BALANCE:
-                return reportGlobalBalance();
-
-            default:
-                throw new IllegalStateException("Report not implemented");
-        }
-    }
-
-    private Optional<StateHashReportResult> reportStateHash() {
-        return Optional.of(new StateHashReportResult(stateHash()));
-    }
-
-    private Optional<SingleUserReportResult> reportSingleUser(final SingleUserReportQuery query) {
-        final IntObjectHashMap<List<Order>> orders = new IntObjectHashMap<>();
-        orderBooks.forEach(ob -> orders.put(ob.getSymbolSpec().symbolId, ob.findUserOrders(query.getUid())));
-
-        //log.debug("orders: {}", orders.size());
-        return Optional.of(new SingleUserReportResult(null, orders, SingleUserReportResult.ExecutionStatus.OK));
-    }
-
-    private Optional<TotalCurrencyBalanceReportResult> reportGlobalBalance() {
-
-        final IntLongHashMap currencyBalance = new IntLongHashMap();
-
-        orderBooks.stream()
-                .filter(ob -> ob.getSymbolSpec().type == SymbolType.CURRENCY_EXCHANGE_PAIR)
-                .forEach(ob -> {
-                    final CoreSymbolSpecification spec = ob.getSymbolSpec();
-
-                    currencyBalance.addToValue(
-                            spec.getBaseCurrency(),
-                            ob.askOrdersStream(false).mapToLong(ord -> CoreArithmeticUtils.calculateAmountAsk(ord.getSize() - ord.getFilled(), spec)).sum());
-
-                    currencyBalance.addToValue(
-                            spec.getQuoteCurrency(),
-                            ob.bidOrdersStream(false).mapToLong(ord -> CoreArithmeticUtils.calculateAmountBidTakerFee(ord.getSize() - ord.getFilled(), ord.getReserveBidPrice(), spec)).sum());
-                });
-
-        return Optional.of(TotalCurrencyBalanceReportResult.ofOrderBalances(currencyBalance));
+    private <R extends ReportResult> Optional<R> handleReportQuery(ReportQuery<R> reportQuery) {
+        return reportQuery.process(this);
     }
 
 

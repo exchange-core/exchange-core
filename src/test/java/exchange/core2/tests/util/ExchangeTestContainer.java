@@ -29,6 +29,7 @@ import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.ExchangeConfiguration;
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
+import exchange.core2.core.common.config.ReportsQueriesConfiguration;
 import exchange.core2.core.orderbook.OrderBookDirectImpl;
 import exchange.core2.core.processors.journaling.DiskSerializationProcessor;
 import exchange.core2.core.processors.journaling.DiskSerializationProcessorConfiguration;
@@ -118,6 +119,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
         final ExchangeConfiguration exchangeConfiguration = ExchangeConfiguration.builder()
                 .initStateCfg(initStateCfg)
                 .perfCfg(perfCfg)
+                .reportsQueriesCfg(ReportsQueriesConfiguration.createStandardConfig())
                 .build();
 
         this.exchangeCore = ExchangeCore.builder()
@@ -415,11 +417,6 @@ public final class ExchangeTestContainer implements AutoCloseable {
         final TotalCurrencyBalanceReportResult res = api.processReport(new TotalCurrencyBalanceReportQuery(), getRandomTransferId()).get();
         final IntLongHashMap openInterestLong = res.getOpenInterestLong();
         final IntLongHashMap openInterestShort = res.getOpenInterestShort();
-//        log.debug("accBal : {}", res.getAccountBalances());
-//        log.debug("fees   : {}", res.getFees());
-//        log.debug("ordBal : {}", res.getOrdersBalances());
-//        log.debug("OpenIntLong: {}", openInterestLong);
-//        log.debug("OpenIntShort: {}", openInterestShort);
         final IntLongHashMap openInterestDiff = new IntLongHashMap(openInterestLong);
         openInterestShort.forEachKeyValue((k, v) -> openInterestDiff.addToValue(k, -v));
         if (openInterestDiff.anySatisfy(vol -> vol != 0)) {

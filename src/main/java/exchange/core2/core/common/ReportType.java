@@ -20,11 +20,11 @@ import lombok.Getter;
 @Getter
 public enum ReportType {
 
-    STATE_HASH(101),
+    STATE_HASH(10001),
 
-    SINGLE_USER_REPORT(201),
+    SINGLE_USER_REPORT(10002),
 
-    TOTAL_CURRENCY_BALANCE(601);
+    TOTAL_CURRENCY_BALANCE(10003);
 
     private final int code;
 
@@ -35,11 +35,11 @@ public enum ReportType {
     public static ReportType of(int code) {
 
         switch (code) {
-            case 101:
+            case 10001:
                 return STATE_HASH;
-            case 201:
+            case 10002:
                 return SINGLE_USER_REPORT;
-            case 601:
+            case 10003:
                 return TOTAL_CURRENCY_BALANCE;
             default:
                 throw new IllegalArgumentException("unknown ReportType:" + code);

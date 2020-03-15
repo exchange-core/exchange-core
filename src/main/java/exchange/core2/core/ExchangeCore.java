@@ -125,7 +125,7 @@ public final class ExchangeCore {
                 .collect(Collectors.toMap(
                         shardId -> shardId,
                         shardId -> CompletableFuture.supplyAsync(
-                                () -> new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, orderBookFactory, sharedPool, initStateCfg),
+                                () -> new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, orderBookFactory, sharedPool, exchangeConfiguration),
                                 loaderExecutor)));
 
 
@@ -135,7 +135,7 @@ public final class ExchangeCore {
                 .collect(Collectors.toMap(
                         shardId -> shardId,
                         shardId -> CompletableFuture.supplyAsync(
-                                () -> new RiskEngine(shardId, riskEnginesNum, serializationProcessor, sharedPool, initStateCfg),
+                                () -> new RiskEngine(shardId, riskEnginesNum, serializationProcessor, sharedPool, exchangeConfiguration),
                                 loaderExecutor)));
 
         final EventHandler<OrderCommand>[] matchingEngineHandlers = matchingEngineFutures.values().stream()

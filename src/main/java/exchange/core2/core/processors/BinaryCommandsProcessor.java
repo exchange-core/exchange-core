@@ -19,10 +19,12 @@ import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.StateHash;
 import exchange.core2.core.common.api.binary.BatchAddAccountsCommand;
 import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
-import exchange.core2.core.common.api.reports.SingleUserReportQuery;
-import exchange.core2.core.common.api.reports.StateHashReportQuery;
-import exchange.core2.core.common.api.reports.TotalCurrencyBalanceReportQuery;
+import exchange.core2.core.common.api.reports.ReportQueriesHandler;
+import exchange.core2.core.common.api.reports.ReportQuery;
+import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
+import exchange.core2.core.common.cmd.OrderCommandType;
+import exchange.core2.core.common.config.ReportsQueriesConfiguration;
 import exchange.core2.core.orderbook.OrderBookEventsHelper;
 import exchange.core2.core.utils.HashingUtils;
 import exchange.core2.core.utils.SerializationUtils;
@@ -32,6 +34,8 @@ import net.openhft.chronicle.bytes.*;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.jetbrains.annotations.NotNull;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
@@ -49,32 +53,45 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
     // transactionId -> TransferRecord (long array + bitset)
     private final LongObjectHashMap<TransferRecord> incomingData;
 
+    // TODO improve type (Object is not ok)
     private final Function<Object, Optional<? extends WriteBytesMarshallable>> completeMessagesHandler;
 
+    private final ReportQueriesHandler reportQueriesHandler;
+
     private final OrderBookEventsHelper eventsHelper;
+
+    private final ReportsQueriesConfiguration queriesConfiguration;
 
     private final int section;
 
     public BinaryCommandsProcessor(final Function<Object, Optional<? extends WriteBytesMarshallable>> completeMessagesHandler,
+                                   final ReportQueriesHandler reportQueriesHandler,
                                    final SharedPool sharedPool,
+                                   final ReportsQueriesConfiguration queriesConfiguration,
                                    final int section) {
         this.completeMessagesHandler = completeMessagesHandler;
+        this.reportQueriesHandler = reportQueriesHandler;
         this.incomingData = new LongObjectHashMap<>();
         this.eventsHelper = new OrderBookEventsHelper(sharedPool::getChain);
+        this.queriesConfiguration = queriesConfiguration;
         this.section = section;
     }
 
     public BinaryCommandsProcessor(final Function<Object, Optional<? extends WriteBytesMarshallable>> completeMessagesHandler,
+                                   final ReportQueriesHandler reportQueriesHandler,
                                    final SharedPool sharedPool,
+                                   final ReportsQueriesConfiguration queriesConfiguration,
                                    final BytesIn bytesIn,
                                    int section) {
         this.completeMessagesHandler = completeMessagesHandler;
+        this.reportQueriesHandler = reportQueriesHandler;
         this.incomingData = SerializationUtils.readLongHashMap(bytesIn, b -> new TransferRecord(bytesIn));
         this.eventsHelper = new OrderBookEventsHelper(sharedPool::getChain);
         this.section = section;
+        this.queriesConfiguration = queriesConfiguration;
     }
 
-    public boolean acceptBinaryFrame(OrderCommand cmd) {
+    public CommandResultCode acceptBinaryFrame(OrderCommand cmd) {
 
         final int transferId = cmd.userCookie;
 
@@ -93,58 +110,62 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
 
             final BytesIn bytesIn = SerializationUtils.longsToWire(record.dataArray).bytes();
 
-            final Object deserializedMessage = deserializeObject(bytesIn);
-            completeMessagesHandler.apply(deserializedMessage).ifPresent(res -> {
+            final Optional<? extends WriteBytesMarshallable> resultOpt = (cmd.command == OrderCommandType.BINARY_DATA_QUERY)
+                    ? deserializeQuery(bytesIn).flatMap(reportQueriesHandler::handleReport)
+                    : completeMessagesHandler.apply(deserializeObject(bytesIn));
+
+            resultOpt.ifPresent(res -> {
                 final NativeBytes<Void> bytes = Bytes.allocateElasticDirect(128);
                 res.writeMarshallable(bytes);
                 final MatcherTradeEvent binaryEventsChain = eventsHelper.createBinaryEventsChain(cmd.timestamp, section, bytes);
                 UnsafeUtils.appendEventsVolatile(cmd, binaryEventsChain);
             });
 
-            return true;
+            return CommandResultCode.SUCCESS;
         } else {
-            return false;
+            return CommandResultCode.ACCEPTED;
         }
-
     }
 
     @NotNull
     public static Object deserializeObject(BytesIn bytesIn) {
 
-        int classCode = bytesIn.readInt();
+        final int classCode = bytesIn.readInt();
 
         switch (classCode) {
             case 1002:
                 return new BatchAddSymbolsCommand(bytesIn);
             case 1003:
                 return new BatchAddAccountsCommand(bytesIn);
-            case 2001:
-                return new StateHashReportQuery(bytesIn);
-            case 2002:
-                return new SingleUserReportQuery(bytesIn);
-            case 2003:
-                return new TotalCurrencyBalanceReportQuery(bytesIn);
             default:
                 throw new IllegalStateException("Unsupported classCode: " + classCode);
         }
     }
 
     @NotNull
-    public static NativeBytes<Void> serializeObject(WriteBytesMarshallable data) {
-        final NativeBytes<Void> bytes = Bytes.allocateElasticDirect(128);
-        if (data instanceof BatchAddSymbolsCommand) {
-            bytes.writeInt(1002);
-        } else if (data instanceof BatchAddAccountsCommand) {
-            bytes.writeInt(1003);
-        } else if (data instanceof StateHashReportQuery) {
-            bytes.writeInt(2001);
-        } else if (data instanceof SingleUserReportQuery) {
-            bytes.writeInt(2002);
-        } else if (data instanceof TotalCurrencyBalanceReportQuery) {
-            bytes.writeInt(2003);
-        } else {
-            throw new IllegalStateException("Unsupported class: " + data.getClass());
+    private Optional<ReportQuery<?>> deserializeQuery(BytesIn bytesIn) {
+
+        final int classCode = bytesIn.readInt();
+
+        final Constructor<? extends ReportQuery<?>> constructor = queriesConfiguration.getReportClasses().get(classCode);
+        if (constructor == null) {
+            log.error("Unknown Report Query class code: {}", classCode);
+            return Optional.empty();
         }
+
+        try {
+            return Optional.of(constructor.newInstance(bytesIn));
+
+        } catch (final IllegalAccessException | InstantiationException | InvocationTargetException ex) {
+            log.error("Failed to deserialize report instance of class {} error: {}", constructor.getDeclaringClass().getSimpleName(), ex.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    @NotNull
+    public static NativeBytes<Void> serializeObject(WriteBytesMarshallable data, int objectType) {
+        final NativeBytes<Void> bytes = Bytes.allocateElasticDirect(128);
+        bytes.writeInt(objectType);
         data.writeMarshallable(bytes);
         return bytes;
     }

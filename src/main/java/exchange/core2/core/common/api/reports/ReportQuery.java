@@ -15,16 +15,22 @@
  */
 package exchange.core2.core.common.api.reports;
 
-import exchange.core2.core.common.ReportType;
+import exchange.core2.core.processors.MatchingEngineRouter;
+import exchange.core2.core.processors.RiskEngine;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
 public interface ReportQuery<T extends ReportResult> extends WriteBytesMarshallable {
 
-    ReportType getReportType();
+    int getReportTypeCode();
 
     Function<Stream<BytesIn>, T> getResultBuilder();
+
+    Optional<T> process(MatchingEngineRouter matchingEngine);
+
+    Optional<T> process(RiskEngine riskEngine);
 }

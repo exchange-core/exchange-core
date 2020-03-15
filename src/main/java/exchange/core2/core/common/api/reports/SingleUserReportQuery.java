@@ -15,10 +15,17 @@
  */
 package exchange.core2.core.common.api.reports;
 
+import exchange.core2.core.common.Order;
 import exchange.core2.core.common.ReportType;
+import exchange.core2.core.common.UserProfile;
+import exchange.core2.core.processors.MatchingEngineRouter;
+import exchange.core2.core.processors.RiskEngine;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
+import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
+import java.util.List;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
@@ -39,13 +46,36 @@ public class SingleUserReportQuery implements ReportQuery<SingleUserReportResult
     }
 
     @Override
-    public ReportType getReportType() {
-        return ReportType.SINGLE_USER_REPORT;
+    public int getReportTypeCode() {
+        return ReportType.SINGLE_USER_REPORT.getCode();
     }
 
     @Override
     public Function<Stream<BytesIn>, SingleUserReportResult> getResultBuilder() {
         return SingleUserReportResult::merge;
+    }
+
+    @Override
+    public Optional<SingleUserReportResult> process(MatchingEngineRouter matchingEngine) {
+        final IntObjectHashMap<List<Order>> orders = new IntObjectHashMap<>();
+        matchingEngine.getOrderBooks().forEach(ob -> orders.put(ob.getSymbolSpec().symbolId, ob.findUserOrders(this.uid)));
+
+        //log.debug("orders: {}", orders.size());
+        return Optional.of(new SingleUserReportResult(null, orders, SingleUserReportResult.ExecutionStatus.OK));
+    }
+
+    @Override
+    public Optional<SingleUserReportResult> process(RiskEngine riskEngine) {
+
+        if (riskEngine.uidForThisHandler(this.uid)) {
+            final UserProfile userProfile = riskEngine.getUserProfileService().getUserProfile(this.uid);
+            return Optional.of(new SingleUserReportResult(
+                    userProfile,
+                    null,
+                    userProfile == null ? SingleUserReportResult.ExecutionStatus.USER_NOT_FOUND : SingleUserReportResult.ExecutionStatus.OK));
+        } else {
+            return Optional.empty();
+        }
     }
 
     @Override

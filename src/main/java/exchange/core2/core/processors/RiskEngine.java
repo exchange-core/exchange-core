@@ -18,10 +18,11 @@ package exchange.core2.core.processors;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.api.binary.BatchAddAccountsCommand;
 import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
-import exchange.core2.core.common.api.reports.*;
+import exchange.core2.core.common.api.reports.ReportQuery;
+import exchange.core2.core.common.api.reports.ReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
-import exchange.core2.core.common.config.InitialStateConfiguration;
+import exchange.core2.core.common.config.ExchangeConfiguration;
 import exchange.core2.core.processors.journaling.ISerializationProcessor;
 import exchange.core2.core.utils.CoreArithmeticUtils;
 import exchange.core2.core.utils.HashingUtils;
@@ -46,6 +47,7 @@ import java.util.Optional;
  * Stateful risk engine
  */
 @Slf4j
+@Getter
 public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
     // state
@@ -68,7 +70,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                       final long numShards,
                       final ISerializationProcessor serializationProcessor,
                       final SharedPool sharedPool,
-                      final InitialStateConfiguration initialStateConfiguration) {
+                      final ExchangeConfiguration exchangeConfiguration) {
         if (Long.bitCount(numShards) != 1) {
             throw new IllegalArgumentException("Invalid number of shards " + numShards + " - must be power of 2");
         }
@@ -76,16 +78,16 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         this.shardMask = numShards - 1;
         this.serializationProcessor = serializationProcessor;
 
-        // initialize object pools
+        // initialize object pools // TODO move to perf config
         final HashMap<Integer, Integer> objectsPoolConfig = new HashMap<>();
         objectsPoolConfig.put(ObjectsPool.SYMBOL_POSITION_RECORD, 1024 * 256);
         this.objectsPool = new ObjectsPool(objectsPoolConfig, sharedPool);
 
-        if (initialStateConfiguration.fromSnapshot()) {
+        if (exchangeConfiguration.getInitStateCfg().fromSnapshot()) {
 
-            // TODO refactor, change to creator (simpler init)
+            // TODO refactor, change to creator (simpler init)`
             final State state = serializationProcessor.loadData(
-                    initialStateConfiguration.getSnapshotId(),
+                    exchangeConfiguration.getInitStateCfg().getSnapshotId(),
                     ISerializationProcessor.SerializedModuleType.RISK_ENGINE,
                     shardId,
                     bytesIn -> {
@@ -97,7 +99,13 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                         }
                         final SymbolSpecificationProvider symbolSpecificationProvider = new SymbolSpecificationProvider(bytesIn);
                         final UserProfileService userProfileService = new UserProfileService(bytesIn);
-                        final BinaryCommandsProcessor binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, sharedPool, bytesIn, shardId);
+                        final BinaryCommandsProcessor binaryCommandsProcessor = new BinaryCommandsProcessor(
+                                this::handleBinaryMessage,
+                                this::handleReportQuery,
+                                sharedPool,
+                                exchangeConfiguration.getReportsQueriesCfg(),
+                                bytesIn,
+                                shardId);
                         final IntObjectHashMap<LastPriceCacheRecord> lastPriceCache = SerializationUtils.readIntHashMap(bytesIn, LastPriceCacheRecord::new);
                         final IntLongHashMap fees = SerializationUtils.readIntLongHashMap(bytesIn);
                         final IntLongHashMap adjustments = SerializationUtils.readIntLongHashMap(bytesIn);
@@ -124,7 +132,12 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         } else {
             this.symbolSpecificationProvider = new SymbolSpecificationProvider();
             this.userProfileService = new UserProfileService();
-            this.binaryCommandsProcessor = new BinaryCommandsProcessor(this::handleBinaryMessage, sharedPool, shardId);
+            this.binaryCommandsProcessor = new BinaryCommandsProcessor(
+                    this::handleBinaryMessage,
+                    this::handleReportQuery,
+                    sharedPool,
+                    exchangeConfiguration.getReportsQueriesCfg(),
+                    shardId);
             this.lastPriceCache = new IntObjectHashMap<>();
             this.fees = new IntLongHashMap();
             this.adjustments = new IntLongHashMap();
@@ -223,7 +236,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
             case BINARY_DATA_COMMAND:
             case BINARY_DATA_QUERY:
-                binaryCommandsProcessor.acceptBinaryFrame(cmd);
+                binaryCommandsProcessor.acceptBinaryFrame(cmd); // ignore return result, because it should be set by MatchingEngineRouter
                 if (shardId == 0) {
                     cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
                 }
@@ -291,87 +304,16 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 }
             });
             return Optional.empty();
-        } else if (message instanceof ReportQuery) {
-            return processReport((ReportQuery) message);
         } else {
             return Optional.empty();
         }
     }
 
-
-    // TODO use with common module accepting implementations?
-    private Optional<? extends WriteBytesMarshallable> processReport(ReportQuery reportQuery) {
-
-        switch (reportQuery.getReportType()) {
-
-            case STATE_HASH:
-                return reportStateHash();
-
-            case SINGLE_USER_REPORT:
-                return reportSingleUser((SingleUserReportQuery) reportQuery);
-
-            case TOTAL_CURRENCY_BALANCE:
-                return reportGlobalBalance();
-
-            default:
-                throw new IllegalStateException("Report not implemented");
-        }
+    private <R extends ReportResult> Optional<R> handleReportQuery(ReportQuery<R> reportQuery) {
+        return reportQuery.process(this);
     }
 
-    private Optional<StateHashReportResult> reportStateHash() {
-        return Optional.of(new StateHashReportResult(stateHash()));
-    }
-
-    private Optional<SingleUserReportResult> reportSingleUser(final SingleUserReportQuery query) {
-        if (uidForThisHandler(query.getUid())) {
-            final UserProfile userProfile = userProfileService.getUserProfile(query.getUid());
-            return Optional.of(new SingleUserReportResult(
-                    userProfile,
-                    null,
-                    userProfile == null ? SingleUserReportResult.ExecutionStatus.USER_NOT_FOUND : SingleUserReportResult.ExecutionStatus.OK));
-        } else {
-            return Optional.empty();
-        }
-    }
-
-    private Optional<TotalCurrencyBalanceReportResult> reportGlobalBalance() {
-
-        // prepare fast price cache for profit estimation with some price (exact value is not important, except ask==bid condition)
-        final IntObjectHashMap<LastPriceCacheRecord> dummyLastPriceCache = new IntObjectHashMap<>();
-        lastPriceCache.forEachKeyValue((s, r) -> dummyLastPriceCache.put(s, r.averagingRecord()));
-
-        final IntLongHashMap currencyBalance = new IntLongHashMap();
-
-        final IntLongHashMap symbolOpenInterestLong = new IntLongHashMap();
-        final IntLongHashMap symbolOpenInterestShort = new IntLongHashMap();
-
-        userProfileService.getUserProfiles().forEach(userProfile -> {
-            userProfile.accounts.forEachKeyValue(currencyBalance::addToValue);
-            userProfile.positions.forEachKeyValue((symbolId, positionRecord) -> {
-                final CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(symbolId);
-                final LastPriceCacheRecord avgPrice = dummyLastPriceCache.getIfAbsentPut(symbolId, LastPriceCacheRecord.dummy);
-                currencyBalance.addToValue(positionRecord.currency, positionRecord.estimateProfit(spec, avgPrice));
-
-                if (positionRecord.direction == PositionDirection.LONG) {
-                    symbolOpenInterestLong.addToValue(symbolId, positionRecord.openVolume);
-                } else if (positionRecord.direction == PositionDirection.SHORT) {
-                    symbolOpenInterestShort.addToValue(symbolId, positionRecord.openVolume);
-                }
-            });
-        });
-
-        return Optional.of(
-                new TotalCurrencyBalanceReportResult(
-                        currencyBalance,
-                        new IntLongHashMap(fees),
-                        new IntLongHashMap(adjustments),
-                        new IntLongHashMap(suspends),
-                        null,
-                        symbolOpenInterestLong,
-                        symbolOpenInterestShort));
-    }
-
-    private boolean uidForThisHandler(final long uid) {
+    public boolean uidForThisHandler(final long uid) {
         return (shardMask == 0) || ((uid & shardMask) == shardId);
     }
 

@@ -15,11 +15,21 @@
  */
 package exchange.core2.core.common.api.reports;
 
+import exchange.core2.core.common.CoreSymbolSpecification;
+import exchange.core2.core.common.PositionDirection;
 import exchange.core2.core.common.ReportType;
+import exchange.core2.core.common.SymbolType;
+import exchange.core2.core.processors.MatchingEngineRouter;
+import exchange.core2.core.processors.RiskEngine;
+import exchange.core2.core.processors.SymbolSpecificationProvider;
+import exchange.core2.core.utils.CoreArithmeticUtils;
 import lombok.NoArgsConstructor;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
+import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
+import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
@@ -31,13 +41,75 @@ public class TotalCurrencyBalanceReportQuery implements ReportQuery<TotalCurrenc
     }
 
     @Override
-    public ReportType getReportType() {
-        return ReportType.TOTAL_CURRENCY_BALANCE;
+    public int getReportTypeCode() {
+        return ReportType.TOTAL_CURRENCY_BALANCE.getCode();
     }
 
     @Override
     public Function<Stream<BytesIn>, TotalCurrencyBalanceReportResult> getResultBuilder() {
         return TotalCurrencyBalanceReportResult::merge;
+    }
+
+    @Override
+    public Optional<TotalCurrencyBalanceReportResult> process(MatchingEngineRouter matchingEngine) {
+
+        final IntLongHashMap currencyBalance = new IntLongHashMap();
+
+        matchingEngine.getOrderBooks().stream()
+                .filter(ob -> ob.getSymbolSpec().type == SymbolType.CURRENCY_EXCHANGE_PAIR)
+                .forEach(ob -> {
+                    final CoreSymbolSpecification spec = ob.getSymbolSpec();
+
+                    currencyBalance.addToValue(
+                            spec.getBaseCurrency(),
+                            ob.askOrdersStream(false).mapToLong(ord -> CoreArithmeticUtils.calculateAmountAsk(ord.getSize() - ord.getFilled(), spec)).sum());
+
+                    currencyBalance.addToValue(
+                            spec.getQuoteCurrency(),
+                            ob.bidOrdersStream(false).mapToLong(ord -> CoreArithmeticUtils.calculateAmountBidTakerFee(ord.getSize() - ord.getFilled(), ord.getReserveBidPrice(), spec)).sum());
+                });
+
+        return Optional.of(TotalCurrencyBalanceReportResult.ofOrderBalances(currencyBalance));
+    }
+
+    @Override
+    public Optional<TotalCurrencyBalanceReportResult> process(RiskEngine riskEngine) {
+
+        // prepare fast price cache for profit estimation with some price (exact value is not important, except ask==bid condition)
+        final IntObjectHashMap<RiskEngine.LastPriceCacheRecord> dummyLastPriceCache = new IntObjectHashMap<>();
+        riskEngine.getLastPriceCache().forEachKeyValue((s, r) -> dummyLastPriceCache.put(s, r.averagingRecord()));
+
+        final IntLongHashMap currencyBalance = new IntLongHashMap();
+
+        final IntLongHashMap symbolOpenInterestLong = new IntLongHashMap();
+        final IntLongHashMap symbolOpenInterestShort = new IntLongHashMap();
+
+        final SymbolSpecificationProvider symbolSpecificationProvider = riskEngine.getSymbolSpecificationProvider();
+
+        riskEngine.getUserProfileService().getUserProfiles().forEach(userProfile -> {
+            userProfile.accounts.forEachKeyValue(currencyBalance::addToValue);
+            userProfile.positions.forEachKeyValue((symbolId, positionRecord) -> {
+                final CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(symbolId);
+                final RiskEngine.LastPriceCacheRecord avgPrice = dummyLastPriceCache.getIfAbsentPut(symbolId, RiskEngine.LastPriceCacheRecord.dummy);
+                currencyBalance.addToValue(positionRecord.currency, positionRecord.estimateProfit(spec, avgPrice));
+
+                if (positionRecord.direction == PositionDirection.LONG) {
+                    symbolOpenInterestLong.addToValue(symbolId, positionRecord.openVolume);
+                } else if (positionRecord.direction == PositionDirection.SHORT) {
+                    symbolOpenInterestShort.addToValue(symbolId, positionRecord.openVolume);
+                }
+            });
+        });
+
+        return Optional.of(
+                new TotalCurrencyBalanceReportResult(
+                        currencyBalance,
+                        new IntLongHashMap(riskEngine.getFees()),
+                        new IntLongHashMap(riskEngine.getAdjustments()),
+                        new IntLongHashMap(riskEngine.getSuspends()),
+                        null,
+                        symbolOpenInterestLong,
+                        symbolOpenInterestShort));
     }
 
     @Override

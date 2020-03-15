@@ -21,6 +21,8 @@ import exchange.core2.core.common.BalanceAdjustmentType;
 import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.OrderType;
 import exchange.core2.core.common.api.*;
+import exchange.core2.core.common.api.binary.BatchAddAccountsCommand;
+import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
 import exchange.core2.core.common.api.reports.ReportQuery;
 import exchange.core2.core.common.api.reports.ReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
@@ -110,6 +112,21 @@ public final class ExchangeApi {
         return future;
     }
 
+    public <R> Future<R> submitQueryAsync(
+            final ReportQuery<?> data,
+            final int transferId,
+            final Function<OrderCommand, R> translator) {
+
+        final CompletableFuture<R> future = new CompletableFuture<>();
+
+        publishQuery(
+                ApiReportQueryCommand.builder().query(data).transferId(transferId).build(),
+                seq -> promises.put(seq, orderCommand -> future.complete(translator.apply(orderCommand))));
+
+        return future;
+    }
+
+
     public void submitBinaryCommandAsync(
             final WriteBytesMarshallable data,
             final int transferId,
@@ -123,10 +140,9 @@ public final class ExchangeApi {
 
 
     public <Q extends ReportQuery<R>, R extends ReportResult> Future<R> processReport(final Q query, final int transferId) {
-        return submitBinaryCommandAsync(
+        return submitQueryAsync(
                 query,
                 transferId,
-                true,
                 cmd -> {
                     final Stream<BytesIn> sections = OrderBookEventsHelper.deserializeEvents(cmd.matcherEvent).values().stream().map(Wire::bytes);
                     return query.getResultBuilder().apply(sections);
@@ -135,10 +151,44 @@ public final class ExchangeApi {
 
     public void publishBinaryData(final ApiBinaryDataCommand apiCmd, final LongConsumer endSeqConsumer) {
 
-        final OrderCommandType cmdType = apiCmd.isQuery ? OrderCommandType.BINARY_DATA_QUERY : OrderCommandType.BINARY_DATA_COMMAND;
+        final int dataTypeCode;
+
+        if (apiCmd.data instanceof BatchAddSymbolsCommand) {
+            dataTypeCode = 1002;
+        } else if (apiCmd.data instanceof BatchAddAccountsCommand) {
+            dataTypeCode = 1003;
+        } else {
+            throw new IllegalStateException("Unsupported class: " + apiCmd.data.getClass());
+        }
+
+        publishBinaryData(
+                apiCmd.isQuery ? OrderCommandType.BINARY_DATA_QUERY : OrderCommandType.BINARY_DATA_COMMAND,
+                apiCmd.data,
+                dataTypeCode,
+                apiCmd.transferId,
+                apiCmd.timestamp,
+                endSeqConsumer);
+    }
+
+    public void publishQuery(final ApiReportQueryCommand apiCmd, final LongConsumer endSeqConsumer) {
+        publishBinaryData(
+                OrderCommandType.BINARY_DATA_QUERY,
+                apiCmd.query,
+                apiCmd.query.getReportTypeCode(),
+                apiCmd.transferId,
+                apiCmd.timestamp,
+                endSeqConsumer);
+    }
+
+    private void publishBinaryData(final OrderCommandType cmdType,
+                                   final WriteBytesMarshallable data,
+                                   final int dataTypeCode,
+                                   final int transferId,
+                                   final long timestamp,
+                                   final LongConsumer endSeqConsumer) {
 
         final int longsPerMessage = 5;
-        long[] longArray = SerializationUtils.bytesToLongArray(BinaryCommandsProcessor.serializeObject(apiCmd.data), longsPerMessage);
+        long[] longArray = SerializationUtils.bytesToLongArray(BinaryCommandsProcessor.serializeObject(data, dataTypeCode), longsPerMessage);
 
         int i = 0;
         int n = longArray.length / longsPerMessage;
@@ -152,7 +202,7 @@ public final class ExchangeApi {
 
                 OrderCommand cmd = ringBuffer.get(seq);
                 cmd.command = cmdType;
-                cmd.userCookie = apiCmd.transferId;
+                cmd.userCookie = transferId;
                 cmd.symbol = seq == highSeq ? -1 : 0;
 
                 cmd.orderId = longArray[i];
@@ -161,7 +211,7 @@ public final class ExchangeApi {
                 cmd.size = longArray[i + 3];
                 cmd.uid = longArray[i + 4];
 
-                cmd.timestamp = apiCmd.timestamp;
+                cmd.timestamp = timestamp;
                 cmd.resultCode = CommandResultCode.NEW;
 
 //                log.debug("ORIG {}", String.format("f=%d word0=%X word1=%X word2=%X word3=%X word4=%X",
