@@ -17,7 +17,6 @@ package exchange.core2.core.common.api.reports;
 
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.PositionDirection;
-import exchange.core2.core.common.ReportType;
 import exchange.core2.core.common.SymbolType;
 import exchange.core2.core.processors.MatchingEngineRouter;
 import exchange.core2.core.processors.RiskEngine;
@@ -34,7 +33,7 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 
 @NoArgsConstructor
-public class TotalCurrencyBalanceReportQuery implements ReportQuery<TotalCurrencyBalanceReportResult> {
+public final class TotalCurrencyBalanceReportQuery implements ReportQuery<TotalCurrencyBalanceReportResult> {
 
     public TotalCurrencyBalanceReportQuery(BytesIn bytesIn) {
         // do nothing

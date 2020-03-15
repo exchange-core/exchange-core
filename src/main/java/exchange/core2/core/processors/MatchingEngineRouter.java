@@ -19,7 +19,8 @@ import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.StateHash;
 import exchange.core2.core.common.api.binary.BatchAddAccountsCommand;
 import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
-import exchange.core2.core.common.api.reports.*;
+import exchange.core2.core.common.api.reports.ReportQuery;
+import exchange.core2.core.common.api.reports.ReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
@@ -164,18 +165,13 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
 
     }
 
+    private void handleBinaryMessage(Object message) {
 
-    private Optional<? extends WriteBytesMarshallable> handleBinaryMessage(Object message) {
         if (message instanceof BatchAddSymbolsCommand) {
-            // TODO return status object
             final IntObjectHashMap<CoreSymbolSpecification> symbols = ((BatchAddSymbolsCommand) message).getSymbols();
             symbols.forEach(this::addSymbol);
-            return Optional.empty();
         } else if (message instanceof BatchAddAccountsCommand) {
             // do nothing
-            return Optional.empty();
-        } else {
-            return Optional.empty();
         }
     }
 

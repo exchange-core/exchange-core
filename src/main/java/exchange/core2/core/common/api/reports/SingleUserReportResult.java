@@ -30,7 +30,7 @@ import java.util.stream.Stream;
 
 @AllArgsConstructor
 @Getter
-public class SingleUserReportResult implements ReportResult {
+public final class SingleUserReportResult implements ReportResult {
 
     // risk engine: user profile from
     private final UserProfile userProfile;

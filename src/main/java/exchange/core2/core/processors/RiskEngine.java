@@ -18,6 +18,7 @@ package exchange.core2.core.processors;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.api.binary.BatchAddAccountsCommand;
 import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
+import exchange.core2.core.common.api.binary.BinaryDataCommand;
 import exchange.core2.core.common.api.reports.ReportQuery;
 import exchange.core2.core.common.api.reports.ReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
@@ -286,15 +287,15 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         return res;
     }
 
-    private Optional<? extends WriteBytesMarshallable> handleBinaryMessage(Object message) {
+    private void handleBinaryMessage(BinaryDataCommand message) {
 
         if (message instanceof BatchAddSymbolsCommand) {
-            // TODO return status object
+
             final IntObjectHashMap<CoreSymbolSpecification> symbols = ((BatchAddSymbolsCommand) message).getSymbols();
             symbols.forEach(symbolSpecificationProvider::addSymbol);
-            return Optional.empty();
+
         } else if (message instanceof BatchAddAccountsCommand) {
-            // TODO return status object
+
             ((BatchAddAccountsCommand) message).getUsers().forEachKeyValue((uid, accounts) -> {
                 if (userProfileService.addEmptyUserProfile(uid)) {
                     accounts.forEachKeyValue((cur, bal) ->
@@ -303,9 +304,6 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                     log.debug("User already exist: {}", uid);
                 }
             });
-            return Optional.empty();
-        } else {
-            return Optional.empty();
         }
     }
 

@@ -16,7 +16,6 @@
 package exchange.core2.core.common.api.reports;
 
 import exchange.core2.core.common.Order;
-import exchange.core2.core.common.ReportType;
 import exchange.core2.core.common.UserProfile;
 import exchange.core2.core.processors.MatchingEngineRouter;
 import exchange.core2.core.processors.RiskEngine;
@@ -29,7 +28,7 @@ import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
-public class SingleUserReportQuery implements ReportQuery<SingleUserReportResult> {
+public final class SingleUserReportQuery implements ReportQuery<SingleUserReportResult> {
 
     private final long uid;
 

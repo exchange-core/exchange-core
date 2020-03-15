@@ -10,9 +10,15 @@ import lombok.Getter;
 @Builder
 public final class ExchangeConfiguration {
 
-    // TODO basic config
-
     private final PerformanceConfiguration perfCfg;
     private final InitialStateConfiguration initStateCfg;
     private final ReportsQueriesConfiguration reportsQueriesCfg;
+
+
+    public static ExchangeConfiguration.ExchangeConfigurationBuilder defaultBuilder() {
+        return ExchangeConfiguration.builder()
+                .initStateCfg(InitialStateConfiguration.cleanStart("MY_EXCHANGE"))
+                .perfCfg(PerformanceConfiguration.baseBuilder().build())
+                .reportsQueriesCfg(ReportsQueriesConfiguration.createStandardConfig());
+    }
 }

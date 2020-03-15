@@ -28,7 +28,7 @@ public final class PerformanceConfiguration {
     private final BiFunction<CoreSymbolSpecification, ObjectsPool, IOrderBook> orderBookFactory;
 
 
-    public static PerformanceConfiguration baseBuilder() {
+    public static PerformanceConfiguration.PerformanceConfigurationBuilder baseBuilder() {
 
         return builder()
                 .ringBufferSize(32768)
@@ -37,8 +37,7 @@ public final class PerformanceConfiguration {
                 .msgsInGroupLimit(512)
                 .threadFactory(Thread::new)
                 .waitStrategy(CoreWaitStrategy.SLEEPING)
-                .orderBookFactory((spec, pool) -> new OrderBookNaiveImpl(spec))
-                .build();
+                .orderBookFactory((spec, pool) -> new OrderBookNaiveImpl(spec));
     }
 
 }

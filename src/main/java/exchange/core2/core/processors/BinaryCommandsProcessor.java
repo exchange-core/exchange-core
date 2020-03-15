@@ -17,8 +17,7 @@ package exchange.core2.core.processors;
 
 import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.StateHash;
-import exchange.core2.core.common.api.binary.BatchAddAccountsCommand;
-import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
+import exchange.core2.core.common.api.binary.BinaryDataCommand;
 import exchange.core2.core.common.api.reports.ReportQueriesHandler;
 import exchange.core2.core.common.api.reports.ReportQuery;
 import exchange.core2.core.common.cmd.CommandResultCode;
@@ -32,14 +31,13 @@ import exchange.core2.core.utils.UnsafeUtils;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.*;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
-import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Function;
+import java.util.function.Consumer;
 
 /**
  * Stateful Binary Commands Processor
@@ -54,7 +52,7 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
     private final LongObjectHashMap<TransferRecord> incomingData;
 
     // TODO improve type (Object is not ok)
-    private final Function<Object, Optional<? extends WriteBytesMarshallable>> completeMessagesHandler;
+    private final Consumer<BinaryDataCommand> completeMessagesHandler;
 
     private final ReportQueriesHandler reportQueriesHandler;
 
@@ -64,7 +62,7 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
 
     private final int section;
 
-    public BinaryCommandsProcessor(final Function<Object, Optional<? extends WriteBytesMarshallable>> completeMessagesHandler,
+    public BinaryCommandsProcessor(final Consumer<BinaryDataCommand> completeMessagesHandler,
                                    final ReportQueriesHandler reportQueriesHandler,
                                    final SharedPool sharedPool,
                                    final ReportsQueriesConfiguration queriesConfiguration,
@@ -77,7 +75,7 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
         this.section = section;
     }
 
-    public BinaryCommandsProcessor(final Function<Object, Optional<? extends WriteBytesMarshallable>> completeMessagesHandler,
+    public BinaryCommandsProcessor(final Consumer<BinaryDataCommand> completeMessagesHandler,
                                    final ReportQueriesHandler reportQueriesHandler,
                                    final SharedPool sharedPool,
                                    final ReportsQueriesConfiguration queriesConfiguration,
@@ -110,16 +108,26 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
 
             final BytesIn bytesIn = SerializationUtils.longsToWire(record.dataArray).bytes();
 
-            final Optional<? extends WriteBytesMarshallable> resultOpt = (cmd.command == OrderCommandType.BINARY_DATA_QUERY)
-                    ? deserializeQuery(bytesIn).flatMap(reportQueriesHandler::handleReport)
-                    : completeMessagesHandler.apply(deserializeObject(bytesIn));
+            if (cmd.command == OrderCommandType.BINARY_DATA_QUERY) {
 
-            resultOpt.ifPresent(res -> {
-                final NativeBytes<Void> bytes = Bytes.allocateElasticDirect(128);
-                res.writeMarshallable(bytes);
-                final MatcherTradeEvent binaryEventsChain = eventsHelper.createBinaryEventsChain(cmd.timestamp, section, bytes);
-                UnsafeUtils.appendEventsVolatile(cmd, binaryEventsChain);
-            });
+                deserializeQuery(bytesIn)
+                        .flatMap(reportQueriesHandler::handleReport)
+                        .ifPresent(res -> {
+                            final NativeBytes<Void> bytes = Bytes.allocateElasticDirect(128);
+                            res.writeMarshallable(bytes);
+                            final MatcherTradeEvent binaryEventsChain = eventsHelper.createBinaryEventsChain(cmd.timestamp, section, bytes);
+                            UnsafeUtils.appendEventsVolatile(cmd, binaryEventsChain);
+                        });
+
+            } else if (cmd.command == OrderCommandType.BINARY_DATA_COMMAND) {
+
+                final BinaryDataCommand binaryDataCommand = deserializeBinaryCommand(bytesIn);
+                completeMessagesHandler.accept(binaryDataCommand);
+
+            } else {
+                throw new IllegalStateException();
+            }
+
 
             return CommandResultCode.SUCCESS;
         } else {
@@ -127,27 +135,28 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
         }
     }
 
-    @NotNull
-    public static Object deserializeObject(BytesIn bytesIn) {
+    private BinaryDataCommand deserializeBinaryCommand(BytesIn bytesIn) {
 
         final int classCode = bytesIn.readInt();
 
-        switch (classCode) {
-            case 1002:
-                return new BatchAddSymbolsCommand(bytesIn);
-            case 1003:
-                return new BatchAddAccountsCommand(bytesIn);
-            default:
-                throw new IllegalStateException("Unsupported classCode: " + classCode);
+        final Constructor<? extends BinaryDataCommand> constructor = queriesConfiguration.getBinaryCommandConstructors().get(classCode);
+        if (constructor == null) {
+            throw new IllegalStateException("Unknown Binary Data Command class code: " + classCode);
+        }
+
+        try {
+            return constructor.newInstance(bytesIn);
+
+        } catch (final IllegalAccessException | InstantiationException | InvocationTargetException ex) {
+            throw new IllegalStateException("Failed to deserialize Binary Data Command instance of class " + constructor.getDeclaringClass().getSimpleName(), ex);
         }
     }
 
-    @NotNull
     private Optional<ReportQuery<?>> deserializeQuery(BytesIn bytesIn) {
 
         final int classCode = bytesIn.readInt();
 
-        final Constructor<? extends ReportQuery<?>> constructor = queriesConfiguration.getReportClasses().get(classCode);
+        final Constructor<? extends ReportQuery<?>> constructor = queriesConfiguration.getReportConstructors().get(classCode);
         if (constructor == null) {
             log.error("Unknown Report Query class code: {}", classCode);
             return Optional.empty();
@@ -162,7 +171,6 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
         }
     }
 
-    @NotNull
     public static NativeBytes<Void> serializeObject(WriteBytesMarshallable data, int objectType) {
         final NativeBytes<Void> bytes = Bytes.allocateElasticDirect(128);
         bytes.writeInt(objectType);

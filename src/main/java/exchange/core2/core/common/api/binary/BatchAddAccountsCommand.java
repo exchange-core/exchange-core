@@ -18,16 +18,16 @@ package exchange.core2.core.common.api.binary;
 import exchange.core2.core.utils.SerializationUtils;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
-import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 
 @AllArgsConstructor
 @Getter
-public class
-BatchAddAccountsCommand implements WriteBytesMarshallable {
+@Slf4j
+public final class BatchAddAccountsCommand implements BinaryDataCommand {
 
     private final LongObjectHashMap<IntLongHashMap> users;
 
@@ -38,5 +38,10 @@ BatchAddAccountsCommand implements WriteBytesMarshallable {
     @Override
     public void writeMarshallable(BytesOut bytes) {
         SerializationUtils.marshallLongHashMap(users, SerializationUtils::marshallIntLongHashMap, bytes);
+    }
+
+    @Override
+    public int getBinaryCommandTypeCode() {
+        return BinaryCommandType.ADD_ACCOUNTS.getCode();
     }
 }

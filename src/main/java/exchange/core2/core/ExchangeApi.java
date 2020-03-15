@@ -21,8 +21,7 @@ import exchange.core2.core.common.BalanceAdjustmentType;
 import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.OrderType;
 import exchange.core2.core.common.api.*;
-import exchange.core2.core.common.api.binary.BatchAddAccountsCommand;
-import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
+import exchange.core2.core.common.api.binary.BinaryDataCommand;
 import exchange.core2.core.common.api.reports.ReportQuery;
 import exchange.core2.core.common.api.reports.ReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
@@ -98,15 +97,14 @@ public final class ExchangeApi {
     }
 
     public <R> Future<R> submitBinaryCommandAsync(
-            final WriteBytesMarshallable data,
+            final BinaryDataCommand data,
             final int transferId,
-            final boolean isQuery,
             final Function<OrderCommand, R> translator) {
 
         final CompletableFuture<R> future = new CompletableFuture<>();
 
         publishBinaryData(
-                ApiBinaryDataCommand.builder().data(data).transferId(transferId).isQuery(isQuery).build(),
+                ApiBinaryDataCommand.builder().data(data).transferId(transferId).build(),
                 seq -> promises.put(seq, orderCommand -> future.complete(translator.apply(orderCommand))));
 
         return future;
@@ -128,13 +126,12 @@ public final class ExchangeApi {
 
 
     public void submitBinaryCommandAsync(
-            final WriteBytesMarshallable data,
+            final BinaryDataCommand data,
             final int transferId,
-            final Consumer<OrderCommand> consumer,
-            final boolean isQuery) {
+            final Consumer<OrderCommand> consumer) {
 
         publishBinaryData(
-                ApiBinaryDataCommand.builder().data(data).transferId(transferId).isQuery(isQuery).build(),
+                ApiBinaryDataCommand.builder().data(data).transferId(transferId).build(),
                 seq -> promises.put(seq, consumer));
     }
 
@@ -151,20 +148,10 @@ public final class ExchangeApi {
 
     public void publishBinaryData(final ApiBinaryDataCommand apiCmd, final LongConsumer endSeqConsumer) {
 
-        final int dataTypeCode;
-
-        if (apiCmd.data instanceof BatchAddSymbolsCommand) {
-            dataTypeCode = 1002;
-        } else if (apiCmd.data instanceof BatchAddAccountsCommand) {
-            dataTypeCode = 1003;
-        } else {
-            throw new IllegalStateException("Unsupported class: " + apiCmd.data.getClass());
-        }
-
         publishBinaryData(
-                apiCmd.isQuery ? OrderCommandType.BINARY_DATA_QUERY : OrderCommandType.BINARY_DATA_COMMAND,
+                OrderCommandType.BINARY_DATA_COMMAND,
                 apiCmd.data,
-                dataTypeCode,
+                apiCmd.data.getBinaryCommandTypeCode(),
                 apiCmd.transferId,
                 apiCmd.timestamp,
                 endSeqConsumer);

@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package exchange.core2.core.common;
+package exchange.core2.core.common.api.reports;
 
 import lombok.Getter;
 

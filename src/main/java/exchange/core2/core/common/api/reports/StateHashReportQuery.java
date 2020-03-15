@@ -15,7 +15,6 @@
  */
 package exchange.core2.core.common.api.reports;
 
-import exchange.core2.core.common.ReportType;
 import exchange.core2.core.processors.MatchingEngineRouter;
 import exchange.core2.core.processors.RiskEngine;
 import lombok.NoArgsConstructor;
@@ -27,7 +26,7 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 
 @NoArgsConstructor
-public class StateHashReportQuery implements ReportQuery<StateHashReportResult> {
+public final class StateHashReportQuery implements ReportQuery<StateHashReportResult> {
 
     public StateHashReportQuery(BytesIn bytesIn) {
         // do nothing

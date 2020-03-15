@@ -53,8 +53,7 @@ import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.*;
 
 @Slf4j
 public final class ExchangeTestContainer implements AutoCloseable {
@@ -363,7 +362,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
     void submitCommandsSync(List<ApiCommand> apiCommand) throws InterruptedException {
         final CountDownLatch latch = new CountDownLatch(apiCommand.size());
         consumer = cmd -> {
-            assertEquals(CommandResultCode.SUCCESS, cmd.resultCode);
+            assertTrue(CommandResultCode.SUCCESS == cmd.resultCode || CommandResultCode.ACCEPTED == cmd.resultCode);
             latch.countDown();
         };
         apiCommand.forEach(api::submitCommand);

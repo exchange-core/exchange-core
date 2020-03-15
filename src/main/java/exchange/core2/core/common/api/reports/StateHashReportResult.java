@@ -28,7 +28,7 @@ import java.util.stream.Stream;
 @AllArgsConstructor
 @Getter
 @Slf4j
-public class StateHashReportResult implements ReportResult {
+public final class StateHashReportResult implements ReportResult {
 
     // state hash
     private int stateHash;

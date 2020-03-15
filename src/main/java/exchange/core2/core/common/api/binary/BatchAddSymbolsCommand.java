@@ -21,14 +21,13 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
-import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
 import java.util.Collection;
 
 @AllArgsConstructor
 @Getter
-public class BatchAddSymbolsCommand implements WriteBytesMarshallable {
+public final class BatchAddSymbolsCommand implements BinaryDataCommand {
 
     private final IntObjectHashMap<CoreSymbolSpecification> symbols;
 
@@ -49,5 +48,10 @@ public class BatchAddSymbolsCommand implements WriteBytesMarshallable {
     @Override
     public void writeMarshallable(BytesOut bytes) {
         SerializationUtils.marshallIntHashMap(symbols, bytes);
+    }
+
+    @Override
+    public int getBinaryCommandTypeCode() {
+        return BinaryCommandType.ADD_SYMBOLS.getCode();
     }
 }

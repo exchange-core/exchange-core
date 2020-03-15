@@ -13,25 +13,33 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package exchange.core2.core.common.api;
+package exchange.core2.core.common.api.binary;
 
+import lombok.Getter;
 
-import exchange.core2.core.common.api.binary.BinaryDataCommand;
-import lombok.Builder;
+@Getter
+public enum BinaryCommandType {
 
+    ADD_ACCOUNTS(1002),
+    ADD_SYMBOLS(1003);
 
-@Builder
-public final class ApiBinaryDataCommand extends ApiCommand {
+    private final int code;
 
-    // transfer unique id
-    // can be constant unless going to push data concurrently
-    public final int transferId;
-
-    // serializable object
-    public final BinaryDataCommand data;
-
-    @Override
-    public String toString() {
-        return "[BINARY_DATA tid=" + transferId + " data=" + data + "]";
+    BinaryCommandType(int code) {
+        this.code = code;
     }
+
+    public static BinaryCommandType of(int code) {
+
+        switch (code) {
+            case 1002:
+                return ADD_ACCOUNTS;
+            case 1003:
+                return ADD_SYMBOLS;
+            default:
+                throw new IllegalArgumentException("unknown BinaryCommandType:" + code);
+        }
+
+    }
+
 }

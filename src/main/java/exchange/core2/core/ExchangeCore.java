@@ -196,12 +196,18 @@ public final class ExchangeCore {
                     return r2;
                 }));
 
+
         // 4. results handler (E) after matching engine (ME) + [journaling (J)]
-        (enableJournaling ? disruptor.after(ArrayUtils.add(matchingEngineHandlers, jh)) : afterMatchingEngine)
-                .handleEventsWith((cmd, seq, eob) -> {
-                    resultsConsumer.accept(cmd, seq);
-                    api.processResult(seq, cmd); // TODO SLOW ?(volatile operations)
-                });
+        final EventHandlerGroup<OrderCommand> mainHandlerGroup = enableJournaling
+                ? disruptor.after(ArrayUtils.add(matchingEngineHandlers, jh))
+                : afterMatchingEngine;
+
+        final ResultsHandler resultsHandler = new ResultsHandler(resultsConsumer);
+
+        mainHandlerGroup.handleEventsWith((cmd, seq, eob) -> {
+            resultsHandler.onEvent(cmd, seq, eob);
+            api.processResult(seq, cmd); // TODO SLOW ?(volatile operations)
+        });
 
         // attach slave processors to master processor
         Streams.forEachPair(procR1.stream(), procR2.stream(), TwoStepMasterProcessor::setSlaveProcessor);
