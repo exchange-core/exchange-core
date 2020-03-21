@@ -22,15 +22,14 @@ import exchange.core2.core.common.api.ApiPersistState;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.InitialStateConfiguration;
+import exchange.core2.core.common.config.PerformanceConfiguration;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.BitSet;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
-import java.util.function.Function;
 
 import static junit.framework.TestCase.assertTrue;
 import static org.hamcrest.Matchers.is;
@@ -41,14 +40,9 @@ public class PersistenceTestsModule {
 
     // TODO current persistence test does not cover positions serialization
 
-    public static void persistenceTestImpl(final Function<InitialStateConfiguration, ExchangeTestContainer> containerFactory,
-                                           final int totalTransactionsNumber,
-                                           final int targetOrderBookOrdersTotal,
-                                           final int numAccounts,
-                                           final int iterations,
-                                           final Set<Integer> currenciesAllowed,
-                                           final int numSymbols,
-                                           final ExchangeTestContainer.AllowedSymbolTypes allowedSymbolTypes) throws InterruptedException, ExecutionException {
+    public static void persistenceTestImpl(final PerformanceConfiguration performanceConfiguration,
+                                           final TestDataParameters testDataParameters,
+                                           final int iterations) throws InterruptedException, ExecutionException {
 
         for (int iteration = 0; iteration < iterations; iteration++) {
 
@@ -56,38 +50,32 @@ public class PersistenceTestsModule {
 
 //            long t = System.currentTimeMillis();
 
-            final List<CoreSymbolSpecification> coreSymbolSpecifications = ExchangeTestContainer.generateRandomSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
-            final List<BitSet> usersAccounts = UserCurrencyAccountsGenerator.generateUsers(numAccounts, currenciesAllowed);
-
-            final TestOrdersGeneratorConfig genConfig = TestOrdersGeneratorConfig.builder()
-                    .coreSymbolSpecifications(coreSymbolSpecifications)
-                    .totalTransactionsNumber(totalTransactionsNumber)
-                    .usersAccounts(usersAccounts)
-                    .targetOrderBookOrdersTotal(targetOrderBookOrdersTotal)
-                    .seed(iteration)
-                    .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER_PLUS_QUARTER)
-                    .build();
-
-            final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(genConfig);
+            final ExchangeTestContainer.TestDataFutures testDataFutures = ExchangeTestContainer.prepareTestDataAsync(testDataParameters, iteration);
 
             final String exchangeId = String.format("%012X", System.currentTimeMillis());
+            final InitialStateConfiguration firstStartConfig = InitialStateConfiguration.cleanStart(exchangeId);
 
             final long originalPrefillStateHash;
             final float originalPerfMt;
 
-            try (final ExchangeTestContainer container = containerFactory.apply(InitialStateConfiguration.cleanStart(exchangeId))) {
+            try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, firstStartConfig)) {
 
                 final ExchangeApi api = container.getApi();
 
                 log.info("Init basic symbols...");
                 container.initBasicSymbols();
 
+                // start loading symbols as soon as all symbols are ready
+                final List<CoreSymbolSpecification> coreSymbolSpecifications = testDataFutures.coreSymbolSpecifications.get();
                 log.info("Loading {} symbols...", coreSymbolSpecifications.size());
                 container.addSymbols(coreSymbolSpecifications);
 
-                log.info("Loading {} users having {} accounts...", usersAccounts.size(), usersAccounts.stream().mapToInt(BitSet::cardinality).sum());
-                container.userAccountsInit(usersAccounts);
+                // start creating accounts and perform deposits
+                final List<BitSet> userAccounts = testDataFutures.usersAccounts.get();
+                log.info("Loading {} users having {} accounts...", userAccounts.size(), userAccounts.stream().mapToInt(BitSet::cardinality).sum());
+                container.userAccountsInit(userAccounts);
 
+                final TestOrdersGenerator.MultiSymbolGenResult genResult = testDataFutures.genResult.get();
                 final List<ApiCommand> apiCommandsFill = genResult.getApiCommandsFill();
 //                log.info(">>> READY in {}ms", System.currentTimeMillis() - t);
                 log.info("Order books pre-fill with {} orders...", apiCommandsFill.size());
@@ -139,9 +127,11 @@ public class PersistenceTestsModule {
             System.gc();
             Thread.sleep(200);
 
+            final InitialStateConfiguration fromSnapshotConfig = InitialStateConfiguration.fromSnapshotOnly(exchangeId, stateId, 0);
+
             log.debug("Creating new exchange from persisted state...");
             final long tLoad = System.currentTimeMillis();
-            try (final ExchangeTestContainer recreatedContainer = containerFactory.apply(InitialStateConfiguration.fromSnapshotOnly(exchangeId, stateId, 0))) {
+            try (final ExchangeTestContainer recreatedContainer = new ExchangeTestContainer(performanceConfiguration, fromSnapshotConfig)) {
 
                 // simple sync query in order to wait until core is started to respond
                 recreatedContainer.totalBalanceReport();
@@ -156,6 +146,7 @@ public class PersistenceTestsModule {
                 log.info("Restored snapshot is valid, benchmarking original state...");
 
                 final ExchangeApi api = recreatedContainer.getApi();
+                final TestOrdersGenerator.MultiSymbolGenResult genResult = testDataFutures.genResult.get();
                 List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
                 final CountDownLatch latchBenchmark = new CountDownLatch(apiCommandsBenchmark.size());
                 recreatedContainer.setConsumer(cmd -> latchBenchmark.countDown());

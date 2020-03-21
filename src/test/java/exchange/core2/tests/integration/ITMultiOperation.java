@@ -15,10 +15,8 @@
  */
 package exchange.core2.tests.integration;
 
-import exchange.core2.core.common.config.InitialStateConfiguration;
-import exchange.core2.tests.util.ExchangeTestContainer;
-import exchange.core2.tests.util.TestConstants;
-import exchange.core2.tests.util.ThroughputTestsModule;
+import exchange.core2.core.common.config.PerformanceConfiguration;
+import exchange.core2.tests.util.*;
 import org.junit.Test;
 
 
@@ -27,41 +25,64 @@ public class ITMultiOperation {
     @Test(timeout = 60000L)
     public void shouldPerformMarginOperations() throws Exception {
         ThroughputTestsModule.throughputTestImpl(
-                () -> new ExchangeTestContainer(2 * 1024, 1, 1, 1536, InitialStateConfiguration.TEST_CONFIG),
-                1_000_000,
-                1_000,
-                2_000,
-                2,
-                TestConstants.CURRENCIES_FUTURES,
-                1,
-                ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT);
+                PerformanceConfiguration.throughputPerformanceBuilder()
+                        .ringBufferSize(2 * 1024)
+                        .matchingEnginesNum(1)
+                        .riskEnginesNum(1)
+                        .msgsInGroupLimit(1536)
+                        .build(),
+                TestDataParameters.builder()
+                        .totalTransactionsNumber(1_000_000)
+                        .targetOrderBookOrdersTotal(1000)
+                        .numAccounts(2000)
+                        .currenciesAllowed(TestConstants.CURRENCIES_FUTURES)
+                        .numSymbols(1)
+                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT)
+                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
+                        .build(),
+                2
+        );
     }
 
     @Test(timeout = 60000L)
     public void shouldPerformExchangeOperations() throws Exception {
         ThroughputTestsModule.throughputTestImpl(
-                () -> new ExchangeTestContainer(2 * 1024, 1, 1, 1536, InitialStateConfiguration.TEST_CONFIG),
-                1_000_000,
-                1_000,
-                2_000,
-                2,
-                TestConstants.CURRENCIES_EXCHANGE,
-                1,
-                ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR);
+                PerformanceConfiguration.throughputPerformanceBuilder()
+                        .ringBufferSize(2 * 1024)
+                        .matchingEnginesNum(1)
+                        .riskEnginesNum(1)
+                        .msgsInGroupLimit(1536)
+                        .build(),
+                TestDataParameters.builder()
+                        .totalTransactionsNumber(1_000_000)
+                        .targetOrderBookOrdersTotal(1000)
+                        .numAccounts(2000)
+                        .currenciesAllowed(TestConstants.CURRENCIES_EXCHANGE)
+                        .numSymbols(1)
+                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR)
+                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
+                        .build(),
+                2);
     }
-
 
     @Test(timeout = 60000L)
     public void shouldPerformSharded() throws Exception {
         ThroughputTestsModule.throughputTestImpl(
-                () -> new ExchangeTestContainer(32 * 1024, 2, 2, 1536, InitialStateConfiguration.TEST_CONFIG),
-                1_000_000,
-                10_000,
-                50_000,
-                2,
-                TestConstants.ALL_CURRENCIES,
-                32,
-                ExchangeTestContainer.AllowedSymbolTypes.BOTH);
-
+                PerformanceConfiguration.throughputPerformanceBuilder()
+                        .ringBufferSize(32 * 1024)
+                        .matchingEnginesNum(2)
+                        .riskEnginesNum(2)
+                        .msgsInGroupLimit(1536)
+                        .build(),
+                TestDataParameters.builder()
+                        .totalTransactionsNumber(1_000_000)
+                        .targetOrderBookOrdersTotal(1000)
+                        .numAccounts(2000)
+                        .currenciesAllowed(TestConstants.CURRENCIES_EXCHANGE)
+                        .numSymbols(32)
+                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
+                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
+                        .build(),
+                2);
     }
 }

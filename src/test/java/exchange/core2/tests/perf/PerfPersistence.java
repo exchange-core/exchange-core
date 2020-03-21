@@ -15,9 +15,8 @@
  */
 package exchange.core2.tests.perf;
 
-import exchange.core2.tests.util.ExchangeTestContainer;
-import exchange.core2.tests.util.PersistenceTestsModule;
-import exchange.core2.tests.util.TestConstants;
+import exchange.core2.core.common.config.PerformanceConfiguration;
+import exchange.core2.tests.util.*;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 
@@ -35,27 +34,43 @@ public final class PerfPersistence {
     @Test
     public void testPersistenceMargin() throws Exception {
         PersistenceTestsModule.persistenceTestImpl(
-                stateId -> new ExchangeTestContainer(2 * 1024, 1, 1, 512, stateId),
-                3_000_000,
-                1000,
-                2000,
-                10,
-                TestConstants.CURRENCIES_FUTURES,
-                1,
-                ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT);
+                PerformanceConfiguration.throughputPerformanceBuilder()
+                        .ringBufferSize(2 * 1024)
+                        .matchingEnginesNum(1)
+                        .riskEnginesNum(1)
+                        .msgsInGroupLimit(512)
+                        .build(),
+                TestDataParameters.builder()
+                        .totalTransactionsNumber(3_000_000)
+                        .targetOrderBookOrdersTotal(1000)
+                        .numAccounts(2000)
+                        .currenciesAllowed(TestConstants.CURRENCIES_FUTURES)
+                        .numSymbols(1)
+                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT)
+                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER_PLUS_QUARTER)
+                        .build(),
+                10);
     }
 
     @Test
     public void testPersistenceExchange() throws Exception {
         PersistenceTestsModule.persistenceTestImpl(
-                stateId -> new ExchangeTestContainer(2 * 1024, 1, 1, 512, stateId),
-                3_000_000,
-                1000,
-                2000,
-                10,
-                TestConstants.CURRENCIES_EXCHANGE,
-                1,
-                ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR);
+                PerformanceConfiguration.throughputPerformanceBuilder()
+                        .ringBufferSize(2 * 1024)
+                        .matchingEnginesNum(1)
+                        .riskEnginesNum(1)
+                        .msgsInGroupLimit(512)
+                        .build(),
+                TestDataParameters.builder()
+                        .totalTransactionsNumber(3_000_000)
+                        .targetOrderBookOrdersTotal(1000)
+                        .numAccounts(2000)
+                        .currenciesAllowed(TestConstants.CURRENCIES_EXCHANGE)
+                        .numSymbols(1)
+                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR)
+                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER_PLUS_QUARTER)
+                        .build(),
+                10);
     }
 
     /**
@@ -65,40 +80,64 @@ public final class PerfPersistence {
     @Test
     public void testPersistenceMultiSymbolMedium() throws Exception {
         PersistenceTestsModule.persistenceTestImpl(
-                stateId -> new ExchangeTestContainer(32 * 1024, 4, 2, 1024, stateId),
-                7_500_000,
-                1_000_000,
-                3_300_000,
-                25,
-                TestConstants.ALL_CURRENCIES,
-                10_000,
-                ExchangeTestContainer.AllowedSymbolTypes.BOTH);
+                PerformanceConfiguration.throughputPerformanceBuilder()
+                        .ringBufferSize(32 * 1024)
+                        .matchingEnginesNum(4)
+                        .riskEnginesNum(2)
+                        .msgsInGroupLimit(1024)
+                        .build(),
+                TestDataParameters.builder()
+                        .totalTransactionsNumber(7_500_000)
+                        .targetOrderBookOrdersTotal(1_000_000)
+                        .numAccounts(3_300_000)
+                        .currenciesAllowed(TestConstants.ALL_CURRENCIES)
+                        .numSymbols(10_000)
+                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
+                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER_PLUS_QUARTER)
+                        .build(),
+                25);
     }
 
     @Test
     public void testPersistenceMultiSymbolLarge() throws Exception {
         PersistenceTestsModule.persistenceTestImpl(
-                stateId -> new ExchangeTestContainer(32 * 1024, 4, 4, 1024, stateId),
-                10_000_000,
-                4_000_000,
-                10_000_000,
-                25,
-                TestConstants.ALL_CURRENCIES,
-                100_000,
-                ExchangeTestContainer.AllowedSymbolTypes.BOTH);
+                PerformanceConfiguration.throughputPerformanceBuilder()
+                        .ringBufferSize(32 * 1024)
+                        .matchingEnginesNum(4)
+                        .riskEnginesNum(4)
+                        .msgsInGroupLimit(1024)
+                        .build(),
+                TestDataParameters.builder()
+                        .totalTransactionsNumber(10_000_000)
+                        .targetOrderBookOrdersTotal(4_000_000)
+                        .numAccounts(10_000_000)
+                        .currenciesAllowed(TestConstants.ALL_CURRENCIES)
+                        .numSymbols(100_000)
+                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
+                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER_PLUS_QUARTER)
+                        .build(),
+                25);
     }
 
     @Test
     public void testPersistenceMultiSymbolHuge() throws Exception {
         PersistenceTestsModule.persistenceTestImpl(
-                stateId -> new ExchangeTestContainer(32 * 1024, 4, 4, 1024, stateId),
-                30_000_000,
-                20_000_000,
-                20_000_000,
-                25,
-                TestConstants.ALL_CURRENCIES,
-                200_000,
-                ExchangeTestContainer.AllowedSymbolTypes.BOTH);
+                PerformanceConfiguration.throughputPerformanceBuilder()
+                        .ringBufferSize(32 * 1024)
+                        .matchingEnginesNum(4)
+                        .riskEnginesNum(4)
+                        .msgsInGroupLimit(1024)
+                        .build(),
+                TestDataParameters.builder()
+                        .totalTransactionsNumber(30_000_000)
+                        .targetOrderBookOrdersTotal(20_000_000)
+                        .numAccounts(20_000_000)
+                        .currenciesAllowed(TestConstants.ALL_CURRENCIES)
+                        .numSymbols(200_000)
+                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
+                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER_PLUS_QUARTER)
+                        .build(),
+                25);
     }
 
 

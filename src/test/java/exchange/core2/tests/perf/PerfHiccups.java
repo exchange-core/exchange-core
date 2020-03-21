@@ -51,7 +51,7 @@ public final class PerfHiccups {
 
         final int targetTps = 500_000; // transactions per second
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer(16 * 1024, 1, 1, 512, InitialStateConfiguration.TEST_CONFIG);
+        try (final ExchangeTestContainer container = new ExchangeTestContainer(16 * 1024, 1, 1, 512, InitialStateConfiguration.CLEAN_TEST);
              final AffinityLock cpuLock = AffinityLock.acquireLock()) {
 
             final TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(

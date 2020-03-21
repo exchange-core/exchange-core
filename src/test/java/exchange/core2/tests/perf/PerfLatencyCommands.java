@@ -35,7 +35,7 @@ public final class PerfLatencyCommands {
      */
     @Test
     public void testLatencyMargin() {
-        individualLatencyTest(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, InitialStateConfiguration.TEST_CONFIG),
+        individualLatencyTest(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, InitialStateConfiguration.CLEAN_TEST),
                 1_000_000,
                 1_000,
                 2_000,
@@ -50,7 +50,7 @@ public final class PerfLatencyCommands {
      */
     @Test
     public void testLatencyMarginHugeIoc() {
-        individualLatencyTest(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, InitialStateConfiguration.TEST_CONFIG),
+        individualLatencyTest(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, InitialStateConfiguration.CLEAN_TEST),
                 1_000_000,
                 1_000,
                 2_000,
@@ -69,7 +69,7 @@ public final class PerfLatencyCommands {
      */
     @Test
     public void testLatencyExchange() {
-        individualLatencyTest(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, InitialStateConfiguration.TEST_CONFIG),
+        individualLatencyTest(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, InitialStateConfiguration.CLEAN_TEST),
                 1_000_000,
                 1_000,
                 2_000,
@@ -84,7 +84,7 @@ public final class PerfLatencyCommands {
      */
     @Test
     public void testLatencyExchangeHugeIoc() {
-        individualLatencyTest(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, InitialStateConfiguration.TEST_CONFIG),
+        individualLatencyTest(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, InitialStateConfiguration.CLEAN_TEST),
                 1_000_000,
                 1_000,
                 2_000,
@@ -105,7 +105,7 @@ public final class PerfLatencyCommands {
      */
     @Test
     public void testLatencyMultiSymbolMedium() {
-        individualLatencyTest(() -> new ExchangeTestContainer(64 * 1024, 4, 2, 256, InitialStateConfiguration.TEST_CONFIG),
+        individualLatencyTest(() -> new ExchangeTestContainer(64 * 1024, 4, 2, 256, InitialStateConfiguration.CLEAN_TEST),
                 3_000_000,
                 1_000_000,
                 3_300_000,
@@ -123,7 +123,7 @@ public final class PerfLatencyCommands {
      */
     @Test
     public void testLatencyMultiSymbolMediumHugeIOC() {
-        individualLatencyTest(() -> new ExchangeTestContainer(64 * 1024, 1, 4, 256, InitialStateConfiguration.TEST_CONFIG),
+        individualLatencyTest(() -> new ExchangeTestContainer(64 * 1024, 1, 4, 256, InitialStateConfiguration.CLEAN_TEST),
                 3_000_000,
                 1_000_000,
                 3_300_000,
@@ -144,7 +144,7 @@ public final class PerfLatencyCommands {
     @Test
     @Ignore
     public void testLatencyMultiSymbolLarge() {
-        individualLatencyTest(() -> new ExchangeTestContainer(64 * 1024, 4, 2, 256, InitialStateConfiguration.TEST_CONFIG),
+        individualLatencyTest(() -> new ExchangeTestContainer(64 * 1024, 4, 2, 256, InitialStateConfiguration.CLEAN_TEST),
                 40_000_000,
                 30_000_000,
                 33_000_000,

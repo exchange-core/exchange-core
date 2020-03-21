@@ -9,7 +9,7 @@ import lombok.Getter;
 @Builder
 public final class InitialStateConfiguration {
 
-    public static InitialStateConfiguration TEST_CONFIG = InitialStateConfiguration.cleanStart("EC0");
+    public static InitialStateConfiguration CLEAN_TEST = InitialStateConfiguration.cleanStart("EC0");
 
     private final String exchangeId;
 

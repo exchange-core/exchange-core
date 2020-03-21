@@ -91,7 +91,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
     }
 
     public ExchangeTestContainer() {
-        this(RING_BUFFER_SIZE_DEFAULT, MATCHING_ENGINES_ONE, RISK_ENGINES_ONE, MGS_IN_GROUP_LIMIT_DEFAULT, InitialStateConfiguration.TEST_CONFIG);
+        this(RING_BUFFER_SIZE_DEFAULT, MATCHING_ENGINES_ONE, RISK_ENGINES_ONE, MGS_IN_GROUP_LIMIT_DEFAULT, InitialStateConfiguration.CLEAN_TEST);
     }
 
     // TODO builder
@@ -116,7 +116,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
                                 .usersAccounts(ua)
                                 .targetOrderBookOrdersTotal(parameters.targetOrderBookOrdersTotal)
                                 .seed(seed)
-                                .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER_PLUS_QUARTER)
+                                .preFillMode(parameters.preFillMode)
                                 .build()));
 
         return TestDataFutures.builder()

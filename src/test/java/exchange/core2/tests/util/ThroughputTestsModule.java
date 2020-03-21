@@ -17,15 +17,15 @@ package exchange.core2.tests.util;
 
 import exchange.core2.core.ExchangeApi;
 import exchange.core2.core.common.CoreSymbolSpecification;
+import exchange.core2.core.common.config.InitialStateConfiguration;
+import exchange.core2.core.common.config.PerformanceConfiguration;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
-import java.util.function.Supplier;
 
 import static junit.framework.TestCase.assertTrue;
 import static org.junit.Assert.assertEquals;
@@ -34,32 +34,13 @@ import static org.junit.Assert.assertEquals;
 public class ThroughputTestsModule {
 
 
-    public static void throughputTestImpl(final Supplier<ExchangeTestContainer> containerFactory,
-                                          final int totalTransactionsNumber,
-                                          final int targetOrderBookOrdersTotal,
-                                          final int numAccounts,
-                                          final int iterations,
-                                          final Set<Integer> currenciesAllowed,
-                                          final int numSymbols,
-                                          final ExchangeTestContainer.AllowedSymbolTypes allowedSymbolTypes) throws Exception {
+    public static void throughputTestImpl(final PerformanceConfiguration performanceConfiguration,
+                                          final TestDataParameters testDataParameters,
+                                          final int iterations) throws Exception {
 
-        final List<CoreSymbolSpecification> coreSymbolSpecifications = ExchangeTestContainer.generateRandomSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
+        final ExchangeTestContainer.TestDataFutures testDataFutures = ExchangeTestContainer.prepareTestDataAsync(testDataParameters, 1);
 
-        final List<BitSet> usersAccounts = UserCurrencyAccountsGenerator.generateUsers(numAccounts, currenciesAllowed);
-
-        final TestOrdersGeneratorConfig genConfig = TestOrdersGeneratorConfig.builder()
-                .coreSymbolSpecifications(coreSymbolSpecifications)
-                .totalTransactionsNumber(totalTransactionsNumber)
-                .usersAccounts(usersAccounts)
-                .targetOrderBookOrdersTotal(targetOrderBookOrdersTotal)
-                .seed(1)
-                .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
-                .build();
-
-        final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(
-                genConfig);
-
-        try (final ExchangeTestContainer container = containerFactory.get()) {
+        try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, InitialStateConfiguration.CLEAN_TEST)) {
 
             final float avgMt = container.executeTestingThread(() -> {
                 final ExchangeApi api = container.getApi();
@@ -67,11 +48,15 @@ public class ThroughputTestsModule {
                     final List<Float> perfResults = new ArrayList<>();
                     for (int j = 0; j < iterations; j++) {
 
+                        final List<CoreSymbolSpecification> coreSymbolSpecifications = testDataFutures.coreSymbolSpecifications.get();
                         container.addSymbols(coreSymbolSpecifications);
-                        container.userAccountsInit(usersAccounts);
+
+                        final List<BitSet> userAccounts = testDataFutures.usersAccounts.get();
+                        container.userAccountsInit(userAccounts);
 
                         assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
 
+                        final TestOrdersGenerator.MultiSymbolGenResult genResult = testDataFutures.genResult.get();
                         final CountDownLatch latchFill = new CountDownLatch(genResult.getApiCommandsFill().size());
                         container.setConsumer(cmd -> latchFill.countDown());
                         genResult.getApiCommandsFill().forEach(api::submitCommand);

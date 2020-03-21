@@ -22,13 +22,13 @@ import exchange.core2.core.common.api.ApiPersistState;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.InitialStateConfiguration;
+import exchange.core2.core.common.config.PerformanceConfiguration;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.BitSet;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
-import java.util.function.Function;
 
 import static junit.framework.TestCase.assertTrue;
 import static org.hamcrest.Matchers.is;
@@ -38,7 +38,7 @@ import static org.junit.Assert.assertThat;
 public class JournalingTestsModule {
 
 
-    public static void journalingTestImpl(final Function<InitialStateConfiguration, ExchangeTestContainer> containerFactory,
+    public static void journalingTestImpl(final PerformanceConfiguration performanceConfiguration,
                                           final TestDataParameters testDataParameters,
                                           final int iterations) throws InterruptedException, ExecutionException {
 
@@ -54,7 +54,9 @@ public class JournalingTestsModule {
 
             final String exchangeId = ExchangeTestContainer.timeBasedExchangeId();
 
-            try (final ExchangeTestContainer container = containerFactory.apply(InitialStateConfiguration.cleanStartJournaling(exchangeId))) {
+            final InitialStateConfiguration firstStartConfig = InitialStateConfiguration.cleanStartJournaling(exchangeId);
+
+            try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, firstStartConfig)) {
 
                 final ExchangeApi api = container.getApi();
 
@@ -71,7 +73,7 @@ public class JournalingTestsModule {
                 log.info("Loading {} users having {} accounts...", userAccounts.size(), userAccounts.stream().mapToInt(BitSet::cardinality).sum());
                 container.userAccountsInit(userAccounts);
 
-                //
+
                 final TestOrdersGenerator.MultiSymbolGenResult genResult = testDataFutures.genResult.get();
                 final List<ApiCommand> apiCommandsFill = genResult.getApiCommandsFill();
                 //log.info(">>> READY in {}ms", System.currentTimeMillis() - t);
@@ -124,14 +126,14 @@ public class JournalingTestsModule {
             System.gc();
             Thread.sleep(200);
 
-
             // TODO Discover snapshots and journals with DiskSerializationProcessor
             final long snapshotBaseSeq = 0L;
 
+            final InitialStateConfiguration fromSnapshotConfig = InitialStateConfiguration.lastKnownStateFromJournal(exchangeId, stateId, snapshotBaseSeq);
+
             log.debug("Creating new exchange from persisted state...");
             final long tLoad = System.currentTimeMillis();
-            try (final ExchangeTestContainer recreatedContainer = containerFactory.apply(
-                    InitialStateConfiguration.lastKnownStateFromJournal(exchangeId, stateId, snapshotBaseSeq))) {
+            try (final ExchangeTestContainer recreatedContainer = new ExchangeTestContainer(performanceConfiguration, fromSnapshotConfig)) {
 
                 // simple sync query in order to wait until core is started to respond
                 recreatedContainer.totalBalanceReport();
