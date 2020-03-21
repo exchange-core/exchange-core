@@ -94,12 +94,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
         this(RING_BUFFER_SIZE_DEFAULT, MATCHING_ENGINES_ONE, RISK_ENGINES_ONE, MGS_IN_GROUP_LIMIT_DEFAULT, InitialStateConfiguration.CLEAN_TEST);
     }
 
-    // TODO builder
-
-    // TODO ProcessingPipelineConfiguration (bufferSize, matchingEnginesNum, riskEnginesNum, msgsInGroupLimit)
-
-    public static TestDataFutures prepareTestDataAsync(TestDataParameters parameters,
-                                                       int seed) {
+    public static TestDataFutures prepareTestDataAsync(TestDataParameters parameters, int seed) {
 
         final CompletableFuture<List<CoreSymbolSpecification>> coreSymbolSpecificationsFuture = CompletableFuture.supplyAsync(
                 () -> ExchangeTestContainer.generateRandomSymbols(parameters.numSymbols, parameters.currenciesAllowed, parameters.allowedSymbolTypes));
@@ -117,6 +112,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
                                 .targetOrderBookOrdersTotal(parameters.targetOrderBookOrdersTotal)
                                 .seed(seed)
                                 .preFillMode(parameters.preFillMode)
+                                .hugeSizeIOC(parameters.hugeSizeIOC)
                                 .build()));
 
         return TestDataFutures.builder()

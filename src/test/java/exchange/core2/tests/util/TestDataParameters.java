@@ -15,4 +15,5 @@ public class TestDataParameters {
     public final int numSymbols;
     public final ExchangeTestContainer.AllowedSymbolTypes allowedSymbolTypes;
     public final TestOrdersGeneratorConfig.PreFillMode preFillMode;
+    public final boolean hugeSizeIOC;
 }

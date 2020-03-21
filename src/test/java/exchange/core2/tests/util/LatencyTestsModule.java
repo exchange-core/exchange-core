@@ -22,6 +22,8 @@ import exchange.core2.core.common.OrderType;
 import exchange.core2.core.common.api.ApiCommand;
 import exchange.core2.core.common.api.ApiMoveOrder;
 import exchange.core2.core.common.api.ApiPlaceOrder;
+import exchange.core2.core.common.config.InitialStateConfiguration;
+import exchange.core2.core.common.config.PerformanceConfiguration;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.HdrHistogram.Histogram;
@@ -32,10 +34,10 @@ import java.io.FileNotFoundException;
 import java.io.PrintStream;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
 import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.stream.IntStream;
 
 import static org.junit.Assert.assertEquals;
@@ -47,13 +49,9 @@ public class LatencyTestsModule {
 
     private static int c = 0;
 
-    public static void latencyTestImpl(final Supplier<ExchangeTestContainer> containerFactory,
-                                       final int totalCommandsNumber,
-                                       final int targetOrderBookOrdersTotal,
-                                       final int numAccounts,
-                                       final Set<Integer> currenciesAllowed,
-                                       final int numSymbols,
-                                       final ExchangeTestContainer.AllowedSymbolTypes allowedSymbolTypes,
+    public static void latencyTestImpl(final PerformanceConfiguration performanceConfiguration,
+                                       final TestDataParameters testDataParameters,
+                                       final InitialStateConfiguration initialStateConfiguration,
                                        final int warmupCycles) {
 
         final int targetTps = 200_000; // transactions per second
@@ -61,23 +59,9 @@ public class LatencyTestsModule {
 
         final int warmupTps = 1_000_000;
 
+        final ExchangeTestContainer.TestDataFutures testDataFutures = ExchangeTestContainer.prepareTestDataAsync(testDataParameters, 1);
 
-        final List<CoreSymbolSpecification> coreSymbolSpecifications = ExchangeTestContainer.generateRandomSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
-
-        final List<BitSet> usersAccounts = UserCurrencyAccountsGenerator.generateUsers(numAccounts, currenciesAllowed);
-
-        final TestOrdersGeneratorConfig genConfig = TestOrdersGeneratorConfig.builder()
-                .coreSymbolSpecifications(coreSymbolSpecifications)
-                .totalTransactionsNumber(totalCommandsNumber)
-                .usersAccounts(usersAccounts)
-                .targetOrderBookOrdersTotal(targetOrderBookOrdersTotal)
-                .seed(1)
-                .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
-                .build();
-
-        final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(genConfig);
-
-        try (final ExchangeTestContainer container = containerFactory.get()) {
+        try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, initialStateConfiguration)) {
 
             final ExchangeApi api = container.getApi();
             final SingleWriterRecorder hdrRecorder = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
@@ -88,9 +72,13 @@ public class LatencyTestsModule {
                 try {
 
                     container.initBasicSymbols();
+                    final List<CoreSymbolSpecification> coreSymbolSpecifications = testDataFutures.coreSymbolSpecifications.get();
                     container.addSymbols(coreSymbolSpecifications);
-                    container.userAccountsInit(usersAccounts);
 
+                    final List<BitSet> userAccounts = testDataFutures.usersAccounts.get();
+                    container.userAccountsInit(userAccounts);
+
+                    final TestOrdersGenerator.MultiSymbolGenResult genResult = testDataFutures.genResult.get();
                     hdrRecorder.reset();
                     final CountDownLatch latchFill = new CountDownLatch(genResult.getApiCommandsFill().size());
                     container.setConsumer(cmd -> latchFill.countDown());
@@ -145,7 +133,7 @@ public class LatencyTestsModule {
                     // stop testing if median latency above 1 millisecond
                     return warmup || histogram.getValueAtPercentile(50.0) < 1_000_000;
 
-                } catch (InterruptedException | FileNotFoundException ex) {
+                } catch (InterruptedException | FileNotFoundException | ExecutionException ex) {
                     throw new IllegalStateException(ex);
                 }
             };
@@ -164,36 +152,16 @@ public class LatencyTestsModule {
         }
     }
 
-    public static void individualLatencyTest(final Supplier<ExchangeTestContainer> containerFactory,
-                                             final int totalCommandsNumber,
-                                             final int targetOrderBookOrdersTotal,
-                                             final int numAccounts,
-                                             final Set<Integer> currenciesAllowed,
-                                             final int numSymbols,
-                                             final ExchangeTestContainer.AllowedSymbolTypes allowedSymbolTypes,
-                                             final boolean hugeSizeIOC) {
+    public static void individualLatencyTest(final PerformanceConfiguration performanceConfiguration,
+                                             final TestDataParameters testDataParameters,
+                                             final InitialStateConfiguration initialStateConfiguration) {
 
+        final ExchangeTestContainer.TestDataFutures testDataFutures = ExchangeTestContainer.prepareTestDataAsync(testDataParameters, 1);
 
-        final List<CoreSymbolSpecification> coreSymbolSpecifications = ExchangeTestContainer.generateRandomSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
-
-        final List<BitSet> usersAccounts = UserCurrencyAccountsGenerator.generateUsers(numAccounts, currenciesAllowed);
-
-        final TestOrdersGeneratorConfig genConfig = TestOrdersGeneratorConfig.builder()
-                .coreSymbolSpecifications(coreSymbolSpecifications)
-                .totalTransactionsNumber(totalCommandsNumber)
-                .usersAccounts(usersAccounts)
-                .targetOrderBookOrdersTotal(targetOrderBookOrdersTotal)
-                .seed(1)
-                .hugeSizeIOC(hugeSizeIOC)
-                .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
-                .build();
-
-        final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(genConfig);
-
-        final int[] minLatencies = new int[genResult.apiCommandsBenchmark.size()];
+        final int[] minLatencies = new int[testDataParameters.totalTransactionsNumber];
         Arrays.fill(minLatencies, Integer.MAX_VALUE);
 
-        try (final ExchangeTestContainer container = containerFactory.get()) {
+        try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, initialStateConfiguration)) {
 
             // TODO - first run should validate the output (orders are accepted and processed properly)
 
@@ -202,11 +170,15 @@ public class LatencyTestsModule {
                 try {
                     final ExchangeApi api = container.getApi();
 
-
                     container.initBasicSymbols();
-                    container.addSymbols(coreSymbolSpecifications);
-                    container.userAccountsInit(usersAccounts);
 
+                    final List<CoreSymbolSpecification> coreSymbolSpecifications = testDataFutures.coreSymbolSpecifications.get();
+                    container.addSymbols(coreSymbolSpecifications);
+
+                    final List<BitSet> userAccounts = testDataFutures.usersAccounts.get();
+                    container.userAccountsInit(userAccounts);
+
+                    final TestOrdersGenerator.MultiSymbolGenResult genResult = testDataFutures.genResult.get();
                     final CountDownLatch latchFill = new CountDownLatch(genResult.getApiCommandsFill().size());
                     container.setConsumer(cmd -> latchFill.countDown());
                     genResult.getApiCommandsFill().forEach(api::submitCommand);
@@ -324,7 +296,7 @@ public class LatencyTestsModule {
                     // stop testing if median latency above 1 millisecond
                     return true;
 
-                } catch (InterruptedException ex) {
+                } catch (InterruptedException | ExecutionException ex) {
                     throw new IllegalStateException(ex);
                 }
             };

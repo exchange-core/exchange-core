@@ -16,8 +16,11 @@
 package exchange.core2.tests.perf;
 
 import exchange.core2.core.common.config.InitialStateConfiguration;
+import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.TestConstants;
+import exchange.core2.tests.util.TestDataParameters;
+import exchange.core2.tests.util.TestOrdersGeneratorConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 
@@ -35,13 +38,23 @@ public final class PerfLatency {
      */
     @Test
     public void testLatencyMargin() {
-        latencyTestImpl(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, InitialStateConfiguration.CLEAN_TEST),
-                3_000_000,
-                1_000,
-                2_000,
-                TestConstants.CURRENCIES_FUTURES,
-                1,
-                ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT,
+        latencyTestImpl(
+                PerformanceConfiguration.latencyPerformanceBuilder()
+                        .ringBufferSize(2 * 1024)
+                        .matchingEnginesNum(1)
+                        .riskEnginesNum(1)
+                        .msgsInGroupLimit(256)
+                        .build(),
+                TestDataParameters.builder()
+                        .totalTransactionsNumber(3_000_000)
+                        .targetOrderBookOrdersTotal(1000)
+                        .numAccounts(2000)
+                        .currenciesAllowed(TestConstants.CURRENCIES_FUTURES)
+                        .numSymbols(1)
+                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT)
+                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
+                        .build(),
+                InitialStateConfiguration.CLEAN_TEST,
                 16);
     }
 
@@ -54,13 +67,23 @@ public final class PerfLatency {
      */
     @Test
     public void testLatencyExchange() {
-        latencyTestImpl(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, InitialStateConfiguration.CLEAN_TEST),
-                3_000_000,
-                1_000,
-                2_000,
-                TestConstants.CURRENCIES_EXCHANGE,
-                1,
-                ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR,
+        latencyTestImpl(
+                PerformanceConfiguration.latencyPerformanceBuilder()
+                        .ringBufferSize(2 * 1024)
+                        .matchingEnginesNum(1)
+                        .riskEnginesNum(1)
+                        .msgsInGroupLimit(256)
+                        .build(),
+                TestDataParameters.builder()
+                        .totalTransactionsNumber(3_000_000)
+                        .targetOrderBookOrdersTotal(1000)
+                        .numAccounts(2000)
+                        .currenciesAllowed(TestConstants.CURRENCIES_EXCHANGE)
+                        .numSymbols(1)
+                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR)
+                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
+                        .build(),
+                InitialStateConfiguration.CLEAN_TEST,
                 16);
     }
 
@@ -75,13 +98,23 @@ public final class PerfLatency {
      */
     @Test
     public void testLatencyMultiSymbolMedium() {
-        latencyTestImpl(() -> new ExchangeTestContainer(32 * 1024, 4, 2, 256, InitialStateConfiguration.CLEAN_TEST),
-                6_000_000,
-                1_000_000,
-                3_300_000,
-                TestConstants.ALL_CURRENCIES,
-                10_000,
-                ExchangeTestContainer.AllowedSymbolTypes.BOTH,
+        latencyTestImpl(
+                PerformanceConfiguration.latencyPerformanceBuilder()
+                        .ringBufferSize(32 * 1024)
+                        .matchingEnginesNum(4)
+                        .riskEnginesNum(2)
+                        .msgsInGroupLimit(256)
+                        .build(),
+                TestDataParameters.builder()
+                        .totalTransactionsNumber(6_000_000)
+                        .targetOrderBookOrdersTotal(1_000_000)
+                        .numAccounts(3_300_000)
+                        .currenciesAllowed(TestConstants.ALL_CURRENCIES)
+                        .numSymbols(10_000)
+                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
+                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
+                        .build(),
+                InitialStateConfiguration.CLEAN_TEST,
                 4);
     }
 
@@ -96,13 +129,22 @@ public final class PerfLatency {
     @Test
     public void testLatencyMultiSymbolHuge() {
         latencyTestImpl(
-                () -> new ExchangeTestContainer(64 * 1024, 4, 2, 256, InitialStateConfiguration.CLEAN_TEST),
-                40_000_000,
-                30_000_000,
-                33_000_000,
-                TestConstants.ALL_CURRENCIES,
-                200_000,
-                ExchangeTestContainer.AllowedSymbolTypes.BOTH,
+                PerformanceConfiguration.latencyPerformanceBuilder()
+                        .ringBufferSize(64 * 1024)
+                        .matchingEnginesNum(4)
+                        .riskEnginesNum(2)
+                        .msgsInGroupLimit(256)
+                        .build(),
+                TestDataParameters.builder()
+                        .totalTransactionsNumber(40_000_000)
+                        .targetOrderBookOrdersTotal(30_000_000)
+                        .numAccounts(33_000_000)
+                        .currenciesAllowed(TestConstants.ALL_CURRENCIES)
+                        .numSymbols(200_000)
+                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
+                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
+                        .build(),
+                InitialStateConfiguration.CLEAN_TEST,
                 2);
     }
 
@@ -112,50 +154,89 @@ public final class PerfLatency {
 
     @Test
     public void testLatencyMarginJournaling() {
-        latencyTestImpl(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId())),
-                3_000_000,
-                1_000,
-                2_000,
-                TestConstants.CURRENCIES_FUTURES,
-                1,
-                ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT,
+        latencyTestImpl(
+                PerformanceConfiguration.latencyPerformanceBuilder()
+                        .ringBufferSize(2 * 1024)
+                        .matchingEnginesNum(1)
+                        .riskEnginesNum(1)
+                        .msgsInGroupLimit(256)
+                        .build(),
+                TestDataParameters.builder()
+                        .totalTransactionsNumber(3_000_000)
+                        .targetOrderBookOrdersTotal(1000)
+                        .numAccounts(2000)
+                        .currenciesAllowed(TestConstants.CURRENCIES_FUTURES)
+                        .numSymbols(1)
+                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT)
+                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
+                        .build(),
+                InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
                 16);
     }
 
     @Test
     public void testLatencyExchangeJournaling() {
-        latencyTestImpl(() -> new ExchangeTestContainer(2 * 1024, 1, 1, 256, InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId())),
-                3_000_000,
-                1_000,
-                2_000,
-                TestConstants.CURRENCIES_EXCHANGE,
-                1,
-                ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR,
+        latencyTestImpl(
+                PerformanceConfiguration.latencyPerformanceBuilder()
+                        .ringBufferSize(2 * 1024)
+                        .matchingEnginesNum(1)
+                        .riskEnginesNum(1)
+                        .msgsInGroupLimit(256)
+                        .build(),
+                TestDataParameters.builder()
+                        .totalTransactionsNumber(3_000_000)
+                        .targetOrderBookOrdersTotal(1000)
+                        .numAccounts(2000)
+                        .currenciesAllowed(TestConstants.CURRENCIES_EXCHANGE)
+                        .numSymbols(1)
+                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR)
+                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
+                        .build(),
+                InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
                 16);
     }
 
     @Test
     public void testLatencyMultiSymbolMediumJournaling() {
-        latencyTestImpl(() -> new ExchangeTestContainer(32 * 1024, 4, 2, 256, InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId())),
-                6_000_000,
-                1_000_000,
-                3_300_000,
-                TestConstants.ALL_CURRENCIES,
-                100_000,
-                ExchangeTestContainer.AllowedSymbolTypes.BOTH,
+        latencyTestImpl(
+                PerformanceConfiguration.latencyPerformanceBuilder()
+                        .ringBufferSize(32 * 1024)
+                        .matchingEnginesNum(4)
+                        .riskEnginesNum(2)
+                        .msgsInGroupLimit(256)
+                        .build(),
+                TestDataParameters.builder()
+                        .totalTransactionsNumber(6_000_000)
+                        .targetOrderBookOrdersTotal(1_000_000)
+                        .numAccounts(3_300_000)
+                        .currenciesAllowed(TestConstants.ALL_CURRENCIES)
+                        .numSymbols(10_000)
+                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
+                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
+                        .build(),
+                InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
                 4);
     }
 
     @Test
-    public void testLatencyMultiSymbolLargeJournaling() {
+    public void testLatencyMultiSymbolHugeJournaling() {
         latencyTestImpl(
-                () -> new ExchangeTestContainer(64 * 1024, 4, 2, 256, InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId())),
-                40_000_000,
-                30_000_000,
-                33_000_000,
-                TestConstants.ALL_CURRENCIES,
-                200_000,
-                ExchangeTestContainer.AllowedSymbolTypes.BOTH,
+                PerformanceConfiguration.latencyPerformanceBuilder()
+                        .ringBufferSize(64 * 1024)
+                        .matchingEnginesNum(4)
+                        .riskEnginesNum(2)
+                        .msgsInGroupLimit(256)
+                        .build(),
+                TestDataParameters.builder()
+                        .totalTransactionsNumber(40_000_000)
+                        .targetOrderBookOrdersTotal(30_000_000)
+                        .numAccounts(33_000_000)
+                        .currenciesAllowed(TestConstants.ALL_CURRENCIES)
+                        .numSymbols(200_000)
+                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
+                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
+                        .build(),
+                InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
                 2);
     }
 }

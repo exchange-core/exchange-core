@@ -36,7 +36,7 @@ public class ThroughputTestsModule {
 
     public static void throughputTestImpl(final PerformanceConfiguration performanceConfiguration,
                                           final TestDataParameters testDataParameters,
-                                          final int iterations) throws Exception {
+                                          final int iterations) {
 
         final ExchangeTestContainer.TestDataFutures testDataFutures = ExchangeTestContainer.prepareTestDataAsync(testDataParameters, 1);
 

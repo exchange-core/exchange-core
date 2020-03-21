@@ -33,7 +33,7 @@ public final class PerfThroughput {
      * 6-threads CPU can run this test
      */
     @Test
-    public void testThroughputMargin() throws Exception {
+    public void testThroughputMargin() {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
                         .ringBufferSize(2 * 1024)
@@ -54,7 +54,7 @@ public final class PerfThroughput {
     }
 
     @Test
-    public void testThroughputExchange() throws Exception {
+    public void testThroughputExchange() {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
                         .ringBufferSize(2 * 1024)
@@ -75,7 +75,7 @@ public final class PerfThroughput {
     }
 
     @Test
-    public void testThroughputPeak() throws Exception {
+    public void testThroughputPeak() {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
                         .ringBufferSize(64 * 1024)
@@ -104,7 +104,7 @@ public final class PerfThroughput {
      * 12-threads CPU and 32GiB RAM is required for running this test in 4+4 configuration.
      */
     @Test
-    public void testThroughputMultiSymbolMedium() throws Exception {
+    public void testThroughputMultiSymbolMedium() {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
                         .ringBufferSize(64 * 1024)
@@ -135,7 +135,7 @@ public final class PerfThroughput {
      * 12-threads CPU and 32GiB RAM is required for running this test in 2+4 configuration.
      */
     @Test
-    public void testThroughputMultiSymbolHuge() throws Exception {
+    public void testThroughputMultiSymbolHuge() {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
                         .ringBufferSize(64 * 1024)
