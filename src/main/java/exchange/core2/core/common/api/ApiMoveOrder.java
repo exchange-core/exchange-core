@@ -21,7 +21,7 @@ import lombok.Builder;
 @Builder
 public final class ApiMoveOrder extends ApiCommand {
 
-    public long id;
+    public long orderId;
 
     public long newPrice;
 
@@ -30,6 +30,6 @@ public final class ApiMoveOrder extends ApiCommand {
 
     @Override
     public String toString() {
-        return "[MOVE " + id + " " + newPrice + "]";
+        return "[MOVE " + orderId + " " + newPrice + "]";
     }
 }

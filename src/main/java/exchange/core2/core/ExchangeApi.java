@@ -22,6 +22,7 @@ import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.OrderType;
 import exchange.core2.core.common.api.*;
 import exchange.core2.core.common.api.binary.BinaryDataCommand;
+import exchange.core2.core.common.api.reports.ApiReportQuery;
 import exchange.core2.core.common.api.reports.ReportQuery;
 import exchange.core2.core.common.api.reports.ReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
@@ -30,6 +31,7 @@ import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.orderbook.OrderBookEventsHelper;
 import exchange.core2.core.processors.BinaryCommandsProcessor;
 import exchange.core2.core.utils.SerializationUtils;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
@@ -45,6 +47,7 @@ import java.util.function.LongConsumer;
 import java.util.stream.Stream;
 
 @Slf4j
+@RequiredArgsConstructor
 public final class ExchangeApi {
 
     private final RingBuffer<OrderCommand> ringBuffer;
@@ -52,11 +55,14 @@ public final class ExchangeApi {
     // promises cache (TODO can be changed to queue)
     private final Map<Long, Consumer<OrderCommand>> promises = new ConcurrentHashMap<>();
 
-    public ExchangeApi(RingBuffer<OrderCommand> ringBuffer) {
-        this.ringBuffer = ringBuffer;
-    }
+    public static final int LONGS_PER_MESSAGE = 5;
+
 
     public void processResult(final long seq, final OrderCommand cmd) {
+
+//        if (cmd.command == OrderCommandType.BINARY_DATA_COMMAND
+//                || cmd.command == OrderCommandType.BINARY_DATA_QUERY) {
+
         final Consumer<OrderCommand> consumer = promises.remove(seq);
         if (consumer != null) {
             consumer.accept(cmd);
@@ -65,8 +71,6 @@ public final class ExchangeApi {
 
     public void submitCommand(ApiCommand cmd) {
         //log.debug("{}", cmd);
-
-        // TODO benchmark instanceof performance
 
         if (cmd instanceof ApiMoveOrder) {
             ringBuffer.publishEvent(MOVE_ORDER_TRANSLATOR, (ApiMoveOrder) cmd);
@@ -96,6 +100,66 @@ public final class ExchangeApi {
         }
     }
 
+    public Future<CommandResultCode> submitCommandAsync(ApiCommand cmd) {
+        //log.debug("{}", cmd);
+
+        if (cmd instanceof ApiMoveOrder) {
+            return submitCommandAsync(MOVE_ORDER_TRANSLATOR, (ApiMoveOrder) cmd);
+        } else if (cmd instanceof ApiPlaceOrder) {
+            return submitCommandAsync(NEW_ORDER_TRANSLATOR, (ApiPlaceOrder) cmd);
+        } else if (cmd instanceof ApiCancelOrder) {
+            return submitCommandAsync(CANCEL_ORDER_TRANSLATOR, (ApiCancelOrder) cmd);
+        } else if (cmd instanceof ApiOrderBookRequest) {
+            return submitCommandAsync(ORDER_BOOK_REQUEST_TRANSLATOR, (ApiOrderBookRequest) cmd);
+        } else if (cmd instanceof ApiAddUser) {
+            return submitCommandAsync(ADD_USER_TRANSLATOR, (ApiAddUser) cmd);
+        } else if (cmd instanceof ApiAdjustUserBalance) {
+            return submitCommandAsync(ADJUST_USER_BALANCE_TRANSLATOR, (ApiAdjustUserBalance) cmd);
+        } else if (cmd instanceof ApiResumeUser) {
+            return submitCommandAsync(RESUME_USER_TRANSLATOR, (ApiResumeUser) cmd);
+        } else if (cmd instanceof ApiSuspendUser) {
+            return submitCommandAsync(SUSPEND_USER_TRANSLATOR, (ApiSuspendUser) cmd);
+        } else if (cmd instanceof ApiBinaryDataCommand) {
+            return submitBinaryDataAsync(((ApiBinaryDataCommand) cmd).data);
+//        } else if (cmd instanceof ApiPersistState) {
+//            return submitCommandAsync((ApiPersistState) cmd);
+        } else if (cmd instanceof ApiReset) {
+            return submitCommandAsync(RESET_TRANSLATOR, (ApiReset) cmd);
+        } else {
+            throw new IllegalArgumentException("Unsupported command type: " + cmd.getClass().getSimpleName());
+        }
+    }
+
+
+    private <T extends ApiCommand> Future<CommandResultCode> submitCommandAsync(EventTranslatorOneArg<OrderCommand, T> translator, final T apiCommand) {
+
+        final CompletableFuture<CommandResultCode> future = new CompletableFuture<>();
+
+        ringBuffer.publishEvent(
+                (cmd, seq, apiCmd) -> {
+                    translator.translateTo(cmd, seq, apiCmd);
+                    promises.put(seq, orderCommand -> future.complete(orderCommand.resultCode));
+                },
+                apiCommand);
+
+        return future;
+    }
+
+    public Future<CommandResultCode> submitBinaryDataAsync(final BinaryDataCommand data) {
+
+        final CompletableFuture<CommandResultCode> future = new CompletableFuture<>();
+
+        publishBinaryData(
+                OrderCommandType.BINARY_DATA_COMMAND,
+                data,
+                data.getBinaryCommandTypeCode(),
+                (int) System.nanoTime(), // can be any value because sequence is used for result identification, not transferId
+                0L,
+                seq -> promises.put(seq, orderCommand -> future.complete(orderCommand.resultCode)));
+
+        return future;
+    }
+
     public <R> Future<R> submitBinaryCommandAsync(
             final BinaryDataCommand data,
             final int transferId,
@@ -118,7 +182,7 @@ public final class ExchangeApi {
         final CompletableFuture<R> future = new CompletableFuture<>();
 
         publishQuery(
-                ApiReportQueryCommand.builder().query(data).transferId(transferId).build(),
+                ApiReportQuery.builder().query(data).transferId(transferId).build(),
                 seq -> promises.put(seq, orderCommand -> future.complete(translator.apply(orderCommand))));
 
         return future;
@@ -157,7 +221,7 @@ public final class ExchangeApi {
                 endSeqConsumer);
     }
 
-    public void publishQuery(final ApiReportQueryCommand apiCmd, final LongConsumer endSeqConsumer) {
+    public void publishQuery(final ApiReportQuery apiCmd, final LongConsumer endSeqConsumer) {
         publishBinaryData(
                 OrderCommandType.BINARY_DATA_QUERY,
                 apiCmd.query,
@@ -174,29 +238,63 @@ public final class ExchangeApi {
                                    final long timestamp,
                                    final LongConsumer endSeqConsumer) {
 
-        final int longsPerMessage = 5;
-        long[] longArray = SerializationUtils.bytesToLongArray(BinaryCommandsProcessor.serializeObject(data, dataTypeCode), longsPerMessage);
+        final long[] longsArrayData = SerializationUtils.bytesToLongArray(BinaryCommandsProcessor.serializeObject(data, dataTypeCode), LONGS_PER_MESSAGE);
 
-        int i = 0;
-        int n = longArray.length / longsPerMessage;
-        long highSeq = ringBuffer.next(n);
-        long lowSeq = highSeq - n + 1;
+        final int totalNumMessagesToClaim = longsArrayData.length / LONGS_PER_MESSAGE;
 
-//        log.debug("longArray[{}] n={} seq={}..{}", longArray.length, n, lowSeq, highSeq);
+//        log.debug("longsArrayData[{}] n={}", longsArrayData.length, totalNumMessagesToClaim);
+
+        // max fragment size is quarter of ring buffer
+        final int batchSize = ringBuffer.getBufferSize() / 4;
+
+        int offset = 0;
+        boolean isLastFragment = false;
+        int fragmentSize = batchSize;
+
+        do {
+
+            if (offset + batchSize >= totalNumMessagesToClaim) {
+                fragmentSize = totalNumMessagesToClaim - offset;
+                isLastFragment = true;
+            }
+
+            publishBinaryMessageFragment(cmdType, transferId, timestamp, endSeqConsumer, longsArrayData, fragmentSize, offset, isLastFragment);
+
+            offset += batchSize;
+
+        } while (!isLastFragment);
+
+    }
+
+    private void publishBinaryMessageFragment(OrderCommandType cmdType,
+                                              int transferId,
+                                              long timestamp,
+                                              LongConsumer endSeqConsumer,
+                                              long[] longsArrayData,
+                                              int fragmentSize,
+                                              int offset,
+                                              boolean isLastFragment) {
+
+        final long highSeq = ringBuffer.next(fragmentSize);
+        final long lowSeq = highSeq - fragmentSize + 1;
+
+//        log.debug("  offset*longsPerMessage={} longsArrayData[{}] n={} seq={}..{} lastFragment={} fragmentSize={}",
+//                offset * LONGS_PER_MESSAGE, longsArrayData.length, fragmentSize, lowSeq, highSeq, isLastFragment, fragmentSize);
 
         try {
+            int ptr = offset * LONGS_PER_MESSAGE;
             for (long seq = lowSeq; seq <= highSeq; seq++) {
 
                 OrderCommand cmd = ringBuffer.get(seq);
                 cmd.command = cmdType;
                 cmd.userCookie = transferId;
-                cmd.symbol = seq == highSeq ? -1 : 0;
+                cmd.symbol = (isLastFragment && seq == highSeq) ? -1 : 0;
 
-                cmd.orderId = longArray[i];
-                cmd.price = longArray[i + 1];
-                cmd.reserveBidPrice = longArray[i + 2];
-                cmd.size = longArray[i + 3];
-                cmd.uid = longArray[i + 4];
+                cmd.orderId = longsArrayData[ptr];
+                cmd.price = longsArrayData[ptr + 1];
+                cmd.reserveBidPrice = longsArrayData[ptr + 2];
+                cmd.size = longsArrayData[ptr + 3];
+                cmd.uid = longsArrayData[ptr + 4];
 
                 cmd.timestamp = timestamp;
                 cmd.resultCode = CommandResultCode.NEW;
@@ -206,14 +304,16 @@ public final class ExchangeApi {
 
 //                log.debug("seq={} cmd.size={} data={}", seq, cmd.size, cmd.price);
 
-                i += longsPerMessage;
+                ptr += LONGS_PER_MESSAGE;
             }
         } catch (final Exception ex) {
             log.error("Binary commands processing exception: ", ex);
 
         } finally {
-            // report last sequence before actually publishing data
-            endSeqConsumer.accept(highSeq);
+            if (isLastFragment) {
+                // report last sequence before actually publishing data
+                endSeqConsumer.accept(highSeq);
+            }
             ringBuffer.publish(lowSeq, highSeq);
         }
     }
@@ -260,19 +360,20 @@ public final class ExchangeApi {
         cmd.price = api.price;
         cmd.reserveBidPrice = api.reservePrice;
         cmd.size = api.size;
-        cmd.orderId = api.id;
+        cmd.orderId = api.orderId;
         cmd.timestamp = api.timestamp;
         cmd.action = api.action;
         cmd.orderType = api.orderType;
         cmd.symbol = api.symbol;
         cmd.uid = api.uid;
+        cmd.userCookie = api.userCookie;
         cmd.resultCode = CommandResultCode.NEW;
     };
 
     private static final EventTranslatorOneArg<OrderCommand, ApiMoveOrder> MOVE_ORDER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.MOVE_ORDER;
         cmd.price = api.newPrice;
-        cmd.orderId = api.id;
+        cmd.orderId = api.orderId;
         cmd.symbol = api.symbol;
         cmd.uid = api.uid;
         cmd.timestamp = api.timestamp;
@@ -281,7 +382,7 @@ public final class ExchangeApi {
 
     private static final EventTranslatorOneArg<OrderCommand, ApiCancelOrder> CANCEL_ORDER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.CANCEL_ORDER;
-        cmd.orderId = api.id;
+        cmd.orderId = api.orderId;
         cmd.symbol = api.symbol;
         cmd.uid = api.uid;
         cmd.timestamp = api.timestamp;

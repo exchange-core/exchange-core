@@ -65,13 +65,13 @@ public final class PerfPersistence {
     @Test
     public void testPersistenceMultiSymbolMedium() throws Exception {
         PersistenceTestsModule.persistenceTestImpl(
-                stateId -> new ExchangeTestContainer(32 * 1024, 4, 4, 1024, stateId),
+                stateId -> new ExchangeTestContainer(32 * 1024, 4, 2, 1024, stateId),
                 7_500_000,
                 1_000_000,
                 3_300_000,
                 25,
                 TestConstants.ALL_CURRENCIES,
-                100_000,
+                10_000,
                 ExchangeTestContainer.AllowedSymbolTypes.BOTH);
     }
 

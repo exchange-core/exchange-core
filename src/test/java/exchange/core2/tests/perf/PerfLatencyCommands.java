@@ -99,7 +99,7 @@ public final class PerfLatencyCommands {
      * - 1M active users (3M currency accounts)
      * - 1M pending limit-orders
      * - 1M+ messages per second throughput
-     * - 100K symbols
+     * - 10K symbols
      * - less than 1 millisecond 99.99% latency
      * 12-threads CPU and 32GiB RAM is required for running this test in 2+4 configuration.
      */
@@ -110,7 +110,7 @@ public final class PerfLatencyCommands {
                 1_000_000,
                 3_300_000,
                 TestConstants.ALL_CURRENCIES,
-                100_000,
+                10_000,
                 ExchangeTestContainer.AllowedSymbolTypes.BOTH,
                 false);
     }

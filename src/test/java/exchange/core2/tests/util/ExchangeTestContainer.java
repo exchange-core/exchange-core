@@ -18,7 +18,10 @@ package exchange.core2.tests.util;
 import com.google.common.collect.Lists;
 import exchange.core2.core.ExchangeApi;
 import exchange.core2.core.ExchangeCore;
-import exchange.core2.core.common.*;
+import exchange.core2.core.common.CoreSymbolSpecification;
+import exchange.core2.core.common.CoreWaitStrategy;
+import exchange.core2.core.common.L2MarketData;
+import exchange.core2.core.common.SymbolType;
 import exchange.core2.core.common.api.*;
 import exchange.core2.core.common.api.binary.BatchAddAccountsCommand;
 import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
@@ -34,6 +37,8 @@ import exchange.core2.core.orderbook.OrderBookDirectImpl;
 import exchange.core2.core.processors.journaling.DiskSerializationProcessor;
 import exchange.core2.core.processors.journaling.DiskSerializationProcessorConfiguration;
 import exchange.core2.core.utils.AffinityThreadFactory;
+import lombok.Builder;
+import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -93,27 +98,68 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
     // TODO ProcessingPipelineConfiguration (bufferSize, matchingEnginesNum, riskEnginesNum, msgsInGroupLimit)
 
+    public static TestDataFutures prepareTestDataAsync(TestDataParameters parameters,
+                                                       int seed) {
+
+        final CompletableFuture<List<CoreSymbolSpecification>> coreSymbolSpecificationsFuture = CompletableFuture.supplyAsync(
+                () -> ExchangeTestContainer.generateRandomSymbols(parameters.numSymbols, parameters.currenciesAllowed, parameters.allowedSymbolTypes));
+
+        final CompletableFuture<List<BitSet>> usersAccountsFuture = CompletableFuture.supplyAsync(
+                () -> UserCurrencyAccountsGenerator.generateUsers(parameters.numAccounts, parameters.currenciesAllowed));
+
+        final CompletableFuture<TestOrdersGenerator.MultiSymbolGenResult> genResultFuture = coreSymbolSpecificationsFuture.thenCombineAsync(
+                usersAccountsFuture,
+                (css, ua) -> TestOrdersGenerator.generateMultipleSymbols(
+                        TestOrdersGeneratorConfig.builder()
+                                .coreSymbolSpecifications(css)
+                                .totalTransactionsNumber(parameters.totalTransactionsNumber)
+                                .usersAccounts(ua)
+                                .targetOrderBookOrdersTotal(parameters.targetOrderBookOrdersTotal)
+                                .seed(seed)
+                                .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER_PLUS_QUARTER)
+                                .build()));
+
+        return TestDataFutures.builder()
+                .coreSymbolSpecifications(coreSymbolSpecificationsFuture)
+                .usersAccounts(usersAccountsFuture)
+                .genResult(genResultFuture)
+                .build();
+    }
+
+    @Data
+    @Builder
+    public static class TestDataFutures {
+        final CompletableFuture<List<CoreSymbolSpecification>> coreSymbolSpecifications;
+        final CompletableFuture<List<BitSet>> usersAccounts;
+        final CompletableFuture<TestOrdersGenerator.MultiSymbolGenResult> genResult;
+    }
+
     public ExchangeTestContainer(final int bufferSize,
                                  final int matchingEnginesNum,
                                  final int riskEnginesNum,
                                  final int msgsInGroupLimit,
                                  final InitialStateConfiguration initStateCfg) {
 
+        this(PerformanceConfiguration.builder()
+                        .ringBufferSize(bufferSize)
+                        .matchingEnginesNum(matchingEnginesNum)
+                        .riskEnginesNum(riskEnginesNum)
+                        .msgsInGroupLimit(msgsInGroupLimit)
+                        .threadFactory(new AffinityThreadFactory(AffinityThreadFactory.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE))
+                        .waitStrategy(CoreWaitStrategy.BUSY_SPIN)
+                        .orderBookFactory(OrderBookDirectImpl::new)
+                        //.orderBookFactory(symbolType -> new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH, symbolType))
+                        //.orderBookFactory(OrderBookNaiveImpl::new)
+                        .build(),
+                initStateCfg);
+    }
+
+    public ExchangeTestContainer(final PerformanceConfiguration perfCfg,
+                                 final InitialStateConfiguration initStateCfg) {
+
         //log.debug("CREATING exchange container");
 
         this.threadFactory = new AffinityThreadFactory(AffinityThreadFactory.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE);
-
-        final PerformanceConfiguration perfCfg = PerformanceConfiguration.builder()
-                .ringBufferSize(bufferSize)
-                .matchingEnginesNum(matchingEnginesNum)
-                .riskEnginesNum(riskEnginesNum)
-                .msgsInGroupLimit(msgsInGroupLimit)
-                .threadFactory(threadFactory)
-                .waitStrategy(CoreWaitStrategy.BUSY_SPIN)
-                .orderBookFactory(OrderBookDirectImpl::new)
-                //.orderBookFactory(symbolType -> new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH, symbolType))
-                //.orderBookFactory(OrderBookNaiveImpl::new)
-                .build();
 
         final ExchangeConfiguration exchangeConfiguration = ExchangeConfiguration.builder()
                 .initStateCfg(initStateCfg)
@@ -181,7 +227,8 @@ public final class ExchangeTestContainer implements AutoCloseable {
     }
 
     public void addSymbols(final List<CoreSymbolSpecification> symbols) {
-        Lists.partition(symbols, 1024).forEach(partition -> addSymbols(new BatchAddSymbolsCommand(partition)));
+        // split by chunks
+        Lists.partition(symbols, 10000).forEach(partition -> addSymbols(new BatchAddSymbolsCommand(partition)));
     }
 
     public void addSymbols(final BatchAddSymbolsCommand symbols) {
@@ -399,16 +446,10 @@ public final class ExchangeTestContainer implements AutoCloseable {
     }
 
 
-    public void validateUserState(
-            long uid,
-            Consumer<? super UserProfile> riskEngineStateConsumer,
-            Consumer<? super Map<Long, Order>> matchingEngineStateConsumer) throws InterruptedException, ExecutionException {
+    // todo rename
+    public void validateUserState(long uid, Consumer<SingleUserReportResult> resultValidator) throws InterruptedException, ExecutionException {
 
-        final SingleUserReportResult res = api.processReport(new SingleUserReportQuery(uid), getRandomTransferId()).get();
-        riskEngineStateConsumer.accept(res.getUserProfile());
-        matchingEngineStateConsumer.accept(res.getOrders().stream()
-                .flatMap(Collection::stream)
-                .collect(Collectors.toMap(Order::getOrderId, ord -> ord)));
+        resultValidator.accept(api.processReport(new SingleUserReportQuery(uid), getRandomTransferId()).get());
     }
 
 

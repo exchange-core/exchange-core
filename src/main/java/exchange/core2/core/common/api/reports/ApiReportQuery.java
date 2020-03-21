@@ -13,21 +13,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package exchange.core2.core.common.api;
+package exchange.core2.core.common.api.reports;
 
 
 import lombok.Builder;
 
 @Builder
-public final class ApiCancelOrder extends ApiCommand {
+public final class ApiReportQuery {
 
-    public final long orderId;
+    public long timestamp;
 
-    public final long uid;
-    public final int symbol;
+    // transfer unique id
+    // can be constant unless going to push data concurrently
+    public final int transferId;
+
+    // serializable object
+    public final ReportQuery<?> query;
 
     @Override
     public String toString() {
-        return "[CANCEL " + orderId + "]";
+        return "[REPORT_QUERY tid=" + transferId + " query=" + query + "]";
     }
 }

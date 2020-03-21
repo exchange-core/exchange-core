@@ -26,10 +26,8 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.BitSet;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
-import java.util.function.Consumer;
 import java.util.function.Function;
 
 import static junit.framework.TestCase.assertTrue;
@@ -41,31 +39,16 @@ public class JournalingTestsModule {
 
 
     public static void journalingTestImpl(final Function<InitialStateConfiguration, ExchangeTestContainer> containerFactory,
-                                          final int totalTransactionsNumber,
-                                          final int targetOrderBookOrdersTotal,
-                                          final int numAccounts,
-                                          final int iterations,
-                                          final Set<Integer> currenciesAllowed,
-                                          final int numSymbols,
-                                          final ExchangeTestContainer.AllowedSymbolTypes allowedSymbolTypes) throws InterruptedException, ExecutionException {
+                                          final TestDataParameters testDataParameters,
+                                          final int iterations) throws InterruptedException, ExecutionException {
 
         for (int iteration = 0; iteration < iterations; iteration++) {
 
+            //long t = System.currentTimeMillis();
+
+            final ExchangeTestContainer.TestDataFutures testDataFutures = ExchangeTestContainer.prepareTestDataAsync(testDataParameters, iteration);
+
             final long stateId;
-            final List<CoreSymbolSpecification> coreSymbolSpecifications = ExchangeTestContainer.generateRandomSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
-            final List<BitSet> usersAccounts = UserCurrencyAccountsGenerator.generateUsers(numAccounts, currenciesAllowed);
-
-            final TestOrdersGeneratorConfig genConfig = TestOrdersGeneratorConfig.builder()
-                    .coreSymbolSpecifications(coreSymbolSpecifications)
-                    .totalTransactionsNumber(totalTransactionsNumber)
-                    .usersAccounts(usersAccounts)
-                    .targetOrderBookOrdersTotal(targetOrderBookOrdersTotal)
-                    .seed(iteration)
-                    .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER_PLUS_QUARTER)
-                    .build();
-
-            final TestOrdersGenerator.MultiSymbolGenResult genResult = TestOrdersGenerator.generateMultipleSymbols(genConfig);
-
             final long originalFinalStateHash;
             final float originalPerfMt;
 
@@ -78,13 +61,20 @@ public class JournalingTestsModule {
                 log.info("Init basic symbols...");
                 container.initBasicSymbols();
 
+                // start loading symbols as soon as all symbols are ready
+                final List<CoreSymbolSpecification> coreSymbolSpecifications = testDataFutures.coreSymbolSpecifications.get();
                 log.info("Loading {} symbols...", coreSymbolSpecifications.size());
                 container.addSymbols(coreSymbolSpecifications);
 
-                log.info("Loading {} users having {} accounts...", usersAccounts.size(), usersAccounts.stream().mapToInt(BitSet::cardinality).sum());
-                container.userAccountsInit(usersAccounts);
+                // start creating accounts and perform deposits
+                final List<BitSet> userAccounts = testDataFutures.usersAccounts.get();
+                log.info("Loading {} users having {} accounts...", userAccounts.size(), userAccounts.stream().mapToInt(BitSet::cardinality).sum());
+                container.userAccountsInit(userAccounts);
 
+                //
+                final TestOrdersGenerator.MultiSymbolGenResult genResult = testDataFutures.genResult.get();
                 final List<ApiCommand> apiCommandsFill = genResult.getApiCommandsFill();
+                //log.info(">>> READY in {}ms", System.currentTimeMillis() - t);
                 log.info("Order books pre-fill with {} orders...", apiCommandsFill.size());
                 final CountDownLatch latchFill = new CountDownLatch(apiCommandsFill.size());
                 container.setConsumer(cmd -> {
@@ -144,7 +134,7 @@ public class JournalingTestsModule {
                     InitialStateConfiguration.lastKnownStateFromJournal(exchangeId, stateId, snapshotBaseSeq))) {
 
                 // simple sync query in order to wait until core is started to respond
-                recreatedContainer.validateUserState(0, IGNORING_CONSUMER, IGNORING_CONSUMER);
+                recreatedContainer.totalBalanceReport();
 
                 float loadTimeSec = (float) (System.currentTimeMillis() - tLoad) / 1000.0f;
                 log.debug("Load+start+replay time: {}s", String.format("%.3f", loadTimeSec));
@@ -181,9 +171,4 @@ public class JournalingTestsModule {
         }
 
     }
-
-
-    private static final Consumer<? super Object> IGNORING_CONSUMER = x -> {
-    };
-
 }

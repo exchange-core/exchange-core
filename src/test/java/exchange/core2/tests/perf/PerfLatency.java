@@ -42,7 +42,7 @@ public final class PerfLatency {
                 TestConstants.CURRENCIES_FUTURES,
                 1,
                 ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT,
-                20);
+                16);
     }
 
     /**
@@ -61,7 +61,7 @@ public final class PerfLatency {
                 TestConstants.CURRENCIES_EXCHANGE,
                 1,
                 ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR,
-                20);
+                16);
     }
 
     /**
@@ -69,7 +69,7 @@ public final class PerfLatency {
      * - 1M active users (3M currency accounts)
      * - 1M pending limit-orders
      * - 1M+ messages per second throughput
-     * - 100K symbols
+     * - 10K symbols
      * - less than 1 millisecond 99.99% latency
      * 12-threads CPU and 32GiB RAM is required for running this test in 2+4 configuration.
      */
@@ -80,9 +80,9 @@ public final class PerfLatency {
                 1_000_000,
                 3_300_000,
                 TestConstants.ALL_CURRENCIES,
-                100_000,
+                10_000,
                 ExchangeTestContainer.AllowedSymbolTypes.BOTH,
-                10);
+                4);
     }
 
     /**
@@ -94,7 +94,7 @@ public final class PerfLatency {
      * 12-threads CPU and 32GiB RAM is required for running this test in 2+4 configuration.
      */
     @Test
-    public void testLatencyMultiSymbolLarge() {
+    public void testLatencyMultiSymbolHuge() {
         latencyTestImpl(
                 () -> new ExchangeTestContainer(64 * 1024, 4, 2, 256, InitialStateConfiguration.TEST_CONFIG),
                 40_000_000,
@@ -103,7 +103,7 @@ public final class PerfLatency {
                 TestConstants.ALL_CURRENCIES,
                 200_000,
                 ExchangeTestContainer.AllowedSymbolTypes.BOTH,
-                10);
+                2);
     }
 
     /*
@@ -119,7 +119,7 @@ public final class PerfLatency {
                 TestConstants.CURRENCIES_FUTURES,
                 1,
                 ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT,
-                5);
+                16);
     }
 
     @Test
@@ -131,7 +131,7 @@ public final class PerfLatency {
                 TestConstants.CURRENCIES_EXCHANGE,
                 1,
                 ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR,
-                20);
+                16);
     }
 
     @Test
@@ -143,7 +143,7 @@ public final class PerfLatency {
                 TestConstants.ALL_CURRENCIES,
                 100_000,
                 ExchangeTestContainer.AllowedSymbolTypes.BOTH,
-                10);
+                4);
     }
 
     @Test
@@ -156,6 +156,6 @@ public final class PerfLatency {
                 TestConstants.ALL_CURRENCIES,
                 200_000,
                 ExchangeTestContainer.AllowedSymbolTypes.BOTH,
-                10);
+                2);
     }
 }

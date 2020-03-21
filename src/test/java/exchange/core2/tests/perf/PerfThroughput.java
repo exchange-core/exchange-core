@@ -77,20 +77,20 @@ public final class PerfThroughput {
      * This is medium load throughput test for verifying "triple million" capability:
      * * - 1M active users (3M currency accounts)
      * * - 1M pending limit-orders
-     * * - 100K symbols
+     * * - 10K symbols
      * * - 1M+ messages per second target throughput
      * 12-threads CPU and 32GiB RAM is required for running this test in 4+4 configuration.
      */
     @Test
     public void testThroughputMultiSymbolMedium() throws Exception {
         ThroughputTestsModule.throughputTestImpl(
-                () -> new ExchangeTestContainer(64 * 1024, 4, 4, 2048, InitialStateConfiguration.TEST_CONFIG),
+                () -> new ExchangeTestContainer(64 * 1024, 4, 2, 2048, InitialStateConfiguration.TEST_CONFIG),
                 6_000_000,
                 1_000_000,
                 3_300_000,
                 25,
                 TestConstants.ALL_CURRENCIES,
-                100_000,
+                10_000,
                 ExchangeTestContainer.AllowedSymbolTypes.BOTH);
     }
 
@@ -105,7 +105,7 @@ public final class PerfThroughput {
      * 12-threads CPU and 32GiB RAM is required for running this test in 2+4 configuration.
      */
     @Test
-    public void testThroughputMultiSymbolLarge() throws Exception {
+    public void testThroughputMultiSymbolHuge() throws Exception {
         ThroughputTestsModule.throughputTestImpl(
                 () -> new ExchangeTestContainer(64 * 1024, 4, 4, 2048, InitialStateConfiguration.TEST_CONFIG),
                 40_000_000,

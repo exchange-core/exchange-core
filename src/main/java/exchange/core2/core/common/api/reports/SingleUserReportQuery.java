@@ -60,20 +60,37 @@ public final class SingleUserReportQuery implements ReportQuery<SingleUserReport
         matchingEngine.getOrderBooks().forEach(ob -> orders.put(ob.getSymbolSpec().symbolId, ob.findUserOrders(this.uid)));
 
         //log.debug("orders: {}", orders.size());
-        return Optional.of(new SingleUserReportResult(null, orders, SingleUserReportResult.ExecutionStatus.OK));
+        return Optional.of(new SingleUserReportResult(uid, null, null, null, orders, SingleUserReportResult.QueryExecutionStatus.OK));
     }
 
     @Override
     public Optional<SingleUserReportResult> process(RiskEngine riskEngine) {
 
-        if (riskEngine.uidForThisHandler(this.uid)) {
-            final UserProfile userProfile = riskEngine.getUserProfileService().getUserProfile(this.uid);
-            return Optional.of(new SingleUserReportResult(
-                    userProfile,
-                    null,
-                    userProfile == null ? SingleUserReportResult.ExecutionStatus.USER_NOT_FOUND : SingleUserReportResult.ExecutionStatus.OK));
-        } else {
+        if (!riskEngine.uidForThisHandler(this.uid)) {
             return Optional.empty();
+        }
+        final UserProfile userProfile = riskEngine.getUserProfileService().getUserProfile(this.uid);
+
+        if (userProfile != null) {
+            final IntObjectHashMap<SingleUserReportResult.Position> positions = new IntObjectHashMap<>(userProfile.positions.size());
+            userProfile.positions.forEachKeyValue((symbol, pos) ->
+                    positions.put(symbol, new SingleUserReportResult.Position(
+                            pos.currency,
+                            pos.direction,
+                            pos.openVolume,
+                            pos.openPriceSum,
+                            pos.profit,
+                            pos.pendingSellSize,
+                            pos.pendingBuySize)));
+
+            return Optional.of(SingleUserReportResult.createFromRiskEngineFound(
+                    uid,
+                    userProfile.userStatus,
+                    userProfile.accounts,
+                    positions));
+        } else {
+            // not found
+            return Optional.of(SingleUserReportResult.createFromRiskEngineNotFound(uid));
         }
     }
 

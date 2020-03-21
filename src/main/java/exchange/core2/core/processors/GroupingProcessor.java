@@ -142,12 +142,16 @@ public final class GroupingProcessor implements EventProcessor {
                             continue;
                         }
 
-                        // some commands should trigger R2 stage to avoid unprocessed state in events
+                        // some commands should trigger R2 stage to avoid unprocessed events that could affect accounting state
                         if (cmd.command == OrderCommandType.RESET
                                 || cmd.command == OrderCommandType.PERSIST_STATE_MATCHING
-                                || cmd.command == OrderCommandType.BINARY_DATA_COMMAND
-                                || cmd.command == OrderCommandType.BINARY_DATA_QUERY
                                 || cmd.command == OrderCommandType.GROUPING_CONTROL) {
+                            groupCounter++;
+                            msgsInGroup = 0;
+                        }
+
+                        // report/binary commands also should trigger R2 stage, but only for last message
+                        if ((cmd.command == OrderCommandType.BINARY_DATA_COMMAND || cmd.command == OrderCommandType.BINARY_DATA_QUERY) && cmd.symbol == -1) {
                             groupCounter++;
                             msgsInGroup = 0;
                         }

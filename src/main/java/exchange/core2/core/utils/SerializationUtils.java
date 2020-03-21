@@ -287,7 +287,11 @@ public class SerializationUtils {
         }
     }
 
-    public static <T> T readNullable(final BytesIn bytesIn, Function<BytesIn, T> creator) {
+    public static <T> T preferNotNull(final T a, final T b) {
+        return a == null ? b : a;
+    }
+
+    public static <T> T readNullable(final BytesIn bytesIn, final Function<BytesIn, T> creator) {
         return bytesIn.readBoolean() ? creator.apply(bytesIn) : null;
     }
 

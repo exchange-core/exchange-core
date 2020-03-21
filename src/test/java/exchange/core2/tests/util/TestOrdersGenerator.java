@@ -494,13 +494,13 @@ public final class TestOrdersGenerator {
                 .map(cmd -> {
                     switch (cmd.command) {
                         case PLACE_ORDER:
-                            return ApiPlaceOrder.builder().symbol(cmd.symbol).uid(cmd.uid).id(cmd.orderId).price(cmd.price).size(cmd.size).action(cmd.action).orderType(cmd.orderType)
+                            return ApiPlaceOrder.builder().symbol(cmd.symbol).uid(cmd.uid).orderId(cmd.orderId).price(cmd.price).size(cmd.size).action(cmd.action).orderType(cmd.orderType)
                                     .reservePrice(cmd.reserveBidPrice)
                                     .build();
                         case MOVE_ORDER:
-                            return ApiMoveOrder.builder().symbol(cmd.symbol).uid(cmd.uid).id(cmd.orderId).newPrice(cmd.price).build();
+                            return ApiMoveOrder.builder().symbol(cmd.symbol).uid(cmd.uid).orderId(cmd.orderId).newPrice(cmd.price).build();
                         case CANCEL_ORDER:
-                            return ApiCancelOrder.builder().symbol(cmd.symbol).uid(cmd.uid).id(cmd.orderId).build();
+                            return ApiCancelOrder.builder().symbol(cmd.symbol).uid(cmd.uid).orderId(cmd.orderId).build();
                     }
                     throw new IllegalStateException("unsupported type: " + cmd.command);
                 })

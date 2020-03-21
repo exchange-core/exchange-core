@@ -48,6 +48,8 @@ import java.util.function.Consumer;
 @Slf4j
 public final class BinaryCommandsProcessor implements WriteBytesMarshallable, StateHash {
 
+    // TODO connect object pool
+
     // transactionId -> TransferRecord (long array + bitset)
     private final LongObjectHashMap<TransferRecord> incomingData;
 
@@ -121,7 +123,9 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
 
             } else if (cmd.command == OrderCommandType.BINARY_DATA_COMMAND) {
 
+//                log.debug("Unpack {} words", record.wordsTransfered);
                 final BinaryDataCommand binaryDataCommand = deserializeBinaryCommand(bytesIn);
+//                log.debug("Succeed");
                 completeMessagesHandler.accept(binaryDataCommand);
 
             } else {

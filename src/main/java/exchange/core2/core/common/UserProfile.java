@@ -15,7 +15,6 @@
  */
 package exchange.core2.core.common;
 
-import exchange.core2.core.processors.ObjectsPool;
 import exchange.core2.core.utils.HashingUtils;
 import exchange.core2.core.utils.SerializationUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -43,15 +42,15 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
     // currency -> balance
     public final IntLongHashMap accounts;
 
-    public boolean suspended;
+    public UserStatus userStatus;
 
-    public UserProfile(long uid, boolean suspended) {
+    public UserProfile(long uid, UserStatus userStatus) {
         //log.debug("New {}", uid);
         this.uid = uid;
         this.positions = new IntObjectHashMap<>();
         this.adjustmentsCounter = 0L;
         this.accounts = new IntLongHashMap();
-        this.suspended = suspended;
+        this.userStatus = userStatus;
     }
 
     public UserProfile(BytesIn bytesIn) {
@@ -68,7 +67,7 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
         this.accounts = SerializationUtils.readIntLongHashMap(bytesIn);
 
         // suspended
-        this.suspended = bytesIn.readBoolean();
+        this.userStatus = UserStatus.of(bytesIn.readByte());
     }
 
     public SymbolPositionRecord getPositionRecordOrThrowEx(int symbol) {
@@ -94,7 +93,7 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
         SerializationUtils.marshallIntLongHashMap(accounts, bytes);
 
         // suspended
-        bytes.writeBoolean(suspended);
+        bytes.writeByte(userStatus.getCode());
     }
 
 
@@ -105,7 +104,7 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
                 ", positions=" + positions.size() +
                 ", accounts=" + accounts +
                 ", adjustmentsCounter=" + adjustmentsCounter +
-                ", suspended=" + suspended +
+                ", userStatus=" + userStatus +
                 '}';
     }
 
@@ -116,6 +115,6 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
                 HashingUtils.stateHash(positions),
                 adjustmentsCounter,
                 accounts.hashCode(),
-                Boolean.hashCode(suspended));
+                userStatus.hashCode());
     }
 }

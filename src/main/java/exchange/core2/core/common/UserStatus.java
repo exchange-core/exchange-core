@@ -13,24 +13,30 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package exchange.core2.core.common.api;
+package exchange.core2.core.common;
 
+import lombok.Getter;
 
-import exchange.core2.core.common.api.reports.ReportQuery;
-import lombok.Builder;
+@Getter
+public enum UserStatus {
+    ACTIVE(0), // normal user
+    SUSPENDED(1); // suspended
 
-@Builder
-public final class ApiReportQueryCommand extends ApiCommand {
+    private byte code;
 
-    // transfer unique id
-    // can be constant unless going to push data concurrently
-    public final int transferId;
-
-    // serializable object
-    public final ReportQuery<?> query;
-
-    @Override
-    public String toString() {
-        return "[REPORT_QUERY tid=" + transferId + " query=" + query + "]";
+    UserStatus(int code) {
+        this.code = (byte) code;
     }
+
+    public static UserStatus of(byte code) {
+        switch (code) {
+            case 0:
+                return ACTIVE;
+            case 1:
+                return SUSPENDED;
+            default:
+                throw new IllegalArgumentException("unknown UserStatus:" + code);
+        }
+    }
+
 }

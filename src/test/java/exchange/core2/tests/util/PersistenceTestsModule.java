@@ -53,6 +53,9 @@ public class PersistenceTestsModule {
         for (int iteration = 0; iteration < iterations; iteration++) {
 
             final long stateId;
+
+//            long t = System.currentTimeMillis();
+
             final List<CoreSymbolSpecification> coreSymbolSpecifications = ExchangeTestContainer.generateRandomSymbols(numSymbols, currenciesAllowed, allowedSymbolTypes);
             final List<BitSet> usersAccounts = UserCurrencyAccountsGenerator.generateUsers(numAccounts, currenciesAllowed);
 
@@ -86,6 +89,7 @@ public class PersistenceTestsModule {
                 container.userAccountsInit(usersAccounts);
 
                 final List<ApiCommand> apiCommandsFill = genResult.getApiCommandsFill();
+//                log.info(">>> READY in {}ms", System.currentTimeMillis() - t);
                 log.info("Order books pre-fill with {} orders...", apiCommandsFill.size());
                 final CountDownLatch latchFill = new CountDownLatch(apiCommandsFill.size());
                 container.setConsumer(cmd -> {
@@ -140,7 +144,7 @@ public class PersistenceTestsModule {
             try (final ExchangeTestContainer recreatedContainer = containerFactory.apply(InitialStateConfiguration.fromSnapshotOnly(exchangeId, stateId, 0))) {
 
                 // simple sync query in order to wait until core is started to respond
-                recreatedContainer.validateUserState(0, IGNORING_CONSUMER, IGNORING_CONSUMER);
+                recreatedContainer.totalBalanceReport();
 
                 float loadTimeSec = (float) (System.currentTimeMillis() - tLoad) / 1000.0f;
                 log.debug("Load+start time: {}s", String.format("%.3f", loadTimeSec));

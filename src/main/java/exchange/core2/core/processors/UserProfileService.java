@@ -17,6 +17,7 @@ package exchange.core2.core.processors;
 
 import exchange.core2.core.common.StateHash;
 import exchange.core2.core.common.UserProfile;
+import exchange.core2.core.common.UserStatus;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.utils.HashingUtils;
 import exchange.core2.core.utils.SerializationUtils;
@@ -62,7 +63,7 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
     }
 
     public UserProfile getUserProfileOrAddSuspended(long uid) {
-        return userProfiles.getIfAbsentPut(uid, () -> new UserProfile(uid, true));
+        return userProfiles.getIfAbsentPut(uid, () -> new UserProfile(uid, UserStatus.SUSPENDED));
     }
 
 
@@ -115,7 +116,7 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
      */
     public boolean addEmptyUserProfile(long uid) {
         if (userProfiles.get(uid) == null) {
-            userProfiles.put(uid, new UserProfile(uid, false));
+            userProfiles.put(uid, new UserProfile(uid, UserStatus.ACTIVE));
             return true;
         } else {
             log.debug("Can not add user, already exists: {}", uid);
@@ -139,7 +140,7 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
         if (userProfile == null) {
             return CommandResultCode.USER_MGMT_USER_NOT_FOUND;
 
-        } else if (userProfile.suspended) {
+        } else if (userProfile.userStatus == UserStatus.SUSPENDED) {
             return CommandResultCode.USER_MGMT_USER_ALREADY_SUSPENDED;
 
         } else if (userProfile.positions.anySatisfy(pos -> !pos.isEmpty())) {
@@ -161,14 +162,14 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
         if (userProfile == null) {
             // create new empty user profile
             // account balance adjustments should be applied later
-            userProfiles.put(uid, new UserProfile(uid, false));
+            userProfiles.put(uid, new UserProfile(uid, UserStatus.ACTIVE));
             return CommandResultCode.SUCCESS;
-        } else if (!userProfile.suspended) {
+        } else if (userProfile.userStatus != UserStatus.SUSPENDED) {
             // attempt to resume non-suspended account (or resume twice)
             return CommandResultCode.USER_MGMT_USER_NOT_SUSPENDED;
         } else {
             // resume existing suspended profile (can contain non empty positions or accounts)
-            userProfile.suspended = false;
+            userProfile.userStatus = UserStatus.ACTIVE;
             log.debug("Resumed user profile: {}", userProfile);
             return CommandResultCode.SUCCESS;
         }
