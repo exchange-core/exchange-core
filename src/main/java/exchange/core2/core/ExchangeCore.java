@@ -226,8 +226,7 @@ public final class ExchangeCore {
             disruptor.start();
             started = true;
 
-            final long enableJournalingAfterSeq = serializationProcessor.replayJournalFull(exchangeConfiguration.getInitStateCfg(), api);
-            serializationProcessor.enableJournaling(enableJournalingAfterSeq, api);
+            serializationProcessor.replayJournalFullAndThenEnableJouraling(exchangeConfiguration.getInitStateCfg(), api);
         }
     }
 

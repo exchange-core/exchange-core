@@ -77,7 +77,6 @@ public interface ISerializationProcessor {
 
     /**
      * Activate journal
-     *
      */
     void enableJournaling(long afterSeq, ExchangeApi api);
 
@@ -97,8 +96,9 @@ public interface ISerializationProcessor {
      */
     void replayJournalStep(long snapshotId, long seqFrom, long seqTo, ExchangeApi exchangeApi);
 
-
     long replayJournalFull(InitialStateConfiguration initialStateConfiguration, ExchangeApi exchangeApi);
+
+    void replayJournalFullAndThenEnableJouraling(InitialStateConfiguration initialStateConfiguration, ExchangeApi exchangeApi);
 
     @AllArgsConstructor
     enum SerializedModuleType {

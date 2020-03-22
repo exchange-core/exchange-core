@@ -17,8 +17,10 @@ package exchange.core2.core.common.api;
 
 
 import lombok.Builder;
+import lombok.RequiredArgsConstructor;
 
 @Builder
+@RequiredArgsConstructor
 public final class ApiCancelOrder extends ApiCommand {
 
     public final long orderId;

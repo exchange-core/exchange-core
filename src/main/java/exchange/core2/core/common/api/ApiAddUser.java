@@ -16,9 +16,11 @@
 package exchange.core2.core.common.api;
 
 
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 
 @Builder
+@AllArgsConstructor
 public final class ApiAddUser extends ApiCommand {
 
     public final long uid;

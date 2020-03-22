@@ -513,6 +513,12 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
     }
 
+    @Override
+    public void replayJournalFullAndThenEnableJouraling(InitialStateConfiguration initialStateConfiguration, ExchangeApi exchangeApi) {
+        long seq = replayJournalFull(initialStateConfiguration, exchangeApi);
+        enableJournaling(seq, exchangeApi);
+    }
+
     private void flushBufferSync(final boolean switchBaseSnapshot, final long timestampNs) throws IOException {
 
 //        log.debug("Flushing buffer position={}", buffer.position());

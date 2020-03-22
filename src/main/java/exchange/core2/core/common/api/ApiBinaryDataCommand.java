@@ -17,10 +17,12 @@ package exchange.core2.core.common.api;
 
 
 import exchange.core2.core.common.api.binary.BinaryDataCommand;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 
 
 @Builder
+@AllArgsConstructor
 public final class ApiBinaryDataCommand extends ApiCommand {
 
     // transfer unique id

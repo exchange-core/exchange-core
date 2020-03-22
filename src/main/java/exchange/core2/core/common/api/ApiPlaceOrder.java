@@ -19,19 +19,21 @@ package exchange.core2.core.common.api;
 import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.OrderType;
 import lombok.Builder;
+import lombok.RequiredArgsConstructor;
 
 @Builder
+@RequiredArgsConstructor
 public final class ApiPlaceOrder extends ApiCommand {
 
-    final public long price;
-    final public long size;
-    final public long orderId;
-    final public OrderAction action;
-    final public OrderType orderType;
-    final public long uid;
-    final public int symbol;
-    final public int userCookie;
-    final public long reservePrice;
+    public final long price;
+    public final long size;
+    public final long orderId;
+    public final OrderAction action;
+    public final OrderType orderType;
+    public final long uid;
+    public final int symbol;
+    public final int userCookie;
+    public final long reservePrice;
 
     @Override
     public String toString() {

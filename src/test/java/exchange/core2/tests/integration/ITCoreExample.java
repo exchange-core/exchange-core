@@ -2,6 +2,8 @@ package exchange.core2.tests.integration;
 
 import exchange.core2.core.ExchangeApi;
 import exchange.core2.core.ExchangeCore;
+import exchange.core2.core.IEventsHandler;
+import exchange.core2.core.SimpleEventsProcessor;
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.OrderType;
@@ -13,16 +15,13 @@ import exchange.core2.core.common.api.reports.SingleUserReportResult;
 import exchange.core2.core.common.api.reports.TotalCurrencyBalanceReportQuery;
 import exchange.core2.core.common.api.reports.TotalCurrencyBalanceReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
-import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.config.ExchangeConfiguration;
-import exchange.core2.core.processors.journaling.DiskSerializationProcessor;
-import exchange.core2.core.processors.journaling.DiskSerializationProcessorConfiguration;
+import exchange.core2.core.processors.journaling.DummySerializationProcessor;
 import exchange.core2.core.processors.journaling.ISerializationProcessor;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 
 import java.util.concurrent.Future;
-import java.util.function.ObjLongConsumer;
 import java.util.function.Supplier;
 
 @Slf4j
@@ -31,33 +30,64 @@ public class ITCoreExample {
     @Test
     public void sampleTest() throws Exception {
 
-        // TODO ignoring consumer
-        ObjLongConsumer<OrderCommand> resultsConsumer = (seq, orderCommand) -> {
-        };
+        // simple async events handler
+        SimpleEventsProcessor eventsProcessor = new SimpleEventsProcessor(new IEventsHandler() {
+            @Override
+            public void tradeEvent(TradeEvent tradeEvent) {
+                System.out.println("Trade event: " + tradeEvent);
+            }
 
-        final ExchangeConfiguration conf = ExchangeConfiguration.defaultBuilder().build();
+            @Override
+            public void cancelEvent(CancelEvent cancelEvent) {
+                System.out.println("Cancel event: " + cancelEvent);
+            }
 
-        // TODO dummy serialization
-        Supplier<ISerializationProcessor> serializationProcessorFactory = () -> new DiskSerializationProcessor(conf, DiskSerializationProcessorConfiguration.createDefaultConfig());
+            @Override
+            public void rejectEvent(RejectEvent rejectEvent) {
+                System.out.println("Reject event: " + rejectEvent);
+            }
 
-        final ExchangeCore exchangeCore = ExchangeCore.builder()
-                .resultsConsumer(resultsConsumer)
+            @Override
+            public void commandResult(ApiCommandResult commandResult) {
+                System.out.println("Command result: " + commandResult);
+            }
+
+            @Override
+            public void orderBook(OrderBook orderBook) {
+                System.out.println("OrderBook event: " + orderBook);
+            }
+        });
+
+        // default exchange configuration
+        ExchangeConfiguration conf = ExchangeConfiguration.defaultBuilder().build();
+
+        // no serialization
+        Supplier<ISerializationProcessor> serializationProcessorFactory = () -> DummySerializationProcessor.INSTANCE;
+
+        // build exchange core
+        ExchangeCore exchangeCore = ExchangeCore.builder()
+                .resultsConsumer(eventsProcessor)
                 .serializationProcessorFactory(serializationProcessorFactory)
                 .exchangeConfiguration(conf)
                 .build();
 
+        // start up disruptor threads
         exchangeCore.startup();
 
+        // get exchange API for publishing commands
         ExchangeApi api = exchangeCore.getApi();
 
+        // currency code constants
         final int currencyCodeXbt = 11;
         final int currencyCodeLtc = 15;
 
+        // symbol constants
         final int symbolXbtLtc = 241;
 
         Future<CommandResultCode> future;
 
-        final CoreSymbolSpecification symbolSpecXbtLtc = CoreSymbolSpecification.builder()
+        // create symbol specification and publish it
+        CoreSymbolSpecification symbolSpecXbtLtc = CoreSymbolSpecification.builder()
                 .symbolId(symbolXbtLtc)         // symbol id
                 .type(SymbolType.CURRENCY_EXCHANGE_PAIR)
                 .baseCurrency(currencyCodeXbt)    // base = satoshi (1E-8)
@@ -67,7 +97,6 @@ public class ITCoreExample {
                 .takerFee(1900L)        // taker fee 1900 litoshi per 1 lot
                 .makerFee(700L)         // maker fee 700 litoshi per 1 lot
                 .build();
-
 
         future = api.submitBinaryDataAsync(new BatchAddSymbolsCommand(symbolSpecXbtLtc));
         System.out.println("BatchAddSymbolsCommand result: " + future.get());
@@ -141,6 +170,15 @@ public class ITCoreExample {
 
         System.out.println("ApiPlaceOrder 2 result: " + future.get());
 
+        // request order book
+        future = api.submitCommandAsync(ApiOrderBookRequest.builder()
+                .size(10)
+                .symbol(symbolXbtLtc)
+                .build());
+
+        System.out.println("ApiOrderBookRequest result: " + future.get());
+
+
         // first user moves remaining order to price 1.53 LTC
         future = api.submitCommandAsync(ApiMoveOrder.builder()
                 .uid(301L)
@@ -151,7 +189,7 @@ public class ITCoreExample {
 
         System.out.println("ApiMoveOrder 2 result: " + future.get());
 
-        // second user cancel remaining order
+        // first user cancel remaining order
         future = api.submitCommandAsync(ApiCancelOrder.builder()
                 .uid(301L)
                 .orderId(5001L)
