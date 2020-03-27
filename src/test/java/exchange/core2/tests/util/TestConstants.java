@@ -178,4 +178,17 @@ public final class TestConstants {
             .makerFee(700)                  // maker fee 700 litoshi per 1 lot
             .build();
 
+    public static int getCurrency(String currency) {
+
+        switch (currency){
+            case "USD":
+                return CURRENECY_USD;
+            case "XBT":
+                return CURRENECY_XBT;
+            case "ETH":
+                return CURRENECY_ETH;
+        }
+
+        throw new RuntimeException("Unknown currency [" + currency + "]");
+    }
 }

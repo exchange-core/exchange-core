@@ -7,7 +7,6 @@ import io.cucumber.core.api.TypeRegistryConfigurer;
 import io.cucumber.cucumberexpressions.ParameterType;
 import io.cucumber.cucumberexpressions.Transformer;
 import io.cucumber.datatable.DataTableType;
-import io.cucumber.datatable.TableRowTransformer;
 import io.cucumber.datatable.TableTransformer;
 
 import java.util.HashMap;
@@ -27,10 +26,22 @@ public class TypeRegistryConfiguration implements TypeRegistryConfigurer {
         symbolSpecificationMap.put("ETH_XBT", SYMBOLSPEC_ETH_XBT);
 
         typeRegistry.defineParameterType(
-                new ParameterType<CoreSymbolSpecification>("symbol",
+                new ParameterType<>("symbol",
                         "(EUR_USD)?(ETH_XBT)?",
                         CoreSymbolSpecification.class,
                         (Transformer<CoreSymbolSpecification>) symbolSpecificationMap::get
+                ));
+
+        final Map<String, Long> users = new HashMap<>();
+        users.put("A", 1440001L);
+        users.put("B", 1440002L);
+        users.put("C", 1440003L);
+
+        typeRegistry.defineParameterType(
+                new ParameterType<>("user",
+                        "([ABC]{1})",
+                        Long.class,
+                        (Transformer<Long>) users::get
                 ));
 
         typeRegistry.defineDataTableType(new DataTableType(

@@ -368,13 +368,22 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
 
     public void submitCommandSync(ApiCommand apiCommand, Consumer<OrderCommand> validator) throws InterruptedException {
+        submitCommandSync(apiCommand, null, validator);
+    }
+
+    public void submitCommandSync(ApiCommand apiCommand, Long orderId, Consumer<OrderCommand> validator) throws InterruptedException {
         final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<OrderCommand> cmdRef = new AtomicReference<>();
         consumer = cmd -> {
-            validator.accept(cmd);
+            if(orderId != null && cmd.getOrderId() != orderId){
+                return;
+            }
+            cmdRef.set(cmd);
             latch.countDown();
         };
         api.submitCommand(apiCommand);
         assertTrue("The async command has not finished in time.", latch.await(TIMEOUT_CMD, TimeUnit.SECONDS));
+        validator.accept(cmdRef.get());
         consumer = cmd -> {
         };
     }
@@ -406,7 +415,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
     }
 
 
-    void submitCommandsSync(List<ApiCommand> apiCommand) throws InterruptedException {
+    public void submitCommandsSync(List<ApiCommand> apiCommand) throws InterruptedException {
         final CountDownLatch latch = new CountDownLatch(apiCommand.size());
         final AtomicReference<CommandResultCode> resultCode = new AtomicReference<>();
         consumer = cmd -> {
@@ -450,8 +459,11 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
     // todo rename
     public void validateUserState(long uid, Consumer<SingleUserReportResult> resultValidator) throws InterruptedException, ExecutionException {
+        resultValidator.accept(getUserProfile(uid));
+    }
 
-        resultValidator.accept(api.processReport(new SingleUserReportQuery(uid), getRandomTransferId()).get());
+    public SingleUserReportResult getUserProfile(long clientId) throws InterruptedException, ExecutionException {
+        return api.processReport(new SingleUserReportQuery(clientId), getRandomTransferId()).get();
     }
 
 
