@@ -1,4 +1,4 @@
-package exchange.core2.tests.integration;
+package exchange.core2.tests.examples;
 
 import exchange.core2.core.ExchangeApi;
 import exchange.core2.core.ExchangeCore;

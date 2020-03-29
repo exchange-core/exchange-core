@@ -73,38 +73,38 @@ public final class TestOrdersGenerator {
         final int targetOrderBookOrdersTotal = config.targetOrderBookOrdersTotal;
         final int seed = config.seed;
 
-        final long timeGenStart = System.currentTimeMillis();
-
-        final double[] distribution = createWeightedDistribution(coreSymbolSpecifications.size(), seed);
-        int quotaLeft = totalTransactionsNumber;
-        final Map<Integer, CompletableFuture<GenResult>> futures = new HashMap<>();
-
-        final LongConsumer sharedProgressLogger = createAsyncProgressLogger(totalTransactionsNumber);
-
-        for (int i = 0; i < coreSymbolSpecifications.size(); i++) {
-            final CoreSymbolSpecification spec = coreSymbolSpecifications.get(i);
-            final int numOrdersTarget = (int) (targetOrderBookOrdersTotal * distribution[i]);
-            final int commandsNum = (i != coreSymbolSpecifications.size() - 1) ? (int) (totalTransactionsNumber * distribution[i]) : quotaLeft;
-            quotaLeft -= commandsNum;
-            //log.debug("{}. Generating symbol {} : commands={} numOrdersTarget={}", i, symbolId, commandsNum, numOrdersTarget);
-            futures.put(spec.symbolId, CompletableFuture.supplyAsync(() -> {
-                final int[] uidsAvailableForSymbol = UserCurrencyAccountsGenerator.createUserListForSymbol(usersAccounts, spec, commandsNum);
-                final int numUsers = uidsAvailableForSymbol.length;
-                final UnaryOperator<Integer> uidMapper = idx -> uidsAvailableForSymbol[idx];
-                return generateCommands(commandsNum, numOrdersTarget, numUsers, uidMapper, spec.symbolId, false, config.hugeSizeIOC, sharedProgressLogger, seed);
-            }));
-        }
-
         final Map<Integer, GenResult> genResults = new HashMap<>();
-        futures.forEach((symbol, future) -> {
-            try {
-                genResults.put(symbol, future.get());
-            } catch (InterruptedException | ExecutionException ex) {
-                throw new IllegalStateException("Exception while generating commands for symbol " + symbol, ex);
-            }
-        });
 
-        log.debug("All test commands generated in {}s", String.format("%.3f", (System.currentTimeMillis() - timeGenStart) / 1000.0));
+        try (ExecutionTime ignore = new ExecutionTime(t -> log.debug("All test commands generated in {}", t))) {
+
+            final double[] distribution = createWeightedDistribution(coreSymbolSpecifications.size(), seed);
+            int quotaLeft = totalTransactionsNumber;
+            final Map<Integer, CompletableFuture<GenResult>> futures = new HashMap<>();
+
+            final LongConsumer sharedProgressLogger = createAsyncProgressLogger(totalTransactionsNumber);
+
+            for (int i = 0; i < coreSymbolSpecifications.size(); i++) {
+                final CoreSymbolSpecification spec = coreSymbolSpecifications.get(i);
+                final int numOrdersTarget = (int) (targetOrderBookOrdersTotal * distribution[i]);
+                final int commandsNum = (i != coreSymbolSpecifications.size() - 1) ? (int) (totalTransactionsNumber * distribution[i]) : quotaLeft;
+                quotaLeft -= commandsNum;
+                //log.debug("{}. Generating symbol {} : commands={} numOrdersTarget={}", i, symbolId, commandsNum, numOrdersTarget);
+                futures.put(spec.symbolId, CompletableFuture.supplyAsync(() -> {
+                    final int[] uidsAvailableForSymbol = UserCurrencyAccountsGenerator.createUserListForSymbol(usersAccounts, spec, commandsNum);
+                    final int numUsers = uidsAvailableForSymbol.length;
+                    final UnaryOperator<Integer> uidMapper = idx -> uidsAvailableForSymbol[idx];
+                    return generateCommands(commandsNum, numOrdersTarget, numUsers, uidMapper, spec.symbolId, false, config.hugeSizeIOC, sharedProgressLogger, seed);
+                }));
+            }
+
+            futures.forEach((symbol, future) -> {
+                try {
+                    genResults.put(symbol, future.get());
+                } catch (InterruptedException | ExecutionException ex) {
+                    throw new IllegalStateException("Exception while generating commands for symbol " + symbol, ex);
+                }
+            });
+        }
 
         final List<List<OrderCommand>> commandsLists = genResults.values().stream()
                 .map(genResult -> genResult.commands)
@@ -113,7 +113,7 @@ public final class TestOrdersGenerator {
         log.debug("Merging {} commands for {} symbols ...",
                 commandsLists.stream().mapToInt(Collection::size).sum(), genResults.size());
 
-        final List<OrderCommand> allCommands = RandomCollectionsMerger.mergeCollections(commandsLists, 1L);
+        final List<OrderCommand> allCommands = RandomCollectionsMerger.mergeCollections(commandsLists, config.seed);
 
         final int readyAtSeq = config.preFillMode.calculateReadySeqFunc.apply(config);
 

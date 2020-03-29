@@ -30,6 +30,7 @@
         <openhft.chronicle.wire.version>2.17.34</openhft.chronicle.wire.version>
         <eclipse.collections.version>9.2.0</eclipse.collections.version>
         <hdr.histogram.version>2.1.10</hdr.histogram.version>
+        <lz4.java>1.7.1</lz4.java>
     </properties>
 
     <dependencyManagement>
@@ -114,6 +115,13 @@
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-math3</artifactId>
                 <version>${commons-math3.version}</version>
+            </dependency>
+
+            <!-- lz4-java -->
+            <dependency>
+                <groupId>org.lz4</groupId>
+                <artifactId>lz4-java</artifactId>
+                <version>${lz4.java}</version>
             </dependency>
 
             <!-- FastUtil -->
@@ -243,6 +251,11 @@
         <dependency>
             <groupId>org.hdrhistogram</groupId>
             <artifactId>HdrHistogram</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.lz4</groupId>
+            <artifactId>lz4-java</artifactId>
         </dependency>
 
         <dependency>

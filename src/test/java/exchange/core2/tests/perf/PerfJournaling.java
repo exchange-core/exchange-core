@@ -113,7 +113,7 @@ public final class PerfJournaling {
     public void testJournalingMultiSymbolHuge() throws Exception {
         JournalingTestsModule.journalingTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
-                        .ringBufferSize(64 * 1024)
+                        .ringBufferSize(128 * 1024)
                         .matchingEnginesNum(4)
                         .riskEnginesNum(4)
                         .msgsInGroupLimit(1024)

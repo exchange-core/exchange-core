@@ -15,6 +15,7 @@
  */
 package exchange.core2.core.processors;
 
+import exchange.core2.core.ExchangeApi;
 import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.StateHash;
 import exchange.core2.core.common.api.binary.BinaryDataCommand;
@@ -95,7 +96,14 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
 
         final int transferId = cmd.userCookie;
 
-        final TransferRecord record = incomingData.getIfAbsentPut(transferId, TransferRecord::new);
+        final TransferRecord record = incomingData.getIfAbsentPut(
+                transferId,
+                () -> {
+                    final int bytesLength = (int) (cmd.orderId >> 32) & 0x7FFF_FFFF;
+                    final int longArraySize = SerializationUtils.requiredLongArraySize(bytesLength, ExchangeApi.LONGS_PER_MESSAGE);
+//            log.debug("EXPECTED: bytesLength={} longArraySize={}", bytesLength, longArraySize);
+                    return new TransferRecord(longArraySize);
+                });
 
         record.addWord(cmd.orderId);
         record.addWord(cmd.price);
@@ -108,7 +116,7 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
 
             incomingData.removeKey(transferId);
 
-            final BytesIn bytesIn = SerializationUtils.longsToWire(record.dataArray).bytes();
+            final BytesIn bytesIn = SerializationUtils.longsLz4ToWire(record.dataArray, record.wordsTransfered).bytes();
 
             if (cmd.command == OrderCommandType.BINARY_DATA_QUERY) {
 
@@ -204,9 +212,9 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
         private long[] dataArray;
         private int wordsTransfered;
 
-        public TransferRecord() {
+        public TransferRecord(int expectedLength) {
             this.wordsTransfered = 0;
-            this.dataArray = new long[256];
+            this.dataArray = new long[expectedLength];
         }
 
         public TransferRecord(BytesIn bytes) {
@@ -217,6 +225,8 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
         public void addWord(long word) {
 
             if (wordsTransfered == dataArray.length) {
+                // should never happen
+                log.warn("Resizing incoming transfer buffer to {} longs", dataArray.length * 2);
                 long[] newArray = new long[dataArray.length * 2];
                 System.arraycopy(dataArray, 0, newArray, 0, dataArray.length);
                 dataArray = newArray;

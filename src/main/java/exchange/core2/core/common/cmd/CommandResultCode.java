@@ -17,6 +17,8 @@ package exchange.core2.core.common.cmd;
 
 import lombok.Getter;
 
+import java.util.Arrays;
+
 @Getter
 public enum CommandResultCode {
     NEW(0),
@@ -72,6 +74,14 @@ public enum CommandResultCode {
 
     CommandResultCode(int code) {
         this.code = code;
+    }
+
+    public static CommandResultCode mergeToFirstFailed(CommandResultCode... results) {
+
+        return Arrays.stream(results)
+                .filter(r -> r != SUCCESS && r != ACCEPTED)
+                .findFirst()
+                .orElse(Arrays.stream(results).anyMatch(r -> r == SUCCESS) ? SUCCESS : ACCEPTED);
     }
 
 }

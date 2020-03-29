@@ -18,12 +18,16 @@ public class DiskSerializationProcessorConfiguration {
     private final long journalFileMaxSize;
     private final int journalBufferSize;
 
+    // use LZ4 compression for batches threshold if batch size exceeds this value
+    private final int journalBatchCompressThreshold;
+
     public static DiskSerializationProcessorConfiguration createDefaultConfig() {
 
         return DiskSerializationProcessorConfiguration.builder()
                 .journalFileMaxSize(4 * 1024 * ONE_MEGABYTE)
                 .journalBufferSize(256 * 1024) // 256 KB - TODO calculate based on ringBufferSize
                 .storageFolder(DEFAULT_FOLDER)
+                .journalBatchCompressThreshold(1024)
                 .build();
     }
 }

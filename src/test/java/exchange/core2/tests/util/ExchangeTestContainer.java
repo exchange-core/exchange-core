@@ -25,6 +25,7 @@ import exchange.core2.core.common.SymbolType;
 import exchange.core2.core.common.api.*;
 import exchange.core2.core.common.api.binary.BatchAddAccountsCommand;
 import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
+import exchange.core2.core.common.api.binary.BinaryDataCommand;
 import exchange.core2.core.common.api.reports.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
@@ -58,7 +59,8 @@ import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 
 @Slf4j
 public final class ExchangeTestContainer implements AutoCloseable {
@@ -219,16 +221,22 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
 
     public void addSymbol(final CoreSymbolSpecification symbol) {
-        addSymbols(new BatchAddSymbolsCommand(symbol));
+        sendBinaryDataCommandSync(new BatchAddSymbolsCommand(symbol), 5000);
     }
 
     public void addSymbols(final List<CoreSymbolSpecification> symbols) {
         // split by chunks
-        Lists.partition(symbols, 10000).forEach(partition -> addSymbols(new BatchAddSymbolsCommand(partition)));
+        Lists.partition(symbols, 10000).forEach(partition -> sendBinaryDataCommandSync(new BatchAddSymbolsCommand(partition), 5000));
     }
 
-    public void addSymbols(final BatchAddSymbolsCommand symbols) {
-        submitMultiCommandSync(ApiBinaryDataCommand.builder().transferId(getRandomTransferId()).data(symbols).build());
+    public void sendBinaryDataCommandSync(final BinaryDataCommand data, final int timeOutMs) {
+        final Future<CommandResultCode> future = api.submitBinaryDataAsync(data);
+        try {
+            assertThat(future.get(timeOutMs, TimeUnit.MILLISECONDS), Is.is(CommandResultCode.SUCCESS));
+        } catch (final InterruptedException | ExecutionException | TimeoutException ex) {
+            log.error("Failed sending binary data command", ex);
+            throw new RuntimeException(ex);
+        }
     }
 
     private int getRandomTransferId() {
@@ -248,6 +256,11 @@ public final class ExchangeTestContainer implements AutoCloseable {
         accountsNumPerCurrency.forEachKeyValue((currency, numAcc) -> amountPerAccount.put(currency, Long.MAX_VALUE / (numAcc + 1)));
         // amountPerAccount.forEachKeyValue((k, v) -> log.debug("{}={}", k, v));
 
+        createUserAccountsRegular(userCurrencies, amountPerAccount);
+//        createUserAccountsBatched(userCurrencies, amountPerAccount);
+    }
+
+    private void createUserAccountsRegular(List<BitSet> userCurrencies, IntLongHashMap amountPerAccount) throws InterruptedException {
         final int totalAccounts = userCurrencies.stream().skip(1).mapToInt(BitSet::cardinality).sum();
         final int numUsers = userCurrencies.size() - 1;
         final CountDownLatch usersLatch = new CountDownLatch(totalAccounts + numUsers);
@@ -270,14 +283,37 @@ public final class ExchangeTestContainer implements AutoCloseable {
                             .currency(currency)
                             .build()));
 
-//            if (uid > 1000000 && uid % 1000000 == 0) {
-//                log.debug("uid: {} usersLatch: {}", uid, usersLatch.getCount());
-//            }
         });
         usersLatch.await();
 
         consumer = cmd -> {
         };
+    }
+
+    // slow
+    private void createUserAccountsBatched(List<BitSet> userCurrencies, IntLongHashMap amountPerAccount) {
+
+        log.debug("Converting users profiles...");
+        LongObjectHashMap<IntLongHashMap> users = new LongObjectHashMap<>();
+        final int numUsers = userCurrencies.size() - 1;
+        IntStream.rangeClosed(1, numUsers).forEach(uid -> {
+            IntLongHashMap accounts = new IntLongHashMap();
+            userCurrencies.get(uid).stream().forEach(currency -> {
+                long amount = amountPerAccount.get(currency);
+                accounts.put(currency, amount);
+            });
+            users.put(uid, accounts);
+
+            if (uid % 20000 == 0) {
+                log.debug("send uid {}...", uid);
+                sendBinaryDataCommandSync(new BatchAddAccountsCommand(users), 5_000);
+                users.clear();
+            }
+
+        });
+        log.debug("Done converting users profiles...");
+
+        sendBinaryDataCommandSync(new BatchAddAccountsCommand(users), 5_000);
 
     }
 
@@ -405,8 +441,11 @@ public final class ExchangeTestContainer implements AutoCloseable {
     void submitCommandsSync(List<ApiCommand> apiCommand) throws InterruptedException {
         final CountDownLatch latch = new CountDownLatch(apiCommand.size());
         consumer = cmd -> {
-            assertTrue(CommandResultCode.SUCCESS == cmd.resultCode || CommandResultCode.ACCEPTED == cmd.resultCode);
-            latch.countDown();
+            if (cmd.resultCode == CommandResultCode.SUCCESS) {
+                latch.countDown();
+            } else if (cmd.resultCode != CommandResultCode.ACCEPTED) {
+                throw new IllegalStateException("Unexpected result code");
+            }
         };
         apiCommand.forEach(api::submitCommand);
         latch.await();
@@ -534,6 +573,14 @@ public final class ExchangeTestContainer implements AutoCloseable {
         }
     }
 
+    public float executeTestingThreadPerfMtps(final Callable<Void> test, final int numMessages) {
+        return executeTestingThread(() -> {
+            final long tStart = System.currentTimeMillis();
+            Executors.newFixedThreadPool(1, threadFactory).submit(test).get();
+            final long tDuration = System.currentTimeMillis() - tStart;
+            return numMessages / (float) tDuration / 1000.0f;
+        });
+    }
 
     @Override
     public void close() {

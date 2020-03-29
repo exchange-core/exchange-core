@@ -36,8 +36,10 @@ import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import net.openhft.chronicle.wire.Wire;
+import org.agrona.collections.LongLongConsumer;
 import org.eclipse.collections.impl.map.mutable.ConcurrentHashMap;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
@@ -92,7 +94,8 @@ public final class ExchangeApi {
             publishBinaryData((ApiBinaryDataCommand) cmd, seq -> {
             });
         } else if (cmd instanceof ApiPersistState) {
-            publishPersistCmd((ApiPersistState) cmd);
+            publishPersistCmd((ApiPersistState) cmd, (seq1, seq2) -> {
+            });
         } else if (cmd instanceof ApiReset) {
             ringBuffer.publishEvent(RESET_TRANSLATOR, (ApiReset) cmd);
         } else {
@@ -100,7 +103,7 @@ public final class ExchangeApi {
         }
     }
 
-    public Future<CommandResultCode> submitCommandAsync(ApiCommand cmd) {
+    public CompletableFuture<CommandResultCode> submitCommandAsync(ApiCommand cmd) {
         //log.debug("{}", cmd);
 
         if (cmd instanceof ApiMoveOrder) {
@@ -121,8 +124,8 @@ public final class ExchangeApi {
             return submitCommandAsync(SUSPEND_USER_TRANSLATOR, (ApiSuspendUser) cmd);
         } else if (cmd instanceof ApiBinaryDataCommand) {
             return submitBinaryDataAsync(((ApiBinaryDataCommand) cmd).data);
-//        } else if (cmd instanceof ApiPersistState) {
-//            return submitCommandAsync((ApiPersistState) cmd);
+        } else if (cmd instanceof ApiPersistState) {
+            return submitPersistCommandAsync((ApiPersistState) cmd);
         } else if (cmd instanceof ApiReset) {
             return submitCommandAsync(RESET_TRANSLATOR, (ApiReset) cmd);
         } else {
@@ -131,7 +134,16 @@ public final class ExchangeApi {
     }
 
 
-    private <T extends ApiCommand> Future<CommandResultCode> submitCommandAsync(EventTranslatorOneArg<OrderCommand, T> translator, final T apiCommand) {
+    public void submitCommandsSyncIgnoreResult(List<ApiCommand> cmd) {
+        if (cmd.isEmpty()) {
+            return;
+        }
+
+        cmd.subList(0, cmd.size() - 1).forEach(this::submitCommand);
+        submitCommandAsync(cmd.get(cmd.size() - 1)).join();
+    }
+
+    private <T extends ApiCommand> CompletableFuture<CommandResultCode> submitCommandAsync(EventTranslatorOneArg<OrderCommand, T> translator, final T apiCommand) {
 
         final CompletableFuture<CommandResultCode> future = new CompletableFuture<>();
 
@@ -145,7 +157,20 @@ public final class ExchangeApi {
         return future;
     }
 
-    public Future<CommandResultCode> submitBinaryDataAsync(final BinaryDataCommand data) {
+    private CompletableFuture<CommandResultCode> submitPersistCommandAsync(final ApiPersistState apiCommand) {
+
+        final CompletableFuture<CommandResultCode> future1 = new CompletableFuture<>();
+        final CompletableFuture<CommandResultCode> future2 = new CompletableFuture<>();
+
+        publishPersistCmd(apiCommand, (seq1, seq2) -> {
+            promises.put(seq1, cmd -> future1.complete(cmd.resultCode));
+            promises.put(seq2, cmd -> future2.complete(cmd.resultCode));
+        });
+
+        return future1.thenCombineAsync(future2, CommandResultCode::mergeToFirstFailed);
+    }
+
+    public CompletableFuture<CommandResultCode> submitBinaryDataAsync(final BinaryDataCommand data) {
 
         final CompletableFuture<CommandResultCode> future = new CompletableFuture<>();
 
@@ -238,7 +263,7 @@ public final class ExchangeApi {
                                    final long timestamp,
                                    final LongConsumer endSeqConsumer) {
 
-        final long[] longsArrayData = SerializationUtils.bytesToLongArray(BinaryCommandsProcessor.serializeObject(data, dataTypeCode), LONGS_PER_MESSAGE);
+        final long[] longsArrayData = SerializationUtils.bytesToLongArrayLz4(BinaryCommandsProcessor.serializeObject(data, dataTypeCode), LONGS_PER_MESSAGE);
 
         final int totalNumMessagesToClaim = longsArrayData.length / LONGS_PER_MESSAGE;
 
@@ -318,7 +343,8 @@ public final class ExchangeApi {
         }
     }
 
-    private void publishPersistCmd(final ApiPersistState api) {
+    private void publishPersistCmd(final ApiPersistState api,
+                                   final LongLongConsumer seqConsumer) {
 
         long secondSeq = ringBuffer.next(2);
         long firstSeq = secondSeq - 1;
@@ -350,6 +376,7 @@ public final class ExchangeApi {
 
             // short delay to reduce probability of batching both commands together in R1
         } finally {
+            seqConsumer.accept(firstSeq, secondSeq);
             ringBuffer.publish(firstSeq, secondSeq);
         }
     }
