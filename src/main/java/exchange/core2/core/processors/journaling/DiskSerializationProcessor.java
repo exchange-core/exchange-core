@@ -26,6 +26,7 @@ import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import lombok.extern.slf4j.Slf4j;
 import net.jpountz.lz4.*;
+import net.jpountz.xxhash.XXHashFactory;
 import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
@@ -63,7 +64,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
     private final ByteBuffer lz4WriteBuffer;
 
     // TODO configurable
-    private final LZ4Compressor lz4Compressor = LZ4Factory.fastestInstance().fastCompressor();
+    private final LZ4Compressor lz4CompressorSnapshot;
+    private final LZ4Compressor lz4CompressorJournal;
     private final LZ4SafeDecompressor lz4SafeDecompressor = LZ4Factory.fastestInstance().safeDecompressor();
 
     private ConcurrentSkipListMap<Long, SnapshotDescriptor> snapshotsIndex;
@@ -83,7 +85,11 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
     private long writtenBytes = 0;
 
+    private static final int MAX_COMMAND_SIZE_BYTES = 256;
+
 //    private List<Integer> batchSizes = new ArrayList<>(100000);
+//    final SingleWriterRecorder hdrRecorderRaw = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
+//    final SingleWriterRecorder hdrRecorderLz4 = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
 
     public DiskSerializationProcessor(ExchangeConfiguration exchangeConfig,
                                       DiskSerializationProcessorConfiguration diskConfig) {
@@ -102,13 +108,17 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
         final int journalBufferSize = diskConfig.getJournalBufferSize();
 
-        this.journalFileMaxSize = diskConfig.getJournalFileMaxSize();
-        this.journalBufferFlushTrigger = journalBufferSize - 256; // less than max command size in bytes
+        this.journalFileMaxSize = diskConfig.getJournalFileMaxSize() - journalBufferSize;
+
+        this.journalBufferFlushTrigger = journalBufferSize - MAX_COMMAND_SIZE_BYTES; // less than max command size in bytes
         this.journalBatchCompressThreshold = diskConfig.getJournalBatchCompressThreshold();
 
         this.journalWriteBuffer = ByteBuffer.allocateDirect(journalBufferSize);
 
-        final int maxCompressedBlockLength = lz4Compressor.maxCompressedLength(journalBufferSize);
+        this.lz4CompressorJournal = diskConfig.getJournalLz4CompressorFactory().get();
+        this.lz4CompressorSnapshot = diskConfig.getSnapshotLz4CompressorFactory().get();
+
+        final int maxCompressedBlockLength = lz4CompressorJournal.maxCompressedLength(journalBufferSize);
         this.lz4WriteBuffer = ByteBuffer.allocate(maxCompressedBlockLength);
     }
 
@@ -122,11 +132,17 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
         final Path path = resolveSnapshotPath(snapshotId, type, instanceId);
 
-        log.debug("Writing state to {} ...", path);
+        log.debug("Writing state into file {} ...", path);
 
         try (final OutputStream os = Files.newOutputStream(path, StandardOpenOption.CREATE_NEW);
              final OutputStream bos = new BufferedOutputStream(os);
-             final LZ4FrameOutputStream lz4os = new LZ4FrameOutputStream(bos);
+             final LZ4FrameOutputStream lz4os = new LZ4FrameOutputStream(
+                     bos,
+                     LZ4FrameOutputStream.BLOCKSIZE.SIZE_4MB,
+                     -1,
+                     lz4CompressorSnapshot,
+                     XXHashFactory.fastestInstance().hash32(),
+                     LZ4FrameOutputStream.FLG.Bits.BLOCK_INDEPENDENCE);
              final WireToOutputStream2 wireToOutputStream = new WireToOutputStream2(WireType.RAW, lz4os)) {
 
             final Wire wire = wireToOutputStream.getWire();
@@ -144,6 +160,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
         }
 
         synchronized (this) {
+            // TODO improve format
             try (final OutputStream os = Files.newOutputStream(resolveMainLogPath(), StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
                 os.write((System.currentTimeMillis() + " seq=" + seq + " timestampNs=" + timestampNs + " snapshotId=" + snapshotId + " type=" + type.code + " instance=" + instanceId + "\n").getBytes());
             } catch (final IOException ex) {
@@ -219,8 +236,6 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
     }
 
 
-    // TODO asynchronously create new file and then switch reference
-
     // single threaded
     @Override
     public void writeToJournal(OrderCommand cmd, long dSeq, boolean eob) throws IOException {
@@ -237,10 +252,6 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
         boolean debug = false;
 
 //        log.debug("Writing {}", cmd);
-
-        //buffer.putInt(cmd.symbol); // TODO Header
-
-        // TODO allocate big buffer, just move pointer
 
         final OrderCommandType cmdType = cmd.command;
 
@@ -614,28 +625,36 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
             // uncompressed write for single messages or small batches
             writtenBytes += journalWriteBuffer.position();
             journalWriteBuffer.flip();
+//            long t = System.nanoTime();
             channel.write(journalWriteBuffer);
+//            hdrRecorderRaw.recordValue(System.nanoTime() - t);
             journalWriteBuffer.clear();
 
         } else {
             // compressed write for bigger batches
+//            long t = System.nanoTime();
             int originalLength = journalWriteBuffer.position(); // commands code
             journalWriteBuffer.flip();
             lz4WriteBuffer.put(OrderCommandType.RESERVED_COMPRESSED.getCode()); // compressed block
             lz4WriteBuffer.putInt(0); // reserve space
             lz4WriteBuffer.putInt(0); // reserve space
-            lz4Compressor.compress(journalWriteBuffer, lz4WriteBuffer);
+            lz4CompressorJournal.compress(journalWriteBuffer, lz4WriteBuffer);
             journalWriteBuffer.clear();
             writtenBytes += lz4WriteBuffer.position();
             int remainingCompressedLength = lz4WriteBuffer.position() - 9; // 1 + 4 + 4
             lz4WriteBuffer.putInt(1, remainingCompressedLength); // 1 byte offset
             lz4WriteBuffer.putInt(5, originalLength); // 1 + 4 bytes offset
             lz4WriteBuffer.flip();
+//            hdrRecorderLz4.recordValue(System.nanoTime() - t);
             channel.write(lz4WriteBuffer);
             lz4WriteBuffer.clear();
         }
 
         if (forceStartNextFile || writtenBytes >= journalFileMaxSize) {
+
+//            log.info("RAW {}", LatencyTools.createLatencyReportFast(hdrRecorderRaw.getIntervalHistogram()));
+//            log.info("LZ4-compression {}", LatencyTools.createLatencyReportFast(hdrRecorderLz4.getIntervalHistogram()));
+
             // todo start preparing new file asynchronously, but ONLY ONCE
             startNewFile(timestampNs);
             writtenBytes = 0;

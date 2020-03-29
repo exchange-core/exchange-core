@@ -58,10 +58,10 @@ public final class PerfLatencyCommands {
     }
 
     /**
-     * Huge IoC orders test to verify matching performance for big-size taker orders.
+     * Avalanche IoC orders test to verify matching performance for big-size taker orders.
      */
     @Test
-    public void testLatencyMarginHugeIoc() {
+    public void testLatencyMarginAvalancheIoc() {
         individualLatencyTest(
                 PerformanceConfiguration.latencyPerformanceBuilder()
                         .ringBufferSize(2 * 1024)
@@ -111,10 +111,10 @@ public final class PerfLatencyCommands {
     }
 
     /**
-     * Huge IoC orders test to verify matching performance for big-size taker orders.
+     * Avalanche IoC orders test to verify matching performance for big-size taker orders.
      */
     @Test
-    public void testLatencyExchangeHugeIoc() {
+    public void testLatencyExchangeAvalancheIoc() {
         individualLatencyTest(
                 PerformanceConfiguration.latencyPerformanceBuilder()
                         .ringBufferSize(2 * 1024)
@@ -166,13 +166,13 @@ public final class PerfLatencyCommands {
     }
 
     /**
-     * Huge IoC orders test to verify matching performance for big-size taker orders. </br>
+     * Avalanche IoC orders test to verify matching performance for big-size taker orders. </br>
      * Why 4R1M configuration:</br>
      * Less matching engines provides better individual command latency - due to less interference. </br>
      * More risk engines provide better individual command latency because of parallel processing R2 stage (0.5 + 0.5/N) </br>
      */
     @Test
-    public void testLatencyMultiSymbolMediumHugeIOC() {
+    public void testLatencyMultiSymbolMediumAvalancheIOC() {
         individualLatencyTest(
                 PerformanceConfiguration.latencyPerformanceBuilder()
                         .ringBufferSize(64 * 1024)

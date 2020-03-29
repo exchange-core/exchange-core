@@ -201,10 +201,7 @@ future = api.submitCommandAsync(ApiPlaceOrder.builder()
 
 Request order book:
 ```java
-future = api.submitCommandAsync(ApiOrderBookRequest.builder()
-        .size(10)
-        .symbol(symbolXbtLtc)
-        .build());
+future = api.requestOrderBookAsync(symbolXbtLtc, 10);
 ```
 
 GtC orders manipulations:

@@ -19,22 +19,18 @@ import com.google.common.collect.Lists;
 import exchange.core2.core.ExchangeApi;
 import exchange.core2.core.ExchangeCore;
 import exchange.core2.core.common.CoreSymbolSpecification;
-import exchange.core2.core.common.CoreWaitStrategy;
 import exchange.core2.core.common.L2MarketData;
 import exchange.core2.core.common.SymbolType;
 import exchange.core2.core.common.api.*;
-import exchange.core2.core.common.api.binary.BatchAddAccountsCommand;
 import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
 import exchange.core2.core.common.api.binary.BinaryDataCommand;
 import exchange.core2.core.common.api.reports.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
-import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.ExchangeConfiguration;
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.core.common.config.ReportsQueriesConfiguration;
-import exchange.core2.core.orderbook.OrderBookDirectImpl;
 import exchange.core2.core.processors.journaling.DiskSerializationProcessor;
 import exchange.core2.core.processors.journaling.DiskSerializationProcessorConfiguration;
 import exchange.core2.core.utils.AffinityThreadFactory;
@@ -44,7 +40,6 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
-import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.hamcrest.core.Is;
 
 import java.util.*;
@@ -53,23 +48,15 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
-import java.util.stream.Stream;
 
+import static junit.framework.TestCase.assertTrue;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
 
 @Slf4j
 public final class ExchangeTestContainer implements AutoCloseable {
-
-    private static final int RING_BUFFER_SIZE_DEFAULT = 64 * 1024;
-    private static final int RISK_ENGINES_ONE = 1;
-    private static final int MATCHING_ENGINES_ONE = 1;
-    private static final int MGS_IN_GROUP_LIMIT_DEFAULT = 128;
-
 
     private final ExchangeCore exchangeCore;
 
@@ -93,7 +80,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
     }
 
     public ExchangeTestContainer() {
-        this(RING_BUFFER_SIZE_DEFAULT, MATCHING_ENGINES_ONE, RISK_ENGINES_ONE, MGS_IN_GROUP_LIMIT_DEFAULT, InitialStateConfiguration.CLEAN_TEST);
+        this(PerformanceConfiguration.latencyPerformanceBuilder().build(), InitialStateConfiguration.CLEAN_TEST);
     }
 
     public static TestDataFutures prepareTestDataAsync(TestDataParameters parameters, int seed) {
@@ -130,26 +117,6 @@ public final class ExchangeTestContainer implements AutoCloseable {
         final CompletableFuture<List<CoreSymbolSpecification>> coreSymbolSpecifications;
         final CompletableFuture<List<BitSet>> usersAccounts;
         final CompletableFuture<TestOrdersGenerator.MultiSymbolGenResult> genResult;
-    }
-
-    public ExchangeTestContainer(final int bufferSize,
-                                 final int matchingEnginesNum,
-                                 final int riskEnginesNum,
-                                 final int msgsInGroupLimit,
-                                 final InitialStateConfiguration initStateCfg) {
-
-        this(PerformanceConfiguration.builder()
-                        .ringBufferSize(bufferSize)
-                        .matchingEnginesNum(matchingEnginesNum)
-                        .riskEnginesNum(riskEnginesNum)
-                        .msgsInGroupLimit(msgsInGroupLimit)
-                        .threadFactory(new AffinityThreadFactory(AffinityThreadFactory.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE))
-                        .waitStrategy(CoreWaitStrategy.BUSY_SPIN)
-                        .orderBookFactory(OrderBookDirectImpl::new)
-                        //.orderBookFactory(symbolType -> new OrderBookFastImpl(OrderBookFastImpl.DEFAULT_HOT_WIDTH, symbolType))
-                        //.orderBookFactory(OrderBookNaiveImpl::new)
-                        .build(),
-                initStateCfg);
     }
 
     public ExchangeTestContainer(final PerformanceConfiguration perfCfg,
@@ -189,7 +156,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
         addSymbol(TestConstants.SYMBOLSPECFEE_XBT_LTC);
     }
 
-    public void initBasicUsers() throws InterruptedException {
+    public void initBasicUsers() {
 
         final List<ApiCommand> cmds = new ArrayList<>();
 
@@ -203,20 +170,20 @@ public final class ExchangeTestContainer implements AutoCloseable {
         cmds.add(ApiAdjustUserBalance.builder().uid(TestConstants.UID_2).transactionId(2L).amount(1_0000_0000L).currency(TestConstants.CURRENECY_XBT).build());
         cmds.add(ApiAdjustUserBalance.builder().uid(TestConstants.UID_2).transactionId(3L).amount(1_0000_0000L).currency(TestConstants.CURRENECY_ETH).build());
 
-        submitCommandsSync(cmds);
+        api.submitCommandsSync(cmds);
     }
 
-    public void createUserWithMoney(long uid, int currency, long amount) throws InterruptedException {
+    public void createUserWithMoney(long uid, int currency, long amount) {
         final List<ApiCommand> cmds = new ArrayList<>();
         cmds.add(ApiAddUser.builder().uid(uid).build());
         cmds.add(ApiAdjustUserBalance.builder().uid(uid).transactionId(getRandomTransactionId()).amount(amount).currency(currency).build());
-        submitCommandsSync(cmds);
+        api.submitCommandsSync(cmds);
     }
 
-    public void addMoneyToUser(long uid, int currency, long amount) throws InterruptedException {
+    public void addMoneyToUser(long uid, int currency, long amount) {
         final List<ApiCommand> cmds = new ArrayList<>();
         cmds.add(ApiAdjustUserBalance.builder().uid(uid).transactionId(getRandomTransactionId()).amount(amount).currency(currency).build());
-        submitCommandsSync(cmds);
+        api.submitCommandsSync(cmds);
     }
 
 
@@ -247,7 +214,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
         return uniqueIdCounterLong.incrementAndGet();
     }
 
-    public final void userAccountsInit(List<BitSet> userCurrencies) throws InterruptedException {
+    public final void userAccountsInit(List<BitSet> userCurrencies) {
 
         // calculate max amount can transfer to each account so that it is not possible to get long overflow
         final IntLongHashMap accountsNumPerCurrency = new IntLongHashMap();
@@ -257,21 +224,11 @@ public final class ExchangeTestContainer implements AutoCloseable {
         // amountPerAccount.forEachKeyValue((k, v) -> log.debug("{}={}", k, v));
 
         createUserAccountsRegular(userCurrencies, amountPerAccount);
-//        createUserAccountsBatched(userCurrencies, amountPerAccount);
     }
 
-    private void createUserAccountsRegular(List<BitSet> userCurrencies, IntLongHashMap amountPerAccount) throws InterruptedException {
-        final int totalAccounts = userCurrencies.stream().skip(1).mapToInt(BitSet::cardinality).sum();
+
+    private void createUserAccountsRegular(List<BitSet> userCurrencies, IntLongHashMap amountPerAccount) {
         final int numUsers = userCurrencies.size() - 1;
-        final CountDownLatch usersLatch = new CountDownLatch(totalAccounts + numUsers);
-        consumer = cmd -> {
-            if (cmd.resultCode == CommandResultCode.SUCCESS
-                    && (cmd.command == OrderCommandType.ADD_USER || cmd.command == OrderCommandType.BALANCE_ADJUSTMENT)) {
-                usersLatch.countDown();
-            } else {
-                throw new IllegalStateException("Unexpected command" + cmd);
-            }
-        };
 
         IntStream.rangeClosed(1, numUsers).forEach(uid -> {
             api.submitCommand(ApiAddUser.builder().uid(uid).build());
@@ -282,53 +239,12 @@ public final class ExchangeTestContainer implements AutoCloseable {
                             .amount(amountPerAccount.get(currency))
                             .currency(currency)
                             .build()));
-
         });
-        usersLatch.await();
 
-        consumer = cmd -> {
-        };
+        api.submitCommandAsync(ApiNop.builder().build()).join();
     }
 
-    // slow
-    private void createUserAccountsBatched(List<BitSet> userCurrencies, IntLongHashMap amountPerAccount) {
-
-        log.debug("Converting users profiles...");
-        LongObjectHashMap<IntLongHashMap> users = new LongObjectHashMap<>();
-        final int numUsers = userCurrencies.size() - 1;
-        IntStream.rangeClosed(1, numUsers).forEach(uid -> {
-            IntLongHashMap accounts = new IntLongHashMap();
-            userCurrencies.get(uid).stream().forEach(currency -> {
-                long amount = amountPerAccount.get(currency);
-                accounts.put(currency, amount);
-            });
-            users.put(uid, accounts);
-
-            if (uid % 20000 == 0) {
-                log.debug("send uid {}...", uid);
-                sendBinaryDataCommandSync(new BatchAddAccountsCommand(users), 5_000);
-                users.clear();
-            }
-
-        });
-        log.debug("Done converting users profiles...");
-
-        sendBinaryDataCommandSync(new BatchAddAccountsCommand(users), 5_000);
-
-    }
-
-    public void usersInit(int numUsers, Set<Integer> currencies) throws InterruptedException {
-
-        int totalCommands = numUsers * (1 + currencies.size());
-        final CountDownLatch usersLatch = new CountDownLatch(totalCommands);
-        consumer = cmd -> {
-            if (cmd.resultCode == CommandResultCode.SUCCESS
-                    && (cmd.command == OrderCommandType.ADD_USER || cmd.command == OrderCommandType.BALANCE_ADJUSTMENT)) {
-                usersLatch.countDown();
-            } else {
-                throw new IllegalStateException("Unexpected command" + cmd);
-            }
-        };
+    public void usersInit(int numUsers, Set<Integer> currencies) {
 
         LongStream.rangeClosed(1, numUsers)
                 .forEach(uid -> {
@@ -341,145 +257,27 @@ public final class ExchangeTestContainer implements AutoCloseable {
                                 .amount(10_0000_0000L)
                                 .currency(currency).build());
                     }
-                    if (uid > 1_000_000 && uid % 1_000_000 == 0) {
-                        log.debug("uid: {} usersLatch: {}", uid, usersLatch.getCount());
-                    }
                 });
-        usersLatch.await();
 
-        consumer = cmd -> {
-        };
-
+        api.submitCommandAsync(ApiNop.builder().build()).join();
     }
 
-    // TODO slow (due allocations)
-    public void usersInitBatch(int numUsers, Set<Integer> currencies) {
-        int fromUid = 0;
-        final int batchSize = 1024;
-        while (usersInitBatch(fromUid, Math.min(fromUid + batchSize, numUsers + 1), currencies)) {
-            fromUid += batchSize;
-        }
+    public void resetExchangeCore() {
+        final CommandResultCode res = api.submitCommandAsync(ApiReset.builder().build()).join();
+        assertThat(res, Is.is(CommandResultCode.SUCCESS));
     }
 
-    public boolean usersInitBatch(int uidStartIncl, int uidStartExcl, Set<Integer> currencies) {
-
-        if (uidStartIncl > uidStartExcl) {
-            return false;
-        }
-
-        final LongObjectHashMap<IntLongHashMap> users = new LongObjectHashMap<>();
-        for (int uid = uidStartIncl; uid < uidStartExcl; uid++) {
-            final IntLongHashMap accounts = new IntLongHashMap();
-            currencies.forEach(currency -> accounts.put(currency, 10_0000_0000L));
-            users.put(uid, accounts);
-            if (uid > 100000 && uid % 100000 == 0) {
-                log.debug("uid: {}", uid);
-            }
-        }
-        submitMultiCommandSync(ApiBinaryDataCommand.builder().transferId(getRandomTransferId()).data(new BatchAddAccountsCommand(users)).build());
-
-        return true;
+    public void submitCommandSync(ApiCommand apiCommand, CommandResultCode expectedResultCode) {
+        assertThat(api.submitCommandAsync(apiCommand).join(), Is.is(expectedResultCode));
     }
 
-
-    public void resetExchangeCore() throws InterruptedException {
-        submitCommandSync(ApiReset.builder().build(), CHECK_SUCCESS);
-    }
-
-    public void submitCommandSync(ApiCommand apiCommand, CommandResultCode expectedResultCode) throws InterruptedException {
-        final CountDownLatch latch = new CountDownLatch(1);
-        consumer = cmd -> {
-            assertThat(cmd.resultCode, Is.is(expectedResultCode));
-            latch.countDown();
-        };
-        api.submitCommand(apiCommand);
-        latch.await();
-        consumer = cmd -> {
-        };
-    }
-
-
-    public void submitCommandSync(ApiCommand apiCommand, Consumer<OrderCommand> validator) throws InterruptedException {
-        final CountDownLatch latch = new CountDownLatch(1);
-        consumer = cmd -> {
-            validator.accept(cmd);
-            latch.countDown();
-        };
-        api.submitCommand(apiCommand);
-        latch.await();
-        consumer = cmd -> {
-        };
-    }
-
-    public void submitMultiCommandSync(ApiCommand dataCommand) {
-        final CountDownLatch latch = new CountDownLatch(1);
-        consumer = cmd -> {
-            if (cmd.command != OrderCommandType.BINARY_DATA_COMMAND
-                    && cmd.command != OrderCommandType.BINARY_DATA_QUERY
-                    && cmd.command != OrderCommandType.PERSIST_STATE_RISK
-                    && cmd.command != OrderCommandType.PERSIST_STATE_MATCHING
-                    && cmd.command != OrderCommandType.GROUPING_CONTROL) {
-                throw new IllegalStateException("Unexpected command");
-            }
-            if (cmd.resultCode == CommandResultCode.SUCCESS) {
-                latch.countDown();
-            } else if (cmd.resultCode != CommandResultCode.ACCEPTED) {
-                throw new IllegalStateException("Unexpected result code");
-            }
-        };
-        api.submitCommand(dataCommand);
-        try {
-            latch.await();
-        } catch (InterruptedException ex) {
-            throw new IllegalStateException(ex);
-        }
-        consumer = cmd -> {
-        };
-    }
-
-
-    void submitCommandsSync(List<ApiCommand> apiCommand) throws InterruptedException {
-        final CountDownLatch latch = new CountDownLatch(apiCommand.size());
-        consumer = cmd -> {
-            if (cmd.resultCode == CommandResultCode.SUCCESS) {
-                latch.countDown();
-            } else if (cmd.resultCode != CommandResultCode.ACCEPTED) {
-                throw new IllegalStateException("Unexpected result code");
-            }
-        };
-        apiCommand.forEach(api::submitCommand);
-        latch.await();
-        consumer = cmd -> {
-        };
+    public void submitCommandSync(ApiCommand apiCommand, Consumer<OrderCommand> validator) {
+        validator.accept(api.submitCommandAsyncFullResponse(apiCommand).join());
     }
 
     public L2MarketData requestCurrentOrderBook(final int symbol) {
-        BlockingQueue<OrderCommand> queue = attachNewConsumerQueue();
-        api.submitCommand(ApiOrderBookRequest.builder().symbol(symbol).size(-1).build());
-        OrderCommand orderBookCmd = waitForOrderCommands(queue, 1).get(0);
-        L2MarketData actualState = orderBookCmd.marketData;
-        assertNotNull(actualState);
-        return actualState;
+        return api.requestOrderBookAsync(symbol, -1).join();
     }
-
-    BlockingQueue<OrderCommand> attachNewConsumerQueue() {
-        final BlockingQueue<OrderCommand> results = new LinkedBlockingQueue<>();
-        consumer = cmd -> results.add(cmd.copy());
-        return results;
-    }
-
-    List<OrderCommand> waitForOrderCommands(BlockingQueue<OrderCommand> results, int c) {
-        return Stream.generate(() -> {
-            try {
-                return results.poll(10000, TimeUnit.MILLISECONDS);
-            } catch (InterruptedException ex) {
-                throw new IllegalStateException();
-            }
-        })
-                .limit(c)
-                .collect(Collectors.toList());
-    }
-
 
     // todo rename
     public void validateUserState(long uid, Consumer<SingleUserReportResult> resultValidator) throws InterruptedException, ExecutionException {
@@ -487,9 +285,8 @@ public final class ExchangeTestContainer implements AutoCloseable {
         resultValidator.accept(api.processReport(new SingleUserReportQuery(uid), getRandomTransferId()).get());
     }
 
-
-    public TotalCurrencyBalanceReportResult totalBalanceReport() throws InterruptedException, ExecutionException {
-        final TotalCurrencyBalanceReportResult res = api.processReport(new TotalCurrencyBalanceReportQuery(), getRandomTransferId()).get();
+    public TotalCurrencyBalanceReportResult totalBalanceReport() {
+        final TotalCurrencyBalanceReportResult res = api.processReport(new TotalCurrencyBalanceReportQuery(), getRandomTransferId()).join();
         final IntLongHashMap openInterestLong = res.getOpenInterestLong();
         final IntLongHashMap openInterestShort = res.getOpenInterestShort();
         final IntLongHashMap openInterestDiff = new IntLongHashMap(openInterestLong);
@@ -500,7 +297,6 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
         return res;
     }
-
 
     public int requestStateHash() throws InterruptedException, ExecutionException {
         return api.processReport(new StateHashReportQuery(), getRandomTransferId()).get().getStateHash();
@@ -557,6 +353,43 @@ public final class ExchangeTestContainer implements AutoCloseable {
         return result;
     }
 
+    public void loadSymbolsUsersAndPrefillOrders(TestDataFutures testDataFutures) {
+
+        // load symbols
+        final List<CoreSymbolSpecification> coreSymbolSpecifications = testDataFutures.coreSymbolSpecifications.join();
+        log.info("Loading {} symbols...", coreSymbolSpecifications.size());
+        try (ExecutionTime ignore = new ExecutionTime(t -> log.debug("Loaded all symbols in {}", t))) {
+            addSymbols(coreSymbolSpecifications);
+        }
+
+        // create accounts and deposit initial funds
+        final List<BitSet> userAccounts = testDataFutures.usersAccounts.join();
+        log.info("Loading {} users having {} accounts...", userAccounts.size(), userAccounts.stream().mapToInt(BitSet::cardinality).sum());
+        try (ExecutionTime ignore = new ExecutionTime(t -> log.debug("Loaded all users in {}", t))) {
+            userAccountsInit(userAccounts);
+        }
+
+        final List<ApiCommand> apiCommandsFill = testDataFutures.genResult.join().getApiCommandsFill();
+        log.info("Order books pre-fill with {} orders...", apiCommandsFill.size());
+        try (ExecutionTime ignore = new ExecutionTime(t -> log.debug("Order books pre-fill completed in {}", t))) {
+            getApi().submitCommandsSync(apiCommandsFill);
+        }
+
+        assertTrue(totalBalanceReport().isGlobalBalancesAllZero());
+    }
+
+    public void loadSymbolsUsersAndPrefillOrdersNoLog(TestDataFutures testDataFutures) {
+
+        // load symbols
+        addSymbols(testDataFutures.coreSymbolSpecifications.join());
+
+        // create accounts and deposit initial funds
+        userAccountsInit(testDataFutures.usersAccounts.join());
+
+        getApi().submitCommandsSync(testDataFutures.genResult.join().getApiCommandsFill());
+    }
+
+
     /**
      * Run test using threads factory.
      * This is needed for correct cpu pinning.
@@ -573,13 +406,20 @@ public final class ExchangeTestContainer implements AutoCloseable {
         }
     }
 
-    public float executeTestingThreadPerfMtps(final Callable<Void> test, final int numMessages) {
+    public float executeTestingThreadPerfMtps(final Callable<Integer> test) {
         return executeTestingThread(() -> {
             final long tStart = System.currentTimeMillis();
-            Executors.newFixedThreadPool(1, threadFactory).submit(test).get();
+            final int numMessages = Executors.newFixedThreadPool(1, threadFactory).submit(test).get();
             final long tDuration = System.currentTimeMillis() - tStart;
             return numMessages / (float) tDuration / 1000.0f;
         });
+    }
+
+    public float benchmarkMtps(final List<ApiCommand> apiCommandsBenchmark) {
+        final long tStart = System.currentTimeMillis();
+        getApi().submitCommandsSync(apiCommandsBenchmark);
+        final long tDuration = System.currentTimeMillis() - tStart;
+        return apiCommandsBenchmark.size() / (float) tDuration / 1000.0f;
     }
 
     @Override

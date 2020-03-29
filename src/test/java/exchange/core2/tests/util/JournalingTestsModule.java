@@ -15,22 +15,14 @@
  */
 package exchange.core2.tests.util;
 
-import exchange.core2.core.ExchangeApi;
-import exchange.core2.core.common.CoreSymbolSpecification;
-import exchange.core2.core.common.api.ApiCommand;
 import exchange.core2.core.common.api.ApiPersistState;
 import exchange.core2.core.common.cmd.CommandResultCode;
-import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import lombok.extern.slf4j.Slf4j;
 import org.hamcrest.core.Is;
 
-import java.util.BitSet;
-import java.util.List;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import static junit.framework.TestCase.assertTrue;
@@ -60,67 +52,24 @@ public class JournalingTestsModule {
 
             try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, firstStartConfig)) {
 
-                final ExchangeApi api = container.getApi();
-
-                log.info("Init basic symbols...");
-                container.initBasicSymbols();
-
-                // start loading symbols as soon as all symbols are ready
-                final List<CoreSymbolSpecification> coreSymbolSpecifications = testDataFutures.coreSymbolSpecifications.get();
-                log.info("Loading {} symbols...", coreSymbolSpecifications.size());
-                try (ExecutionTime ignore = new ExecutionTime(t -> log.debug("Loaded all symbols in {}", t))) {
-                    container.addSymbols(coreSymbolSpecifications);
-                }
-
-                // start creating accounts and perform deposits
-                final List<BitSet> userAccounts = testDataFutures.usersAccounts.get();
-                log.info("Loading {} users having {} accounts...", userAccounts.size(), userAccounts.stream().mapToInt(BitSet::cardinality).sum());
-                try (ExecutionTime ignore = new ExecutionTime(t -> log.debug("Loaded all users in {}", t))) {
-                    container.userAccountsInit(userAccounts);
-                }
-
-                final TestOrdersGenerator.MultiSymbolGenResult genResult = testDataFutures.genResult.get();
-                final List<ApiCommand> apiCommandsFill = genResult.getApiCommandsFill();
-                //log.info(">>> READY in {}ms", System.currentTimeMillis() - t);
-                log.info("Order books pre-fill with {} orders...", apiCommandsFill.size());
-                final CountDownLatch latchFill = new CountDownLatch(apiCommandsFill.size());
-                container.setConsumer(cmd -> {
-                    if (cmd.resultCode == CommandResultCode.SUCCESS
-                            && (cmd.command == OrderCommandType.MOVE_ORDER || cmd.command == OrderCommandType.CANCEL_ORDER || cmd.command == OrderCommandType.PLACE_ORDER)) {
-                        latchFill.countDown();
-                    } else {
-                        throw new IllegalStateException("Unexpected command");
-                    }
-                });
-                apiCommandsFill.forEach(api::submitCommand);
-                latchFill.await();
-
-                container.setConsumer(cmd -> {
-                });
-
-                assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
+                container.loadSymbolsUsersAndPrefillOrders(testDataFutures);
 
                 log.info("Creating snapshot...");
                 stateId = System.currentTimeMillis() * 1000 + iteration;
+                final ApiPersistState apiPersistState = ApiPersistState.builder().dumpId(stateId).build();
                 try (ExecutionTime ignore = new ExecutionTime(t -> log.debug("Snapshot {} created in {}", stateId, t))) {
-                    final ApiPersistState apiPersistState = ApiPersistState.builder().dumpId(stateId).build();
-                    final CommandResultCode resultCode = container.getApi().submitCommandAsync(apiPersistState).get(60, TimeUnit.SECONDS);
+                    final CommandResultCode resultCode = container.getApi().submitCommandAsync(apiPersistState).get();
                     assertThat(resultCode, Is.is(CommandResultCode.SUCCESS));
                 }
 
                 log.info("Running commands on original state...");
-                container.executeTestingThread(() -> {
-                    api.submitCommandsSyncIgnoreResult(genResult.getApiCommandsBenchmark());
-                    return null;
-                });
-
+                final TestOrdersGenerator.MultiSymbolGenResult genResult = testDataFutures.genResult.get();
+                container.getApi().submitCommandsSync(genResult.getApiCommandsBenchmark());
                 assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
+
                 originalFinalStateHash = container.requestStateHash();
                 log.info("Original state checks completed");
             }
-
-            System.gc();
-            Thread.sleep(200);
 
             // TODO Discover snapshots and journals with DiskSerializationProcessor
             final long snapshotBaseSeq = 0L;
@@ -144,8 +93,6 @@ public class JournalingTestsModule {
                 log.info("Restored snapshot+journal is valid");
             }
 
-            System.gc();
-            Thread.sleep(200);
         }
 
     }

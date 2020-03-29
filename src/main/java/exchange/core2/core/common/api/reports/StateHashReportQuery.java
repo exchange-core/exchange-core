@@ -44,12 +44,12 @@ public final class StateHashReportQuery implements ReportQuery<StateHashReportRe
 
     @Override
     public Optional<StateHashReportResult> process(MatchingEngineRouter matchingEngine) {
-        return Optional.of(new StateHashReportResult(matchingEngine.stateHash()));
+        return Optional.of(new StateHashReportResult(0, matchingEngine.stateHash()));
     }
 
     @Override
     public Optional<StateHashReportResult> process(RiskEngine riskEngine) {
-        return Optional.of(new StateHashReportResult(riskEngine.stateHash()));
+        return Optional.of(new StateHashReportResult(riskEngine.stateHash(), 0));
     }
 
     @Override

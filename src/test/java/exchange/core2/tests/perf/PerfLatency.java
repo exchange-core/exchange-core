@@ -24,6 +24,7 @@ import exchange.core2.tests.util.TestOrdersGeneratorConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 
+import static exchange.core2.tests.util.LatencyTestsModule.hiccupTestImpl;
 import static exchange.core2.tests.util.LatencyTestsModule.latencyTestImpl;
 
 @Slf4j
@@ -116,6 +117,37 @@ public final class PerfLatency {
                         .build(),
                 InitialStateConfiguration.CLEAN_TEST,
                 4);
+    }
+
+    /**
+     * This is high load latency test for verifying exchange core scalability:
+     * - 3M active users (10M currency accounts)
+     * - 4M pending limit-orders
+     * - 1M+ messages per second throughput
+     * - 100K symbols
+     * - less than 1 millisecond 99.99% latency
+     * 12-threads CPU and 32GiB RAM is required for running this test in 2+4 configuration.
+     */
+    @Test
+    public void testLatencyMultiSymbolLarge() {
+        latencyTestImpl(
+                PerformanceConfiguration.latencyPerformanceBuilder()
+                        .ringBufferSize(32 * 1024)
+                        .matchingEnginesNum(4)
+                        .riskEnginesNum(2)
+                        .msgsInGroupLimit(256)
+                        .build(),
+                TestDataParameters.builder()
+                        .totalTransactionsNumber(10_000_000)
+                        .targetOrderBookOrdersTotal(4_000_000)
+                        .numAccounts(10_000_000)
+                        .currenciesAllowed(TestConstants.ALL_CURRENCIES)
+                        .numSymbols(100_000)
+                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
+                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
+                        .build(),
+                InitialStateConfiguration.CLEAN_TEST,
+                3);
     }
 
     /**
@@ -216,6 +248,28 @@ public final class PerfLatency {
                         .build(),
                 InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
                 4);
+    }
+
+    @Test
+    public void testLatencyMultiSymbolLargeJournaling() {
+        latencyTestImpl(
+                PerformanceConfiguration.latencyPerformanceBuilder()
+                        .ringBufferSize(32 * 1024)
+                        .matchingEnginesNum(4)
+                        .riskEnginesNum(2)
+                        .msgsInGroupLimit(256)
+                        .build(),
+                TestDataParameters.builder()
+                        .totalTransactionsNumber(10_000_000)
+                        .targetOrderBookOrdersTotal(4_000_000)
+                        .numAccounts(10_000_000)
+                        .currenciesAllowed(TestConstants.ALL_CURRENCIES)
+                        .numSymbols(100_000)
+                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
+                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
+                        .build(),
+                InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
+                3);
     }
 
     @Test

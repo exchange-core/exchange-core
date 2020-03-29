@@ -86,7 +86,7 @@ public final class ExchangeCore {
                 ProducerType.MULTI, // multiple gateway threads are writing
                 perfCfg.getWaitStrategy().create());
 
-        this.api = new ExchangeApi(disruptor.getRingBuffer());
+        this.api = new ExchangeApi(disruptor.getRingBuffer(), perfCfg.getBinaryCommandsLz4CompressorFactory().get());
 
         final InitialStateConfiguration initStateCfg = exchangeConfiguration.getInitStateCfg();
 

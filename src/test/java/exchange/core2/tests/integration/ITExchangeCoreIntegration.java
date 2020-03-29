@@ -58,7 +58,7 @@ public final class ITExchangeCoreIntegration {
     }
 
     @Test(timeout = 5_000)
-    public void shouldInitUsers() throws Exception {
+    public void shouldInitUsers() {
         try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
             container.initBasicUsers();
         }

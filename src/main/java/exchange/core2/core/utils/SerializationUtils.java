@@ -52,17 +52,13 @@ public class SerializationUtils {
         return longs;
     }
 
-    public static long[] bytesToLongArrayLz4(final NativeBytes<Void> bytes, final int padding) {
+    public static long[] bytesToLongArrayLz4(final LZ4Compressor lz4Compressor, final NativeBytes<Void> bytes, final int padding) {
         int originalSize = (int) bytes.readRemaining();
 //        log.debug("COMPRESS originalSize={}", originalSize);
 
         final ByteBuffer byteBuffer = ByteBuffer.allocate(originalSize);
 
         bytes.read(byteBuffer);
-
-        // TODO configurable
-        // final LZ4Compressor lz4Compressor = LZ4Factory.fastestInstance().highCompressor();
-        final LZ4Compressor lz4Compressor = LZ4Factory.fastestInstance().fastCompressor();
 
         byteBuffer.flip();
 
