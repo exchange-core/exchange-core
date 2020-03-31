@@ -55,8 +55,8 @@ public final class L2MarketData {
         this.bidVolumes = bidVolumes;
         this.bidOrders = bidOrders;
 
-        this.askSize = askPrices.length;
-        this.bidSize = bidPrices.length;
+        this.askSize = askPrices != null ? askPrices.length : 0;
+        this.bidSize = bidPrices != null ? bidPrices.length : 0;
     }
 
     public L2MarketData(int askSize, int bidSize) {

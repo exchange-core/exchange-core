@@ -18,6 +18,7 @@ package exchange.core2.core;
 import com.google.common.collect.Streams;
 import com.lmax.disruptor.EventHandler;
 import com.lmax.disruptor.EventTranslator;
+import com.lmax.disruptor.TimeoutException;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.EventHandlerGroup;
 import com.lmax.disruptor.dsl.ProducerType;
@@ -240,14 +241,29 @@ public final class ExchangeCore {
     };
 
     public synchronized void shutdown() {
+        shutdown(-1, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * @param timeout  the amount of time to wait for all events to be processed. <code>-1</code> will give an infinite timeout
+     * @param timeUnit the unit the timeOut is specified in
+     * @return true if an exchange core is stopped gracefully
+     */
+    public synchronized boolean shutdown(final long timeout, final TimeUnit timeUnit){
         if (!stopped) {
             stopped = true;
             // TODO stop accepting new events first
-            log.info("Shutdown disruptor...");
-            disruptor.getRingBuffer().publishEvent(SHUTDOWN_SIGNAL_TRANSLATOR);
-            disruptor.shutdown();
-            log.info("Disruptor stopped");
+            try {
+                log.info("Shutdown disruptor...");
+                disruptor.getRingBuffer().publishEvent(SHUTDOWN_SIGNAL_TRANSLATOR);
+                disruptor.shutdown(timeout, timeUnit);
+                log.info("Disruptor stopped");
+            } catch (TimeoutException e) {
+                log.error("could not stop a disruptor gracefully. Not all events may be executed.");
+                return false;
+            }
         }
+        return true;
     }
 
     @SuppressWarnings(value = {"unchecked"})

@@ -25,6 +25,7 @@ import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.L2MarketDataHelper;
 import lombok.extern.slf4j.Slf4j;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import java.util.List;
@@ -37,6 +38,8 @@ import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.*;
 
 @Slf4j
+@Ignore("all cases moved to cucumber")
+//TODO test cases are moved to cucumber scenarios, remove this class
 public final class ITExchangeCoreIntegration {
 
     @Test(timeout = 10_000)

@@ -19,18 +19,22 @@ import com.google.common.collect.Lists;
 import exchange.core2.core.ExchangeApi;
 import exchange.core2.core.ExchangeCore;
 import exchange.core2.core.common.CoreSymbolSpecification;
+import exchange.core2.core.common.CoreWaitStrategy;
 import exchange.core2.core.common.L2MarketData;
 import exchange.core2.core.common.SymbolType;
 import exchange.core2.core.common.api.*;
+import exchange.core2.core.common.api.binary.BatchAddAccountsCommand;
 import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
 import exchange.core2.core.common.api.binary.BinaryDataCommand;
 import exchange.core2.core.common.api.reports.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
+import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.ExchangeConfiguration;
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.core.common.config.ReportsQueriesConfiguration;
+import exchange.core2.core.orderbook.OrderBookDirectImpl;
 import exchange.core2.core.processors.journaling.DiskSerializationProcessor;
 import exchange.core2.core.processors.journaling.DiskSerializationProcessorConfiguration;
 import exchange.core2.core.utils.AffinityThreadFactory;
@@ -40,6 +44,7 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
+import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.hamcrest.core.Is;
 
 import java.util.*;
@@ -48,15 +53,19 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 
 import static junit.framework.TestCase.assertTrue;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.*;
 
 @Slf4j
 public final class ExchangeTestContainer implements AutoCloseable {
+
+    private static final long TIMEOUT_CMD = 5;
+
 
     private final ExchangeCore exchangeCore;
 
@@ -281,8 +290,11 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
     // todo rename
     public void validateUserState(long uid, Consumer<SingleUserReportResult> resultValidator) throws InterruptedException, ExecutionException {
+        resultValidator.accept(getUserProfile(uid));
+    }
 
-        resultValidator.accept(api.processReport(new SingleUserReportQuery(uid), getRandomTransferId()).get());
+    public SingleUserReportResult getUserProfile(long clientId) throws InterruptedException, ExecutionException {
+        return api.processReport(new SingleUserReportQuery(clientId), getRandomTransferId()).get();
     }
 
     public TotalCurrencyBalanceReportResult totalBalanceReport() {
@@ -424,7 +436,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
     @Override
     public void close() {
-        exchangeCore.shutdown();
+        exchangeCore.shutdown(1000, TimeUnit.MILLISECONDS);
     }
 
     public enum AllowedSymbolTypes {
