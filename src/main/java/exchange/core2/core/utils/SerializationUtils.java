@@ -15,6 +15,10 @@
  */
 package exchange.core2.core.utils;
 
+import lombok.extern.slf4j.Slf4j;
+import net.jpountz.lz4.LZ4Compressor;
+import net.jpountz.lz4.LZ4Factory;
+import net.jpountz.lz4.LZ4FastDecompressor;
 import net.openhft.chronicle.bytes.*;
 import net.openhft.chronicle.wire.Wire;
 import net.openhft.chronicle.wire.WireType;
@@ -28,15 +32,13 @@ import org.eclipse.collections.impl.set.mutable.primitive.LongHashSet;
 
 import java.nio.ByteBuffer;
 import java.nio.LongBuffer;
-import java.util.ArrayList;
-import java.util.BitSet;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+@Slf4j
 public class SerializationUtils {
 
 
@@ -50,6 +52,32 @@ public class SerializationUtils {
         return longs;
     }
 
+    public static long[] bytesToLongArrayLz4(final LZ4Compressor lz4Compressor, final NativeBytes<Void> bytes, final int padding) {
+        int originalSize = (int) bytes.readRemaining();
+//        log.debug("COMPRESS originalSize={}", originalSize);
+
+        final ByteBuffer byteBuffer = ByteBuffer.allocate(originalSize);
+
+        bytes.read(byteBuffer);
+
+        byteBuffer.flip();
+
+        final ByteBuffer byteBufferCompressed = ByteBuffer.allocate(4 + lz4Compressor.maxCompressedLength(originalSize));
+        byteBufferCompressed.putInt(originalSize);// override with compressed length
+        lz4Compressor.compress(byteBuffer, byteBufferCompressed);
+
+        byteBufferCompressed.flip();
+
+        int compressedBytesLen = byteBufferCompressed.remaining();
+
+        return toLongsArray(
+                byteBufferCompressed.array(),
+                byteBufferCompressed.arrayOffset(),
+                compressedBytesLen,
+                padding);
+    }
+
+
     public static long[] toLongsArray(final byte[] bytes, final int padding) {
 
         final int longLength = requiredLongArraySize(bytes.length, padding);
@@ -61,6 +89,19 @@ public class SerializationUtils {
         longBuffer.get(longArray);
         return longArray;
     }
+
+    public static long[] toLongsArray(final byte[] bytes, final int offset, final int length, final int padding) {
+
+        final int longLength = requiredLongArraySize(length, padding);
+        long[] longArray = new long[longLength];
+        //log.debug("byte[{}]={}", bytes.length, bytes);
+        final ByteBuffer allocate = ByteBuffer.allocate(longLength * 8 * 2);
+        final LongBuffer longBuffer = allocate.asLongBuffer();
+        allocate.put(bytes, offset, length);
+        longBuffer.get(longArray);
+        return longArray;
+    }
+
 
     public static int requiredLongArraySize(final int bytesLength, final int padding) {
         int len = requiredLongArraySize(bytesLength);
@@ -89,10 +130,25 @@ public class SerializationUtils {
 
         bytes.write(bytesArray);
 
-        //byte[] array = bytes1.underlyingObject().array();
-        //byteBuffer.get(array);
+        return WireType.RAW.apply(bytes);
+    }
 
-        //log.debug("{}", bytesArray);
+    public static Wire longsLz4ToWire(long[] dataArray, int longsTransfered) {
+
+//        log.debug("long dataArray.len={} longsTransfered={}", dataArray.length, longsTransfered);
+
+        final ByteBuffer byteBuffer = ByteBuffer.allocate(longsTransfered * 8);
+        byteBuffer.asLongBuffer().put(dataArray, 0, longsTransfered);
+
+        final int originalSizeBytes = byteBuffer.getInt();
+
+        final ByteBuffer uncompressedByteBuffer = ByteBuffer.allocate(originalSizeBytes);
+
+        final LZ4FastDecompressor lz4FastDecompressor = LZ4Factory.fastestInstance().fastDecompressor();
+
+        lz4FastDecompressor.decompress(byteBuffer, byteBuffer.position(), uncompressedByteBuffer, uncompressedByteBuffer.position(), originalSizeBytes);
+
+        final Bytes<ByteBuffer> bytes = Bytes.wrapForRead(uncompressedByteBuffer);
 
         return WireType.RAW.apply(bytes);
     }

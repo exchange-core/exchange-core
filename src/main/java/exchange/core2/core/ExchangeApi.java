@@ -18,6 +18,7 @@ package exchange.core2.core;
 import com.lmax.disruptor.EventTranslatorOneArg;
 import com.lmax.disruptor.RingBuffer;
 import exchange.core2.core.common.BalanceAdjustmentType;
+import exchange.core2.core.common.L2MarketData;
 import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.OrderType;
 import exchange.core2.core.common.api.*;
@@ -33,14 +34,16 @@ import exchange.core2.core.processors.BinaryCommandsProcessor;
 import exchange.core2.core.utils.SerializationUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.jpountz.lz4.LZ4Compressor;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import net.openhft.chronicle.wire.Wire;
+import org.agrona.collections.LongLongConsumer;
 import org.eclipse.collections.impl.map.mutable.ConcurrentHashMap;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.LongConsumer;
@@ -51,6 +54,7 @@ import java.util.stream.Stream;
 public final class ExchangeApi {
 
     private final RingBuffer<OrderCommand> ringBuffer;
+    private final LZ4Compressor lz4Compressor;
 
     // promises cache (TODO can be changed to queue)
     private final Map<Long, Consumer<OrderCommand>> promises = new ConcurrentHashMap<>();
@@ -92,15 +96,18 @@ public final class ExchangeApi {
             publishBinaryData((ApiBinaryDataCommand) cmd, seq -> {
             });
         } else if (cmd instanceof ApiPersistState) {
-            publishPersistCmd((ApiPersistState) cmd);
+            publishPersistCmd((ApiPersistState) cmd, (seq1, seq2) -> {
+            });
         } else if (cmd instanceof ApiReset) {
             ringBuffer.publishEvent(RESET_TRANSLATOR, (ApiReset) cmd);
+        } else if (cmd instanceof ApiNop) {
+            ringBuffer.publishEvent(NOP_TRANSLATOR, (ApiNop) cmd);
         } else {
             throw new IllegalArgumentException("Unsupported command type: " + cmd.getClass().getSimpleName());
         }
     }
 
-    public Future<CommandResultCode> submitCommandAsync(ApiCommand cmd) {
+    public CompletableFuture<CommandResultCode> submitCommandAsync(ApiCommand cmd) {
         //log.debug("{}", cmd);
 
         if (cmd instanceof ApiMoveOrder) {
@@ -121,31 +128,97 @@ public final class ExchangeApi {
             return submitCommandAsync(SUSPEND_USER_TRANSLATOR, (ApiSuspendUser) cmd);
         } else if (cmd instanceof ApiBinaryDataCommand) {
             return submitBinaryDataAsync(((ApiBinaryDataCommand) cmd).data);
-//        } else if (cmd instanceof ApiPersistState) {
-//            return submitCommandAsync((ApiPersistState) cmd);
+        } else if (cmd instanceof ApiPersistState) {
+            return submitPersistCommandAsync((ApiPersistState) cmd);
         } else if (cmd instanceof ApiReset) {
             return submitCommandAsync(RESET_TRANSLATOR, (ApiReset) cmd);
+        } else if (cmd instanceof ApiNop) {
+            return submitCommandAsync(NOP_TRANSLATOR, (ApiNop) cmd);
+        } else {
+            throw new IllegalArgumentException("Unsupported command type: " + cmd.getClass().getSimpleName());
+        }
+    }
+
+    public CompletableFuture<OrderCommand> submitCommandAsyncFullResponse(ApiCommand cmd) {
+
+        if (cmd instanceof ApiMoveOrder) {
+            return submitCommandAsyncFullResponse(MOVE_ORDER_TRANSLATOR, (ApiMoveOrder) cmd);
+        } else if (cmd instanceof ApiPlaceOrder) {
+            return submitCommandAsyncFullResponse(NEW_ORDER_TRANSLATOR, (ApiPlaceOrder) cmd);
+        } else if (cmd instanceof ApiCancelOrder) {
+            return submitCommandAsyncFullResponse(CANCEL_ORDER_TRANSLATOR, (ApiCancelOrder) cmd);
+        } else if (cmd instanceof ApiOrderBookRequest) {
+            return submitCommandAsyncFullResponse(ORDER_BOOK_REQUEST_TRANSLATOR, (ApiOrderBookRequest) cmd);
+        } else if (cmd instanceof ApiAddUser) {
+            return submitCommandAsyncFullResponse(ADD_USER_TRANSLATOR, (ApiAddUser) cmd);
+        } else if (cmd instanceof ApiAdjustUserBalance) {
+            return submitCommandAsyncFullResponse(ADJUST_USER_BALANCE_TRANSLATOR, (ApiAdjustUserBalance) cmd);
+        } else if (cmd instanceof ApiResumeUser) {
+            return submitCommandAsyncFullResponse(RESUME_USER_TRANSLATOR, (ApiResumeUser) cmd);
+        } else if (cmd instanceof ApiSuspendUser) {
+            return submitCommandAsyncFullResponse(SUSPEND_USER_TRANSLATOR, (ApiSuspendUser) cmd);
+        } else if (cmd instanceof ApiReset) {
+            return submitCommandAsyncFullResponse(RESET_TRANSLATOR, (ApiReset) cmd);
+        } else if (cmd instanceof ApiNop) {
+            return submitCommandAsyncFullResponse(NOP_TRANSLATOR, (ApiNop) cmd);
         } else {
             throw new IllegalArgumentException("Unsupported command type: " + cmd.getClass().getSimpleName());
         }
     }
 
 
-    private <T extends ApiCommand> Future<CommandResultCode> submitCommandAsync(EventTranslatorOneArg<OrderCommand, T> translator, final T apiCommand) {
+    public void submitCommandsSync(List<? extends ApiCommand> cmd) {
+        if (cmd.isEmpty()) {
+            return;
+        }
 
-        final CompletableFuture<CommandResultCode> future = new CompletableFuture<>();
+        cmd.subList(0, cmd.size() - 1).forEach(this::submitCommand);
+        submitCommandAsync(cmd.get(cmd.size() - 1)).join();
+    }
+
+    public void submitCommandsSync(Stream<? extends ApiCommand> stream) {
+
+        stream.forEach(this::submitCommand);
+        submitCommandAsync(ApiNop.builder().build()).join();
+    }
+
+    private <T extends ApiCommand> CompletableFuture<CommandResultCode> submitCommandAsync(EventTranslatorOneArg<OrderCommand, T> translator, final T apiCommand) {
+        return submitCommandAsync(translator, apiCommand, c -> c.resultCode);
+    }
+
+    private <T extends ApiCommand> CompletableFuture<OrderCommand> submitCommandAsyncFullResponse(EventTranslatorOneArg<OrderCommand, T> translator, final T apiCommand) {
+        return submitCommandAsync(translator, apiCommand, Function.identity());
+    }
+
+    private <T extends ApiCommand, R> CompletableFuture<R> submitCommandAsync(final EventTranslatorOneArg<OrderCommand, T> translator,
+                                                                              final T apiCommand,
+                                                                              final Function<OrderCommand, R> responseTranslator) {
+        final CompletableFuture<R> future = new CompletableFuture<>();
 
         ringBuffer.publishEvent(
                 (cmd, seq, apiCmd) -> {
                     translator.translateTo(cmd, seq, apiCmd);
-                    promises.put(seq, orderCommand -> future.complete(orderCommand.resultCode));
+                    promises.put(seq, orderCommand -> future.complete(responseTranslator.apply(orderCommand)));
                 },
                 apiCommand);
 
         return future;
     }
 
-    public Future<CommandResultCode> submitBinaryDataAsync(final BinaryDataCommand data) {
+    private CompletableFuture<CommandResultCode> submitPersistCommandAsync(final ApiPersistState apiCommand) {
+
+        final CompletableFuture<CommandResultCode> future1 = new CompletableFuture<>();
+        final CompletableFuture<CommandResultCode> future2 = new CompletableFuture<>();
+
+        publishPersistCmd(apiCommand, (seq1, seq2) -> {
+            promises.put(seq1, cmd -> future1.complete(cmd.resultCode));
+            promises.put(seq2, cmd -> future2.complete(cmd.resultCode));
+        });
+
+        return future1.thenCombineAsync(future2, CommandResultCode::mergeToFirstFailed);
+    }
+
+    public CompletableFuture<CommandResultCode> submitBinaryDataAsync(final BinaryDataCommand data) {
 
         final CompletableFuture<CommandResultCode> future = new CompletableFuture<>();
 
@@ -160,7 +233,7 @@ public final class ExchangeApi {
         return future;
     }
 
-    public <R> Future<R> submitBinaryCommandAsync(
+    public <R> CompletableFuture<R> submitBinaryCommandAsync(
             final BinaryDataCommand data,
             final int transferId,
             final Function<OrderCommand, R> translator) {
@@ -174,7 +247,7 @@ public final class ExchangeApi {
         return future;
     }
 
-    public <R> Future<R> submitQueryAsync(
+    public <R> CompletableFuture<R> submitQueryAsync(
             final ReportQuery<?> data,
             final int transferId,
             final Function<OrderCommand, R> translator) {
@@ -200,7 +273,7 @@ public final class ExchangeApi {
     }
 
 
-    public <Q extends ReportQuery<R>, R extends ReportResult> Future<R> processReport(final Q query, final int transferId) {
+    public <Q extends ReportQuery<R>, R extends ReportResult> CompletableFuture<R> processReport(final Q query, final int transferId) {
         return submitQueryAsync(
                 query,
                 transferId,
@@ -238,7 +311,10 @@ public final class ExchangeApi {
                                    final long timestamp,
                                    final LongConsumer endSeqConsumer) {
 
-        final long[] longsArrayData = SerializationUtils.bytesToLongArray(BinaryCommandsProcessor.serializeObject(data, dataTypeCode), LONGS_PER_MESSAGE);
+        final long[] longsArrayData = SerializationUtils.bytesToLongArrayLz4(
+                lz4Compressor,
+                BinaryCommandsProcessor.serializeObject(data, dataTypeCode),
+                LONGS_PER_MESSAGE);
 
         final int totalNumMessagesToClaim = longsArrayData.length / LONGS_PER_MESSAGE;
 
@@ -318,7 +394,8 @@ public final class ExchangeApi {
         }
     }
 
-    private void publishPersistCmd(final ApiPersistState api) {
+    private void publishPersistCmd(final ApiPersistState api,
+                                   final LongLongConsumer seqConsumer) {
 
         long secondSeq = ringBuffer.next(2);
         long firstSeq = secondSeq - 1;
@@ -350,6 +427,7 @@ public final class ExchangeApi {
 
             // short delay to reduce probability of batching both commands together in R1
         } finally {
+            seqConsumer.accept(firstSeq, secondSeq);
             ringBuffer.publish(firstSeq, secondSeq);
         }
     }
@@ -431,6 +509,12 @@ public final class ExchangeApi {
 
     private static final EventTranslatorOneArg<OrderCommand, ApiReset> RESET_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.RESET;
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+    };
+
+    private static final EventTranslatorOneArg<OrderCommand, ApiNop> NOP_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.NOP;
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
     };
@@ -604,6 +688,25 @@ public final class ExchangeApi {
             promises.put(seq, callback);
         }));
 
+    }
+
+    public CompletableFuture<L2MarketData> requestOrderBookAsync(int symbolId, int depth) {
+
+        final CompletableFuture<L2MarketData> future = new CompletableFuture<>();
+
+        ringBuffer.publishEvent(((cmd, seq) -> {
+            cmd.command = OrderCommandType.ORDER_BOOK_REQUEST;
+            cmd.orderId = -1;
+            cmd.symbol = symbolId;
+            cmd.uid = -1;
+            cmd.size = depth;
+            cmd.timestamp = System.currentTimeMillis();
+            cmd.resultCode = CommandResultCode.NEW;
+
+            promises.put(seq, cmd1 -> future.complete(cmd1.marketData));
+        }));
+
+        return future;
     }
 
     public long placeNewOrder(

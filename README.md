@@ -4,7 +4,10 @@
 
 **Ultra-fast market exchange core matching engine** based on 
 [LMAX Disruptor](https://github.com/LMAX-Exchange/disruptor), 
-[Eclipse Collections](https://www.eclipse.org/collections/) (ex. Goldman Sachs GS Collections) 
+[Eclipse Collections](https://www.eclipse.org/collections/) (ex. Goldman Sachs GS Collections), 
+[Real Logic Agrona](https://github.com/real-logic/agrona),
+[OpenHFT Chronicle-Wire](https://github.com/OpenHFT/Chronicle-Wire),
+[LZ4 Java](https://github.com/lz4/lz4-java),
 and [Adaptive Radix Trees](https://db.in.tum.de/~leis/papers/ART.pdf).
 
 Designed for high scalability and pauseless 24/7 operation under high-load conditions and providing low-latency responses:
@@ -46,7 +49,7 @@ Benchmark configuration:
 ### Main features
 - HFT optimized. Priority is a limit-order-move operation mean latency (currently ~0.5µs). Cancel operation takes ~0.7µs, placing new order ~1.0µs;
 - In-memory working state for accounting data and order books.
-- Event-sourcing - disk journaling and journal replay support, state snapshots (serialization) and restore operations.
+- Event-sourcing - disk journaling and journal replay support, state snapshots (serialization) and restore operations, LZ4 compression.
 - Lock-free and contention-free orders matching and risk control algorithms.
 - No floating-point arithmetic, no loss of significance is possible.
 - Matching engine and risk control operations are atomic and deterministic.
@@ -62,7 +65,7 @@ Benchmark configuration:
 
 ### Usage examples
 Create and start empty exchange core:
-```
+```java
 // simple async events handler
 SimpleEventsProcessor eventsProcessor = new SimpleEventsProcessor(new IEventsHandler() {
     @Override
@@ -112,7 +115,7 @@ ExchangeApi api = exchangeCore.getApi();
 ```
 
 Create new symbol:
-```
+```java
 // currency code constants
 final int currencyCodeXbt = 11;
 final int currencyCodeLtc = 15;
@@ -136,7 +139,7 @@ future = api.submitBinaryDataAsync(new BatchAddSymbolsCommand(symbolSpecXbtLtc))
 ```
 
 Create new users:
-```
+```java
 // create user uid=301
 future = api.submitCommandAsync(ApiAddUser.builder()
         .uid(301L)
@@ -149,7 +152,7 @@ future = api.submitCommandAsync(ApiAddUser.builder()
 ```
 
 Perform deposits:
-```
+```java
 // first user deposits 20 LTC
 future = api.submitCommandAsync(ApiAdjustUserBalance.builder()
         .uid(301L)
@@ -168,7 +171,7 @@ future = api.submitCommandAsync(ApiAdjustUserBalance.builder()
 ```
 
 Place orders:
-```
+```java
 // first user places Good-till-Cancel Bid order
 // he assumes BTCLTC exchange rate 154 LTC for 1 BTC
 // bid price for 1 lot (0.01BTC) is 1.54 LTC => 1_5400_0000 litoshi => 10K * 15_400 (in price steps)
@@ -197,15 +200,12 @@ future = api.submitCommandAsync(ApiPlaceOrder.builder()
 ```
 
 Request order book:
-```
-future = api.submitCommandAsync(ApiOrderBookRequest.builder()
-        .size(10)
-        .symbol(symbolXbtLtc)
-        .build());
+```java
+future = api.requestOrderBookAsync(symbolXbtLtc, 10);
 ```
 
 GtC orders manipulations:
-```
+```java
 // first user moves remaining order to price 1.53 LTC
 future = api.submitCommandAsync(ApiMoveOrder.builder()
         .uid(301L)
@@ -223,12 +223,12 @@ future = api.submitCommandAsync(ApiCancelOrder.builder()
 ```
 
 Check user balance and GtC orders:
-```
+```java
 Future<SingleUserReportResult> report = api.processReport(new SingleUserReportQuery(301), 0);
 ```
 
 Check system balance:
-```
+```java
 // check fees collected
 Future<TotalCurrencyBalanceReportResult> totalsReport = api.processReport(new TotalCurrencyBalanceReportQuery(), 0);
 System.out.println("LTC fees collected: " + totalsReport.get().getFees().get(currencyCodeLtc));

@@ -43,7 +43,9 @@ public enum OrderCommandType {
     GROUPING_CONTROL((byte) 118, false),
     NOP((byte) 120, false),
     RESET((byte) 124, true),
-    SHUTDOWN_SIGNAL((byte) 127, false);
+    SHUTDOWN_SIGNAL((byte) 127, false),
+
+    RESERVED_COMPRESSED((byte) -1, false);
 
     private byte code;
     private boolean mutate;

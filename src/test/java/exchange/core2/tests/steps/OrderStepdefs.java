@@ -22,7 +22,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
-
 import static exchange.core2.tests.util.ExchangeTestContainer.CHECK_SUCCESS;
 import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.*;
@@ -39,15 +38,15 @@ public class OrderStepdefs {
     }
 
     @Before
-    public void before() throws Exception{
+    public void before() throws Exception {
         log.info("before");
         container = new ExchangeTestContainer();
         container.initBasicSymbols();
     }
 
     @After
-    public void after(){
-        if(container != null){
+    public void after() {
+        if (container != null) {
             container.close();
         }
     }
@@ -71,7 +70,7 @@ public class OrderStepdefs {
                 .action(OrderAction.valueOf(side)).orderType(OrderType.valueOf(orderType))
                 .symbol(symbol.symbolId);
 
-        if(reservePrice > 0){
+        if (reservePrice > 0) {
             builder.reservePrice(reservePrice);
         }
 
@@ -80,7 +79,7 @@ public class OrderStepdefs {
         orders.put(orderId, order);
 
         log.debug("PLACE : {}", order);
-        container.submitCommandSync(order, orderId, cmd -> {
+        container.getApi().submitCommandAsyncFullResponse(order).thenAccept(cmd -> {
             assertThat(cmd.orderId, is(orderId));
             assertThat(cmd.resultCode, is(resultCode));
             assertThat(cmd.uid, is(clientId));
@@ -91,7 +90,7 @@ public class OrderStepdefs {
             assertThat(cmd.symbol, is(symbol.symbolId));
 
             OrderStepdefs.this.matcherEvents = cmd.extractEvents();
-        });
+        }).join();
     }
 
 
@@ -115,7 +114,7 @@ public class OrderStepdefs {
         assertThat(evt.eventType, is(MatcherEventType.TRADE));
         assertThat(evt.size, is(lastQty));
         assertThat(evt.price, is(lastPx));
-        if(bidderHoldPrice != null){
+        if (bidderHoldPrice != null) {
             assertThat(evt.bidderHoldPrice, is(bidderHoldPrice));
         }
     }
@@ -169,7 +168,7 @@ public class OrderStepdefs {
 
         int transactionId = 0;
 
-        for(List<String> entry : balance){
+        for (List<String> entry : balance) {
             transactionId++;
             cmds.add(ApiAdjustUserBalance.builder().uid(clientId).transactionId(transactionId)
                     .amount(Long.parseLong(entry.get(1)))
@@ -177,7 +176,7 @@ public class OrderStepdefs {
                     .build());
         }
 
-        container.submitCommandsSync(cmds);
+        container.getApi().submitCommandsSync(cmds);
 
     }
 
@@ -190,7 +189,7 @@ public class OrderStepdefs {
     @And("A balance of a client {user}:")
     public void aCurrentBalanceOfAClientA(long clientId, List<List<String>> balance) throws ExecutionException, InterruptedException {
         SingleUserReportResult profile = container.getUserProfile(clientId);
-        for(List<String> record : balance){
+        for (List<String> record : balance) {
             assertThat("Unexpected balance of: " + record.get(0), profile.getAccounts().get(TestConstants.getCurrency(record.get(0))), is(Long.parseLong(record.get(1))));
         }
     }
@@ -207,7 +206,7 @@ public class OrderStepdefs {
 
         //read a header
         int i = 0;
-        for(String field : table.get(0)){
+        for (String field : table.get(0)) {
             fieldNameByIndex.put(field, i++);
         }
 
@@ -216,7 +215,7 @@ public class OrderStepdefs {
 
         Map<Long, Order> orders = profile.fetchIndexedOrders();
 
-        for(List<String> record : table){
+        for (List<String> record : table) {
             long orderId = Long.parseLong(record.get(fieldNameByIndex.get("id")));
             Order order = orders.get(orderId);
             assertNotNull(order);
@@ -237,7 +236,7 @@ public class OrderStepdefs {
     private void checkField(Map<String, Integer> fieldNameByIndex, List<String> record, String field, long expected) {
         if (fieldNameByIndex.containsKey(field)) {
             long actual = Long.parseLong(record.get(fieldNameByIndex.get(field)));
-            assertEquals("Unexpected value for " + field,  actual, expected);
+            assertEquals("Unexpected value for " + field, actual, expected);
         }
     }
 
@@ -263,9 +262,9 @@ public class OrderStepdefs {
 
         ApiPlaceOrder initialOrder = orders.get(orderId);
 
-        container.submitCommandSync(
-                ApiCancelOrder.builder().orderId(orderId).uid(clientId).symbol(initialOrder.symbol).build(),
-                orderId,
+        ApiCancelOrder order = ApiCancelOrder.builder().orderId(orderId).uid(clientId).symbol(initialOrder.symbol).build();
+
+        container.getApi().submitCommandAsyncFullResponse(order).thenAccept(
                 cmd -> {
                     assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
                     assertThat(cmd.command, is(OrderCommandType.CANCEL_ORDER));
@@ -278,8 +277,6 @@ public class OrderStepdefs {
                     assertNotNull(evt);
                     assertThat(evt.eventType, is(MatcherEventType.CANCEL));
                     assertThat(evt.size, is(size));
-                });
-
-
+                }).join();
     }
 }

@@ -151,6 +151,11 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
                 cmd.resultCode = CommandResultCode.SUCCESS;
             }
 
+        } else if (command == OrderCommandType.NOP) {
+            if (shardId == 0) {
+                cmd.resultCode = CommandResultCode.SUCCESS;
+            }
+
         } else if (command == OrderCommandType.PERSIST_STATE_MATCHING) {
             final boolean isSuccess = serializationProcessor.storeData(
                     cmd.orderId,

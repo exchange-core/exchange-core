@@ -40,6 +40,11 @@ public final class LatencyTools {
             timeUnit = "ms";
         }
 
+        if (value > 1000) {
+            value /= 1000;
+            timeUnit = "s";
+        }
+
         if (value < 3) {
             return Math.round(value * 100) / 100f + timeUnit;
         } else if (value < 30) {

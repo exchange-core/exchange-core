@@ -17,43 +17,49 @@ package exchange.core2.core.common.api.reports;
 
 
 import lombok.AllArgsConstructor;
+import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 
 import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @AllArgsConstructor
 @Getter
 @Slf4j
+@EqualsAndHashCode
 public final class StateHashReportResult implements ReportResult {
 
-    // state hash
-    private int stateHash;
-
+    private int stateHashRiskEngines;
+    private int stateHashMatcherEngines;
 
     private StateHashReportResult(final BytesIn bytesIn) {
-        this.stateHash = bytesIn.readInt();
+        this.stateHashRiskEngines = bytesIn.readInt();
+        this.stateHashMatcherEngines = bytesIn.readInt();
     }
 
     @Override
     public void writeMarshallable(final BytesOut bytes) {
-        bytes.writeInt(stateHash);
+        bytes.writeInt(stateHashRiskEngines);
+        bytes.writeInt(stateHashMatcherEngines);
+    }
+
+    public int getStateHash() {
+        return Objects.hash(stateHashMatcherEngines, stateHashRiskEngines);
     }
 
     public static StateHashReportResult merge(final Stream<BytesIn> pieces) {
 
-        final int[] pieceHashes = pieces
-                .map(StateHashReportResult::new)
-                .mapToInt(StateHashReportResult::getStateHash)
-                .sorted() // make deterministic
-                .toArray();
+        final List<StateHashReportResult> results = pieces.map(StateHashReportResult::new).collect(Collectors.toList());
+        final int[] riskHashes = results.stream().mapToInt(StateHashReportResult::getStateHashRiskEngines).sorted().toArray();
+        final int[] matcherHashes = results.stream().mapToInt(StateHashReportResult::getStateHashMatcherEngines).sorted().toArray();
 
-        final int stateHash = Arrays.hashCode(pieceHashes);
-//        log.info("merged stateHash={} ",stateHash);
-        return new StateHashReportResult(stateHash);
+        return new StateHashReportResult(Arrays.hashCode(riskHashes), Arrays.hashCode(matcherHashes));
     }
 
 }

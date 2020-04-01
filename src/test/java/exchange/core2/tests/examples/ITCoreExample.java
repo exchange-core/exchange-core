@@ -1,13 +1,10 @@
-package exchange.core2.tests.integration;
+package exchange.core2.tests.examples;
 
 import exchange.core2.core.ExchangeApi;
 import exchange.core2.core.ExchangeCore;
 import exchange.core2.core.IEventsHandler;
 import exchange.core2.core.SimpleEventsProcessor;
-import exchange.core2.core.common.CoreSymbolSpecification;
-import exchange.core2.core.common.OrderAction;
-import exchange.core2.core.common.OrderType;
-import exchange.core2.core.common.SymbolType;
+import exchange.core2.core.common.*;
 import exchange.core2.core.common.api.*;
 import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
 import exchange.core2.core.common.api.reports.SingleUserReportQuery;
@@ -21,6 +18,7 @@ import exchange.core2.core.processors.journaling.ISerializationProcessor;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.function.Supplier;
 
@@ -170,13 +168,10 @@ public class ITCoreExample {
 
         System.out.println("ApiPlaceOrder 2 result: " + future.get());
 
-        // request order book
-        future = api.submitCommandAsync(ApiOrderBookRequest.builder()
-                .size(10)
-                .symbol(symbolXbtLtc)
-                .build());
 
-        System.out.println("ApiOrderBookRequest result: " + future.get());
+        // request order book
+        CompletableFuture<L2MarketData> orderBookFuture = api.requestOrderBookAsync(symbolXbtLtc, 10);
+        System.out.println("ApiOrderBookRequest result: " + orderBookFuture.get());
 
 
         // first user moves remaining order to price 1.53 LTC

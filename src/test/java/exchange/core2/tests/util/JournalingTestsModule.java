@@ -15,20 +15,15 @@
  */
 package exchange.core2.tests.util;
 
-import exchange.core2.core.ExchangeApi;
-import exchange.core2.core.common.CoreSymbolSpecification;
-import exchange.core2.core.common.api.ApiCommand;
 import exchange.core2.core.common.api.ApiPersistState;
 import exchange.core2.core.common.cmd.CommandResultCode;
-import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import lombok.extern.slf4j.Slf4j;
+import org.hamcrest.core.Is;
 
-import java.util.BitSet;
-import java.util.List;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 
 import static junit.framework.TestCase.assertTrue;
 import static org.hamcrest.Matchers.is;
@@ -40,7 +35,7 @@ public class JournalingTestsModule {
 
     public static void journalingTestImpl(final PerformanceConfiguration performanceConfiguration,
                                           final TestDataParameters testDataParameters,
-                                          final int iterations) throws InterruptedException, ExecutionException {
+                                          final int iterations) throws InterruptedException, ExecutionException, TimeoutException {
 
         for (int iteration = 0; iteration < iterations; iteration++) {
 
@@ -50,7 +45,6 @@ public class JournalingTestsModule {
 
             final long stateId;
             final long originalFinalStateHash;
-            final float originalPerfMt;
 
             final String exchangeId = ExchangeTestContainer.timeBasedExchangeId();
 
@@ -58,73 +52,24 @@ public class JournalingTestsModule {
 
             try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, firstStartConfig)) {
 
-                final ExchangeApi api = container.getApi();
+                container.loadSymbolsUsersAndPrefillOrders(testDataFutures);
 
-                log.info("Init basic symbols...");
-                container.initBasicSymbols();
+                log.info("Creating snapshot...");
+                stateId = System.currentTimeMillis() * 1000 + iteration;
+                final ApiPersistState apiPersistState = ApiPersistState.builder().dumpId(stateId).build();
+                try (ExecutionTime ignore = new ExecutionTime(t -> log.debug("Snapshot {} created in {}", stateId, t))) {
+                    final CommandResultCode resultCode = container.getApi().submitCommandAsync(apiPersistState).get();
+                    assertThat(resultCode, Is.is(CommandResultCode.SUCCESS));
+                }
 
-                // start loading symbols as soon as all symbols are ready
-                final List<CoreSymbolSpecification> coreSymbolSpecifications = testDataFutures.coreSymbolSpecifications.get();
-                log.info("Loading {} symbols...", coreSymbolSpecifications.size());
-                container.addSymbols(coreSymbolSpecifications);
-
-                // start creating accounts and perform deposits
-                final List<BitSet> userAccounts = testDataFutures.usersAccounts.get();
-                log.info("Loading {} users having {} accounts...", userAccounts.size(), userAccounts.stream().mapToInt(BitSet::cardinality).sum());
-                container.userAccountsInit(userAccounts);
-
-
+                log.info("Running commands on original state...");
                 final TestOrdersGenerator.MultiSymbolGenResult genResult = testDataFutures.genResult.get();
-                final List<ApiCommand> apiCommandsFill = genResult.getApiCommandsFill();
-                //log.info(">>> READY in {}ms", System.currentTimeMillis() - t);
-                log.info("Order books pre-fill with {} orders...", apiCommandsFill.size());
-                final CountDownLatch latchFill = new CountDownLatch(apiCommandsFill.size());
-                container.setConsumer(cmd -> {
-                    if (cmd.resultCode == CommandResultCode.SUCCESS
-                            && (cmd.command == OrderCommandType.MOVE_ORDER || cmd.command == OrderCommandType.CANCEL_ORDER || cmd.command == OrderCommandType.PLACE_ORDER)) {
-                        latchFill.countDown();
-                    } else {
-                        throw new IllegalStateException("Unexpected command");
-                    }
-                });
-                apiCommandsFill.forEach(api::submitCommand);
-                latchFill.await();
-
-                container.setConsumer(cmd -> {
-                });
-
+                container.getApi().submitCommandsSync(genResult.getApiCommandsBenchmark().join());
                 assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
 
-                log.info("Persisting...");
-                final long tc = System.currentTimeMillis();
-                stateId = tc * 1000 + iteration;
-                container.submitMultiCommandSync(ApiPersistState.builder().dumpId(stateId).build());
-
-
-                log.info("Benchmarking original state...");
-                final List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
-                final int size = apiCommandsBenchmark.size();
-                final CountDownLatch latchBenchmark = new CountDownLatch(size);
-                container.setConsumer(cmd -> latchBenchmark.countDown());
-
-                originalPerfMt = container.executeTestingThread(() -> {
-                    final long tStart = System.currentTimeMillis();
-                    apiCommandsBenchmark.forEach(api::submitCommand);
-                    latchBenchmark.await();
-                    final long tDuration = System.currentTimeMillis() - tStart;
-                    return size / (float) tDuration / 1000.0f;
-                });
-
-                assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
                 originalFinalStateHash = container.requestStateHash();
-
-                log.info("{}. original throughput: {} MT/s", iteration, String.format("%.3f", originalPerfMt));
-
-                // TODO save hash?
+                log.info("Original state checks completed");
             }
-
-            System.gc();
-            Thread.sleep(200);
 
             // TODO Discover snapshots and journals with DiskSerializationProcessor
             final long snapshotBaseSeq = 0L;
@@ -146,30 +91,8 @@ public class JournalingTestsModule {
 
                 assertTrue(recreatedContainer.totalBalanceReport().isGlobalBalancesAllZero());
                 log.info("Restored snapshot+journal is valid");
-
-//                final ExchangeApi api = recreatedContainer.getApi();
-//                List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
-//                final CountDownLatch latchBenchmark = new CountDownLatch(apiCommandsBenchmark.size());
-//                recreatedContainer.setConsumer(cmd -> latchBenchmark.countDown());
-//
-//                final float perfMt = recreatedContainer.executeTestingThread(() -> {
-//
-//                    final long tStart = System.currentTimeMillis();
-//                    apiCommandsBenchmark.forEach(api::submitCommand);
-//                    latchBenchmark.await();
-//                    final long tDuration = System.currentTimeMillis() - tStart;
-//
-//                    assertTrue(recreatedContainer.totalBalanceReport().isGlobalBalancesAllZero());
-//
-//                    return apiCommandsBenchmark.size() / (float) tDuration / 1000.0f;
-//                });
-
-//                final float perfRatioPerc = perfMt / originalPerfMt * 100f;
-//                log.info("{}. restored throughput: {} MT/s ({}%)", iteration, String.format("%.3f", perfMt), String.format("%.1f", perfRatioPerc));
             }
 
-            System.gc();
-            Thread.sleep(200);
         }
 
     }
