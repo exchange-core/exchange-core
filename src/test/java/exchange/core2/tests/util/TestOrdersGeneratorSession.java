@@ -15,9 +15,8 @@
  */
 package exchange.core2.tests.util;
 
-import lombok.NonNull;
-import org.eclipse.collections.impl.map.mutable.primitive.IntIntHashMap;
 import exchange.core2.core.orderbook.IOrderBook;
+import org.eclipse.collections.impl.map.mutable.primitive.IntIntHashMap;
 
 import java.util.*;
 import java.util.function.UnaryOperator;
@@ -30,7 +29,7 @@ public final class TestOrdersGeneratorSession {
 
     public final long priceDeviation;
 
-    public final boolean hugeSizeIOC;
+    public final boolean avalancheIOC;
 
     public final int numUsers;
     public final UnaryOperator<Integer> uidMapper;
@@ -47,10 +46,11 @@ public final class TestOrdersGeneratorSession {
     public final List<Integer> orderBookNumOrdersAskStat = new ArrayList<>();
     public final List<Integer> orderBookNumOrdersBidStat = new ArrayList<>();
 
-    @NonNull
+    public final long minPrice;
+    public final long maxPrice;
+
     public long lastTradePrice;
 
-    @NonNull
     // set to 1 to make price move up and down
     public int priceDirection;
 
@@ -75,17 +75,24 @@ public final class TestOrdersGeneratorSession {
 
 //    public SingleWriterRecorder hdrRecorder = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
 
-    public TestOrdersGeneratorSession(IOrderBook orderBook, int targetOrderBookOrders, long priceDeviation, boolean hugeSizeIOC, int numUsers, UnaryOperator<Integer> uidMapper, int symbol, long centralPrice, boolean enableSlidingPrice, int seed) {
+    public TestOrdersGeneratorSession(IOrderBook orderBook, int targetOrderBookOrders, boolean avalancheIOC, int numUsers, UnaryOperator<Integer> uidMapper, int symbol, boolean enableSlidingPrice, int seed) {
         this.orderBook = orderBook;
         this.targetOrderBookOrders = targetOrderBookOrders;
-        this.priceDeviation = priceDeviation;
-        this.hugeSizeIOC = hugeSizeIOC;
+        this.avalancheIOC = avalancheIOC;
         this.numUsers = numUsers;
         this.uidMapper = uidMapper;
         this.symbol = symbol;
-        this.rand = new Random(Objects.hash(symbol, seed));
+        this.rand = new Random(Objects.hash(symbol * -177277, seed * 10037 + 198267));
 
-        this.lastTradePrice = centralPrice;
+        int price = (int) Math.pow(10, 3.3 + rand.nextDouble() * 1.5 + rand.nextDouble() * 1.5);
+
+        this.lastTradePrice = price;
+        this.priceDeviation = Math.min((int) (price * 0.05), 10000);
+        this.minPrice = price - priceDeviation * 5;
+        this.maxPrice = price + priceDeviation * 5;
+
+//        log.debug("Symbol:{} price={} dev={} range({},{})", symbol, price, priceDeviation, minPrice, maxPrice);
+
         this.priceDirection = enableSlidingPrice ? 1 : 0;
     }
 }

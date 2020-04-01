@@ -34,7 +34,7 @@ public class TestOrdersGeneratorConfig {
     final List<BitSet> usersAccounts;
     final int targetOrderBookOrdersTotal;
     final int seed;
-    final boolean hugeSizeIOC;
+    final boolean avalancheIOC;
     final PreFillMode preFillMode;
 
     @AllArgsConstructor

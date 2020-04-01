@@ -31,6 +31,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.math3.distribution.ParetoDistribution;
 import org.apache.commons.math3.distribution.RealDistribution;
 import org.apache.commons.math3.random.JDKRandomGenerator;
+import org.eclipse.collections.impl.map.mutable.primitive.IntIntHashMap;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
@@ -48,12 +49,6 @@ import static exchange.core2.tests.util.TestConstants.SYMBOLSPEC_EUR_USD;
 @Slf4j
 public final class TestOrdersGenerator {
 
-
-    // TODO randomize scales
-    public static final int CENTRAL_PRICE = 100_000;
-    public static final int MIN_PRICE = 50_000;
-    public static final int MAX_PRICE = 150_000;
-    public static final int PRICE_DEVIATION_DEFAULT = 5_000;
 
     public static final double CENTRAL_MOVE_ALPHA = 0.01;
 
@@ -83,17 +78,17 @@ public final class TestOrdersGenerator {
 
             final LongConsumer sharedProgressLogger = createAsyncProgressLogger(totalTransactionsNumber);
 
-            for (int i = 0; i < coreSymbolSpecifications.size(); i++) {
+            for (int i = coreSymbolSpecifications.size() - 1; i >= 0; i--) {
                 final CoreSymbolSpecification spec = coreSymbolSpecifications.get(i);
                 final int numOrdersTarget = (int) (targetOrderBookOrdersTotal * distribution[i]);
-                final int commandsNum = (i != coreSymbolSpecifications.size() - 1) ? (int) (totalTransactionsNumber * distribution[i]) : quotaLeft;
+                final int commandsNum = (i != 0) ? (int) (totalTransactionsNumber * distribution[i]) : quotaLeft;
                 quotaLeft -= commandsNum;
                 //log.debug("{}. Generating symbol {} : commands={} numOrdersTarget={}", i, symbolId, commandsNum, numOrdersTarget);
                 futures.put(spec.symbolId, CompletableFuture.supplyAsync(() -> {
                     final int[] uidsAvailableForSymbol = UserCurrencyAccountsGenerator.createUserListForSymbol(usersAccounts, spec, commandsNum);
                     final int numUsers = uidsAvailableForSymbol.length;
                     final UnaryOperator<Integer> uidMapper = idx -> uidsAvailableForSymbol[idx];
-                    return generateCommands(commandsNum, numOrdersTarget, numUsers, uidMapper, spec.symbolId, false, config.hugeSizeIOC, sharedProgressLogger, seed);
+                    return generateCommands(commandsNum, numOrdersTarget, numUsers, uidMapper, spec.symbolId, false, config.avalancheIOC, sharedProgressLogger, seed);
                 }));
             }
 
@@ -117,15 +112,19 @@ public final class TestOrdersGenerator {
 
         final int readyAtSeq = config.preFillMode.calculateReadySeqFunc.apply(config);
 
-        printStatistics(readyAtSeq, allCommands);
+        CompletableFuture.runAsync(() -> printStatistics(readyAtSeq, allCommands));
 
-        final List<ApiCommand> apiCommandsFill = TestOrdersGenerator.convertToApiCommand(allCommands, 0, readyAtSeq);
-        final List<ApiCommand> apiCommandsBenchmark = TestOrdersGenerator.convertToApiCommand(allCommands, readyAtSeq, allCommands.size());
+        final CompletableFuture<List<ApiCommand>> apiCommandsFill = CompletableFuture.supplyAsync(
+                () -> TestOrdersGenerator.convertToApiCommand(allCommands, 0, readyAtSeq));
+
+        final CompletableFuture<List<ApiCommand>> apiCommandsBenchmark = CompletableFuture.supplyAsync(
+                () -> TestOrdersGenerator.convertToApiCommand(allCommands, readyAtSeq, allCommands.size()));
 
         return MultiSymbolGenResult.builder()
                 .genResults(genResults)
                 .apiCommandsBenchmark(apiCommandsBenchmark)
                 .apiCommandsFill(apiCommandsFill)
+                .benchmarkCommandsSize(allCommands.size() - readyAtSeq)
                 .build();
     }
 
@@ -153,8 +152,8 @@ public final class TestOrdersGenerator {
                 if (nextUpdateTime.compareAndSet(whenLogNext, timeNow + progressLogInterval)) {
                     // whichever thread won - it should print progress
                     final long done = progress.sum();
-                    log.debug(String.format("Generating commands: %d of %d (%.01f%% done)...",
-                            done, totalTransactionsNumber, done * 100.0 / totalTransactionsNumber));
+                    log.debug(String.format("Generating commands progress: %.01f%% done (%d of %d)...",
+                            done * 100.0 / totalTransactionsNumber, done, totalTransactionsNumber));
                 }
             }
         };
@@ -167,7 +166,7 @@ public final class TestOrdersGenerator {
             final UnaryOperator<Integer> uidMapper,
             final int symbol,
             final boolean enableSlidingPrice,
-            final boolean hugeSizeIOC,
+            final boolean avalancheIOC,
             final LongConsumer asyncProgressConsumer,
             final int seed) {
 
@@ -177,12 +176,10 @@ public final class TestOrdersGenerator {
         final TestOrdersGeneratorSession session = new TestOrdersGeneratorSession(
                 orderBook,
                 targetOrderBookOrders,
-                PRICE_DEVIATION_DEFAULT,
-                hugeSizeIOC,
+                avalancheIOC,
                 numUsers,
                 uidMapper,
                 symbol,
-                CENTRAL_PRICE,
                 enableSlidingPrice,
                 seed);
 
@@ -276,11 +273,11 @@ public final class TestOrdersGenerator {
         session.lastOrderBookOrdersSizeBid = ordersNumBid;
 //        log.debug("ordersNum:{}", ordersNum);
 
-        if (session.initialOrdersPlaced || session.hugeSizeIOC) {
+        if (session.initialOrdersPlaced || session.avalancheIOC) {
             final L2MarketData l2MarketDataSnapshot = session.orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE);
 //                log.debug("{}", dumpOrderBook(l2MarketDataSnapshot));
 
-            if (session.hugeSizeIOC) {
+            if (session.avalancheIOC) {
                 session.lastTotalVolumeAsk = l2MarketDataSnapshot.totalOrderBookVolumeAsk();
                 session.lastTotalVolumeBid = l2MarketDataSnapshot.totalOrderBookVolumeBid();
             }
@@ -305,11 +302,11 @@ public final class TestOrdersGenerator {
                 session.numCompleted++;
             }
 
-            session.lastTradePrice = Math.min(MAX_PRICE, Math.max(MIN_PRICE, ev.price));
+            session.lastTradePrice = Math.min(session.maxPrice, Math.max(session.minPrice, ev.price));
 
-            if (ev.price <= MIN_PRICE) {
+            if (ev.price <= session.minPrice) {
                 session.priceDirection = 1;
-            } else if (ev.price >= MAX_PRICE) {
+            } else if (ev.price >= session.maxPrice) {
                 session.priceDirection = -1;
             }
 
@@ -392,13 +389,13 @@ public final class TestOrdersGenerator {
                 session.orderPrices.put(session.seq, price);
                 session.orderUids.put(session.seq, uid);
                 placeCmd.price = price;
-                placeCmd.reserveBidPrice = action == OrderAction.BID ? MAX_PRICE : 0; // set limit price
+                placeCmd.reserveBidPrice = action == OrderAction.BID ? session.maxPrice : 0; // set limit price
                 session.counterPlaceLimit++;
             } else {
 
                 placeCmd.orderType = OrderType.IOC;
 
-                if (session.hugeSizeIOC) {
+                if (session.avalancheIOC) {
 
                     final long availableVolume = action == OrderAction.ASK ? session.lastTotalVolumeAsk : session.lastTotalVolumeBid;
 
@@ -416,7 +413,7 @@ public final class TestOrdersGenerator {
                 } else {
                     placeCmd.size = 1 + rand.nextInt(6) * rand.nextInt(6) * rand.nextInt(6);
                 }
-                placeCmd.price = action == OrderAction.BID ? MAX_PRICE : MIN_PRICE;
+                placeCmd.price = action == OrderAction.BID ? session.maxPrice : session.minPrice;
                 placeCmd.reserveBidPrice = action == OrderAction.BID ? placeCmd.price : 0; // set limit price
                 session.counterPlaceMarket++;
             }
@@ -488,43 +485,71 @@ public final class TestOrdersGenerator {
     }
 
     public static List<ApiCommand> convertToApiCommand(List<OrderCommand> commands, int from, int to) {
-        return commands.stream()
-                .skip(from)
-                .limit(to - from)
-                .map(cmd -> {
-                    switch (cmd.command) {
-                        case PLACE_ORDER:
-                            return ApiPlaceOrder.builder().symbol(cmd.symbol).uid(cmd.uid).orderId(cmd.orderId).price(cmd.price).size(cmd.size).action(cmd.action).orderType(cmd.orderType)
-                                    .reservePrice(cmd.reserveBidPrice)
-                                    .build();
-                        case MOVE_ORDER:
-                            return ApiMoveOrder.builder().symbol(cmd.symbol).uid(cmd.uid).orderId(cmd.orderId).newPrice(cmd.price).build();
-                        case CANCEL_ORDER:
-                            return ApiCancelOrder.builder().symbol(cmd.symbol).uid(cmd.uid).orderId(cmd.orderId).build();
-                    }
-                    throw new IllegalStateException("unsupported type: " + cmd.command);
-                })
-                .collect(Collectors.toCollection(() -> new ArrayList<>(to - from)));
+        try (ExecutionTime ignore = new ExecutionTime(t -> log.debug("Converted {} commands to API commands in: {}", to - from, t))) {
+            ArrayList<ApiCommand> apiCommands = new ArrayList<>(to - from);
+            for (int i = from; i < to; i++) {
+                final OrderCommand cmd = commands.get(i);
+                switch (cmd.command) {
+                    case PLACE_ORDER:
+                        apiCommands.add(ApiPlaceOrder.builder().symbol(cmd.symbol).uid(cmd.uid).orderId(cmd.orderId).price(cmd.price)
+                                .size(cmd.size).action(cmd.action).orderType(cmd.orderType).reservePrice(cmd.reserveBidPrice).build());
+                        break;
+
+                    case MOVE_ORDER:
+                        apiCommands.add(new ApiMoveOrder(cmd.orderId, cmd.price, cmd.uid, cmd.symbol));
+                        break;
+
+                    case CANCEL_ORDER:
+                        apiCommands.add(new ApiCancelOrder(cmd.orderId, cmd.uid, cmd.symbol));
+                        break;
+
+                    default:
+                        throw new IllegalStateException("unsupported type: " + cmd.command);
+                }
+            }
+
+            return apiCommands;
+        }
     }
 
-    private static void printStatistics(final int readyAtSequenceApproximate, final List<OrderCommand> allCommands) {
-        final int commandsListSize = allCommands.size() - readyAtSequenceApproximate;
-        final Map<OrderCommandType, List<OrderCommand>> commandsByType = allCommands.stream().skip(readyAtSequenceApproximate).collect(Collectors.groupingBy(r -> r.command));
-        final Map<OrderType, List<OrderCommand>> ordersByType = commandsByType.get(OrderCommandType.PLACE_ORDER).stream().collect(Collectors.groupingBy(cmd -> cmd.orderType));
-        final int counterPlaceGTC = ordersByType.get(OrderType.GTC).size();
-        final int counterPlaceIOC = ordersByType.get(OrderType.IOC).size();
-        final int counterCancel = commandsByType.get(OrderCommandType.CANCEL_ORDER).size();
-        final int counterMove = commandsByType.get(OrderCommandType.MOVE_ORDER).size();
+    private static void printStatistics(final int readyAtSeq, final List<OrderCommand> allCommands) {
+        int counterPlaceIOC = 0;
+        int counterPlaceGTC = 0;
+        int counterCancel = 0;
+        int counterMove = 0;
+        final IntIntHashMap symbolCounters = new IntIntHashMap();
+
+        for (int i = readyAtSeq; i < allCommands.size(); i++) {
+            final OrderCommand cmd = allCommands.get(i);
+            switch (cmd.command) {
+                case MOVE_ORDER:
+                    counterMove++;
+                    break;
+
+                case CANCEL_ORDER:
+                    counterCancel++;
+                    break;
+
+                case PLACE_ORDER:
+                    if (cmd.orderType == OrderType.IOC) {
+                        counterPlaceIOC++;
+                    } else if (cmd.orderType == OrderType.GTC) {
+                        counterPlaceGTC++;
+                    }
+                    break;
+            }
+            symbolCounters.addToValue(cmd.symbol, 1);
+        }
+
+        final int commandsListSize = allCommands.size() - readyAtSeq;
+        final IntSummaryStatistics symbolStat = symbolCounters.summaryStatistics();
 
         final String commandsGtc = String.format("%d (%.2f%%)", counterPlaceGTC, (float) counterPlaceGTC / (float) commandsListSize * 100.0f);
         final String commandsIoc = String.format("%d (%.2f%%)", counterPlaceIOC, (float) counterPlaceIOC / (float) commandsListSize * 100.0f);
         final String commandsCancel = String.format("%d (%.2f%%)", counterCancel, (float) counterCancel / (float) commandsListSize * 100.0f);
         final String commandsMove = String.format("%d (%.2f%%)", counterMove, (float) counterMove / (float) commandsListSize * 100.0f);
-
         log.info("new GTC: {}; new IOC: {}; cancel: {}; move: {}", commandsGtc, commandsIoc, commandsCancel, commandsMove);
 
-        final Map<Integer, Long> perSymbols = allCommands.stream().skip(readyAtSequenceApproximate).collect(Collectors.groupingBy(cmd -> cmd.symbol, Collectors.counting()));
-        final LongSummaryStatistics symbolStat = perSymbols.values().stream().collect(Collectors.summarizingLong(n -> n));
         final String cpsMax = String.format("%d (%.2f%%)", symbolStat.getMax(), symbolStat.getMax() * 100.0f / commandsListSize);
         final String cpsAvg = String.format("%d (%.2f%%)", (int) symbolStat.getAverage(), symbolStat.getAverage() * 100.0f / commandsListSize);
         final String cpsMin = String.format("%d (%.2f%%)", symbolStat.getMin(), symbolStat.getMin() * 100.0f / commandsListSize);
@@ -543,7 +568,8 @@ public final class TestOrdersGenerator {
     @Getter
     public static class MultiSymbolGenResult {
         final Map<Integer, TestOrdersGenerator.GenResult> genResults;
-        final List<ApiCommand> apiCommandsFill;
-        final List<ApiCommand> apiCommandsBenchmark;
+        final CompletableFuture<List<ApiCommand>> apiCommandsFill;
+        final CompletableFuture<List<ApiCommand>> apiCommandsBenchmark;
+        final int benchmarkCommandsSize;
     }
 }

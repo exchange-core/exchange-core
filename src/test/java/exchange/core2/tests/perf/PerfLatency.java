@@ -18,13 +18,10 @@ package exchange.core2.tests.perf;
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
-import exchange.core2.tests.util.TestConstants;
 import exchange.core2.tests.util.TestDataParameters;
-import exchange.core2.tests.util.TestOrdersGeneratorConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 
-import static exchange.core2.tests.util.LatencyTestsModule.hiccupTestImpl;
 import static exchange.core2.tests.util.LatencyTestsModule.latencyTestImpl;
 
 @Slf4j
@@ -46,15 +43,7 @@ public final class PerfLatency {
                         .riskEnginesNum(1)
                         .msgsInGroupLimit(256)
                         .build(),
-                TestDataParameters.builder()
-                        .totalTransactionsNumber(3_000_000)
-                        .targetOrderBookOrdersTotal(1000)
-                        .numAccounts(2000)
-                        .currenciesAllowed(TestConstants.CURRENCIES_FUTURES)
-                        .numSymbols(1)
-                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT)
-                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
-                        .build(),
+                TestDataParameters.singlePairMarginBuilder().build(),
                 InitialStateConfiguration.CLEAN_TEST,
                 16);
     }
@@ -75,15 +64,7 @@ public final class PerfLatency {
                         .riskEnginesNum(1)
                         .msgsInGroupLimit(256)
                         .build(),
-                TestDataParameters.builder()
-                        .totalTransactionsNumber(3_000_000)
-                        .targetOrderBookOrdersTotal(1000)
-                        .numAccounts(2000)
-                        .currenciesAllowed(TestConstants.CURRENCIES_EXCHANGE)
-                        .numSymbols(1)
-                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR)
-                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
-                        .build(),
+                TestDataParameters.singlePairExchangeBuilder().build(),
                 InitialStateConfiguration.CLEAN_TEST,
                 16);
     }
@@ -106,15 +87,7 @@ public final class PerfLatency {
                         .riskEnginesNum(2)
                         .msgsInGroupLimit(256)
                         .build(),
-                TestDataParameters.builder()
-                        .totalTransactionsNumber(6_000_000)
-                        .targetOrderBookOrdersTotal(1_000_000)
-                        .numAccounts(3_300_000)
-                        .currenciesAllowed(TestConstants.ALL_CURRENCIES)
-                        .numSymbols(10_000)
-                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
-                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
-                        .build(),
+                TestDataParameters.mediumBuilder().build(),
                 InitialStateConfiguration.CLEAN_TEST,
                 4);
     }
@@ -137,23 +110,15 @@ public final class PerfLatency {
                         .riskEnginesNum(2)
                         .msgsInGroupLimit(256)
                         .build(),
-                TestDataParameters.builder()
-                        .totalTransactionsNumber(10_000_000)
-                        .targetOrderBookOrdersTotal(4_000_000)
-                        .numAccounts(10_000_000)
-                        .currenciesAllowed(TestConstants.ALL_CURRENCIES)
-                        .numSymbols(100_000)
-                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
-                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
-                        .build(),
+                TestDataParameters.largeBuilder().build(),
                 InitialStateConfiguration.CLEAN_TEST,
                 3);
     }
 
     /**
      * This is high load latency test for verifying exchange core scalability:
-     * - 10M active users (33M currency accounts)
-     * - 30M pending limit-orders
+     * - 7.5M active users (25M currency accounts)
+     * - 25M pending limit-orders
      * - 200K symbols
      * - 1M+ messages per second throughput
      * 12-threads CPU and 32GiB RAM is required for running this test in 2+4 configuration.
@@ -167,15 +132,7 @@ public final class PerfLatency {
                         .riskEnginesNum(2)
                         .msgsInGroupLimit(256)
                         .build(),
-                TestDataParameters.builder()
-                        .totalTransactionsNumber(40_000_000)
-                        .targetOrderBookOrdersTotal(30_000_000)
-                        .numAccounts(33_000_000)
-                        .currenciesAllowed(TestConstants.ALL_CURRENCIES)
-                        .numSymbols(200_000)
-                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
-                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
-                        .build(),
+                TestDataParameters.hugeBuilder().build(),
                 InitialStateConfiguration.CLEAN_TEST,
                 2);
     }
@@ -193,15 +150,7 @@ public final class PerfLatency {
                         .riskEnginesNum(1)
                         .msgsInGroupLimit(256)
                         .build(),
-                TestDataParameters.builder()
-                        .totalTransactionsNumber(3_000_000)
-                        .targetOrderBookOrdersTotal(1000)
-                        .numAccounts(2000)
-                        .currenciesAllowed(TestConstants.CURRENCIES_FUTURES)
-                        .numSymbols(1)
-                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT)
-                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
-                        .build(),
+                TestDataParameters.singlePairMarginBuilder().build(),
                 InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
                 16);
     }
@@ -215,15 +164,7 @@ public final class PerfLatency {
                         .riskEnginesNum(1)
                         .msgsInGroupLimit(256)
                         .build(),
-                TestDataParameters.builder()
-                        .totalTransactionsNumber(3_000_000)
-                        .targetOrderBookOrdersTotal(1000)
-                        .numAccounts(2000)
-                        .currenciesAllowed(TestConstants.CURRENCIES_EXCHANGE)
-                        .numSymbols(1)
-                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR)
-                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
-                        .build(),
+                TestDataParameters.singlePairExchangeBuilder().build(),
                 InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
                 16);
     }
@@ -237,15 +178,7 @@ public final class PerfLatency {
                         .riskEnginesNum(2)
                         .msgsInGroupLimit(256)
                         .build(),
-                TestDataParameters.builder()
-                        .totalTransactionsNumber(6_000_000)
-                        .targetOrderBookOrdersTotal(1_000_000)
-                        .numAccounts(3_300_000)
-                        .currenciesAllowed(TestConstants.ALL_CURRENCIES)
-                        .numSymbols(10_000)
-                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
-                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
-                        .build(),
+                TestDataParameters.mediumBuilder().build(),
                 InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
                 4);
     }
@@ -259,15 +192,7 @@ public final class PerfLatency {
                         .riskEnginesNum(2)
                         .msgsInGroupLimit(256)
                         .build(),
-                TestDataParameters.builder()
-                        .totalTransactionsNumber(10_000_000)
-                        .targetOrderBookOrdersTotal(4_000_000)
-                        .numAccounts(10_000_000)
-                        .currenciesAllowed(TestConstants.ALL_CURRENCIES)
-                        .numSymbols(100_000)
-                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
-                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
-                        .build(),
+                TestDataParameters.largeBuilder().build(),
                 InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
                 3);
     }
@@ -281,15 +206,7 @@ public final class PerfLatency {
                         .riskEnginesNum(2)
                         .msgsInGroupLimit(256)
                         .build(),
-                TestDataParameters.builder()
-                        .totalTransactionsNumber(40_000_000)
-                        .targetOrderBookOrdersTotal(30_000_000)
-                        .numAccounts(33_000_000)
-                        .currenciesAllowed(TestConstants.ALL_CURRENCIES)
-                        .numSymbols(200_000)
-                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
-                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
-                        .build(),
+                TestDataParameters.hugeBuilder().build(),
                 InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
                 2);
     }

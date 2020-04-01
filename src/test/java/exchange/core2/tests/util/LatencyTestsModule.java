@@ -78,7 +78,7 @@ public class LatencyTestsModule {
 
                     final TestOrdersGenerator.MultiSymbolGenResult genResult = testDataFutures.genResult.join();
 
-                    final CountDownLatch latchBenchmark = new CountDownLatch(genResult.getApiCommandsBenchmark().size());
+                    final CountDownLatch latchBenchmark = new CountDownLatch(genResult.getBenchmarkCommandsSize());
 
                     container.setConsumer(cmd -> {
                         final long latency = System.nanoTime() - cmd.timestamp;
@@ -91,7 +91,7 @@ public class LatencyTestsModule {
 
                     long plannedTimestamp = System.nanoTime();
 
-                    for (ApiCommand cmd : genResult.getApiCommandsBenchmark()) {
+                    for (ApiCommand cmd : genResult.getApiCommandsBenchmark().join()) {
                         while (System.nanoTime() < plannedTimestamp) {
                             // spin until its time to send next command
                         }
@@ -105,7 +105,7 @@ public class LatencyTestsModule {
                     });
 
                     final long processingTimeMs = System.currentTimeMillis() - startTimeMs;
-                    final float perfMt = (float) genResult.getApiCommandsBenchmark().size() / (float) processingTimeMs / 1000.0f;
+                    final float perfMt = (float) genResult.getBenchmarkCommandsSize() / (float) processingTimeMs / 1000.0f;
                     String tag = String.format("%.3f MT/s", perfMt);
                     final Histogram histogram = hdrRecorder.getIntervalHistogram();
                     log.info("{} {}", tag, LatencyTools.createLatencyReportFast(histogram));
@@ -173,7 +173,7 @@ public class LatencyTestsModule {
 
                     final TestOrdersGenerator.MultiSymbolGenResult genResult = testDataFutures.genResult.join();
 
-                    final List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark();
+                    final List<ApiCommand> apiCommandsBenchmark = genResult.getApiCommandsBenchmark().join();
                     final int[] latencies = new int[apiCommandsBenchmark.size()];
                     final int[] matcherEvents = new int[apiCommandsBenchmark.size()];
                     MutableInteger counter = new MutableInteger(0);
@@ -276,7 +276,7 @@ public class LatencyTestsModule {
                     slowCommands.stream().limit(100).forEach(
                             p -> log.info("{}. {} {} events:{} {}",
                                     String.format("%06X", p.seqNumber), LatencyTools.formatNanos(p.minLatency), p.apiCommand, p.eventsNum,
-                                    p.eventsNum > 0 ? String.format("(%dns per matching)", p.minLatency / p.eventsNum) : ""));
+                                    p.eventsNum > 1 ? String.format("(%dns per matching)", p.minLatency / p.eventsNum) : ""));
 
                     container.resetExchangeCore();
 
@@ -330,7 +330,7 @@ public class LatencyTestsModule {
                     final TestOrdersGenerator.MultiSymbolGenResult genResult = testDataFutures.genResult.join();
 
                     final LongLongHashMap hiccupTimestampsNs = new LongLongHashMap(10000);
-                    final CountDownLatch latchBenchmark = new CountDownLatch(genResult.getApiCommandsBenchmark().size());
+                    final CountDownLatch latchBenchmark = new CountDownLatch(genResult.getBenchmarkCommandsSize());
 
                     final MutableLong nextHiccupAcceptTimestampNs = new MutableLong(0);
 
@@ -355,10 +355,10 @@ public class LatencyTestsModule {
 
                     long plannedTimestamp = System.nanoTime();
 
-                    for (final ApiCommand cmd : genResult.getApiCommandsBenchmark()) {
-                        while (System.nanoTime() < plannedTimestamp) {
-                            // spin until its time to send next command
-                        }
+                    for (final ApiCommand cmd : genResult.getApiCommandsBenchmark().join()) {
+                        // spin until its time to send next command
+                        while (System.nanoTime() < plannedTimestamp) ;
+
                         cmd.timestamp = plannedTimestamp;
                         api.submitCommand(cmd);
                         plannedTimestamp += nanosPerCmd;

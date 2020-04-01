@@ -74,7 +74,7 @@ public class PersistenceTestsModule {
                 log.info("Benchmarking original state...");
 
                 originalPerfMt = container.executeTestingThreadPerfMtps(() -> {
-                    final List<ApiCommand> apiCommandsBenchmark = testDataFutures.genResult.get().getApiCommandsBenchmark();
+                    final List<ApiCommand> apiCommandsBenchmark = testDataFutures.genResult.get().getApiCommandsBenchmark().join();
                     container.getApi().submitCommandsSync(apiCommandsBenchmark);
                     return apiCommandsBenchmark.size();
                 });
@@ -107,7 +107,7 @@ public class PersistenceTestsModule {
                 log.info("Restored snapshot is valid, benchmarking original state...");
 
                 final float perfMt = recreatedContainer.executeTestingThreadPerfMtps(() -> {
-                    final List<ApiCommand> apiCommandsBenchmark = testDataFutures.genResult.get().getApiCommandsBenchmark();
+                    final List<ApiCommand> apiCommandsBenchmark = testDataFutures.genResult.get().getApiCommandsBenchmark().join();
                     recreatedContainer.getApi().submitCommandsSync(apiCommandsBenchmark);
                     return apiCommandsBenchmark.size();
                 });

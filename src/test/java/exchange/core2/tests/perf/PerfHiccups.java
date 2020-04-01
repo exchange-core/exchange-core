@@ -17,10 +17,7 @@ package exchange.core2.tests.perf;
 
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
-import exchange.core2.tests.util.ExchangeTestContainer;
-import exchange.core2.tests.util.TestConstants;
 import exchange.core2.tests.util.TestDataParameters;
-import exchange.core2.tests.util.TestOrdersGeneratorConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 
@@ -40,15 +37,7 @@ public final class PerfHiccups {
                         .riskEnginesNum(1)
                         .msgsInGroupLimit(256)
                         .build(),
-                TestDataParameters.builder()
-                        .totalTransactionsNumber(3_000_000)
-                        .targetOrderBookOrdersTotal(1000)
-                        .numAccounts(2000)
-                        .currenciesAllowed(TestConstants.CURRENCIES_FUTURES)
-                        .numSymbols(1)
-                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT)
-                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
-                        .build(),
+                TestDataParameters.singlePairMarginBuilder().build(),
                 InitialStateConfiguration.CLEAN_TEST,
                 3);
     }

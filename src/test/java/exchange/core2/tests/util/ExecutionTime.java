@@ -12,10 +12,18 @@ public class ExecutionTime implements AutoCloseable {
     private final Consumer<String> executionTimeConsumer;
     private final long startNs = System.nanoTime();
 
+    public ExecutionTime() {
+        this.executionTimeConsumer = s -> {
+        };
+    }
+
     @Override
     public void close() {
-        executionTimeConsumer.accept(
-                LatencyTools.formatNanos(
-                        System.nanoTime() - startNs));
+        executionTimeConsumer.accept(getTimeFormatted());
     }
+
+    public String getTimeFormatted() {
+        return LatencyTools.formatNanos(System.nanoTime() - startNs);
+    }
+
 }

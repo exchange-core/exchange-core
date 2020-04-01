@@ -41,15 +41,7 @@ public final class PerfThroughput {
                         .riskEnginesNum(1)
                         .msgsInGroupLimit(1536)
                         .build(),
-                TestDataParameters.builder()
-                        .totalTransactionsNumber(3_000_000)
-                        .targetOrderBookOrdersTotal(1000)
-                        .numAccounts(2000)
-                        .currenciesAllowed(TestConstants.CURRENCIES_FUTURES)
-                        .numSymbols(1)
-                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT)
-                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
-                        .build(),
+                TestDataParameters.singlePairMarginBuilder().build(),
                 50);
     }
 
@@ -62,15 +54,7 @@ public final class PerfThroughput {
                         .riskEnginesNum(1)
                         .msgsInGroupLimit(1536)
                         .build(),
-                TestDataParameters.builder()
-                        .totalTransactionsNumber(3_000_000)
-                        .targetOrderBookOrdersTotal(1000)
-                        .numAccounts(2000)
-                        .currenciesAllowed(TestConstants.CURRENCIES_EXCHANGE)
-                        .numSymbols(1)
-                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR)
-                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
-                        .build(),
+                TestDataParameters.singlePairExchangeBuilder().build(),
                 50);
     }
 
@@ -112,17 +96,8 @@ public final class PerfThroughput {
                         .riskEnginesNum(2)
                         .msgsInGroupLimit(2048)
                         .build(),
-                TestDataParameters.builder()
-                        .totalTransactionsNumber(6_000_000)
-                        .targetOrderBookOrdersTotal(1_000_000)
-                        .numAccounts(3_300_000)
-                        .currenciesAllowed(TestConstants.ALL_CURRENCIES)
-                        .numSymbols(10_000)
-                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
-                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
-                        .build(),
+                TestDataParameters.mediumBuilder().build(),
                 25);
-
     }
 
     /**
@@ -143,22 +118,14 @@ public final class PerfThroughput {
                         .riskEnginesNum(2)
                         .msgsInGroupLimit(2048)
                         .build(),
-                TestDataParameters.builder()
-                        .totalTransactionsNumber(10_000_000)
-                        .targetOrderBookOrdersTotal(4_000_000)
-                        .numAccounts(10_000_000)
-                        .currenciesAllowed(TestConstants.ALL_CURRENCIES)
-                        .numSymbols(100_000)
-                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
-                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
-                        .build(),
+                TestDataParameters.largeBuilder().build(),
                 25);
     }
 
     /**
      * This is high load throughput test for verifying exchange core scalability:
-     * - 10M active users (33M currency accounts)
-     * - 30M pending limit-orders
+     * - 7.5M active users (25M currency accounts)
+     * - 25M pending limit-orders
      * - 1M+ messages per second throughput
      * - 200K symbols
      * - less than 1 millisecond 99.99% latency
@@ -173,15 +140,7 @@ public final class PerfThroughput {
                         .riskEnginesNum(2)
                         .msgsInGroupLimit(2048)
                         .build(),
-                TestDataParameters.builder()
-                        .totalTransactionsNumber(40_000_000)
-                        .targetOrderBookOrdersTotal(30_000_000)
-                        .numAccounts(33_000_000)
-                        .currenciesAllowed(TestConstants.ALL_CURRENCIES)
-                        .numSymbols(200_000)
-                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
-                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
-                        .build(),
+                TestDataParameters.hugeBuilder().build(),
                 25);
     }
 

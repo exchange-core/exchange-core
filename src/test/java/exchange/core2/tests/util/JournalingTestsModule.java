@@ -64,7 +64,7 @@ public class JournalingTestsModule {
 
                 log.info("Running commands on original state...");
                 final TestOrdersGenerator.MultiSymbolGenResult genResult = testDataFutures.genResult.get();
-                container.getApi().submitCommandsSync(genResult.getApiCommandsBenchmark());
+                container.getApi().submitCommandsSync(genResult.getApiCommandsBenchmark().join());
                 assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
 
                 originalFinalStateHash = container.requestStateHash();

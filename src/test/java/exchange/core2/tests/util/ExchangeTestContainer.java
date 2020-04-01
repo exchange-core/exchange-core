@@ -19,22 +19,18 @@ import com.google.common.collect.Lists;
 import exchange.core2.core.ExchangeApi;
 import exchange.core2.core.ExchangeCore;
 import exchange.core2.core.common.CoreSymbolSpecification;
-import exchange.core2.core.common.CoreWaitStrategy;
 import exchange.core2.core.common.L2MarketData;
 import exchange.core2.core.common.SymbolType;
 import exchange.core2.core.common.api.*;
-import exchange.core2.core.common.api.binary.BatchAddAccountsCommand;
 import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
 import exchange.core2.core.common.api.binary.BinaryDataCommand;
 import exchange.core2.core.common.api.reports.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
-import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.ExchangeConfiguration;
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.core.common.config.ReportsQueriesConfiguration;
-import exchange.core2.core.orderbook.OrderBookDirectImpl;
 import exchange.core2.core.processors.journaling.DiskSerializationProcessor;
 import exchange.core2.core.processors.journaling.DiskSerializationProcessorConfiguration;
 import exchange.core2.core.utils.AffinityThreadFactory;
@@ -44,7 +40,6 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
-import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.hamcrest.core.Is;
 
 import java.util.*;
@@ -53,19 +48,15 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 
 import static junit.framework.TestCase.assertTrue;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
 
 @Slf4j
 public final class ExchangeTestContainer implements AutoCloseable {
-
-    private static final long TIMEOUT_CMD = 5;
-
 
     private final ExchangeCore exchangeCore;
 
@@ -110,7 +101,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
                                 .targetOrderBookOrdersTotal(parameters.targetOrderBookOrdersTotal)
                                 .seed(seed)
                                 .preFillMode(parameters.preFillMode)
-                                .hugeSizeIOC(parameters.hugeSizeIOC)
+                                .avalancheIOC(parameters.avalancheIOC)
                                 .build()));
 
         return TestDataFutures.builder()
@@ -381,7 +372,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
             userAccountsInit(userAccounts);
         }
 
-        final List<ApiCommand> apiCommandsFill = testDataFutures.genResult.join().getApiCommandsFill();
+        final List<ApiCommand> apiCommandsFill = testDataFutures.genResult.join().getApiCommandsFill().join();
         log.info("Order books pre-fill with {} orders...", apiCommandsFill.size());
         try (ExecutionTime ignore = new ExecutionTime(t -> log.debug("Order books pre-fill completed in {}", t))) {
             getApi().submitCommandsSync(apiCommandsFill);
@@ -398,7 +389,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
         // create accounts and deposit initial funds
         userAccountsInit(testDataFutures.usersAccounts.join());
 
-        getApi().submitCommandsSync(testDataFutures.genResult.join().getApiCommandsFill());
+        getApi().submitCommandsSync(testDataFutures.genResult.join().getApiCommandsFill().join());
     }
 
 
