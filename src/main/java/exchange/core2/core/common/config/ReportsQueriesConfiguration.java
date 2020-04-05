@@ -14,16 +14,30 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Reports configuration
+ */
 @Getter
 public final class ReportsQueriesConfiguration {
 
     private final Map<Integer, Constructor<? extends ReportQuery<?>>> reportConstructors;
     private final Map<Integer, Constructor<? extends BinaryDataCommand>> binaryCommandConstructors;
 
+    /**
+     * Creates default reports config
+     *
+     * @return reports configuration
+     */
     public static ReportsQueriesConfiguration createStandardConfig() {
         return createStandardConfig(Collections.emptyMap());
     }
 
+    /**
+     * Creates reports config with additional custom reports
+     *
+     * @param customReports - custom reports collection
+     * @return reports configuration
+     */
     public static ReportsQueriesConfiguration createStandardConfig(final Map<Integer, Class<? extends ReportQuery<?>>> customReports) {
 
         final Map<Integer, Constructor<? extends ReportQuery<?>>> reportConstructors = new HashMap<>();

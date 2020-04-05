@@ -128,8 +128,8 @@ public final class SymbolPositionRecord implements WriteBytesMarshallable, State
     /**
      * Calculate required margin based on specification and current position/orders
      *
-     * @param spec
-     * @return
+     * @param spec core symbol specification
+     * @return required margin
      */
     public long calculateRequiredMarginForFutures(CoreSymbolSpecification spec) {
         final long specMarginBuy = spec.marginBuy;
@@ -185,6 +185,11 @@ public final class SymbolPositionRecord implements WriteBytesMarshallable, State
      * 1. Un-hold pending size
      * 2. Reduce opposite position accordingly (if exists)
      * 3. Increase forward position accordingly (if size left in the trading event)
+     *
+     * @param action order action
+     * @param size   order size
+     * @param price  order price
+     * @return opened size
      */
     public long updatePositionForMarginTrade(OrderAction action, long size, long price) {
 

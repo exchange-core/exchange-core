@@ -48,6 +48,7 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
      * <p>
      * fills cmd.action  with original original order action
      *
+     * @param cmd - order command
      * @return MATCHING_UNKNOWN_ORDER_ID if order was not found, otherwise SUCCESS
      */
     CommandResultCode cancelOrder(OrderCommand cmd);
@@ -58,6 +59,7 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
      * newPrice - new price (if 0 or same - order will not moved)
      * fills cmd.action  with original original order action
      *
+     * @param cmd - order command
      * @return MATCHING_UNKNOWN_ORDER_ID if order was not found, otherwise SUCCESS
      */
     CommandResultCode moveOrder(OrderCommand cmd);
@@ -80,10 +82,10 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     OrderBookImplType getImplementationType();
 
     /**
-     * Search for all orders for specified user.<br/>
-     * Slow, because order book do not maintain uid->order index.<br/>
-     * Produces garbage.<br/>
-     * Orders must be processed before doing any other mutable call.<br/>
+     * Search for all orders for specified user.<p>
+     * Slow, because order book do not maintain uid-to-order index.<p>
+     * Produces garbage.<p>
+     * Orders must be processed before doing any other mutable call.<p>
      *
      * @param uid user id
      * @return list of orders
@@ -99,6 +101,8 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     /**
      * State hash for order books is implementation-agnostic
      * Look {@link IOrderBook#validateInternalState} for full internal state validation for de-serialized objects
+     *
+     * @return state hash code
      */
     @Override
     default int stateHash() {

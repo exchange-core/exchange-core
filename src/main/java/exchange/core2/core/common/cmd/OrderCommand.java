@@ -129,7 +129,7 @@ public final class OrderCommand implements IOrder {
      * Produces garbage
      * For testing only !!!
      *
-     * @return
+     * @return list of events
      */
     public List<MatcherTradeEvent> extractEvents() {
         List<MatcherTradeEvent> list = new ArrayList<>();
@@ -153,7 +153,7 @@ public final class OrderCommand implements IOrder {
     /**
      * Write only command data, not status or events
      *
-     * @param cmd2
+     * @param cmd2 command to overwrite to
      */
     public void writeTo(OrderCommand cmd2) {
         cmd2.command = this.command;

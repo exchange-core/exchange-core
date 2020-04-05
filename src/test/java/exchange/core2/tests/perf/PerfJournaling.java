@@ -28,10 +28,8 @@ public final class PerfJournaling {
     public void testJournalingMargin() throws Exception {
         JournalingTestsModule.journalingTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
-                        .ringBufferSize(64 * 1024)
                         .matchingEnginesNum(1)
                         .riskEnginesNum(1)
-                        .msgsInGroupLimit(512)
                         .build(),
                 TestDataParameters.singlePairMarginBuilder()
                         .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER_PLUS_QUARTER)
@@ -43,10 +41,8 @@ public final class PerfJournaling {
     public void testJournalingMultiSymbolSmall() throws Exception {
         JournalingTestsModule.journalingTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
-                        .ringBufferSize(64 * 1024)
                         .matchingEnginesNum(2)
                         .riskEnginesNum(2)
-                        .msgsInGroupLimit(1024)
                         .build(),
                 TestDataParameters.builder()
                         .totalTransactionsNumber(3_000_000)
@@ -64,10 +60,8 @@ public final class PerfJournaling {
     public void testJournalingMultiSymbolMedium() throws Exception {
         JournalingTestsModule.journalingTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
-                        .ringBufferSize(32 * 1024)
                         .matchingEnginesNum(4)
                         .riskEnginesNum(2)
-                        .msgsInGroupLimit(1024)
                         .build(),
                 TestDataParameters.mediumBuilder()
                         .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER_PLUS_QUARTER)
@@ -79,10 +73,8 @@ public final class PerfJournaling {
     public void testJournalingMultiSymbolLarge() throws Exception {
         JournalingTestsModule.journalingTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
-                        .ringBufferSize(64 * 1024)
                         .matchingEnginesNum(4)
                         .riskEnginesNum(4)
-                        .msgsInGroupLimit(1024)
                         .build(),
                 TestDataParameters.largeBuilder()
                         .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER_PLUS_QUARTER)

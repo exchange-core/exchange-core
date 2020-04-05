@@ -36,7 +36,7 @@ public final class PerfThroughput {
     public void testThroughputMargin() {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
-                        .ringBufferSize(2 * 1024)
+                        .ringBufferSize(32 * 1024)
                         .matchingEnginesNum(1)
                         .riskEnginesNum(1)
                         .msgsInGroupLimit(1536)
@@ -49,7 +49,7 @@ public final class PerfThroughput {
     public void testThroughputExchange() {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
-                        .ringBufferSize(2 * 1024)
+                        .ringBufferSize(32 * 1024)
                         .matchingEnginesNum(1)
                         .riskEnginesNum(1)
                         .msgsInGroupLimit(1536)
@@ -62,10 +62,10 @@ public final class PerfThroughput {
     public void testThroughputPeak() {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
-                        .ringBufferSize(64 * 1024)
+                        .ringBufferSize(32 * 1024)
                         .matchingEnginesNum(4)
                         .riskEnginesNum(2)
-                        .msgsInGroupLimit(2048)
+                        .msgsInGroupLimit(1536)
                         .build(),
                 TestDataParameters.builder()
                         .totalTransactionsNumber(3_000_000)

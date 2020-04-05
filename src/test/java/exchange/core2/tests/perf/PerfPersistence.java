@@ -35,7 +35,7 @@ public final class PerfPersistence {
     public void testPersistenceMargin() throws Exception {
         PersistenceTestsModule.persistenceTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
-                        .ringBufferSize(2 * 1024)
+                        .ringBufferSize(32 * 1024)
                         .matchingEnginesNum(1)
                         .riskEnginesNum(1)
                         .msgsInGroupLimit(512)
@@ -50,7 +50,7 @@ public final class PerfPersistence {
     public void testPersistenceExchange() throws Exception {
         PersistenceTestsModule.persistenceTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
-                        .ringBufferSize(2 * 1024)
+                        .ringBufferSize(32 * 1024)
                         .matchingEnginesNum(1)
                         .riskEnginesNum(1)
                         .msgsInGroupLimit(512)

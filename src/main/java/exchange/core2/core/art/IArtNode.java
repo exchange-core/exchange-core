@@ -47,16 +47,24 @@ public interface IArtNode<V> {
 
     /**
      * For testing only
+     *
+     * @param level level
      */
     void validateInternalState(int level);
 
     /**
      * For testing only
+     *
+     * @param prefix prefix
+     * @param level  level
+     * @return internal diagram part
      */
     String printDiagram(String prefix, int level);
 
     /**
      * For testing only
+     *
+     * @return list of entries
      */
     List<Map.Entry<Long, V>> entries();
 

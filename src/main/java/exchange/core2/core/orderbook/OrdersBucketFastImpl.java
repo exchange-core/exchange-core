@@ -38,12 +38,11 @@ import java.util.Objects;
 import java.util.function.Consumer;
 
 /**
- * Fast version of Order Bucket.<br/>
- * Implementation is optimized for fastest place/remove operations O(1).<br/>
- * Matching operation can be slower though.<br/>
- * <p>
- * Orders are stored in resizable queue array.<br/>
- * Queue is indexed by hashmap for fast cancel/update operations.<br/>
+ * Fast version of Order Bucket.<p>
+ * Implementation is optimized for fastest place/remove operations O(1).<p>
+ * Matching operation can be slower though.<p>
+ * Orders are stored in resizable queue array.<p>
+ * Queue is indexed by hashmap for fast cancel/update operations.
  */
 @Slf4j
 @ToString
@@ -149,12 +148,6 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
     }
 
 
-    /**
-     * Remove order
-     *
-     * @param orderId
-     * @return
-     */
     @Override
     public Order remove(long orderId, long uid) {
 
@@ -187,6 +180,13 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
     /**
      * Collect a list of matching orders starting from eldest records
      * Completely matching orders will be removed, partially matched order kept in the bucked.
+     *
+     * @param volumeToCollect     - volume to collect
+     * @param activeOrder         - (ignore orders same uid)
+     * @param triggerCmd          - triggered command
+     * @param removeOrderCallback - callback TODO better solution?
+     * @param eventsHelper        - events helper
+     * @return total matched volume
      */
     @Override
     public long match(long volumeToCollect, IOrder activeOrder, OrderCommand triggerCmd, Consumer<Order> removeOrderCallback, OrderBookEventsHelper eventsHelper) {

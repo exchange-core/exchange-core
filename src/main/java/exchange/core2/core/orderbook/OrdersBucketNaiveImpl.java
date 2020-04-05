@@ -80,8 +80,12 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
      * Collect a list of matching orders starting from eldest records
      * Completely matching orders will be removed, partially matched order kept in the bucked.
      *
-     * @param volumeToCollect
-     * @return
+     * @param volumeToCollect     - volume to collect
+     * @param activeOrder         -  (ignore orders same uid)
+     * @param triggerCmd          - triggered command (taker data)
+     * @param removeOrderCallback - called to remove order
+     * @param helper              - events helper
+     * @return - total matched volume
      */
     @Override
     public long match(long volumeToCollect, IOrder activeOrder, OrderCommand triggerCmd, Consumer<Order> removeOrderCallback, OrderBookEventsHelper helper) {

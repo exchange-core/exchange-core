@@ -195,6 +195,8 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
      * 5. RESET commands processed for any uid
      *
      * @param cmd - command
+     * @param seq - command sequence
+     * @return true if caller should publish sequence even if batch was not processed yet
      */
     public boolean preProcessCommand(final long seq, final OrderCommand cmd) {
         switch (cmd.command) {
@@ -430,6 +432,12 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
      * 3. Current limit orders
      * <p>
      * NOTE: Current implementation does not care about accounts and positions quoted in different currencies
+     *
+     * @param cmd         - order command
+     * @param userProfile - user profile
+     * @param spec        - symbol specification
+     * @param position    - users position
+     * @return true if placing is allowed
      */
     private boolean canPlaceMarginOrder(final OrderCommand cmd,
                                         final UserProfile userProfile,

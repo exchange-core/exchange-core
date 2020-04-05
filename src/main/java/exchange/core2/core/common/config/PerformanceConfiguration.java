@@ -18,20 +18,52 @@ import java.util.concurrent.ThreadFactory;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
+/**
+ * Exchange performance configuration
+ */
 @AllArgsConstructor
 @Getter
 @Builder
 public final class PerformanceConfiguration {
 
+    /*
+     * Disruptor ring buffer size (number of commands). Must be power of 2.
+     */
     private final int ringBufferSize;
+
+    /*
+     * Number of matching engines. Each instance requires extra CPU core.
+     */
     private final int matchingEnginesNum;
+
+    /*
+     * Number of risk engines. Each instance requires extra CPU core.
+     */
     private final int riskEnginesNum;
+
+    /*
+     * max number of messages not processed by R2 stage. Must be less than quarter of ringBufferSize.
+     */
     private final int msgsInGroupLimit;
 
+    /*
+     * Disruptor threads factory
+     */
     private final ThreadFactory threadFactory;
+
+    /*
+     * Disruptor wait strategy
+     */
     private final CoreWaitStrategy waitStrategy;
+
+    /*
+     * Order books factory
+     */
     private final BiFunction<CoreSymbolSpecification, ObjectsPool, IOrderBook> orderBookFactory;
 
+    /*
+     * LZ4 compressor factory for binary commands and reports
+     */
     private final Supplier<LZ4Compressor> binaryCommandsLz4CompressorFactory;
 
     // TODO add expected number of users and symbols
@@ -42,7 +74,7 @@ public final class PerformanceConfiguration {
                 .ringBufferSize(2 * 1024)
                 .matchingEnginesNum(1)
                 .riskEnginesNum(1)
-                .msgsInGroupLimit(512)
+                .msgsInGroupLimit(256)
                 .threadFactory(Thread::new)
                 .waitStrategy(CoreWaitStrategy.SLEEPING)
                 .binaryCommandsLz4CompressorFactory(() -> LZ4Factory.fastestInstance().highCompressor())

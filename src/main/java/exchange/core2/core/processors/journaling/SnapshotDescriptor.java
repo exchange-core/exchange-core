@@ -29,6 +29,8 @@ public class SnapshotDescriptor implements Comparable<SnapshotDescriptor> {
     /**
      * Create initial empty snapshot descriptor
      *
+     * @param initialNumME - number of matching engine instances
+     * @param initialNumRE - number of risk engine instances
      * @return new instance
      */
     public static SnapshotDescriptor createEmpty(int initialNumME, int initialNumRE) {

@@ -51,9 +51,10 @@ public interface IOrdersBucket extends Comparable<IOrdersBucket>, WriteBytesMars
      * ignore orders from uid
      *
      * @param volumeToCollect     - volume to collect
-     * @param activeOrder         (ignore orders same uid)
-     * @param triggerCmd
-     * @param removeOrderCallback // TODO better solution?
+     * @param activeOrder         -  (ignore orders same uid)
+     * @param triggerCmd          - triggered command (taker data)
+     * @param removeOrderCallback - called to remove order
+     * @param helper              - events helper
      * @return - total matched volume
      */
     long match(long volumeToCollect, IOrder activeOrder, OrderCommand triggerCmd, Consumer<Order> removeOrderCallback, OrderBookEventsHelper helper);

@@ -29,15 +29,16 @@ import java.util.function.Function;
 public interface ISerializationProcessor {
 
     /**
-     * Serialize state into a storage (disk, NAS, etc).<br/>
-     * Method is threadsafe - called from each module's thread upon receiving serialization command.<br/>
-     * Method is synchronous - returning true value only when the data was safely stored into independent storage.<br/>
+     * Serialize state into a storage (disk, NAS, etc).<p>
+     * Method is threadsafe - called from each module's thread upon receiving serialization command.<p>
+     * Method is synchronous - returning true value only when the data was safely stored into independent storage.<p>
      *
-     * @param snapshotId - unique snapshot id
-     * @param seq        - sequence of serialization
-     * @param type       - module (risk engine or matching engine)
-     * @param instanceId - module instance number (starting from 0 for each module type)
-     * @param obj        - serialized data
+     * @param snapshotId  - unique snapshot id
+     * @param seq         - sequence of serialization
+     * @param timestampNs - timestamp
+     * @param type        - module (risk engine or matching engine)
+     * @param instanceId  - module instance number (starting from 0 for each module type)
+     * @param obj         - serialized data
      * @return true if serialization succeeded, false otherwise
      */
     boolean storeData(long snapshotId,
@@ -48,8 +49,8 @@ public interface ISerializationProcessor {
                       WriteBytesMarshallable obj);
 
     /**
-     * Deserialize state from a storage (disk, NAS, etc).<br/>
-     * Method is threadsafe - called from each module's thread on creation.<br/>
+     * Deserialize state from a storage (disk, NAS, etc).<p>
+     * Method is threadsafe - called from each module's thread on creation.<p>
      *
      * @param snapshotId - unique snapshot id
      * @param type       - module (risk engine or matching engine)
@@ -67,16 +68,19 @@ public interface ISerializationProcessor {
     /**
      * Write command into journal
      *
-     * @param cmd
+     * @param cmd  - command to write
      * @param dSeq - disruptor sequence
      * @param eob  - if true, journal should commit all previous data synchronously
-     * @throws IOException
+     * @throws IOException - can throw in case of writing issue (will stop exchange core from responding)
      */
     void writeToJournal(OrderCommand cmd, long dSeq, boolean eob) throws IOException;
 
 
     /**
      * Activate journal
+     *
+     * @param afterSeq - enable only after specified sequence, for lower sequences no writes to journal
+     * @param api      - API reference
      */
     void enableJournaling(long afterSeq, ExchangeApi api);
 
@@ -93,10 +97,11 @@ public interface ISerializationProcessor {
      * @param snapshotId - snapshot id (important for tree history)
      * @param seqFrom    - starting command sequence (exclusive)
      * @param seqTo      - ending command sequence (inclusive)
+     * @param api        - API reference
      */
-    void replayJournalStep(long snapshotId, long seqFrom, long seqTo, ExchangeApi exchangeApi);
+    void replayJournalStep(long snapshotId, long seqFrom, long seqTo, ExchangeApi api);
 
-    long replayJournalFull(InitialStateConfiguration initialStateConfiguration, ExchangeApi exchangeApi);
+    long replayJournalFull(InitialStateConfiguration initialStateConfiguration, ExchangeApi api);
 
     void replayJournalFullAndThenEnableJouraling(InitialStateConfiguration initialStateConfiguration, ExchangeApi exchangeApi);
 

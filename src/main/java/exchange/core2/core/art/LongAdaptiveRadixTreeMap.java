@@ -23,7 +23,8 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.function.*;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * Adaptive Radix Tree (ART) Java implementation
@@ -111,7 +112,10 @@ public final class LongAdaptiveRadixTreeMap<V> {
     }
 
     /**
-     * remove on matching
+     * remove keys range
+     *
+     * @param keyFromInclusive from key inclusive
+     * @param keyToExclusive   to key exclusive
      */
     public void removeRange(final long keyFromInclusive, final long keyToExclusive) {
         // TODO

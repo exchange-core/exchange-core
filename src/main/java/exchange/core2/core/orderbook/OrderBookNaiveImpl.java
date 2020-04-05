@@ -129,7 +129,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
      * @param activeOrder     - GTC or IOC order to match
      * @param matchingBuckets - sorted buckets map
      * @param filled          - current 'filled' value for the order
-     * @param triggerCmd      -
+     * @param triggerCmd      - triggered command (taker)
      * @return new filled size
      */
     private long tryMatchInstantly(
@@ -189,10 +189,9 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     }
 
     /**
-     * Remove an order
-     * <p>
-     * orderId - order to remove
+     * Remove an order.<p>
      *
+     * @param cmd cancel command (orderId - order to remove)
      * @return true if order removed, false if not found (can be removed/matched earlier)
      */
     public CommandResultCode cancelOrder(OrderCommand cmd) {
@@ -296,8 +295,8 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     /**
      * Get order from internal map
      *
-     * @param orderId -
-     * @return order
+     * @param orderId - order Id
+     * @return order from map
      */
     @Override
     public IOrder getOrderById(long orderId) {

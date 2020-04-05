@@ -17,6 +17,7 @@ import java.util.Map;
 import static exchange.core2.tests.util.TestConstants.SYMBOLSPEC_ETH_XBT;
 import static exchange.core2.tests.util.TestConstants.SYMBOLSPEC_EUR_USD;
 
+// TODO use annotation based configuration
 public class TypeRegistryConfiguration implements TypeRegistryConfigurer {
 
     @Override
@@ -50,17 +51,17 @@ public class TypeRegistryConfiguration implements TypeRegistryConfigurer {
                     List<List<String>> list = table.asLists();
 
                     //skip a header if it presents
-                    if(list.get(0).get(0) != null && list.get(0).get(0).trim().equals("bid")){
+                    if (list.get(0).get(0) != null && list.get(0).get(0).trim().equals("bid")) {
                         list = list.subList(1, list.size());
                     }
 
                     //format | bid | price | ask |
                     final L2MarketDataHelper l2helper = new L2MarketDataHelper();
-                    for(List<String> row : list){
+                    for (List<String> row : list) {
                         int price = Integer.parseInt(row.get(1));
 
                         String bid = row.get(0);
-                        if(bid != null && bid.length() > 0){
+                        if (bid != null && bid.length() > 0) {
                             l2helper.addBid(price, Integer.parseInt(bid));
                         } else {
                             l2helper.addAsk(price, Integer.parseInt(row.get(2)));

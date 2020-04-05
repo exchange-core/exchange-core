@@ -55,8 +55,8 @@ public final class SymbolSpecificationProvider implements WriteBytesMarshallable
     /**
      * Get symbol specification
      *
-     * @param symbol
-     * @return
+     * @param symbol - symbol code
+     * @return symbol specification
      */
     public CoreSymbolSpecification getSymbolSpecification(int symbol) {
         return symbolSpecs.get(symbol);
@@ -65,8 +65,8 @@ public final class SymbolSpecificationProvider implements WriteBytesMarshallable
     /**
      * register new symbol specification
      *
-     * @param symbol
-     * @param spec
+     * @param symbol - symbol code
+     * @param spec   - symbol specification
      */
     public void registerSymbol(int symbol, CoreSymbolSpecification spec) {
         symbolSpecs.put(symbol, spec);

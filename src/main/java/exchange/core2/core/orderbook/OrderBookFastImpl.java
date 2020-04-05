@@ -192,7 +192,7 @@ public final class OrderBookFastImpl implements IOrderBook {
     }
 
     /**
-     * Calculate base price so the given price would be in the center of the hotPricesRange range.<br/>
+     * Calculate base price so the given price would be in the center of the hotPricesRange range.<p>
      * Will also do the 'long' alignment for faster bitset shift operations.
      *
      * @param price - central price

@@ -63,7 +63,7 @@ public class TestDataParameters {
 
     public static TestDataParameters.TestDataParametersBuilder hugeBuilder() {
         return TestDataParameters.builder()
-                .totalTransactionsNumber(33_000_000)
+                .totalTransactionsNumber(35_000_000)
                 .targetOrderBookOrdersTotal(25_000_000)
                 .numAccounts(25_000_000)
                 .currenciesAllowed(TestConstants.ALL_CURRENCIES)

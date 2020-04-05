@@ -38,8 +38,8 @@ import java.util.Objects;
 @Slf4j
 public final class UserProfileService implements WriteBytesMarshallable, StateHash {
 
-    /**
-     * State: uid -> user profile
+    /*
+     * State: uid to UserProfile
      */
     @Getter
     private final LongObjectHashMap<UserProfile> userProfiles;
@@ -55,8 +55,8 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
     /**
      * Find user profile
      *
-     * @param uid
-     * @return
+     * @param uid uid
+     * @return user profile
      */
     public UserProfile getUserProfile(long uid) {
         return userProfiles.get(uid);
@@ -70,10 +70,10 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
     /**
      * Perform balance adjustment for specific user
      *
-     * @param uid
-     * @param currency
-     * @param amount
-     * @param fundingTransactionId
+     * @param uid                  uid
+     * @param currency             account currency
+     * @param amount               balance difference
+     * @param fundingTransactionId transaction id (should increment only)
      * @return result code
      */
     public CommandResultCode balanceAdjustment(final long uid, final int currency, final long amount, final long fundingTransactionId) {
@@ -111,8 +111,8 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
     /**
      * Create a new user profile with known unique uid
      *
-     * @param uid
-     * @return
+     * @param uid uid
+     * @return true if user was added
      */
     public boolean addEmptyUserProfile(long uid) {
         if (userProfiles.get(uid) == null) {

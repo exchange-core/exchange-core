@@ -47,6 +47,10 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+/**
+ * Main exchange core class.
+ * Builds configuration and starts disruptor.
+ */
 @Slf4j
 public final class ExchangeCore {
 
@@ -65,6 +69,13 @@ public final class ExchangeCore {
     // enable MatcherTradeEvent pooling
     public static boolean EVENTS_POOLING = false;
 
+    /**
+     * Exchange core constructor.
+     *
+     * @param resultsConsumer               - custom consumer of processed commands
+     * @param serializationProcessorFactory - serialization processor factory
+     * @param exchangeConfiguration         - exchange configuration
+     */
     @Builder
     public ExchangeCore(final ObjLongConsumer<OrderCommand> resultsConsumer,
                         final Supplier<? extends ISerializationProcessor> serializationProcessorFactory,
@@ -76,8 +87,8 @@ public final class ExchangeCore {
 
         final int msgsInGroupLimit = perfCfg.getMsgsInGroupLimit();
         final int ringBufferSize = perfCfg.getRingBufferSize();
-        if (msgsInGroupLimit >= ringBufferSize) {
-            throw new IllegalArgumentException("msgsInGroupLimit should be less than ringBufferSize");
+        if (msgsInGroupLimit > ringBufferSize / 4) {
+            throw new IllegalArgumentException("msgsInGroupLimit should be less than quarter ringBufferSize");
         }
 
         this.disruptor = new Disruptor<>(
@@ -231,6 +242,11 @@ public final class ExchangeCore {
         }
     }
 
+    /**
+     * Provides ExchangeApi instance.
+     *
+     * @return ExchangeApi instance (always same object)
+     */
     public ExchangeApi getApi() {
         return api;
     }
@@ -240,6 +256,9 @@ public final class ExchangeCore {
         cmd.resultCode = CommandResultCode.NEW;
     };
 
+    /**
+     * shut down disruptor
+     */
     public synchronized void shutdown() {
         shutdown(-1, TimeUnit.MILLISECONDS);
     }
@@ -249,7 +268,7 @@ public final class ExchangeCore {
      * @param timeUnit the unit the timeOut is specified in
      * @return true if an exchange core is stopped gracefully
      */
-    public synchronized boolean shutdown(final long timeout, final TimeUnit timeUnit){
+    public synchronized boolean shutdown(final long timeout, final TimeUnit timeUnit) {
         if (!stopped) {
             stopped = true;
             // TODO stop accepting new events first
