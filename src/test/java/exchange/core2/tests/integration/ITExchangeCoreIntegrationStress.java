@@ -34,10 +34,10 @@ import java.util.stream.Stream;
 
 import static exchange.core2.tests.util.TestConstants.SYMBOLSPEC_ETH_XBT;
 import static exchange.core2.tests.util.TestConstants.SYMBOLSPEC_EUR_USD;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.core.Is.is;
 import static org.hamcrest.number.OrderingComparison.greaterThan;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThat;
 
 @Slf4j
 public final class ITExchangeCoreIntegrationStress {

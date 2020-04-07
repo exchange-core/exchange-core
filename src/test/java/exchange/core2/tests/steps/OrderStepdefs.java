@@ -23,8 +23,10 @@ import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
 import static exchange.core2.tests.util.ExchangeTestContainer.CHECK_SUCCESS;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.core.Is.is;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 
 @Slf4j
 public class OrderStepdefs {

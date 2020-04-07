@@ -27,8 +27,10 @@ import org.junit.Test;
 
 import static exchange.core2.core.common.OrderType.GTC;
 import static exchange.core2.tests.util.TestConstants.*;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.core.Is.is;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 /**
  * TODO IOC reject tests
