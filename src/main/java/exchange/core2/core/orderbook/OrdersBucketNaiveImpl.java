@@ -27,7 +27,6 @@ import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
-import org.apache.commons.lang3.builder.EqualsBuilder;
 
 import java.util.*;
 import java.util.function.Consumer;
@@ -190,9 +189,7 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
         if (o == null) return false;
         if (!(o instanceof IOrdersBucket)) return false;
         IOrdersBucket other = (IOrdersBucket) o;
-        return new EqualsBuilder()
-                .append(price, other.getPrice())
-                .append(getAllOrders(), other.getAllOrders())
-                .isEquals();
+        return price == other.getPrice()
+                && getAllOrders().equals(other.getAllOrders());
     }
 }

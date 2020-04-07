@@ -15,11 +15,11 @@
  */
 package exchange.core2.core.common.cmd;
 
-import com.google.common.collect.Lists;
 import exchange.core2.core.common.*;
 import lombok.*;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -134,7 +134,8 @@ public final class OrderCommand implements IOrder {
     public List<MatcherTradeEvent> extractEvents() {
         List<MatcherTradeEvent> list = new ArrayList<>();
         processMatcherEvents(list::add);
-        return Lists.reverse(list);
+        Collections.reverse(list);
+        return list;
     }
 
     // Traverse and remove:

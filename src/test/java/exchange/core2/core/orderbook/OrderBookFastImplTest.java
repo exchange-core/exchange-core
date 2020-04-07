@@ -29,9 +29,9 @@ import static exchange.core2.core.common.OrderAction.ASK;
 import static exchange.core2.core.common.OrderAction.BID;
 import static exchange.core2.core.common.OrderType.GTC;
 import static exchange.core2.core.common.cmd.CommandResultCode.SUCCESS;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
-import static org.junit.Assert.assertThat;
 
 @Slf4j
 public class OrderBookFastImplTest extends OrderBookBaseTest {

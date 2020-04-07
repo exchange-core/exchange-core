@@ -15,7 +15,6 @@
  */
 package exchange.core2.core.common;
 
-import com.google.common.base.Strings;
 import lombok.ToString;
 
 import java.util.Arrays;
@@ -108,45 +107,6 @@ public final class L2MarketData {
         return totalVolume;
     }
 
-    public String dumpOrderBook() {
-        int priceWith = maxWidth(2, Arrays.copyOf(askPrices, askSize), Arrays.copyOf(bidPrices, bidSize));
-        int volWith = maxWidth(2, Arrays.copyOf(askVolumes, askSize), Arrays.copyOf(bidVolumes, bidSize));
-        int ordWith = maxWidth(2, Arrays.copyOf(askOrders, askSize), Arrays.copyOf(bidOrders, bidSize));
-
-        StringBuilder s = new StringBuilder("Order book:\n");
-        s.append(".").append(Strings.repeat("-", priceWith - 2)).append("ASKS").append(Strings.repeat("-", volWith - 1)).append(".\n");
-        for (int i = askSize - 1; i >= 0; i--) {
-            String price = Strings.padStart(String.valueOf(this.askPrices[i]), priceWith, ' ');
-            String volume = Strings.padStart(String.valueOf(this.askVolumes[i]), volWith, ' ');
-            String orders = Strings.padStart(String.valueOf(this.askOrders[i]), ordWith, ' ');
-            s.append(String.format("|%s|%s|%s|\n", price, volume, orders));
-        }
-        s.append("|").append(Strings.repeat("-", priceWith)).append("+").append(Strings.repeat("-", volWith)).append("|\n");
-        for (int i = 0; i < bidSize; i++) {
-            String price = Strings.padStart(String.valueOf(this.bidPrices[i]), priceWith, ' ');
-            String volume = Strings.padStart(String.valueOf(this.bidVolumes[i]), volWith, ' ');
-            String orders = Strings.padStart(String.valueOf(this.bidOrders[i]), ordWith, ' ');
-            s.append(String.format("|%s|%s|%s|\n", price, volume, orders));
-        }
-        s.append("'").append(Strings.repeat("-", priceWith - 2)).append("BIDS").append(Strings.repeat("-", volWith - 1)).append("'\n");
-        return s.toString();
-    }
-
-    private static int maxWidth(int minWidth, long[]... arrays) {
-        return Arrays.stream(arrays)
-                .flatMapToLong(Arrays::stream)
-                .mapToInt(p -> String.valueOf(p).length())
-                .max()
-                .orElse(minWidth);
-    }
-
-    private static int maxWidth(int minWidth, int[]... arrays) {
-        return Arrays.stream(arrays)
-                .flatMapToInt(Arrays::stream)
-                .map(p -> String.valueOf(p).length())
-                .max()
-                .orElse(minWidth);
-    }
 
     public L2MarketData copy() {
         return new L2MarketData(

@@ -30,11 +30,12 @@ import exchange.core2.core.processors.journaling.ISerializationProcessor;
 import exchange.core2.core.utils.HashingUtils;
 import exchange.core2.core.utils.SerializationUtils;
 import exchange.core2.core.utils.UnsafeUtils;
+import lombok.Builder;
 import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
-import org.apache.commons.lang3.tuple.Pair;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
 import java.util.HashMap;
@@ -87,7 +88,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         objectsPoolConfig.put(ObjectsPool.ART_NODE_256, 1024 * 4);
         this.objectsPool = new ObjectsPool(objectsPoolConfig, sharedPool);
         if (exchangeConfiguration.getInitStateCfg().fromSnapshot()) {
-            final Pair<BinaryCommandsProcessor, IntObjectHashMap<IOrderBook>> deserialized = serializationProcessor.loadData(
+            final DeserializedData deserialized = serializationProcessor.loadData(
                     exchangeConfiguration.getInitStateCfg().getSnapshotId(),
                     ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER,
                     shardId,
@@ -108,11 +109,11 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
                                 shardId + 1024);
 
                         final IntObjectHashMap<IOrderBook> ob = SerializationUtils.readIntHashMap(bytesIn, bytes -> IOrderBook.create(bytes, objectsPool));
-                        return Pair.of(bcp, ob);
+                        return DeserializedData.builder().binaryCommandsProcessor(bcp).orderBooks(ob).build();
                     });
 
-            this.binaryCommandsProcessor = deserialized.getLeft();
-            this.orderBooks = deserialized.getRight();
+            this.binaryCommandsProcessor = deserialized.binaryCommandsProcessor;
+            this.orderBooks = deserialized.orderBooks;
 
         } else {
             this.binaryCommandsProcessor = new BinaryCommandsProcessor(
@@ -237,5 +238,12 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
                 shardMask,
                 binaryCommandsProcessor.stateHash(),
                 HashingUtils.stateHash(orderBooks));
+    }
+
+    @Builder
+    @RequiredArgsConstructor
+    private static class DeserializedData {
+        private final BinaryCommandsProcessor binaryCommandsProcessor;
+        private final IntObjectHashMap<IOrderBook> orderBooks;
     }
 }

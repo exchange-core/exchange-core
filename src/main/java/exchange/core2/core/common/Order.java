@@ -22,7 +22,6 @@ import lombok.NoArgsConstructor;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
-import org.apache.commons.lang3.builder.EqualsBuilder;
 
 import java.util.Objects;
 
@@ -105,7 +104,7 @@ public final class Order implements WriteBytesMarshallable, IOrder {
     @Override
     public int hashCode() {
         return Objects.hash(orderId, action, price, size, reserveBidPrice, filled,
-                //userCookie,
+                //userCookie, timestamp
                 uid);
     }
 
@@ -120,17 +119,15 @@ public final class Order implements WriteBytesMarshallable, IOrder {
         if (!(o instanceof Order)) return false;
 
         Order other = (Order) o;
-        return new EqualsBuilder()
-                .append(orderId, other.orderId)
-                .append(action, other.action)
-                .append(price, other.price)
-                .append(size, other.size)
-                .append(reserveBidPrice, other.reserveBidPrice)
-                .append(filled, other.filled)
-//                .append(userCookie, other.userCookie)
-                .append(uid, other.uid)
-                //.append(timestamp, other.timestamp)
-                .isEquals();
+
+        // ignore timestamp and userCookie
+        return orderId == other.orderId
+                && action == other.action
+                && price == other.price
+                && size == other.size
+                && reserveBidPrice == other.reserveBidPrice
+                && filled == other.filled
+                && uid == other.uid;
     }
 
     @Override

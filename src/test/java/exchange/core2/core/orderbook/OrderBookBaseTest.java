@@ -37,6 +37,7 @@ import static exchange.core2.core.common.OrderType.GTC;
 import static exchange.core2.core.common.OrderType.IOC;
 import static exchange.core2.core.common.cmd.CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
 import static exchange.core2.core.common.cmd.CommandResultCode.SUCCESS;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.*;
 
@@ -667,14 +668,16 @@ public abstract class OrderBookBaseTest {
 //
 //            }
 
-            assertEquals(orderBook.stateHash(), orderBookRef.stateHash());
+            if (i % 100 == 0) {
+                assertEquals(orderBook.stateHash(), orderBookRef.stateHash());
 //            assertTrue(checkSameOrders(orderBook, orderBookRef));
+            }
 
             // TODO compare events!
             // TODO compare L2 marketdata
 
             if (System.currentTimeMillis() > nextUpdateTime) {
-                log.debug("{}% done ({})", (i * 10000 / genResult.getCommands().size()) / 100f, i);
+                log.debug("{}% done ({})", (i * 10000 / (float) genResult.getCommands().size()) / 100f, i);
                 nextUpdateTime = System.currentTimeMillis() + 3000;
             }
 

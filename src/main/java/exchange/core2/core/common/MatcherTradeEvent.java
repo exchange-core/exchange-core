@@ -18,7 +18,6 @@ package exchange.core2.core.common;
 
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
-import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -125,18 +124,17 @@ public final class MatcherTradeEvent {
         if (o == null) return false;
         if (!(o instanceof MatcherTradeEvent)) return false;
         MatcherTradeEvent other = (MatcherTradeEvent) o;
-        return new EqualsBuilder()
-                .append(section, other.section)
-                .append(activeOrderCompleted, other.activeOrderCompleted)
-                .append(matchedOrderId, other.matchedOrderId)
-                .append(matchedOrderUid, other.matchedOrderUid)
-                .append(matchedOrderCompleted, other.matchedOrderCompleted)
-                .append(price, other.price)
-                .append(size, other.size)
-                .append(bidderHoldPrice, other.bidderHoldPrice)
-                // ignore timestamp
-                .append(nextEvent, other.nextEvent)
-                .isEquals();
+
+        // ignore timestamp
+        return section == other.section
+                && activeOrderCompleted == other.activeOrderCompleted
+                && matchedOrderId == other.matchedOrderId
+                && matchedOrderUid == other.matchedOrderUid
+                && matchedOrderCompleted == other.matchedOrderCompleted
+                && price == other.price
+                && size == other.size
+                && bidderHoldPrice == other.bidderHoldPrice
+                && ((nextEvent == null && other.nextEvent == null) || (nextEvent != null && nextEvent.equals(other.nextEvent)));
     }
 
     /**

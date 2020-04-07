@@ -16,8 +16,9 @@
 package exchange.core2.tests.integration;
 
 import exchange.core2.core.ExchangeApi;
-import exchange.core2.core.common.*;
-import exchange.core2.core.common.api.*;
+import exchange.core2.core.common.CoreSymbolSpecification;
+import exchange.core2.core.common.L2MarketData;
+import exchange.core2.core.common.api.ApiCommand;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.TestOrdersGenerator;
 import lombok.extern.slf4j.Slf4j;
@@ -31,13 +32,12 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static exchange.core2.core.common.OrderAction.ASK;
-import static exchange.core2.core.common.OrderType.GTC;
-import static exchange.core2.tests.util.ExchangeTestContainer.CHECK_SUCCESS;
-import static exchange.core2.tests.util.TestConstants.*;
+import static exchange.core2.tests.util.TestConstants.SYMBOLSPEC_ETH_XBT;
+import static exchange.core2.tests.util.TestConstants.SYMBOLSPEC_EUR_USD;
 import static org.hamcrest.core.Is.is;
 import static org.hamcrest.number.OrderingComparison.greaterThan;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
 
 @Slf4j
 public final class ITExchangeCoreIntegrationStress {

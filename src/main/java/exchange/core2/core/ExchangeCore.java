@@ -15,7 +15,6 @@
  */
 package exchange.core2.core;
 
-import com.google.common.collect.Streams;
 import com.lmax.disruptor.EventHandler;
 import com.lmax.disruptor.EventTranslator;
 import com.lmax.disruptor.TimeoutException;
@@ -35,9 +34,9 @@ import exchange.core2.core.processors.*;
 import exchange.core2.core.processors.journaling.ISerializationProcessor;
 import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.ArrayUtils;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
@@ -211,7 +210,7 @@ public final class ExchangeCore {
 
         // 4. results handler (E) after matching engine (ME) + [journaling (J)]
         final EventHandlerGroup<OrderCommand> mainHandlerGroup = enableJournaling
-                ? disruptor.after(ArrayUtils.add(matchingEngineHandlers, jh))
+                ? disruptor.after(arraysAddHandler(matchingEngineHandlers, jh))
                 : afterMatchingEngine;
 
         final ResultsHandler resultsHandler = new ResultsHandler(resultsConsumer);
@@ -222,7 +221,7 @@ public final class ExchangeCore {
         });
 
         // attach slave processors to master processor
-        Streams.forEachPair(procR1.stream(), procR2.stream(), TwoStepMasterProcessor::setSlaveProcessor);
+        IntStream.range(0, riskEnginesNum).forEach(i -> procR1.get(i).setSlaveProcessor(procR2.get(i)));
 
         try {
             loaderExecutor.shutdown();
@@ -283,6 +282,12 @@ public final class ExchangeCore {
             }
         }
         return true;
+    }
+
+    private static EventHandler<OrderCommand>[] arraysAddHandler(EventHandler<OrderCommand>[] handlers, EventHandler<OrderCommand> extraHandler) {
+        final EventHandler<OrderCommand>[] result = Arrays.copyOf(handlers, handlers.length + 1);
+        result[handlers.length] = extraHandler;
+        return result;
     }
 
     @SuppressWarnings(value = {"unchecked"})

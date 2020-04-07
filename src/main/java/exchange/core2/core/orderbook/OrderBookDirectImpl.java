@@ -28,7 +28,6 @@ import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.agrona.collections.Long2ObjectHashMap;
 import org.agrona.collections.MutableInteger;
 import org.agrona.collections.MutableLong;
-import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 
 import java.util.ArrayList;
@@ -836,17 +835,15 @@ public final class OrderBookDirectImpl implements IOrderBook {
             if (!(o instanceof DirectOrder)) return false;
 
             DirectOrder other = (DirectOrder) o;
-            return new EqualsBuilder()
-                    .append(orderId, other.orderId)
-                    .append(action, other.action)
-                    .append(price, other.price)
-                    .append(size, other.size)
-                    .append(reserveBidPrice, other.reserveBidPrice)
-                    .append(filled, other.filled)
-//                .append(userCookie, other.userCookie)
-                    .append(uid, other.uid)
-                    //.append(timestamp, other.timestamp)
-                    .isEquals();
+
+            // ignore userCookie && timestamp
+            return orderId == other.orderId
+                    && action == other.action
+                    && price == other.price
+                    && size == other.size
+                    && reserveBidPrice == other.reserveBidPrice
+                    && filled == other.filled
+                    && uid == other.uid;
         }
 
         @Override

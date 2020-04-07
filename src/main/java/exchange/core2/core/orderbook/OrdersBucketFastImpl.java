@@ -27,8 +27,6 @@ import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.eclipse.collections.api.map.primitive.MutableLongIntMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongIntHashMap;
 
@@ -348,16 +346,16 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
         return OrderBucketImplType.FAST;
     }
 
-    private void printSchema() {
-        StringBuilder s = new StringBuilder();
-        for (Order order : queue) {
-            s.append(order == null ? '.' : 'O');
-        }
-
-        log.debug("       {}", StringUtils.repeat(' ', tail) + "T");
-        log.debug("queue:[{}]", s.toString());
-        log.debug("       {}", StringUtils.repeat(' ', head) + "H");
-    }
+//    private void printSchema() {
+//        StringBuilder s = new StringBuilder();
+//        for (Order order : queue) {
+//            s.append(order == null ? '.' : 'O');
+//        }
+//
+//        log.debug("       {}", StringUtils.repeat(' ', tail) + "T");
+//        log.debug("queue:[{}]", s.toString());
+//        log.debug("       {}", StringUtils.repeat(' ', head) + "H");
+//    }
 
     @Override
     public int getNumOrders() {
@@ -422,10 +420,8 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
         if (o == null) return false;
         if (!(o instanceof IOrdersBucket)) return false;
         IOrdersBucket other = (IOrdersBucket) o;
-        return new EqualsBuilder()
-                .append(price, other.getPrice())
-                .append(getAllOrders(), other.getAllOrders())
-                .isEquals();
+        return price == other.getPrice()
+                && getAllOrders().equals(other.getAllOrders());
     }
 
 }

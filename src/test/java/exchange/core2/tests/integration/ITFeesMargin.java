@@ -15,8 +15,6 @@
  */
 package exchange.core2.tests.integration;
 
-import lombok.extern.slf4j.Slf4j;
-import org.junit.Test;
 import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.OrderType;
 import exchange.core2.core.common.PositionDirection;
@@ -25,11 +23,13 @@ import exchange.core2.core.common.api.ApiPlaceOrder;
 import exchange.core2.core.common.api.reports.TotalCurrencyBalanceReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.tests.util.ExchangeTestContainer;
+import lombok.extern.slf4j.Slf4j;
+import org.junit.Test;
 
-import static org.hamcrest.core.Is.is;
-import static org.junit.Assert.*;
 import static exchange.core2.core.common.OrderType.GTC;
 import static exchange.core2.tests.util.TestConstants.*;
+import static org.hamcrest.core.Is.is;
+import static org.junit.Assert.*;
 
 /**
  * TODO more place scenarios, IOC reject tests, GTC move matching, Cancel tests

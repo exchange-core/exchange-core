@@ -17,22 +17,22 @@ package exchange.core2.tests.perf.modules;
 
 
 import exchange.core2.core.common.MatcherTradeEvent;
+import exchange.core2.core.common.Order;
+import exchange.core2.core.common.cmd.OrderCommand;
+import exchange.core2.core.orderbook.IOrdersBucket;
 import exchange.core2.core.orderbook.OrderBookEventsHelper;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Before;
 import org.junit.Test;
-import exchange.core2.core.common.Order;
-import exchange.core2.core.common.cmd.OrderCommand;
-import exchange.core2.core.orderbook.IOrdersBucket;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 
+import static exchange.core2.core.orderbook.OrdersBucketBaseTest.IGNORE_CMD_CONSUMER;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
-import static exchange.core2.core.orderbook.OrdersBucketBaseTest.IGNORE_CMD_CONSUMER;
 
 @Slf4j
 public abstract class ITOrdersBucketBase {

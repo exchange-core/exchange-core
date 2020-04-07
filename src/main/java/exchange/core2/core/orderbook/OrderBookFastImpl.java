@@ -15,7 +15,6 @@
  */
 package exchange.core2.core.orderbook;
 
-import com.google.common.collect.ObjectArrays;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
@@ -24,7 +23,6 @@ import exchange.core2.core.utils.SerializationUtils;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
-import org.apache.commons.lang3.ArrayUtils;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 
 import java.util.*;
@@ -1038,18 +1036,18 @@ public final class OrderBookFastImpl implements IOrderBook {
         }
     }
 
-    private IOrdersBucket[] getBidsAsArray() {
-        final IOrdersBucket[] farBids = farBidBuckets.values().toArray(new IOrdersBucket[0]);
-        final IOrdersBucket[] hotBids = hotBidBuckets.toSortedMap(k -> k, v -> v).values().toArray(new IOrdersBucket[hotBidBuckets.size()]);
-        ArrayUtils.reverse(hotBids);
-        return ObjectArrays.concat(hotBids, farBids, IOrdersBucket.class);
-    }
-
-    private IOrdersBucket[] getAsksAsArray() {
-        final IOrdersBucket[] farAsks = farAskBuckets.values().toArray(new IOrdersBucket[0]);
-        final IOrdersBucket[] hotAsks = hotAskBuckets.toSortedMap(k -> k, v -> v).values().toArray(new IOrdersBucket[hotAskBuckets.size()]);
-        return ObjectArrays.concat(hotAsks, farAsks, IOrdersBucket.class);
-    }
+//    private IOrdersBucket[] getBidsAsArray() {
+//        final IOrdersBucket[] farBids = farBidBuckets.values().toArray(new IOrdersBucket[0]);
+//        final IOrdersBucket[] hotBids = hotBidBuckets.toSortedMap(k -> k, v -> v).values().toArray(new IOrdersBucket[hotBidBuckets.size()]);
+//        ArrayUtils.reverse(hotBids);
+//        return ObjectArrays.concat(hotBids, farBids, IOrdersBucket.class);
+//    }
+//
+//    private IOrdersBucket[] getAsksAsArray() {
+//        final IOrdersBucket[] farAsks = farAskBuckets.values().toArray(new IOrdersBucket[0]);
+//        final IOrdersBucket[] hotAsks = hotAskBuckets.toSortedMap(k -> k, v -> v).values().toArray(new IOrdersBucket[hotAskBuckets.size()]);
+//        return ObjectArrays.concat(hotAsks, farAsks, IOrdersBucket.class);
+//    }
 
     @Override
     public void writeMarshallable(BytesOut bytes) {

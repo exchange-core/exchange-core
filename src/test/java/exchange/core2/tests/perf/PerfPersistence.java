@@ -16,7 +16,10 @@
 package exchange.core2.tests.perf;
 
 import exchange.core2.core.common.config.PerformanceConfiguration;
-import exchange.core2.tests.util.*;
+import exchange.core2.tests.util.ExchangeTestContainer;
+import exchange.core2.tests.util.PersistenceTestsModule;
+import exchange.core2.tests.util.TestDataParameters;
+import exchange.core2.tests.util.TestOrdersGeneratorConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 

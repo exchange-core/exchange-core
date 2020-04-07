@@ -18,7 +18,6 @@ package exchange.core2.core.art;
 import exchange.core2.core.processors.ObjectsPool;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.Collections;
 import java.util.List;
@@ -242,8 +241,8 @@ public final class LongAdaptiveRadixTreeMap<V> {
 //            log.debug("       mask={}", String.format("%X", mask));
 //            log.debug("       nodeKey >> level = {}", String.format("%X", nodeKey >> (nodeLevel + 8)));
 //            log.debug("       nodeKey >> level  & mask= {}", String.format("%X", (nodeKey >> (nodeLevel + 8)) & mask));
-            baseKeyPrefix = StringUtils.repeat("─", chars - 2) + String.format("[%0" + chars + "X]", (nodeKey >> (nodeLevel + 8)) & mask);
-            baseKeyPrefix1 = StringUtils.repeat(" ", chars * 2);
+            baseKeyPrefix = charRepeat('─', chars - 2) + String.format("[%0" + chars + "X]", (nodeKey >> (nodeLevel + 8)) & mask);
+            baseKeyPrefix1 = charRepeat(' ', chars * 2);
         } else {
             baseKeyPrefix = "";
             baseKeyPrefix1 = "";
@@ -270,6 +269,15 @@ public final class LongAdaptiveRadixTreeMap<V> {
         }
         return sb.toString();
     }
+
+    private static String charRepeat(char x, int n) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < n; i++) {
+            sb.append(x);
+        }
+        return sb.toString();
+    }
+
 
     @AllArgsConstructor
     public static final class Entry<V> implements Map.Entry<Long, V> {

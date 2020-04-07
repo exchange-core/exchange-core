@@ -16,11 +16,11 @@
 package exchange.core2.core.orderbook;
 
 
+import exchange.core2.core.common.Order;
+import exchange.core2.core.common.cmd.OrderCommand;
 import lombok.extern.slf4j.Slf4j;
 import org.hamcrest.MatcherAssert;
 import org.junit.Test;
-import exchange.core2.core.common.Order;
-import exchange.core2.core.common.cmd.OrderCommand;
 
 import java.util.ArrayList;
 import java.util.Collections;

@@ -23,13 +23,11 @@ import org.junit.Test;
 public class ITMultiOperation {
 
     @Test(timeout = 60000L)
-    public void shouldPerformMarginOperations() throws Exception {
+    public void shouldPerformMarginOperations() {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
-                        .ringBufferSize(2 * 1024)
                         .matchingEnginesNum(1)
                         .riskEnginesNum(1)
-                        .msgsInGroupLimit(1536)
                         .build(),
                 TestDataParameters.builder()
                         .totalTransactionsNumber(1_000_000)
@@ -45,13 +43,11 @@ public class ITMultiOperation {
     }
 
     @Test(timeout = 60000L)
-    public void shouldPerformExchangeOperations() throws Exception {
+    public void shouldPerformExchangeOperations() {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
-                        .ringBufferSize(2 * 1024)
                         .matchingEnginesNum(1)
                         .riskEnginesNum(1)
-                        .msgsInGroupLimit(1536)
                         .build(),
                 TestDataParameters.builder()
                         .totalTransactionsNumber(1_000_000)
@@ -66,13 +62,11 @@ public class ITMultiOperation {
     }
 
     @Test(timeout = 60000L)
-    public void shouldPerformSharded() throws Exception {
+    public void shouldPerformSharded() {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
-                        .ringBufferSize(32 * 1024)
                         .matchingEnginesNum(2)
                         .riskEnginesNum(2)
-                        .msgsInGroupLimit(1536)
                         .build(),
                 TestDataParameters.builder()
                         .totalTransactionsNumber(1_000_000)
