@@ -1,4 +1,5 @@
 target/
+delombok/
 .mvn/
 
 ### IntelliJ IDEA ###
@@ -8,4 +9,4 @@ target/
 *.ipr
 
 # dumps #
-dumps/state_*
+dumps/*.ec*

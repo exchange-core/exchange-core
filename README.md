@@ -1,8 +1,9 @@
 # exchange-core
 [![Build Status](https://travis-ci.org/mzheravin/exchange-core.svg?branch=master)](https://travis-ci.org/mzheravin/exchange-core)
+[![Javadocs](https://www.javadoc.io/badge/exchange.core2/exchange-core.svg)](https://www.javadoc.io/doc/exchange.core2/exchange-core)
 [![][license img]][license]
 
-**Ultra-fast market exchange core matching engine** based on 
+Exchange-core is an **open source market exchange core** based on 
 [LMAX Disruptor](https://github.com/LMAX-Exchange/disruptor), 
 [Eclipse Collections](https://www.eclipse.org/collections/) (ex. Goldman Sachs GS Collections), 
 [Real Logic Agrona](https://github.com/real-logic/agrona),
@@ -10,11 +11,17 @@
 [LZ4 Java](https://github.com/lz4/lz4-java),
 and [Adaptive Radix Trees](https://db.in.tum.de/~leis/papers/ART.pdf).
 
+Exchange-core includes:
+- orders matching engine
+- risk control and accounting module
+- disk jouraling and snapshots module
+- trading, admin and reports API
+
 Designed for high scalability and pauseless 24/7 operation under high-load conditions and providing low-latency responses:
-- 1M users having 3M accounts int total;
-- 100K symbols (order books);
-- 1M+ orders book operations per second;
-- less than 1ms worst wire-to-wire latency.
+- 3M users having 10M accounts int total
+- 100K order books (symbols) having 4M pending orders
+- less than 1ms worst wire-to-wire target latency for 1M+ operations per second
+- 150ns per matching for large market orders
 
 Single order book configuration is capable to process 5M operations per second on 10-years old hardware (Intel® Xeon® X5690) with moderate latency degradation:
 
@@ -43,10 +50,10 @@ Benchmark configuration:
 - BBO prices are not changing significantly throughout the test. No avalanche orders.
 - No coordinated omission effect for latency benchmark. Any processing delay affects measurements for next following messages.
 - GC is triggered prior/after running every benchmark cycle (3,000,000 messages).
-- RHEL 7.5, network-latency tuned profile, dual X5690 6 cores 3.47GHz, one socket isolated and tickless, spectre/meltdown protection disabled.
+- RHEL 7.5, network-latency tuned-adm profile, dual X5690 6 cores 3.47GHz, one socket isolated and tickless, spectre/meltdown protection disabled.
 - Java version 8u192, newer Java 8 versions can have a [performance bug](https://bugs.java.com/bugdatabase/view_bug.do?bug_id=JDK-8221355)
 
-### Main features
+### Features
 - HFT optimized. Priority is a limit-order-move operation mean latency (currently ~0.5µs). Cancel operation takes ~0.7µs, placing new order ~1.0µs;
 - In-memory working state for accounting data and order books.
 - Event-sourcing - disk journaling and journal replay support, state snapshots (serialization) and restore operations, LZ4 compression.
@@ -62,6 +69,19 @@ Benchmark configuration:
 - Threads affinity (requires JNA).
 - User suspend/resume operation (reduces memory consumption).
 - Core reports API (user balances, open interest).
+
+### Installation
+1. Install library into your Maven's local repository by running `mvn install`
+2. Add the following Maven dependency to your project's `pom.xml`:
+```
+<dependency>
+    <groupId>exchange.core2</groupId>
+    <artifactId>exchange-core</artifactId>
+    <version>0.4.3</version>
+</dependency>
+```
+
+Alternatively, you can clone this repository and run the [example test](https://github.com/mzheravin/exchange-core/tree/master/src/test/java/exchange/core2/tests/examples/ITCoreExample.java).
 
 ### Usage examples
 Create and start empty exchange core:
@@ -234,18 +254,24 @@ Future<TotalCurrencyBalanceReportResult> totalsReport = api.processReport(new To
 System.out.println("LTC fees collected: " + totalsReport.get().getFees().get(currencyCodeLtc));
 ```
 
-### TODOs
-- Market data feeds (full order log, L2 market data, BBO, trades).
-- Clearing and settlement.
-- FIX and REST API gateways.
-- More tests and benchmarks.
-- NUMA-aware.
+### Testing
+- latency test: mvn -Dtest=PerfLatency#testLatencyMargin test
+- throughput test: mvn -Dtest=PerfThroughput#testThroughputMargin test
+- hiccups test: mvn -Dtest=PerfHiccups#testHiccups test
+- serialization test: mvn -Dtest=PerfPersistence#testPersistenceMargin test
 
-### How to run performance tests
-- Latency test: mvn -Dtest=PerfLatency#testLatencyMargin test
-- Throughput test: mvn -Dtest=PerfThroughput#testThroughputMargin test
-- Hiccups test: mvn -Dtest=PerfHiccups#testHiccups test
-- Serialization test: mvn -Dtest=PerfPersistence#testPersistenceMargin test
+### TODOs
+- market data feeds (full order log, L2 market data, BBO, trades)
+- clearing and settlement
+- reporting
+- clustering
+- FIX and REST API gateways
+- cryptocurrency payment gateway
+- more tests and benchmarks
+- NUMA-aware
+
+### Contributing
+Exchange-core is an open-source project and contributions are welcome!
 
 [license]:LICENSE.txt
 [license img]:https://img.shields.io/badge/License-Apache%202-blue.svg
