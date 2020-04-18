@@ -23,8 +23,8 @@ public enum MatcherEventType {
     // Before being rejected active order can partially filled though.
     REJECTION,
 
-    // After cancel order - risk engine has to unlock deposit accordingly
-    CANCEL,
+    // After cancel/reduce order - risk engine should unlock deposit accordingly
+    REDUCE,
 
     // Custom binary data attached
     BINARY_EVENT

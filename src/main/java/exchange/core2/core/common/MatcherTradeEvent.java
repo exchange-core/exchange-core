@@ -40,7 +40,7 @@ public final class MatcherTradeEvent {
 
     // taker (for TRADE)
     // TODO move to the order?
-    public boolean activeOrderCompleted; // false, except when activeOrder is completely filled (should be ignored for CANCEL or REJECTION)
+    public boolean activeOrderCompleted; // false, except when activeOrder is completely filled, removed or rejected
 
     // maker (for TRADE)
     public long matchedOrderId;

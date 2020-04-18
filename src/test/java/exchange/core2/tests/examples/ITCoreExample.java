@@ -36,8 +36,8 @@ public class ITCoreExample {
             }
 
             @Override
-            public void cancelEvent(CancelEvent cancelEvent) {
-                System.out.println("Cancel event: " + cancelEvent);
+            public void reduceEvent(ReduceEvent reduceEvent) {
+                System.out.println("Reduce event: " + reduceEvent);
             }
 
             @Override

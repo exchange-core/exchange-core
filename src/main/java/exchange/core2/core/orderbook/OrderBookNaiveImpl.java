@@ -220,8 +220,61 @@ public final class OrderBookNaiveImpl implements IOrderBook {
             buckets.remove(price);
         }
 
-        // send cancel event
-        eventsHelper.sendCancelEvent(cmd, order);
+        // send reduce event
+        eventsHelper.sendReduceEvent(cmd, order, order.getSize() - order.getFilled(), true);
+
+        // fill action fields (for events handling)
+        cmd.action = order.getAction();
+
+        return CommandResultCode.SUCCESS;
+    }
+
+    @Override
+    public CommandResultCode reduceOrder(OrderCommand cmd) {
+        final long orderId = cmd.orderId;
+        final long requestedReduceSize = cmd.size;
+
+        if (requestedReduceSize <= 0) {
+            return CommandResultCode.MATCHING_REDUCE_FAILED_WRONG_SIZE;
+        }
+
+        final Order order = idMap.get(orderId);
+        if (order == null || order.uid != cmd.uid) {
+            // already matched, moved or cancelled
+            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
+        }
+
+        final long remainingSize = order.size - order.filled;
+        final long reduceBy = Math.min(remainingSize, requestedReduceSize);
+
+        final NavigableMap<Long, IOrdersBucket> buckets = getBucketsByAction(order.action);
+        final IOrdersBucket ordersBucket = buckets.get(order.price);
+        if (ordersBucket == null) {
+            // not possible state
+            throw new IllegalStateException("Can not find bucket for order price=" + order.price + " for order " + order);
+        }
+
+        final boolean canRemove = (reduceBy == remainingSize);
+
+        if (canRemove) {
+
+            // now can remove order
+            idMap.remove(orderId);
+
+            // canRemove order and whole bucket if it is empty
+            ordersBucket.remove(orderId, cmd.uid);
+            if (ordersBucket.getTotalVolume() == 0) {
+                buckets.remove(order.price);
+            }
+
+        } else {
+
+            order.size -= reduceBy;
+            ordersBucket.reduceSize(reduceBy);
+        }
+
+        // send reduce event
+        eventsHelper.sendReduceEvent(cmd, order, reduceBy, canRemove);
 
         // fill action fields (for events handling)
         cmd.action = order.getAction();
@@ -244,6 +297,9 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         final long price = order.price;
         final NavigableMap<Long, IOrdersBucket> buckets = getBucketsByAction(order.action);
         final IOrdersBucket bucket = buckets.get(price);
+
+        // fill action fields (for events handling)
+        cmd.action = order.getAction();
 
         // optimistic risk check mode for exchange bids
         if (symbolSpec.type == SymbolType.CURRENCY_EXCHANGE_PAIR && order.action == OrderAction.BID && cmd.price > order.reserveBidPrice) {

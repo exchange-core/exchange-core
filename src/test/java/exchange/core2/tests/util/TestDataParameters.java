@@ -39,6 +39,13 @@ public class TestDataParameters {
                 .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER);
     }
 
+    /**
+     * - 1M active users (3M currency accounts)
+     * - 1M pending limit-orders
+     * - 10K symbols
+     *
+     * @return medium exchange test data configuration
+     */
     public static TestDataParameters.TestDataParametersBuilder mediumBuilder() {
         return TestDataParameters.builder()
                 .totalTransactionsNumber(6_000_000)
@@ -50,6 +57,13 @@ public class TestDataParameters {
                 .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER);
     }
 
+    /**
+     * - 3M active users (10M currency accounts)
+     * - 4M pending limit-orders
+     * - 100K symbols
+     *
+     * @return large exchange test data configuration
+     */
     public static TestDataParameters.TestDataParametersBuilder largeBuilder() {
         return TestDataParameters.builder()
                 .totalTransactionsNumber(10_000_000)
@@ -61,11 +75,18 @@ public class TestDataParameters {
                 .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER);
     }
 
+    /**
+     * - 10M active users (33M currency accounts)
+     * - 30M pending limit-orders
+     * - 200K symbols
+     *
+     * @return huge exchange test data configuration
+     */
     public static TestDataParameters.TestDataParametersBuilder hugeBuilder() {
         return TestDataParameters.builder()
-                .totalTransactionsNumber(35_000_000)
-                .targetOrderBookOrdersTotal(25_000_000)
-                .numAccounts(25_000_000)
+                .totalTransactionsNumber(40_000_000)
+                .targetOrderBookOrdersTotal(30_000_000)
+                .numAccounts(33_000_000)
                 .currenciesAllowed(TestConstants.ALL_CURRENCIES)
                 .numSymbols(200_000)
                 .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)

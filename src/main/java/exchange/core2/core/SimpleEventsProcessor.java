@@ -36,9 +36,9 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
             return;
         }
 
-        if (firstEvent.eventType == MatcherEventType.CANCEL) {
+        if (firstEvent.eventType == MatcherEventType.REDUCE) {
 
-            final IEventsHandler.CancelEvent evt = new IEventsHandler.CancelEvent(
+            final IEventsHandler.ReduceEvent evt = new IEventsHandler.ReduceEvent(
                     cmd.symbol,
                     firstEvent.size,
                     firstEvent.price,
@@ -46,7 +46,7 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
                     cmd.uid,
                     cmd.timestamp);
 
-            eventsHandler.cancelEvent(evt);
+            eventsHandler.reduceEvent(evt);
 
             if (firstEvent.nextEvent != null) {
                 throw new IllegalStateException("Only single CANCEL event is expected");
@@ -149,6 +149,10 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
 
             case CANCEL_ORDER:
                 sendApiCommandResult(new ApiCancelOrder(cmd.orderId, cmd.uid, cmd.symbol), cmd.resultCode, cmd.timestamp, seq);
+                break;
+
+            case REDUCE_ORDER:
+                sendApiCommandResult(new ApiReduceOrder(cmd.orderId, cmd.uid, cmd.symbol, cmd.size), cmd.resultCode, cmd.timestamp, seq);
                 break;
 
             case ADD_USER:

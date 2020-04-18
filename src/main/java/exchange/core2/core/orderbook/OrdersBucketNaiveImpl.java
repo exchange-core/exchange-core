@@ -140,6 +140,12 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
     }
 
     @Override
+    public void reduceSize(long reduceSize) {
+
+        totalVolume -= reduceSize;
+    }
+
+    @Override
     public void validate() {
         long sum = entries.values().stream().mapToLong(c -> c.size - c.filled).sum();
         if (sum != totalVolume) {

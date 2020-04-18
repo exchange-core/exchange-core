@@ -40,7 +40,7 @@ public class OrderStepdefs {
     }
 
     @Before
-    public void before() throws Exception {
+    public void before() {
         log.info("before");
         container = new ExchangeTestContainer();
         container.initBasicSymbols();
@@ -55,18 +55,18 @@ public class OrderStepdefs {
 
     @When(value = "A client {user} places an {word} order {long} at {long}@{long} \\(type: {word}, symbol: {symbol})")
     public void aClientPlacesAnOrderAtTypeGTCSymbolEUR_USD(long clientId, String side, long orderId, long price, long size,
-                                                           String orderType, CoreSymbolSpecification symbol) throws InterruptedException {
+                                                           String orderType, CoreSymbolSpecification symbol) {
         aClientPassAnOrder(clientId, side, orderId, price, size, orderType, symbol, 0, CommandResultCode.SUCCESS);
     }
 
     @When(value = "A client {user} places an {word} order {long} at {long}@{long} \\(type: {word}, symbol: {symbol}, reservePrice: {long})")
     public void aClientPlacesAnOrderAtTypeGTCSymbolEUR_USD(long clientId, String side, long orderId, long price, long size,
-                                                           String orderType, CoreSymbolSpecification symbol, long reservePrice) throws InterruptedException {
+                                                           String orderType, CoreSymbolSpecification symbol, long reservePrice) {
         aClientPassAnOrder(clientId, side, orderId, price, size, orderType, symbol, reservePrice, CommandResultCode.SUCCESS);
     }
 
     private void aClientPassAnOrder(long clientId, String side, long orderId, long price, long size, String orderType,
-                                    CoreSymbolSpecification symbol, long reservePrice, CommandResultCode resultCode) throws InterruptedException {
+                                    CoreSymbolSpecification symbol, long reservePrice, CommandResultCode resultCode) {
 
         ApiPlaceOrder.ApiPlaceOrderBuilder builder = ApiPlaceOrder.builder().uid(clientId).orderId(orderId).price(price).size(size)
                 .action(OrderAction.valueOf(side)).orderType(OrderType.valueOf(orderType))
@@ -127,16 +127,16 @@ public class OrderStepdefs {
     }
 
     @When("A client {user} moves a price to {long} of the order {long}")
-    public void aClientMovesAPriceToOfTheOrder(long clientId, long newPrice, long orderId) throws Exception {
+    public void aClientMovesAPriceToOfTheOrder(long clientId, long newPrice, long orderId) {
         moveOrder(clientId, newPrice, orderId, CommandResultCode.SUCCESS);
     }
 
     @When("A client {user} could not move a price to {long} of the order {long} due to {word}")
-    public void aClientCouldNotMoveOrder(long clientId, long newPrice, long orderId, String resultCode) throws InterruptedException {
+    public void aClientCouldNotMoveOrder(long clientId, long newPrice, long orderId, String resultCode) {
         moveOrder(clientId, newPrice, orderId, CommandResultCode.valueOf(resultCode));
     }
 
-    private void moveOrder(long clientId, long newPrice, long orderId, CommandResultCode resultCode2) throws InterruptedException {
+    private void moveOrder(long clientId, long newPrice, long orderId, CommandResultCode resultCode2) {
         ApiPlaceOrder initialOrder = orders.get(orderId);
 
         final ApiMoveOrder moveOrder = ApiMoveOrder.builder().symbol(initialOrder.symbol).uid(clientId).orderId(orderId)
@@ -162,7 +162,7 @@ public class OrderStepdefs {
     }
 
     @Given("New client {user} has a balance:")
-    public void newClientAHasABalance(long clientId, List<List<String>> balance) throws InterruptedException {
+    public void newClientAHasABalance(long clientId, List<List<String>> balance) {
 
         final List<ApiCommand> cmds = new ArrayList<>();
 
@@ -249,7 +249,7 @@ public class OrderStepdefs {
     }
 
     @Given("{long} {word} is added to the balance of a client {user}")
-    public void xbtIsAddedToTheBalanceOfAClientA(long ammount, String currency, long clientId) throws InterruptedException {
+    public void xbtIsAddedToTheBalanceOfAClientA(long ammount, String currency, long clientId) {
 
         // add 1 szabo more
         container.submitCommandSync(ApiAdjustUserBalance.builder()
@@ -260,7 +260,7 @@ public class OrderStepdefs {
 
 
     @When("A client {user} cancels the remaining size {long} of the order {long}")
-    public void aClientACancelsTheOrder(long clientId, long size, long orderId) throws InterruptedException {
+    public void aClientACancelsTheOrder(long clientId, long size, long orderId) {
 
         ApiPlaceOrder initialOrder = orders.get(orderId);
 
@@ -277,7 +277,7 @@ public class OrderStepdefs {
 
                     final MatcherTradeEvent evt = cmd.matcherEvent;
                     assertNotNull(evt);
-                    assertThat(evt.eventType, is(MatcherEventType.CANCEL));
+                    assertThat(evt.eventType, is(MatcherEventType.REDUCE));
                     assertThat(evt.size, is(size));
                 }).join();
     }

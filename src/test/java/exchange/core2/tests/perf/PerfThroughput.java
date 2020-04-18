@@ -124,8 +124,8 @@ public final class PerfThroughput {
 
     /**
      * This is high load throughput test for verifying exchange core scalability:
-     * - 7.5M active users (25M currency accounts)
-     * - 25M pending limit-orders
+     * - 10M active users (33M currency accounts)
+     * - 30M pending limit-orders
      * - 1M+ messages per second throughput
      * - 200K symbols
      * - less than 1 millisecond 99.99% latency

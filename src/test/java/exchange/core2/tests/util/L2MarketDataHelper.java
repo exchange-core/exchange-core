@@ -73,6 +73,16 @@ public class L2MarketDataHelper {
         return this;
     }
 
+    public L2MarketDataHelper decrementAskVolume(int pos, long askVolumeDiff) {
+        askVolumes[pos] -= askVolumeDiff;
+        return this;
+    }
+
+    public L2MarketDataHelper decrementBidVolume(int pos, long bidVolumeDiff) {
+        bidVolumes[pos] -= bidVolumeDiff;
+        return this;
+    }
+
     public L2MarketDataHelper setAskPriceVolume(int pos, int askPrice, long askVolume) {
         askVolumes[pos] = askVolume;
         askPrices[pos] = askPrice;
@@ -85,13 +95,23 @@ public class L2MarketDataHelper {
         return this;
     }
 
-    public L2MarketDataHelper rollAskOrder(int pos, boolean inc) {
-        askOrders[pos] += (inc ? 1 : -1);
+    public L2MarketDataHelper decrementAskOrdersNum(int pos) {
+        askOrders[pos]--;
         return this;
     }
 
-    public L2MarketDataHelper rollBidOrder(int pos, boolean inc) {
-        bidOrders[pos] += (inc ? 1 : -1);
+    public L2MarketDataHelper decrementBidOrdersNum(int pos) {
+        bidOrders[pos]--;
+        return this;
+    }
+
+    public L2MarketDataHelper incrementAskOrdersNum(int pos) {
+        askOrders[pos]++;
+        return this;
+    }
+
+    public L2MarketDataHelper incrementBidOrdersNum(int pos) {
+        bidOrders[pos]++;
         return this;
     }
 

@@ -26,6 +26,7 @@ public enum OrderCommandType {
     PLACE_ORDER((byte) 1, true),
     CANCEL_ORDER((byte) 2, true),
     MOVE_ORDER((byte) 3, true),
+    REDUCE_ORDER((byte) 4, true),
 
     ORDER_BOOK_REQUEST((byte) 6, false),
 

@@ -132,7 +132,11 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
 
         final OrderCommandType command = cmd.command;
 
-        if (command == OrderCommandType.MOVE_ORDER || command == OrderCommandType.CANCEL_ORDER || command == OrderCommandType.ORDER_BOOK_REQUEST || command == OrderCommandType.PLACE_ORDER) {
+        if (command == OrderCommandType.MOVE_ORDER
+                || command == OrderCommandType.CANCEL_ORDER
+                || command == OrderCommandType.PLACE_ORDER
+                || command == OrderCommandType.REDUCE_ORDER
+                || command == OrderCommandType.ORDER_BOOK_REQUEST) {
             // process specific symbol group only
             if (symbolForThisHandler(cmd.symbol)) {
                 processMatchingCommand(cmd);

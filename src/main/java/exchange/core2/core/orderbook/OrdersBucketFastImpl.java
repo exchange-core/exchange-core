@@ -363,6 +363,11 @@ public final class OrdersBucketFastImpl implements IOrdersBucket {
     }
 
     @Override
+    public void reduceSize(long reduceSize) {
+        totalVolume -= reduceSize;
+    }
+
+    @Override
     public void writeMarshallable(BytesOut bytes) {
         bytes.writeByte(getImplementationType().getCode());
         bytes.writeLong(price);

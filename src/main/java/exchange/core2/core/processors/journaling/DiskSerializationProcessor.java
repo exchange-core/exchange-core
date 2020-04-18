@@ -299,6 +299,15 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
             if (debug) log.debug("cancel order seq={} t={} orderId={} symbol={} uid={}", baseSeq + dSeq, cmd.timestamp, cmd.orderId, cmd.symbol, cmd.uid);
 
+        } else if (cmdType == OrderCommandType.REDUCE_ORDER) {
+
+            buffer.putLong(cmd.uid); // 8 bytes can be compressed as dictionary
+            buffer.putInt(cmd.symbol); // 4 bytes can be compressed as dictionary
+            buffer.putLong(cmd.orderId); // 8 bytes - can be compressed as delta
+            buffer.putLong(cmd.size); // 8 bytes - can be compressed as low value
+
+            if (debug) log.debug("reduce order seq={} t={} orderId={} symbol={} uid={} size={}", baseSeq + dSeq, cmd.timestamp, cmd.orderId, cmd.symbol, cmd.uid, cmd.size);
+
         } else if (cmdType == OrderCommandType.PLACE_ORDER) {
 
             buffer.putLong(cmd.uid); // 8 bytes can be compressed as dictionary
@@ -519,6 +528,17 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
                     if (debug) log.debug("cancel order seq={} t={} orderId={} symbol={} uid={}", lastSeq, timestampNs, orderId, symbol, uid);
 
                     api.cancelOrder(serviceFlags, eventsGroup, timestampNs, orderId, symbol, uid);
+
+                } else if (cmdType == OrderCommandType.REDUCE_ORDER) {
+
+                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                    final int symbol = jr.readInt();// 4 bytes can be compressed as dictionary
+                    final long orderId = jr.readLong(); // 8 bytes - can be compressed as delta
+                    final long reduceSize = jr.readLong(); // 8 bytes - can be compressed as low value
+
+                    if (debug) log.debug("reduce order seq={} t={} orderId={} symbol={} uid={} reduceSize={}", lastSeq, timestampNs, orderId, symbol, uid, reduceSize);
+
+                    api.reduceOrder(serviceFlags, eventsGroup, timestampNs, reduceSize, orderId, symbol, uid);
 
                 } else if (cmdType == OrderCommandType.PLACE_ORDER) {
 

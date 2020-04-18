@@ -202,6 +202,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         switch (cmd.command) {
             case MOVE_ORDER:
             case CANCEL_ORDER:
+            case REDUCE_ORDER:
             case ORDER_BOOK_REQUEST:
                 return false;
 
@@ -534,7 +535,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 final long fee = spec.takerFee * sizeOpen;
                 takerUp.accounts.addToValue(spec.quoteCurrency, -fee);
                 fees.addToValue(spec.quoteCurrency, fee);
-            } else if (ev.eventType == MatcherEventType.REJECTION || ev.eventType == MatcherEventType.CANCEL) {
+            } else if (ev.eventType == MatcherEventType.REJECTION || ev.eventType == MatcherEventType.REDUCE) {
                 // for cancel/rejection only one party is involved
                 takerSpr.pendingRelease(takerAction, ev.size);
             }
@@ -574,7 +575,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 processExchangeHoldRelease(ev, spec, true, takerAction, takerUp);
 
 
-            } else if (ev.eventType == MatcherEventType.REJECTION || ev.eventType == MatcherEventType.CANCEL) {
+            } else if (ev.eventType == MatcherEventType.REJECTION || ev.eventType == MatcherEventType.REDUCE) {
 
 //                log.debug("CANCEL/REJ uid: {}", ev.activeOrderUid);
 

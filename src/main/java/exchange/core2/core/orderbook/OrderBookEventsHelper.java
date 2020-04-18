@@ -74,17 +74,18 @@ public final class OrderBookEventsHelper {
 
     }
 
-    public void sendCancelEvent(final OrderCommand cmd, final IOrder order) {
+    public void sendReduceEvent(final OrderCommand cmd, final IOrder order, final long reduceSize, final boolean completed) {
 //        log.debug("Cancel ");
         final MatcherTradeEvent event = newMatcherEvent();
-        event.eventType = MatcherEventType.CANCEL;
+        event.eventType = MatcherEventType.REDUCE;
         event.section = 0;
-        event.activeOrderCompleted = false;
+        event.activeOrderCompleted = completed;
 //        event.activeOrderSeq = order.seq;
         event.matchedOrderId = 0;
         event.matchedOrderCompleted = false;
         event.price = order.getPrice();
-        event.size = order.getSize() - order.getFilled();
+//        event.size = order.getSize() - order.getFilled();
+        event.size = reduceSize;
 
         event.bidderHoldPrice = order.getReserveBidPrice(); // set order reserved price for correct released EBids
 
@@ -104,7 +105,7 @@ public final class OrderBookEventsHelper {
 
         event.section = 0;
 
-        event.activeOrderCompleted = false;
+        event.activeOrderCompleted = true;
 //        event.activeOrderSeq = cmd.seq;
 
         event.matchedOrderId = 0;

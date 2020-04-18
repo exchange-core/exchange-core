@@ -82,6 +82,12 @@ public interface IOrdersBucket extends Comparable<IOrdersBucket>, WriteBytesMars
     void setPrice(long price);
 
     /**
+     * Reduce size of the order
+     * @param reduceSize
+     */
+    void reduceSize(long reduceSize);
+
+    /**
      * Total size of all orders
      *
      * @return total size of all orders

@@ -35,17 +35,21 @@ public final class TwoStepSlaveProcessor implements EventProcessor {
     private final SimpleEventHandler eventHandler;
     private final Sequence sequence = new Sequence(Sequencer.INITIAL_CURSOR_VALUE);
     private final ExceptionHandler<? super OrderCommand> exceptionHandler;
+    private final String name;
+
     private long nextSequence = -1;
 
     public TwoStepSlaveProcessor(final RingBuffer<OrderCommand> ringBuffer,
                                  final SequenceBarrier sequenceBarrier,
                                  final SimpleEventHandler eventHandler,
-                                 final ExceptionHandler<? super OrderCommand> exceptionHandler) {
+                                 final ExceptionHandler<? super OrderCommand> exceptionHandler,
+                                 final String name) {
         this.dataProvider = ringBuffer;
         this.sequenceBarrier = sequenceBarrier;
         this.waitSpinningHelper = new WaitSpinningHelper(ringBuffer, sequenceBarrier, 0, CoreWaitStrategy.NO_WAIT);
         this.eventHandler = eventHandler;
         this.exceptionHandler = exceptionHandler;
+        this.name = name;
     }
 
     @Override
@@ -109,5 +113,9 @@ public final class TwoStepSlaveProcessor implements EventProcessor {
         }
     }
 
+    @Override
+    public String toString() {
+        return "TwoStepSlaveProcessor{" + name + "}";
+    }
 
 }

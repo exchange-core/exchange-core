@@ -190,7 +190,7 @@ public final class ExchangeCore {
 
         riskEngines.forEach((idx, riskEngine) -> afterGrouping.handleEventsWith(
                 (rb, bs) -> {
-                    final TwoStepMasterProcessor r1 = new TwoStepMasterProcessor(rb, rb.newBarrier(bs), riskEngine::preProcessCommand, exceptionHandler, waitStrategy, "R" + idx);
+                    final TwoStepMasterProcessor r1 = new TwoStepMasterProcessor(rb, rb.newBarrier(bs), riskEngine::preProcessCommand, exceptionHandler, waitStrategy, "R1_" + idx);
                     procR1.add(r1);
                     return r1;
                 }));
@@ -202,7 +202,7 @@ public final class ExchangeCore {
 
         riskEngines.forEach((idx, riskEngine) -> afterMatchingEngine.handleEventsWith(
                 (rb, bs) -> {
-                    final TwoStepSlaveProcessor r2 = new TwoStepSlaveProcessor(rb, rb.newBarrier(bs), riskEngine::handlerRiskRelease, exceptionHandler);
+                    final TwoStepSlaveProcessor r2 = new TwoStepSlaveProcessor(rb, rb.newBarrier(bs), riskEngine::handlerRiskRelease, exceptionHandler, "R2_" + idx);
                     procR2.add(r2);
                     return r2;
                 }));

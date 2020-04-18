@@ -44,7 +44,7 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     CommandResultCode newOrder(OrderCommand cmd);
 
     /**
-     * Cancel order
+     * Cancel order completely.
      * <p>
      * fills cmd.action  with original original order action
      *
@@ -52,6 +52,16 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
      * @return MATCHING_UNKNOWN_ORDER_ID if order was not found, otherwise SUCCESS
      */
     CommandResultCode cancelOrder(OrderCommand cmd);
+
+    /**
+     * Decrease the size of the order by specific number of lots
+     * <p>
+     * fills cmd.action  with original  order action
+     *
+     * @param cmd - order command
+     * @return MATCHING_UNKNOWN_ORDER_ID if order was not found, otherwise SUCCESS
+     */
+    CommandResultCode reduceOrder(OrderCommand cmd);
 
     /**
      * Move order
@@ -112,7 +122,7 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     /**
      * Obtain current L2 Market Data snapshot
      *
-     * @param size max size for each part (ask, bid), if negative - all records returned
+     * @param size max size for each part (ask, bid)
      * @return L2 Market Data snapshot
      */
     default L2MarketData getL2MarketDataSnapshot(final int size) {
@@ -122,6 +132,10 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
         fillAsks(asksSize, data);
         fillBids(bidsSize, data);
         return data;
+    }
+
+    default L2MarketData getL2MarketDataSnapshot() {
+        return getL2MarketDataSnapshot(Integer.MAX_VALUE);
     }
 
     /**
@@ -155,6 +169,10 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
         } else if (commandType == OrderCommandType.CANCEL_ORDER) {
 
             return orderBook.cancelOrder(cmd);
+
+        } else if (commandType == OrderCommandType.REDUCE_ORDER) {
+
+            return orderBook.reduceOrder(cmd);
 
         } else if (commandType == OrderCommandType.PLACE_ORDER) {
 

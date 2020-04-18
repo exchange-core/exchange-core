@@ -13,16 +13,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package exchange.core2.core.art;
+package exchange.core2.core.common.api;
 
-@FunctionalInterface
-public interface LongObjConsumer<T> {
 
-    /**
-     * Performs this operation on the given arguments.
-     *
-     * @param a the first input argument
-     * @param b the second input argument
-     */
-    void accept(long a, T b);
+import lombok.Builder;
+import lombok.RequiredArgsConstructor;
+
+@Builder
+@RequiredArgsConstructor
+public final class ApiReduceOrder extends ApiCommand {
+
+    public final long orderId;
+
+    public final long uid;
+    public final int symbol;
+    public final long reduceSize;
+
+    @Override
+    public String toString() {
+        return "[REDUCE " + orderId + " by " + reduceSize + "]";
+    }
 }

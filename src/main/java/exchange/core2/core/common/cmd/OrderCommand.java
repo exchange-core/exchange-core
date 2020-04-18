@@ -79,7 +79,7 @@ public final class OrderCommand implements IOrder {
     //public long matcherEventSequence;
     // ---- potential false sharing section ------
 
-    public static OrderCommand newOrder(OrderType orderType, long orderId, int uid, long price, long reserveBidPrice, long size, OrderAction action) {
+    public static OrderCommand newOrder(OrderType orderType, long orderId, long uid, long price, long reserveBidPrice, long size, OrderAction action) {
         OrderCommand cmd = new OrderCommand();
         cmd.command = OrderCommandType.PLACE_ORDER;
         cmd.orderId = orderId;
@@ -93,7 +93,7 @@ public final class OrderCommand implements IOrder {
         return cmd;
     }
 
-    public static OrderCommand cancel(long orderId, int uid) {
+    public static OrderCommand cancel(long orderId, long uid) {
         OrderCommand cmd = new OrderCommand();
         cmd.command = OrderCommandType.CANCEL_ORDER;
         cmd.orderId = orderId;
@@ -102,7 +102,17 @@ public final class OrderCommand implements IOrder {
         return cmd;
     }
 
-    public static OrderCommand update(long orderId, int uid, long price) {
+    public static OrderCommand reduce(long orderId, long uid, long reduceSize) {
+        OrderCommand cmd = new OrderCommand();
+        cmd.command = OrderCommandType.REDUCE_ORDER;
+        cmd.orderId = orderId;
+        cmd.uid = uid;
+        cmd.size = reduceSize;
+        cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
+        return cmd;
+    }
+
+    public static OrderCommand update(long orderId, long uid, long price) {
         OrderCommand cmd = new OrderCommand();
         cmd.command = OrderCommandType.MOVE_ORDER;
         cmd.orderId = orderId;

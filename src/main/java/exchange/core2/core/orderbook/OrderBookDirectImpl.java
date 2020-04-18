@@ -333,7 +333,48 @@ public final class OrderBookDirectImpl implements IOrderBook {
         // fill action fields (for events handling)
         cmd.action = order.getAction();
 
-        eventsHelper.sendCancelEvent(cmd, order);
+        eventsHelper.sendReduceEvent(cmd, order, order.getSize() - order.getFilled(), true);
+
+        return CommandResultCode.SUCCESS;
+    }
+
+    @Override
+    public CommandResultCode reduceOrder(OrderCommand cmd) {
+
+        final long orderId = cmd.orderId;
+        final long requestedReduceSize = cmd.size;
+        if (requestedReduceSize <= 0) {
+            return CommandResultCode.MATCHING_REDUCE_FAILED_WRONG_SIZE;
+        }
+
+        final DirectOrder order = orderIdIndex.get(orderId);
+        if (order == null || order.uid != cmd.uid) {
+            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
+        }
+
+        final long remainingSize = order.size - order.filled;
+        final long reduceBy = Math.min(remainingSize, requestedReduceSize);
+        final boolean canRemove = reduceBy == remainingSize;
+
+        if (canRemove) {
+
+            orderIdIndex.remove(orderId);
+            objectsPool.put(ObjectsPool.DIRECT_ORDER, order);
+
+            final Bucket freeBucket = removeOrder(order);
+            if (freeBucket != null) {
+                objectsPool.put(ObjectsPool.DIRECT_BUCKET, freeBucket);
+            }
+
+        } else {
+            order.size -= reduceBy;
+            order.parent.volume -= reduceBy;
+        }
+
+        eventsHelper.sendReduceEvent(cmd, order, reduceBy, canRemove);
+
+        // fill action fields (for events handling)
+        cmd.action = order.getAction();
 
         return CommandResultCode.SUCCESS;
     }

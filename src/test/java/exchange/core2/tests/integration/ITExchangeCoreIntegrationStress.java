@@ -76,7 +76,7 @@ public final class ITExchangeCoreIntegrationStress {
                     TestOrdersGenerator.createAsyncProgressLogger(numOrders),
                     288379917);
 
-            final List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult.getCommands());
+            final List<ApiCommand> apiCommands = TestOrdersGenerator.convertToApiCommand(genResult);
 
             final Set<Integer> allowedCurrencies = Stream.of(symbolSpec.quoteCurrency, symbolSpec.baseCurrency).collect(Collectors.toSet());
 

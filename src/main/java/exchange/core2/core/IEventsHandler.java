@@ -11,7 +11,7 @@ public interface IEventsHandler {
 
     void tradeEvent(TradeEvent event);
 
-    void cancelEvent(CancelEvent cancelEvent);
+    void reduceEvent(ReduceEvent cancelEvent);
 
     void rejectEvent(RejectEvent rejectEvent);
 
@@ -48,7 +48,7 @@ public interface IEventsHandler {
     }
 
     @Data
-    class CancelEvent {
+    class ReduceEvent {
         public final int symbol;
         public final long volume;
         public final long price;

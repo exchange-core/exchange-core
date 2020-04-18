@@ -1,8 +1,10 @@
 package exchange.core2.tests.util;
 
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 @Slf4j
@@ -11,6 +13,9 @@ public class ExecutionTime implements AutoCloseable {
 
     private final Consumer<String> executionTimeConsumer;
     private final long startNs = System.nanoTime();
+
+    @Getter
+    private final CompletableFuture<Long> resultNs = new CompletableFuture<>();
 
     public ExecutionTime() {
         this.executionTimeConsumer = s -> {
@@ -23,7 +28,9 @@ public class ExecutionTime implements AutoCloseable {
     }
 
     public String getTimeFormatted() {
-        return LatencyTools.formatNanos(System.nanoTime() - startNs);
+        if (!resultNs.isDone()) {
+            resultNs.complete(System.nanoTime() - startNs);
+        }
+        return LatencyTools.formatNanos(resultNs.join());
     }
-
 }

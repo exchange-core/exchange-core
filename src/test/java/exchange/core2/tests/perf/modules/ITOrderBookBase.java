@@ -107,8 +107,8 @@ public abstract class ITOrderBookBase {
                     false,
                     TestOrdersGenerator.createAsyncProgressLogger(numOrders),
                     101572685);
-            List<OrderCommand> orderCommands = genResult.getCommands();
-            log.debug("orderCommands size: {}", orderCommands.size());
+            Iterable<OrderCommand> orderCommands = genResult.getCommands();
+            log.debug("orderCommands size: {}", genResult.size());
 
             List<Float> perfResults = new ArrayList<>();
             for (int j = 0; j < 32; j++) {
@@ -128,7 +128,7 @@ public abstract class ITOrderBookBase {
                 orderBook.validateInternalState();
                 assertThat(orderBook.stateHash(), is(genResult.getFinalOrderbookHash()));
 
-                float perfMt = (float) orderCommands.size() / (float) t / 1000.0f;
+                float perfMt = (float) genResult.size() / (float) t / 1000.0f;
                 perfResults.add(perfMt);
                 float averageMt = (float) perfResults.stream().mapToDouble(x -> x).average().orElse(0);
                 log.info("{}. {} MT/s ({} ms) average: {} MT/s", j, perfMt, t, averageMt);

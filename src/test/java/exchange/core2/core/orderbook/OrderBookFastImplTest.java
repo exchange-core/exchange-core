@@ -58,9 +58,9 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
         orderBook.validateInternalState();
 
         // ask prices start from here, overlap with far ask area
-        final int topPrice = INITIAL_PRICE + HOT_PRICES_RANGE / 2 + 10;
+        final long topPrice = INITIAL_PRICE + HOT_PRICES_RANGE / 2 + 10;
         // ask prices stop from here, overlap with far bid area
-        final int bottomPrice = INITIAL_PRICE - HOT_PRICES_RANGE / 2 - 14;
+        final long bottomPrice = INITIAL_PRICE - HOT_PRICES_RANGE / 2 - 14;
 
         int orderId = 100;
 
@@ -117,9 +117,9 @@ public class OrderBookFastImplTest extends OrderBookBaseTest {
         orderBook.validateInternalState();
 
         // bid prices starts from here, overlap with far bid area
-        final int bottomPrice = INITIAL_PRICE - HOT_PRICES_RANGE / 2 - 4;
+        final long bottomPrice = INITIAL_PRICE - HOT_PRICES_RANGE / 2 - 4;
         // bid prices stop here, overlap with far ask area
-        final int topPrice = INITIAL_PRICE + HOT_PRICES_RANGE / 2 + 21;
+        final long topPrice = INITIAL_PRICE + HOT_PRICES_RANGE / 2 + 21;
 
         int orderId = 100;
 

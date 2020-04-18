@@ -25,7 +25,8 @@ public final class TestOrdersGeneratorSession {
 
     public final IOrderBook orderBook;
 
-    public final int targetOrderBookOrders;
+    public final int transactionsNumber;
+    public final int targetOrderBookOrdersHalf;
 
     public final long priceDeviation;
 
@@ -39,6 +40,7 @@ public final class TestOrdersGeneratorSession {
     public final Random rand;
 
     public final IntIntHashMap orderPrices = new IntIntHashMap();
+    public final IntIntHashMap orderSizes = new IntIntHashMap();
     public final Map<Integer, Integer> orderUids = new LinkedHashMap<>();
 
     public final List<Integer> orderBookSizeAskStat = new ArrayList<>();
@@ -58,14 +60,17 @@ public final class TestOrdersGeneratorSession {
 
     public long numCompleted = 0;
     public long numRejected = 0;
-    public long numCancelled = 0;
+    public long numReduced = 0;
 
     public long counterPlaceMarket = 0;
     public long counterPlaceLimit = 0;
     public long counterCancel = 0;
     public long counterMove = 0;
+    public long counterReduce = 0;
 
     public int seq = 1;
+
+    public Integer filledAtSeq = null;
 
     // statistics (updated every 256 orders)
     public int lastOrderBookOrdersSizeAsk = 0;
@@ -75,9 +80,10 @@ public final class TestOrdersGeneratorSession {
 
 //    public SingleWriterRecorder hdrRecorder = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
 
-    public TestOrdersGeneratorSession(IOrderBook orderBook, int targetOrderBookOrders, boolean avalancheIOC, int numUsers, UnaryOperator<Integer> uidMapper, int symbol, boolean enableSlidingPrice, int seed) {
+    public TestOrdersGeneratorSession(IOrderBook orderBook, int transactionsNumber, int targetOrderBookOrdersHalf, boolean avalancheIOC, int numUsers, UnaryOperator<Integer> uidMapper, int symbol, boolean enableSlidingPrice, int seed) {
         this.orderBook = orderBook;
-        this.targetOrderBookOrders = targetOrderBookOrders;
+        this.transactionsNumber = transactionsNumber;
+        this.targetOrderBookOrdersHalf = targetOrderBookOrdersHalf;
         this.avalancheIOC = avalancheIOC;
         this.numUsers = numUsers;
         this.uidMapper = uidMapper;

@@ -438,7 +438,7 @@ public final class OrderBookFastImpl implements IOrderBook {
         }
 
         // send cancel event
-        eventsHelper.sendCancelEvent(cmd, removedOrder);
+        eventsHelper.sendReduceEvent(cmd, removedOrder, removedOrder.getSize() - removedOrder.getFilled(), true);
 
         // fill action fields (for events handling)
         cmd.action = removedOrder.getAction();
@@ -449,6 +449,61 @@ public final class OrderBookFastImpl implements IOrderBook {
         return CommandResultCode.SUCCESS;
     }
 
+    @Override
+    public CommandResultCode reduceOrder(OrderCommand cmd) {
+
+
+        final long orderId = cmd.orderId;
+        final long requestedReduceSize = cmd.size;
+
+        if (requestedReduceSize <= 0) {
+            return CommandResultCode.MATCHING_REDUCE_FAILED_WRONG_SIZE;
+        }
+
+        final IOrdersBucket ordersBucket = idMapToBucket.get(orderId);
+        if (ordersBucket == null) {
+            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
+        }
+
+        final Order order = ordersBucket.findOrder(orderId);
+
+        if (order == null || order.uid != cmd.uid) {
+            // already matched, moved or cancelled, or not belongs to this user
+            return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
+        }
+
+        final long remainingSize = order.size - order.filled;
+        final long reduceBy = Math.min(remainingSize, requestedReduceSize);
+
+        final boolean canRemove = reduceBy == remainingSize;
+
+        if (canRemove) {
+
+            // remove from map
+            idMapToBucket.remove(cmd.orderId);
+
+
+            // canRemove order and whole bucket if it is empty
+            ordersBucket.remove(orderId, cmd.uid);
+
+            // remove bucket if cancelled order was the last one in the bucket
+            if (ordersBucket.getTotalVolume() == 0) {
+                removeBucket(order.action, ordersBucket.getPrice());
+            }
+
+        } else {
+            order.size -= reduceBy;
+            ordersBucket.reduceSize(reduceBy);
+        }
+
+        // send reduce event
+        eventsHelper.sendReduceEvent(cmd, order, reduceBy, canRemove);
+
+        // fill action fields (for events handling)
+        cmd.action = order.getAction();
+
+        return CommandResultCode.SUCCESS;
+    }
 
     /**
      * Move an order to different price

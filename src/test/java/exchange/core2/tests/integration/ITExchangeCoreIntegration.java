@@ -495,7 +495,7 @@ public final class ITExchangeCoreIntegration {
 
                         final MatcherTradeEvent evt = cmd.matcherEvent;
                         assertNotNull(evt);
-                        assertThat(evt.eventType, is(MatcherEventType.CANCEL));
+                        assertThat(evt.eventType, is(MatcherEventType.REDUCE));
                         assertThat(evt.size, is(500L));
                     });
 
@@ -544,7 +544,7 @@ public final class ITExchangeCoreIntegration {
 
                         final MatcherTradeEvent evt = cmd.matcherEvent;
                         assertNotNull(evt);
-                        assertThat(evt.eventType, is(MatcherEventType.CANCEL));
+                        assertThat(evt.eventType, is(MatcherEventType.REDUCE));
                         assertThat(evt.bidderHoldPrice, is(18_500L));
                         assertThat(evt.size, is(500L));
                     });

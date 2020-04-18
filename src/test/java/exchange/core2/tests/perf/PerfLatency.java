@@ -17,7 +17,6 @@ package exchange.core2.tests.perf;
 
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
-import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.TestDataParameters;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
@@ -117,8 +116,8 @@ public final class PerfLatency {
 
     /**
      * This is high load latency test for verifying exchange core scalability:
-     * - 7.5M active users (25M currency accounts)
-     * - 25M pending limit-orders
+     * - 10M active users (33M currency accounts)
+     * - 30M pending limit-orders
      * - 200K symbols
      * - 1M+ messages per second throughput
      * 12-threads CPU and 32GiB RAM is required for running this test in 2+4 configuration.
@@ -137,77 +136,4 @@ public final class PerfLatency {
                 2);
     }
 
-    /*
-     * -------------- Disk Journaling tests -----------------
-     */
-
-    @Test
-    public void testLatencyMarginJournaling() {
-        latencyTestImpl(
-                PerformanceConfiguration.latencyPerformanceBuilder()
-                        .ringBufferSize(2 * 1024)
-                        .matchingEnginesNum(1)
-                        .riskEnginesNum(1)
-                        .msgsInGroupLimit(256)
-                        .build(),
-                TestDataParameters.singlePairMarginBuilder().build(),
-                InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
-                16);
-    }
-
-    @Test
-    public void testLatencyExchangeJournaling() {
-        latencyTestImpl(
-                PerformanceConfiguration.latencyPerformanceBuilder()
-                        .ringBufferSize(2 * 1024)
-                        .matchingEnginesNum(1)
-                        .riskEnginesNum(1)
-                        .msgsInGroupLimit(256)
-                        .build(),
-                TestDataParameters.singlePairExchangeBuilder().build(),
-                InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
-                16);
-    }
-
-    @Test
-    public void testLatencyMultiSymbolMediumJournaling() {
-        latencyTestImpl(
-                PerformanceConfiguration.latencyPerformanceBuilder()
-                        .ringBufferSize(32 * 1024)
-                        .matchingEnginesNum(4)
-                        .riskEnginesNum(2)
-                        .msgsInGroupLimit(256)
-                        .build(),
-                TestDataParameters.mediumBuilder().build(),
-                InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
-                4);
-    }
-
-    @Test
-    public void testLatencyMultiSymbolLargeJournaling() {
-        latencyTestImpl(
-                PerformanceConfiguration.latencyPerformanceBuilder()
-                        .ringBufferSize(32 * 1024)
-                        .matchingEnginesNum(4)
-                        .riskEnginesNum(2)
-                        .msgsInGroupLimit(256)
-                        .build(),
-                TestDataParameters.largeBuilder().build(),
-                InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
-                3);
-    }
-
-    @Test
-    public void testLatencyMultiSymbolHugeJournaling() {
-        latencyTestImpl(
-                PerformanceConfiguration.latencyPerformanceBuilder()
-                        .ringBufferSize(64 * 1024)
-                        .matchingEnginesNum(4)
-                        .riskEnginesNum(2)
-                        .msgsInGroupLimit(256)
-                        .build(),
-                TestDataParameters.hugeBuilder().build(),
-                InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
-                2);
-    }
 }

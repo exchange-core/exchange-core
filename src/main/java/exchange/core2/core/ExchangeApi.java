@@ -82,6 +82,8 @@ public final class ExchangeApi {
             ringBuffer.publishEvent(NEW_ORDER_TRANSLATOR, (ApiPlaceOrder) cmd);
         } else if (cmd instanceof ApiCancelOrder) {
             ringBuffer.publishEvent(CANCEL_ORDER_TRANSLATOR, (ApiCancelOrder) cmd);
+        } else if (cmd instanceof ApiReduceOrder) {
+            ringBuffer.publishEvent(REDUCE_ORDER_TRANSLATOR, (ApiReduceOrder) cmd);
         } else if (cmd instanceof ApiOrderBookRequest) {
             ringBuffer.publishEvent(ORDER_BOOK_REQUEST_TRANSLATOR, (ApiOrderBookRequest) cmd);
         } else if (cmd instanceof ApiAddUser) {
@@ -116,6 +118,8 @@ public final class ExchangeApi {
             return submitCommandAsync(NEW_ORDER_TRANSLATOR, (ApiPlaceOrder) cmd);
         } else if (cmd instanceof ApiCancelOrder) {
             return submitCommandAsync(CANCEL_ORDER_TRANSLATOR, (ApiCancelOrder) cmd);
+        } else if (cmd instanceof ApiReduceOrder) {
+            return submitCommandAsync(REDUCE_ORDER_TRANSLATOR, (ApiReduceOrder) cmd);
         } else if (cmd instanceof ApiOrderBookRequest) {
             return submitCommandAsync(ORDER_BOOK_REQUEST_TRANSLATOR, (ApiOrderBookRequest) cmd);
         } else if (cmd instanceof ApiAddUser) {
@@ -147,6 +151,8 @@ public final class ExchangeApi {
             return submitCommandAsyncFullResponse(NEW_ORDER_TRANSLATOR, (ApiPlaceOrder) cmd);
         } else if (cmd instanceof ApiCancelOrder) {
             return submitCommandAsyncFullResponse(CANCEL_ORDER_TRANSLATOR, (ApiCancelOrder) cmd);
+        } else if (cmd instanceof ApiReduceOrder) {
+            return submitCommandAsyncFullResponse(REDUCE_ORDER_TRANSLATOR, (ApiReduceOrder) cmd);
         } else if (cmd instanceof ApiOrderBookRequest) {
             return submitCommandAsyncFullResponse(ORDER_BOOK_REQUEST_TRANSLATOR, (ApiOrderBookRequest) cmd);
         } else if (cmd instanceof ApiAddUser) {
@@ -260,18 +266,6 @@ public final class ExchangeApi {
 
         return future;
     }
-
-
-    public void submitBinaryCommandAsync(
-            final BinaryDataCommand data,
-            final int transferId,
-            final Consumer<OrderCommand> consumer) {
-
-        publishBinaryData(
-                ApiBinaryDataCommand.builder().data(data).transferId(transferId).build(),
-                seq -> promises.put(seq, consumer));
-    }
-
 
     public <Q extends ReportQuery<R>, R extends ReportResult> CompletableFuture<R> processReport(final Q query, final int transferId) {
         return submitQueryAsync(
@@ -463,6 +457,16 @@ public final class ExchangeApi {
         cmd.orderId = api.orderId;
         cmd.symbol = api.symbol;
         cmd.uid = api.uid;
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+    };
+
+    private static final EventTranslatorOneArg<OrderCommand, ApiReduceOrder> REDUCE_ORDER_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.REDUCE_ORDER;
+        cmd.orderId = api.orderId;
+        cmd.symbol = api.symbol;
+        cmd.uid = api.uid;
+        cmd.size = api.reduceSize;
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
     };
@@ -858,6 +862,51 @@ public final class ExchangeApi {
             cmd.command = OrderCommandType.CANCEL_ORDER;
             cmd.resultCode = CommandResultCode.NEW;
 
+            cmd.orderId = orderId;
+            cmd.timestamp = timestampNs;
+            cmd.symbol = symbol;
+            cmd.uid = uid;
+        });
+    }
+
+    public void reduceOrder(
+            long reduceSize,
+            long orderId,
+            int symbol,
+            long uid,
+            Consumer<OrderCommand> callback) {
+
+        ringBuffer.publishEvent((cmd, seq) -> {
+            cmd.command = OrderCommandType.REDUCE_ORDER;
+            cmd.resultCode = CommandResultCode.NEW;
+
+            cmd.size = reduceSize;
+            cmd.orderId = orderId;
+            cmd.timestamp = System.currentTimeMillis();
+            cmd.symbol = symbol;
+            cmd.uid = uid;
+
+            promises.put(seq, callback);
+        });
+    }
+
+    public void reduceOrder(int serviceFlags,
+                            long eventsGroup,
+                            long timestampNs,
+                            long reduceSize,
+                            long orderId,
+                            int symbol,
+                            long uid) {
+
+        ringBuffer.publishEvent((cmd, seq) -> {
+
+            cmd.serviceFlags = serviceFlags;
+            cmd.eventsGroup = eventsGroup;
+
+            cmd.command = OrderCommandType.REDUCE_ORDER;
+            cmd.resultCode = CommandResultCode.NEW;
+
+            cmd.size = reduceSize;
             cmd.orderId = orderId;
             cmd.timestamp = timestampNs;
             cmd.symbol = symbol;
