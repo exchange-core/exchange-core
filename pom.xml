@@ -74,6 +74,12 @@
     <dependencyManagement>
         <dependencies>
 
+            <dependency>
+                <groupId>exchange.core2</groupId>
+                <artifactId>collections</artifactId>
+                <version>0.5.1</version>
+            </dependency>
+
             <!-- LMAX Disruptor -->
             <dependency>
                 <groupId>com.lmax</groupId>
@@ -245,6 +251,11 @@
     <dependencies>
 
         <dependency>
+            <groupId>exchange.core2</groupId>
+            <artifactId>collections</artifactId>
+        </dependency>
+
+        <dependency>
             <groupId>com.lmax</groupId>
             <artifactId>disruptor</artifactId>
         </dependency>
@@ -290,6 +301,17 @@
         </dependency>
 
         <!-- test scope -->
+
+        <dependency>
+            <groupId>com.paritytrading.juncture</groupId>
+            <artifactId>juncture-nasdaq</artifactId>
+            <version>0.6.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.paritytrading.nassau</groupId>
+            <artifactId>nassau-util</artifactId>
+            <version>0.13.0</version>
+        </dependency>
 
         <dependency>
             <groupId>org.hdrhistogram</groupId>

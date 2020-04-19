@@ -15,11 +15,11 @@
  */
 package exchange.core2.core.orderbook;
 
-import exchange.core2.core.art.LongAdaptiveRadixTreeMap;
+import exchange.core2.collections.art.LongAdaptiveRadixTreeMap;
+import exchange.core2.collections.objpool.ObjectsPool;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
-import exchange.core2.core.processors.ObjectsPool;
 import lombok.*;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -61,21 +61,21 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
     private final OrderBookEventsHelper eventsHelper;
 
-    public OrderBookDirectImpl(final CoreSymbolSpecification symbolSpec, final ObjectsPool objectsPool) {
+    public OrderBookDirectImpl(final CoreSymbolSpecification symbolSpec, final ObjectsPool objectsPool, final OrderBookEventsHelper eventsHelper) {
         this.symbolSpec = symbolSpec;
         this.objectsPool = objectsPool;
         this.askPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.bidPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
-        this.eventsHelper = new OrderBookEventsHelper(() -> objectsPool.getSharedPool().getChain());
+        this.eventsHelper = eventsHelper;
         this.orderIdIndex = new LongAdaptiveRadixTreeMap<>(objectsPool);
     }
 
-    public OrderBookDirectImpl(final BytesIn bytes, final ObjectsPool objectsPool) {
+    public OrderBookDirectImpl(final BytesIn bytes, final ObjectsPool objectsPool, final OrderBookEventsHelper eventsHelper) {
         this.symbolSpec = new CoreSymbolSpecification(bytes);
         this.objectsPool = objectsPool;
         this.askPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.bidPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
-        this.eventsHelper = new OrderBookEventsHelper(() -> objectsPool.getSharedPool().getChain());
+        this.eventsHelper = eventsHelper;
         this.orderIdIndex = new LongAdaptiveRadixTreeMap<>(objectsPool);
 
         final int size = bytes.readInt();

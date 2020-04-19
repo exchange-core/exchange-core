@@ -1,12 +1,10 @@
 package exchange.core2.core.common.config;
 
 
-import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.CoreWaitStrategy;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.orderbook.OrderBookDirectImpl;
 import exchange.core2.core.orderbook.OrderBookNaiveImpl;
-import exchange.core2.core.processors.ObjectsPool;
 import exchange.core2.core.utils.AffinityThreadFactory;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -15,7 +13,6 @@ import net.jpountz.lz4.LZ4Compressor;
 import net.jpountz.lz4.LZ4Factory;
 
 import java.util.concurrent.ThreadFactory;
-import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
 /**
@@ -59,7 +56,7 @@ public final class PerformanceConfiguration {
     /*
      * Order books factory
      */
-    private final BiFunction<CoreSymbolSpecification, ObjectsPool, IOrderBook> orderBookFactory;
+    private final IOrderBook.OrderBookFactory orderBookFactory;
 
     /*
      * LZ4 compressor factory for binary commands and reports
@@ -78,7 +75,7 @@ public final class PerformanceConfiguration {
                 .threadFactory(Thread::new)
                 .waitStrategy(CoreWaitStrategy.SLEEPING)
                 .binaryCommandsLz4CompressorFactory(() -> LZ4Factory.fastestInstance().highCompressor())
-                .orderBookFactory((spec, pool) -> new OrderBookNaiveImpl(spec));
+                .orderBookFactory(OrderBookNaiveImpl::new);
     }
 
     public static PerformanceConfiguration.PerformanceConfigurationBuilder latencyPerformanceBuilder() {

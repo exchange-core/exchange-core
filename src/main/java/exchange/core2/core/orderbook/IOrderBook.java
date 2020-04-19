@@ -15,11 +15,11 @@
  */
 package exchange.core2.core.orderbook;
 
+import exchange.core2.collections.objpool.ObjectsPool;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
-import exchange.core2.core.processors.ObjectsPool;
 import exchange.core2.core.utils.HashingUtils;
 import lombok.Getter;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -191,17 +191,23 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
     }
 
-    static IOrderBook create(BytesIn bytes, final ObjectsPool objectsPool) {
+    static IOrderBook create(BytesIn bytes, ObjectsPool objectsPool, OrderBookEventsHelper eventsHelper) {
         switch (OrderBookImplType.of(bytes.readByte())) {
             case NAIVE:
                 return new OrderBookNaiveImpl(bytes);
             case FAST:
-                return new OrderBookFastImpl(bytes, objectsPool);
+                return new OrderBookFastImpl(bytes, objectsPool, eventsHelper);
             case DIRECT:
-                return new OrderBookDirectImpl(bytes, objectsPool);
+                return new OrderBookDirectImpl(bytes, objectsPool, eventsHelper);
             default:
                 throw new IllegalArgumentException();
         }
+    }
+
+    @FunctionalInterface
+    interface OrderBookFactory {
+
+        IOrderBook create(CoreSymbolSpecification spec, ObjectsPool pool, OrderBookEventsHelper eventsHelper);
     }
 
     @Getter

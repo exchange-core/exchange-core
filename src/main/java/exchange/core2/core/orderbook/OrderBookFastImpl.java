@@ -15,10 +15,10 @@
  */
 package exchange.core2.core.orderbook;
 
+import exchange.core2.collections.objpool.ObjectsPool;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
-import exchange.core2.core.processors.ObjectsPool;
 import exchange.core2.core.utils.SerializationUtils;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -38,6 +38,8 @@ public final class OrderBookFastImpl implements IOrderBook {
     private final CoreSymbolSpecification symbolSpec;
 
     private final int hotPricesRange;
+
+    private final OrderBookEventsHelper eventsHelper;
 
     private BitSet hotAskBitSet;
     private BitSet hotBidBitSet;
@@ -66,9 +68,7 @@ public final class OrderBookFastImpl implements IOrderBook {
     // Object pools
     private final ObjectsPool objectsPool;
 
-    private final OrderBookEventsHelper eventsHelper;
-
-    public OrderBookFastImpl(final int hotPricesRange, final CoreSymbolSpecification symbolSpec, final ObjectsPool objectsPool) {
+    public OrderBookFastImpl(final int hotPricesRange, final CoreSymbolSpecification symbolSpec, final ObjectsPool objectsPool, final OrderBookEventsHelper orderBookEventsHelper) {
         // must be aligned by 64 bit, can not be lower than 1024
         if ((hotPricesRange & 63) != 0 || hotPricesRange < 1024) {
             throw new IllegalArgumentException("invalid hotPricesRange=" + hotPricesRange);
@@ -82,11 +82,10 @@ public final class OrderBookFastImpl implements IOrderBook {
         this.farAskBuckets = new TreeMap<>();
         this.farBidBuckets = new TreeMap<>(Collections.reverseOrder());
         this.objectsPool = objectsPool;
-        this.eventsHelper = new OrderBookEventsHelper(() -> objectsPool.getSharedPool().getChain());
-
+        this.eventsHelper = orderBookEventsHelper;
     }
 
-    public OrderBookFastImpl(final BytesIn bytes, final ObjectsPool objectsPool) {
+    public OrderBookFastImpl(final BytesIn bytes, final ObjectsPool objectsPool, final OrderBookEventsHelper orderBookEventsHelper) {
 
         this.symbolSpec = new CoreSymbolSpecification(bytes);
 
@@ -109,7 +108,7 @@ public final class OrderBookFastImpl implements IOrderBook {
         this.farBidBuckets = SerializationUtils.readLongMap(bytes, () -> new TreeMap<>(Collections.reverseOrder()), IOrdersBucket::create);
 
         this.objectsPool = objectsPool;
-        this.eventsHelper = new OrderBookEventsHelper(() -> objectsPool.getSharedPool().getChain());
+        this.eventsHelper = orderBookEventsHelper;
 
         // reconstruct ordersId-> Bucket cache
         // TODO check resulting performance

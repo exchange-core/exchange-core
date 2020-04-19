@@ -15,6 +15,7 @@
  */
 package exchange.core2.core.orderbook;
 
+import exchange.core2.collections.objpool.ObjectsPool;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
@@ -39,6 +40,13 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     private final LongObjectHashMap<Order> idMap = new LongObjectHashMap<>();
 
     private final OrderBookEventsHelper eventsHelper;
+
+    public OrderBookNaiveImpl(final CoreSymbolSpecification symbolSpec, ObjectsPool pool, OrderBookEventsHelper eventsHelper) {
+        this.symbolSpec = symbolSpec;
+        this.askBuckets = new TreeMap<>();
+        this.bidBuckets = new TreeMap<>(Collections.reverseOrder());
+        this.eventsHelper = eventsHelper;
+    }
 
     public OrderBookNaiveImpl(final CoreSymbolSpecification symbolSpec) {
         this.symbolSpec = symbolSpec;

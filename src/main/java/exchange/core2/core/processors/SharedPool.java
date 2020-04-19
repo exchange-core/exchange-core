@@ -29,6 +29,10 @@ public final class SharedPool {
     @Getter
     private final int chainLength;
 
+    public static SharedPool createTestSharedPool() {
+        return new SharedPool(8, 4, 256);
+    }
+
     /**
      * Create new shared pool
      *

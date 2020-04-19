@@ -15,6 +15,7 @@
  */
 package exchange.core2.core.processors;
 
+import exchange.core2.collections.objpool.ObjectsPool;
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.StateHash;
 import exchange.core2.core.common.api.binary.BatchAddAccountsCommand;
@@ -26,6 +27,7 @@ import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.ExchangeConfiguration;
 import exchange.core2.core.orderbook.IOrderBook;
+import exchange.core2.core.orderbook.OrderBookEventsHelper;
 import exchange.core2.core.processors.journaling.ISerializationProcessor;
 import exchange.core2.core.utils.HashingUtils;
 import exchange.core2.core.utils.SerializationUtils;
@@ -41,7 +43,6 @@ import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import java.util.HashMap;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.BiFunction;
 
 @Slf4j
 @Getter
@@ -53,7 +54,9 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
     // symbol->OB
     private final IntObjectHashMap<IOrderBook> orderBooks;
 
-    private final BiFunction<CoreSymbolSpecification, ObjectsPool, IOrderBook> orderBookFactory;
+    private final IOrderBook.OrderBookFactory orderBookFactory;
+
+    private final OrderBookEventsHelper eventsHelper;
 
     // local objects pool for order books
     private final ObjectsPool objectsPool;
@@ -66,7 +69,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
     public MatchingEngineRouter(final int shardId,
                                 final long numShards,
                                 final ISerializationProcessor serializationProcessor,
-                                final BiFunction<CoreSymbolSpecification, ObjectsPool, IOrderBook> orderBookFactory,
+                                final IOrderBook.OrderBookFactory orderBookFactory,
                                 final SharedPool sharedPool,
                                 final ExchangeConfiguration exchangeConfiguration) {
 
@@ -77,6 +80,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         this.shardMask = numShards - 1;
         this.serializationProcessor = serializationProcessor;
         this.orderBookFactory = orderBookFactory;
+        this.eventsHelper = new OrderBookEventsHelper(sharedPool::getChain);
 
         // initialize object pools // TODO move to perf config
         final HashMap<Integer, Integer> objectsPoolConfig = new HashMap<>();
@@ -86,7 +90,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         objectsPoolConfig.put(ObjectsPool.ART_NODE_16, 1024 * 16);
         objectsPoolConfig.put(ObjectsPool.ART_NODE_48, 1024 * 8);
         objectsPoolConfig.put(ObjectsPool.ART_NODE_256, 1024 * 4);
-        this.objectsPool = new ObjectsPool(objectsPoolConfig, sharedPool);
+        this.objectsPool = new ObjectsPool(objectsPoolConfig);
         if (exchangeConfiguration.getInitStateCfg().fromSnapshot()) {
             final DeserializedData deserialized = serializationProcessor.loadData(
                     exchangeConfiguration.getInitStateCfg().getSnapshotId(),
@@ -108,7 +112,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
                                 bytesIn,
                                 shardId + 1024);
 
-                        final IntObjectHashMap<IOrderBook> ob = SerializationUtils.readIntHashMap(bytesIn, bytes -> IOrderBook.create(bytes, objectsPool));
+                        final IntObjectHashMap<IOrderBook> ob = SerializationUtils.readIntHashMap(bytesIn, bytes -> IOrderBook.create(bytes, objectsPool, eventsHelper));
                         return DeserializedData.builder().binaryCommandsProcessor(bcp).orderBooks(ob).build();
                     });
 
@@ -203,7 +207,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         if (orderBooks.get(symbolId) != null) {
             return CommandResultCode.MATCHING_ORDER_BOOK_ALREADY_EXISTS;
         } else {
-            orderBooks.put(symbolId, orderBookFactory.apply(symbolSpecification, objectsPool));
+            orderBooks.put(symbolId, orderBookFactory.create(symbolSpecification, objectsPool, eventsHelper));
             return CommandResultCode.SUCCESS;
         }
     }

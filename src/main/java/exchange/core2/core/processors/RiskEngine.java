@@ -15,6 +15,7 @@
  */
 package exchange.core2.core.processors;
 
+import exchange.core2.collections.objpool.ObjectsPool;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.api.binary.BatchAddAccountsCommand;
 import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
@@ -82,7 +83,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         // initialize object pools // TODO move to perf config
         final HashMap<Integer, Integer> objectsPoolConfig = new HashMap<>();
         objectsPoolConfig.put(ObjectsPool.SYMBOL_POSITION_RECORD, 1024 * 256);
-        this.objectsPool = new ObjectsPool(objectsPoolConfig, sharedPool);
+        this.objectsPool = new ObjectsPool(objectsPoolConfig);
 
         if (exchangeConfiguration.getInitStateCfg().fromSnapshot()) {
 

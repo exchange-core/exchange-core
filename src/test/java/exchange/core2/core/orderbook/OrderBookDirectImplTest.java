@@ -15,13 +15,16 @@
  */
 package exchange.core2.core.orderbook;
 
-import exchange.core2.core.processors.ObjectsPool;
+import exchange.core2.collections.objpool.ObjectsPool;
 import exchange.core2.tests.util.TestConstants;
 
 public class OrderBookDirectImplTest extends OrderBookBaseTest {
 
     @Override
     protected IOrderBook createNewOrderBook() {
-        return new OrderBookDirectImpl(TestConstants.SYMBOLSPEC_EUR_USD, ObjectsPool.createDefaultTestPool());
+        return new OrderBookDirectImpl(
+                TestConstants.SYMBOLSPEC_EUR_USD,
+                ObjectsPool.createDefaultTestPool(),
+                OrderBookEventsHelper.NON_POOLED_EVENTS_HELPER);
     }
 }

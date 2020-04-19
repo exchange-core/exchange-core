@@ -39,6 +39,8 @@ import static exchange.core2.core.ExchangeCore.EVENTS_POOLING;
 @RequiredArgsConstructor
 public final class OrderBookEventsHelper {
 
+    public static final OrderBookEventsHelper NON_POOLED_EVENTS_HELPER = new OrderBookEventsHelper(MatcherTradeEvent::new);
+
     private final Supplier<MatcherTradeEvent> eventChainsSupplier;
 
     private MatcherTradeEvent eventsChainHead;
@@ -48,7 +50,7 @@ public final class OrderBookEventsHelper {
                                             final boolean takerCompleted,
                                             final long size,
                                             final long bidderHoldPrice) {
-                                            //final long takerOrderTimestamp
+        //final long takerOrderTimestamp
 
 //        log.debug("** sendTradeEvent: active id:{} matched id:{}", activeOrder.orderId, matchingOrder.orderId);
 //        log.debug("** sendTradeEvent: price:{} v:{}", price, v);

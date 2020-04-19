@@ -21,7 +21,6 @@ import com.lmax.disruptor.TimeoutException;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.EventHandlerGroup;
 import com.lmax.disruptor.dsl.ProducerType;
-import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.CoreWaitStrategy;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
@@ -40,7 +39,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
-import java.util.function.BiFunction;
 import java.util.function.ObjLongConsumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -103,7 +101,7 @@ public final class ExchangeCore {
 
 
         final ThreadFactory threadFactory = perfCfg.getThreadFactory();
-        final BiFunction<CoreSymbolSpecification, ObjectsPool, IOrderBook> orderBookFactory = perfCfg.getOrderBookFactory();
+        final IOrderBook.OrderBookFactory orderBookFactory = perfCfg.getOrderBookFactory();
         final CoreWaitStrategy waitStrategy = perfCfg.getWaitStrategy();
 
         final int matchingEnginesNum = perfCfg.getMatchingEnginesNum();
