@@ -50,7 +50,7 @@ public final class TestOrdersGenerator {
 
     public static final double CENTRAL_MOVE_ALPHA = 0.01;
 
-    public static final int CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND = 256;
+    public static final int CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND = 512;
 
     public static final UnaryOperator<Integer> UID_PLAIN_MAPPER = i -> i + 1;
 
@@ -78,15 +78,15 @@ public final class TestOrdersGenerator {
 
             for (int i = coreSymbolSpecifications.size() - 1; i >= 0; i--) {
                 final CoreSymbolSpecification spec = coreSymbolSpecifications.get(i);
-                final int numOrdersTarget = (int) (targetOrderBookOrdersTotal * distribution[i]);
+                final int orderBookSizeTarget = (int) (targetOrderBookOrdersTotal * distribution[i]);
                 final int commandsNum = (i != 0) ? (int) (totalTransactionsNumber * distribution[i]) : quotaLeft;
                 quotaLeft -= commandsNum;
-                //log.debug("{}. Generating symbol {} : commands={} numOrdersTarget={}", i, symbolId, commandsNum, numOrdersTarget);
+//                log.debug("{}. Generating symbol {} : commands={} orderBookSizeTarget={}", i, spec.symbolId, commandsNum, orderBookSizeTarget);
                 futures.put(spec.symbolId, CompletableFuture.supplyAsync(() -> {
                     final int[] uidsAvailableForSymbol = UserCurrencyAccountsGenerator.createUserListForSymbol(usersAccounts, spec, commandsNum);
                     final int numUsers = uidsAvailableForSymbol.length;
                     final UnaryOperator<Integer> uidMapper = idx -> uidsAvailableForSymbol[idx];
-                    return generateCommands(commandsNum, numOrdersTarget, numUsers, uidMapper, spec.symbolId, false, config.avalancheIOC, sharedProgressLogger, seed);
+                    return generateCommands(commandsNum, orderBookSizeTarget, numUsers, uidMapper, spec.symbolId, false, config.avalancheIOC, sharedProgressLogger, seed);
                 }));
             }
 
@@ -102,15 +102,22 @@ public final class TestOrdersGenerator {
 
         final int benchmarkCmdSize = genResults.values().stream().mapToInt(genResult -> genResult.commandsBenchmark.size()).sum();
 
+        final CompletableFuture<List<ApiCommand>> apiCommandsFill = mergeCommands(genResults, config.seed, false, CompletableFuture.completedFuture(null));
+        final CompletableFuture<List<ApiCommand>> apiCommandsBenchmark = mergeCommands(genResults, config.seed, true, apiCommandsFill);
+
         return MultiSymbolGenResult.builder()
                 .genResults(genResults)
-                .apiCommandsBenchmark(mergeCommands(genResults, config.seed, true))
-                .apiCommandsFill(mergeCommands(genResults, config.seed, false))
+                .apiCommandsFill(apiCommandsFill)
+                .apiCommandsBenchmark(apiCommandsBenchmark)
                 .benchmarkCommandsSize(benchmarkCmdSize)
                 .build();
     }
 
-    private static CompletableFuture<List<ApiCommand>> mergeCommands(Map<Integer, GenResult> genResults, long seed, boolean takeBenchmark) {
+    private static CompletableFuture<List<ApiCommand>> mergeCommands(
+            Map<Integer, GenResult> genResults,
+            long seed,
+            boolean takeBenchmark,
+            CompletableFuture<?> runAfterThis) {
 
         final List<List<OrderCommand>> commandsLists = genResults.values().stream()
                 .map(genResult -> takeBenchmark ? genResult.commandsBenchmark : genResult.commandsFill)
@@ -121,15 +128,17 @@ public final class TestOrdersGenerator {
 
         final List<OrderCommand> merged = RandomCollectionsMerger.mergeCollections(commandsLists, seed);
 
+        final CompletableFuture<List<ApiCommand>> resultFuture = runAfterThis.thenApplyAsync(ignore -> TestOrdersGenerator.convertToApiCommand(merged));
+
         if (takeBenchmark) {
-            CompletableFuture.runAsync(() -> printStatistics(merged));
+            resultFuture.thenRunAsync(() -> printStatistics(merged));
         }
 
-        return CompletableFuture.supplyAsync(() -> TestOrdersGenerator.convertToApiCommand(merged));
+        return resultFuture;
     }
 
     public static double[] createWeightedDistribution(int size, int seed) {
-        final RealDistribution paretoDistribution = new ParetoDistribution(new JDKRandomGenerator(seed), 0.001, 1.0);
+        final RealDistribution paretoDistribution = new ParetoDistribution(new JDKRandomGenerator(seed), 0.001, 1.5);
         final double[] paretoRaw = DoubleStream.generate(paretoDistribution::sample).limit(size).toArray();
 
         // normalize
@@ -188,7 +197,7 @@ public final class TestOrdersGenerator {
         final List<OrderCommand> commandsFill = new ArrayList<>();
         final List<OrderCommand> commandsBenchmark = new ArrayList<>();
 
-        int nextSizeCheck = CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND;
+        int nextSizeCheck = Math.min(CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND, targetOrderBookOrders + 1);
 
         int lastProgress = 0;
 
@@ -220,7 +229,8 @@ public final class TestOrdersGenerator {
             cmd.matcherEvent = null;
 
             if (i >= nextSizeCheck) {
-                nextSizeCheck += CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND;
+
+                nextSizeCheck += Math.min(CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND, targetOrderBookOrders + 1);
 
                 updateOrderBookSizeStat(session);
 
@@ -249,6 +259,9 @@ public final class TestOrdersGenerator {
 
         final int ordersNumAsk = session.orderBook.getOrdersNum(OrderAction.ASK);
         final int ordersNumBid = session.orderBook.getOrdersNum(OrderAction.BID);
+
+        // log.debug("ask={}, bif={} seq={} filledAtSeq={}", ordersNumAsk, ordersNumBid, session.seq, session.filledAtSeq);
+
         // regulating OB size
         session.lastOrderBookOrdersSizeAsk = ordersNumAsk;
         session.lastOrderBookOrdersSizeBid = ordersNumBid;
@@ -344,9 +357,11 @@ public final class TestOrdersGenerator {
 
         final int lackOfOrders = (action == OrderAction.ASK) ? lackOfOrdersAsk : lackOfOrdersBid;
 
-        final boolean requireFastFill = lackOfOrders > (CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND / 2);
+        final boolean requireFastFill = session.filledAtSeq == null || lackOfOrders > Math.min(CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND, session.targetOrderBookOrdersHalf * 3 / 4);
 
         final boolean growOrders = lackOfOrders > 0;
+
+        //log.debug("{} growOrders={} requireFastFill={} lackOfOrders({})={}", session.seq, growOrders, requireFastFill, action, lackOfOrders);
 
         if (session.filledAtSeq == null && !growOrders) {
             session.filledAtSeq = session.seq;

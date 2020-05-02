@@ -22,7 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 
 @Slf4j
-public final class PerfThroughput {
+public final class PerfThroughputJournaling {
 
     // TODO shutdown disruptor if test fails
 
@@ -43,7 +43,7 @@ public final class PerfThroughput {
                         .msgsInGroupLimit(1536)
                         .build(),
                 TestDataParameters.singlePairMarginBuilder().build(),
-                InitialStateConfiguration.CLEAN_TEST,
+                InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
                 50);
     }
 
@@ -57,29 +57,7 @@ public final class PerfThroughput {
                         .msgsInGroupLimit(1536)
                         .build(),
                 TestDataParameters.singlePairExchangeBuilder().build(),
-                InitialStateConfiguration.CLEAN_TEST,
-                50);
-    }
-
-    @Test
-    public void testThroughputPeak() {
-        ThroughputTestsModule.throughputTestImpl(
-                PerformanceConfiguration.throughputPerformanceBuilder()
-                        .ringBufferSize(32 * 1024)
-                        .matchingEnginesNum(4)
-                        .riskEnginesNum(2)
-                        .msgsInGroupLimit(1536)
-                        .build(),
-                TestDataParameters.builder()
-                        .totalTransactionsNumber(3_000_000)
-                        .targetOrderBookOrdersTotal(10_000)
-                        .numAccounts(10_000)
-                        .currenciesAllowed(TestConstants.ALL_CURRENCIES)
-                        .numSymbols(100)
-                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
-                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
-                        .build(),
-                InitialStateConfiguration.CLEAN_TEST,
+                InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
                 50);
     }
 
@@ -96,7 +74,7 @@ public final class PerfThroughput {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder().build(),
                 TestDataParameters.mediumBuilder().build(),
-                InitialStateConfiguration.CLEAN_TEST,
+                InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
                 25);
     }
 
@@ -114,7 +92,7 @@ public final class PerfThroughput {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder().build(),
                 TestDataParameters.largeBuilder().build(),
-                InitialStateConfiguration.CLEAN_TEST,
+                InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
                 25);
     }
 
@@ -130,12 +108,9 @@ public final class PerfThroughput {
     @Test
     public void testThroughputMultiSymbolHuge() {
         ThroughputTestsModule.throughputTestImpl(
-                PerformanceConfiguration.throughputPerformanceBuilder()
-                        .matchingEnginesNum(4)
-                        .riskEnginesNum(2)
-                        .build(),
+                PerformanceConfiguration.throughputPerformanceBuilder().build(),
                 TestDataParameters.hugeBuilder().build(),
-                InitialStateConfiguration.CLEAN_TEST,
+                InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
                 25);
     }
 

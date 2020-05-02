@@ -57,8 +57,6 @@ public class PersistenceTestsModule {
 
             try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, firstStartConfig)) {
 
-                final ExchangeApi api = container.getApi();
-
                 container.loadSymbolsUsersAndPrefillOrders(testDataFutures);
 
                 log.info("Creating snapshot...");

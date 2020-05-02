@@ -88,13 +88,13 @@ public final class PerfLatency {
                         .build(),
                 TestDataParameters.mediumBuilder().build(),
                 InitialStateConfiguration.CLEAN_TEST,
-                4);
+                8);
     }
 
     /**
      * This is high load latency test for verifying exchange core scalability:
      * - 3M active users (10M currency accounts)
-     * - 4M pending limit-orders
+     * - 3M pending limit-orders
      * - 1M+ messages per second throughput
      * - 100K symbols
      * - less than 1 millisecond 99.99% latency
@@ -111,7 +111,7 @@ public final class PerfLatency {
                         .build(),
                 TestDataParameters.largeBuilder().build(),
                 InitialStateConfiguration.CLEAN_TEST,
-                3);
+                4);
     }
 
     /**

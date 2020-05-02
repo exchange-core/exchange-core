@@ -95,8 +95,8 @@ public final class PerformanceConfiguration {
 
         return builder()
                 .ringBufferSize(64 * 1024)
-                .matchingEnginesNum(2)
-                .riskEnginesNum(4)
+                .matchingEnginesNum(4)
+                .riskEnginesNum(2)
                 .msgsInGroupLimit(2048)
                 .threadFactory(new AffinityThreadFactory(AffinityThreadFactory.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE))
                 .waitStrategy(CoreWaitStrategy.BUSY_SPIN)

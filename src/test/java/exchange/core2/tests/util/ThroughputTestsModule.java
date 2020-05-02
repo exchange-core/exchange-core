@@ -29,11 +29,12 @@ public class ThroughputTestsModule {
 
     public static void throughputTestImpl(final PerformanceConfiguration performanceConfiguration,
                                           final TestDataParameters testDataParameters,
+                                          final InitialStateConfiguration initialStateConfiguration,
                                           final int iterations) {
 
         final ExchangeTestContainer.TestDataFutures testDataFutures = ExchangeTestContainer.prepareTestDataAsync(testDataParameters, 1);
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, InitialStateConfiguration.CLEAN_TEST)) {
+        try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, initialStateConfiguration)) {
 
             final float avgMt = container.executeTestingThread(
                     () -> (float) IntStream.range(0, iterations)

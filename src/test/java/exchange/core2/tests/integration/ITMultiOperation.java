@@ -15,6 +15,7 @@
  */
 package exchange.core2.tests.integration;
 
+import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.tests.util.*;
 import org.junit.Test;
@@ -38,6 +39,7 @@ public class ITMultiOperation {
                         .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.FUTURES_CONTRACT)
                         .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
                         .build(),
+                InitialStateConfiguration.CLEAN_TEST,
                 2
         );
     }
@@ -58,6 +60,7 @@ public class ITMultiOperation {
                         .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.CURRENCY_EXCHANGE_PAIR)
                         .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
                         .build(),
+                InitialStateConfiguration.CLEAN_TEST,
                 2);
     }
 
@@ -77,6 +80,7 @@ public class ITMultiOperation {
                         .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
                         .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
                         .build(),
+                InitialStateConfiguration.CLEAN_TEST,
                 2);
     }
 }
