@@ -41,12 +41,12 @@ import static org.junit.Assert.*;
 //TODO test cases are moved to cucumber scenarios, remove this class
 public final class ITExchangeCoreIntegration {
 
-    @Test(timeout = 10_000)
+    @Test(timeout = 5_000)
     public void basicFullCycleTestMargin() throws Exception {
         basicFullCycleTest(SYMBOLSPEC_EUR_USD);
     }
 
-    @Test(timeout = 10_000)
+    @Test(timeout = 5_000)
     public void basicFullCycleTestExchange() throws Exception {
 
         basicFullCycleTest(SYMBOLSPEC_ETH_XBT);
@@ -176,7 +176,7 @@ public final class ITExchangeCoreIntegration {
     }
 
 
-    @Test(timeout = 30_000)
+    @Test(timeout = 5_000)
     public void exchangeRiskBasicTest() throws Exception {
 
         try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
@@ -265,7 +265,7 @@ public final class ITExchangeCoreIntegration {
         }
     }
 
-    @Test(timeout = 30_000)
+    @Test(timeout = 5_000)
     public void exchangeRiskMoveTest() throws Exception {
 
         try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
@@ -508,7 +508,7 @@ public final class ITExchangeCoreIntegration {
         }
     }
 
-    @Test(timeout = 10_000)
+    @Test(timeout = 5_000)
     public void exchangeCancelBid() throws Exception {
 
         try (final ExchangeTestContainer container = new ExchangeTestContainer()) {

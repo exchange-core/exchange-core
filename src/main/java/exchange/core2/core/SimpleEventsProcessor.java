@@ -197,6 +197,7 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
 
     private void sendApiCommandResult(ApiCommand cmd, CommandResultCode resultCode, long timestamp, long seq) {
         cmd.timestamp = timestamp;
-        eventsHandler.commandResult(new IEventsHandler.ApiCommandResult(cmd, resultCode, seq));
+        final IEventsHandler.ApiCommandResult commandResult = new IEventsHandler.ApiCommandResult(cmd, resultCode, seq);
+        eventsHandler.commandResult(commandResult);
     }
 }

@@ -19,7 +19,6 @@ import exchange.core2.core.common.*;
 import lombok.*;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -144,7 +143,6 @@ public final class OrderCommand implements IOrder {
     public List<MatcherTradeEvent> extractEvents() {
         List<MatcherTradeEvent> list = new ArrayList<>();
         processMatcherEvents(list::add);
-        Collections.reverse(list);
         return list;
     }
 

@@ -195,8 +195,6 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
         switch (OrderBookImplType.of(bytes.readByte())) {
             case NAIVE:
                 return new OrderBookNaiveImpl(bytes);
-            case FAST:
-                return new OrderBookFastImpl(bytes, objectsPool, eventsHelper);
             case DIRECT:
                 return new OrderBookDirectImpl(bytes, objectsPool, eventsHelper);
             default:
@@ -213,7 +211,6 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     @Getter
     enum OrderBookImplType {
         NAIVE(0),
-        FAST(1),
         DIRECT(2);
 
         private byte code;
@@ -226,8 +223,6 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
             switch (code) {
                 case 0:
                     return NAIVE;
-                case 1:
-                    return FAST;
                 case 2:
                     return DIRECT;
                 default:

@@ -19,7 +19,6 @@ import exchange.core2.core.common.IOrder;
 import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.Order;
 import exchange.core2.core.common.OrderAction;
-import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.utils.SerializationUtils;
 import lombok.Getter;
 import lombok.Setter;
@@ -79,36 +78,33 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
      * Collect a list of matching orders starting from eldest records
      * Completely matching orders will be removed, partially matched order kept in the bucked.
      *
-     * @param volumeToCollect     - volume to collect
-     * @param activeOrder         -  (ignore orders same uid)
-     * @param triggerCmd          - triggered command (taker data)
-     * @param removeOrderCallback - called to remove order
-     * @param helper              - events helper
-     * @return - total matched volume
+     * @param volumeToCollect - volume to collect
+     * @param activeOrder     - for getReserveBidPrice
+     * @param helper          - events helper
+     * @return - total matched volume, events, completed orders to remove
      */
     @Override
-    public long match(long volumeToCollect, IOrder activeOrder, OrderCommand triggerCmd, Consumer<Order> removeOrderCallback, OrderBookEventsHelper helper) {
+    public MatcherResult match(long volumeToCollect, IOrder activeOrder, OrderBookEventsHelper helper) {
 
 //        log.debug("---- match: {}", volumeToCollect);
-        final long ignoreUid = activeOrder.getUid();
 
-        Iterator<Map.Entry<Long, Order>> iterator = entries.entrySet().iterator();
+        final Iterator<Map.Entry<Long, Order>> iterator = entries.entrySet().iterator();
 
         long totalMatchingVolume = 0;
 
+        final List<Long> ordersToRemove = new ArrayList<>();
+
+        MatcherTradeEvent eventsHead = null;
+        MatcherTradeEvent eventsTail = null;
+
         // iterate through all orders
         while (iterator.hasNext() && volumeToCollect > 0) {
-            Map.Entry<Long, Order> next = iterator.next();
-            Order order = next.getValue();
-
-            if (order.uid == ignoreUid) {
-                // continue uid
-                continue;
-            }
+            final Map.Entry<Long, Order> next = iterator.next();
+            final Order order = next.getValue();
 
             // calculate exact volume can fill for this order
 //            log.debug("volumeToCollect={} order: s{} f{}", volumeToCollect, order.size, order.filled);
-            long v = Math.min(volumeToCollect, order.size - order.filled);
+            final long v = Math.min(volumeToCollect, order.size - order.filled);
             totalMatchingVolume += v;
 //            log.debug("totalMatchingVolume={} v={}", totalMatchingVolume, v);
 
@@ -117,21 +113,25 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
             totalVolume -= v;
 
             // remove from order book filled orders
-            boolean fullMatch = order.size == order.filled;
+            final boolean fullMatch = order.size == order.filled;
 
-            final MatcherTradeEvent tradeEvent = helper.sendTradeEvent(order, fullMatch, volumeToCollect == 0, v,
-                    order.action == OrderAction.ASK ? activeOrder.getReserveBidPrice() : order.reserveBidPrice);
+            final long bidderHoldPrice = order.action == OrderAction.ASK ? activeOrder.getReserveBidPrice() : order.reserveBidPrice;
+            final MatcherTradeEvent tradeEvent = helper.sendTradeEvent(order, fullMatch, volumeToCollect == 0, v, bidderHoldPrice);
 
-            tradeEvent.nextEvent = triggerCmd.matcherEvent;
-            triggerCmd.matcherEvent = tradeEvent;
+            if (eventsTail == null) {
+                eventsHead = tradeEvent;
+            } else {
+                eventsTail.nextEvent = tradeEvent;
+            }
+            eventsTail = tradeEvent;
 
             if (fullMatch) {
-                removeOrderCallback.accept(order);
+                ordersToRemove.add(order.orderId);
                 iterator.remove();
             }
         }
 
-        return totalMatchingVolume;
+        return new MatcherResult(eventsHead, eventsTail, totalMatchingVolume, ordersToRemove);
     }
 
     @Override
@@ -170,13 +170,7 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
     }
 
     @Override
-    public OrderBucketImplType getImplementationType() {
-        return OrderBucketImplType.NAIVE;
-    }
-
-    @Override
     public void writeMarshallable(BytesOut bytes) {
-        bytes.writeByte(getImplementationType().getCode());
         bytes.writeLong(price);
         SerializationUtils.marshallLongMap(entries, bytes);
         bytes.writeLong(totalVolume);

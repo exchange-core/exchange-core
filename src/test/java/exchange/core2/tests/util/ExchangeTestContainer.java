@@ -44,6 +44,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.function.ObjLongConsumer;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
@@ -67,7 +68,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
     private AtomicInteger uniqueIdCounterInt = new AtomicInteger();
 
     @Setter
-    private Consumer<OrderCommand> consumer = cmd -> {
+    private ObjLongConsumer<OrderCommand> consumer = (cmd, seq) -> {
     };
 
     public static final Consumer<OrderCommand> CHECK_SUCCESS = cmd -> assertEquals(CommandResultCode.SUCCESS, cmd.resultCode);
@@ -131,7 +132,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
                 .build();
 
         this.exchangeCore = ExchangeCore.builder()
-                .resultsConsumer((cmd, seq) -> consumer.accept(cmd))
+                .resultsConsumer((cmd, seq) -> consumer.accept(cmd, seq))
                 .serializationProcessorFactory(() -> new DiskSerializationProcessor(exchangeConfiguration, DiskSerializationProcessorConfiguration.createDefaultConfig()))
                 .exchangeConfiguration(exchangeConfiguration)
                 .build();
@@ -155,20 +156,17 @@ public final class ExchangeTestContainer implements AutoCloseable {
     }
 
     public void initBasicUsers() {
+        initBasicUser(TestConstants.UID_1);
+        initBasicUser(TestConstants.UID_2);
+        initBasicUser(TestConstants.UID_3);
+        initBasicUser(TestConstants.UID_4);
+    }
 
-        final List<ApiCommand> cmds = new ArrayList<>();
-
-        cmds.add(ApiAddUser.builder().uid(TestConstants.UID_1).build());
-        cmds.add(ApiAdjustUserBalance.builder().uid(TestConstants.UID_1).transactionId(1L).amount(10_000_00L).currency(TestConstants.CURRENECY_USD).build());
-        cmds.add(ApiAdjustUserBalance.builder().uid(TestConstants.UID_1).transactionId(2L).amount(1_0000_0000L).currency(TestConstants.CURRENECY_XBT).build());
-        cmds.add(ApiAdjustUserBalance.builder().uid(TestConstants.UID_1).transactionId(3L).amount(1_0000_0000L).currency(TestConstants.CURRENECY_ETH).build());
-
-        cmds.add(ApiAddUser.builder().uid(TestConstants.UID_2).build());
-        cmds.add(ApiAdjustUserBalance.builder().uid(TestConstants.UID_2).transactionId(1L).amount(20_000_00L).currency(TestConstants.CURRENECY_USD).build());
-        cmds.add(ApiAdjustUserBalance.builder().uid(TestConstants.UID_2).transactionId(2L).amount(1_0000_0000L).currency(TestConstants.CURRENECY_XBT).build());
-        cmds.add(ApiAdjustUserBalance.builder().uid(TestConstants.UID_2).transactionId(3L).amount(1_0000_0000L).currency(TestConstants.CURRENECY_ETH).build());
-
-        api.submitCommandsSync(cmds);
+    private void initBasicUser(long uid) {
+        assertThat(api.submitCommandAsync(ApiAddUser.builder().uid(uid).build()).join(), Is.is(CommandResultCode.SUCCESS));
+        assertThat(api.submitCommandAsync(ApiAdjustUserBalance.builder().uid(uid).transactionId(1L).amount(10_000_00L).currency(TestConstants.CURRENECY_USD).build()).join(), Is.is(CommandResultCode.SUCCESS));
+        assertThat(api.submitCommandAsync(ApiAdjustUserBalance.builder().uid(uid).transactionId(2L).amount(1_0000_0000L).currency(TestConstants.CURRENECY_XBT).build()).join(), Is.is(CommandResultCode.SUCCESS));
+        assertThat(api.submitCommandAsync(ApiAdjustUserBalance.builder().uid(uid).transactionId(3L).amount(1_0000_0000L).currency(TestConstants.CURRENECY_ETH).build()).join(), Is.is(CommandResultCode.SUCCESS));
     }
 
     public void createUserWithMoney(long uid, int currency, long amount) {
@@ -401,7 +399,11 @@ public final class ExchangeTestContainer implements AutoCloseable {
      */
     public <V> V executeTestingThread(final Callable<V> test) {
         try {
-            return Executors.newFixedThreadPool(1, threadFactory).submit(test).get();
+            final ExecutorService executor = Executors.newSingleThreadExecutor(threadFactory);
+            final V result = executor.submit(test).get();
+            executor.shutdown();
+            executor.awaitTermination(3000, TimeUnit.SECONDS);
+            return result;
         } catch (ExecutionException | InterruptedException ex) {
             throw new RuntimeException(ex);
         }

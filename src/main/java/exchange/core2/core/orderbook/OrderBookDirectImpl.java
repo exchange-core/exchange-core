@@ -162,57 +162,49 @@ public final class OrderBookDirectImpl implements IOrderBook {
         final long takerReserveBidPrice = takerOrder.getReserveBidPrice();
 //        final long takerOrderTimestamp = takerOrder.getTimestamp();
 
-        // stack of own orders
-        DirectOrder skipOwnOrders = null;
-
 //        log.debug("MATCHING taker: {} remainingSize={}", takerOrder, remainingSize);
+
+        MatcherTradeEvent eventsTail = null;
 
         // iterate through all orders
         do {
 
 //            log.debug("  matching from maker order: {}", makerOrder);
 
-            if (makerOrder.uid != takerOrder.getUid()) {
-                // calculate exact volume can fill for this order
-                final long tradeSize = Math.min(remainingSize, makerOrder.size - makerOrder.filled);
+            // calculate exact volume can fill for this order
+            final long tradeSize = Math.min(remainingSize, makerOrder.size - makerOrder.filled);
 //                log.debug("  tradeSize: {} MIN(remainingSize={}, makerOrder={})", tradeSize, remainingSize, makerOrder.size - makerOrder.filled);
 
-                makerOrder.filled += tradeSize;
-                makerOrder.parent.volume -= tradeSize;
-                remainingSize -= tradeSize;
+            makerOrder.filled += tradeSize;
+            makerOrder.parent.volume -= tradeSize;
+            remainingSize -= tradeSize;
 
-                // remove from order book filled orders
-                final boolean makerCompleted = makerOrder.size == makerOrder.filled;
-                if (makerCompleted) {
-                    makerOrder.parent.numOrders--;
-                }
-
-                final MatcherTradeEvent tradeEvent = eventsHelper.sendTradeEvent(makerOrder, makerCompleted, remainingSize == 0, tradeSize,
-                        isBidAction ? takerReserveBidPrice : makerOrder.reserveBidPrice);
-
-                tradeEvent.nextEvent = triggerCmd.matcherEvent;
-                triggerCmd.matcherEvent = tradeEvent;
-
-                if (!makerCompleted) {
-                    // maker not completed -> no unmatched volume left, can exit matching loop
-//                    log.debug("  not completed, exit");
-                    break;
-                }
-
-                // if completed can remove maker order
-                orderIdIndex.remove(makerOrder.orderId);
-                objectsPool.put(ObjectsPool.DIRECT_ORDER, makerOrder);
-
-            } else {
-//                log.debug("  self UID");
-                // attach own orders to separate chain for later processing
-                // for now just pretend order is gone
-                makerOrder.next = skipOwnOrders;
-                skipOwnOrders = makerOrder;
-                // for consistency remove size from the bucket
-                makerOrder.parent.volume -= makerOrder.size - makerOrder.filled;
+            // remove from order book filled orders
+            final boolean makerCompleted = makerOrder.size == makerOrder.filled;
+            if (makerCompleted) {
                 makerOrder.parent.numOrders--;
             }
+
+            final MatcherTradeEvent tradeEvent = eventsHelper.sendTradeEvent(makerOrder, makerCompleted, remainingSize == 0, tradeSize,
+                    isBidAction ? takerReserveBidPrice : makerOrder.reserveBidPrice);
+
+            if (eventsTail == null) {
+                triggerCmd.matcherEvent = tradeEvent;
+            } else {
+                eventsTail.nextEvent = tradeEvent;
+            }
+            eventsTail = tradeEvent;
+
+            if (!makerCompleted) {
+                // maker not completed -> no unmatched volume left, can exit matching loop
+//                    log.debug("  not completed, exit");
+                break;
+            }
+
+            // if completed can remove maker order
+            orderIdIndex.remove(makerOrder.orderId);
+            objectsPool.put(ObjectsPool.DIRECT_ORDER, makerOrder);
+
 
             if (makerOrder == priceBucketTail) {
                 // reached current price tail -> remove bucket reference
@@ -249,69 +241,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
             bestBidOrder = makerOrder;
         }
 
-        // process skipped own orders
-        // the insertion order is naturally reversed (as expected)
-        while (skipOwnOrders != null) {
-            final DirectOrder toInsert = skipOwnOrders;
-            skipOwnOrders = skipOwnOrders.next;
-            if (isBidAction) {
-                insertOwnAskOrderIntoFront(toInsert);
-            } else {
-                insertOwnBidOrderIntoFront(toInsert);
-            }
-            //log.debug("self uid insert back: {}", skipOwnOrders);
-        }
-
         // return filled amount
         return takerOrder.getSize() - remainingSize;
-    }
-
-    private void insertOwnAskOrderIntoFront(DirectOrder selfOrder) {
-        //                log.debug("+ insert  self uid order {}", selfOrder);
-        selfOrder.next = null;
-        selfOrder.prev = bestAskOrder;
-        if (bestAskOrder != null) {
-            bestAskOrder.next = selfOrder;
-        }
-        bestAskOrder = selfOrder;
-
-        // update bucket/parent accordingly (check if bucket exists)
-        // TODO can remember last bucket/price to avoid discovering each time
-        Bucket bucket = askPriceBuckets.get(selfOrder.price);
-        if (bucket == null) {
-            bucket = objectsPool.get(ObjectsPool.DIRECT_BUCKET, Bucket::new);
-            bucket.tail = selfOrder;
-            bucket.volume = 0;
-            bucket.numOrders = 0;
-            askPriceBuckets.put(selfOrder.price, bucket);
-        }
-        bucket.numOrders++;
-        bucket.volume += selfOrder.size - selfOrder.filled;
-        selfOrder.parent = bucket;
-    }
-
-    private void insertOwnBidOrderIntoFront(DirectOrder selfOrder) {
-        //                log.debug("+ insert  self uid order {}", selfOrder);
-        selfOrder.next = null;
-        selfOrder.prev = bestBidOrder;
-        if (bestBidOrder != null) {
-            bestBidOrder.next = selfOrder;
-        }
-        bestBidOrder = selfOrder;
-
-        // update bucket/parent accordingly (check if bucket exists)
-        // TODO can remember last bucket/price to avoid discovering each time
-        Bucket bucket = bidPriceBuckets.get(selfOrder.price);
-        if (bucket == null) {
-            bucket = objectsPool.get(ObjectsPool.DIRECT_BUCKET, Bucket::new);
-            bucket.tail = selfOrder;
-            bucket.volume = 0;
-            bucket.numOrders = 0;
-            bidPriceBuckets.put(selfOrder.price, bucket);
-        }
-        bucket.numOrders++;
-        bucket.volume += selfOrder.size - selfOrder.filled;
-        selfOrder.parent = bucket;
     }
 
     @Override
@@ -333,7 +264,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         // fill action fields (for events handling)
         cmd.action = order.getAction();
 
-        eventsHelper.sendReduceEvent(cmd, order, order.getSize() - order.getFilled(), true);
+        cmd.matcherEvent = eventsHelper.sendReduceEvent(order, order.getSize() - order.getFilled(), true);
 
         return CommandResultCode.SUCCESS;
     }
@@ -371,7 +302,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
             order.parent.volume -= reduceBy;
         }
 
-        eventsHelper.sendReduceEvent(cmd, order, reduceBy, canRemove);
+        cmd.matcherEvent = eventsHelper.sendReduceEvent(order, reduceBy, canRemove);
 
         // fill action fields (for events handling)
         cmd.action = order.getAction();

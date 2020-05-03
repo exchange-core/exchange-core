@@ -76,7 +76,7 @@ public final class OrderBookEventsHelper {
 
     }
 
-    public void sendReduceEvent(final OrderCommand cmd, final IOrder order, final long reduceSize, final boolean completed) {
+    public MatcherTradeEvent sendReduceEvent(final IOrder order, final long reduceSize, final boolean completed) {
 //        log.debug("Cancel ");
         final MatcherTradeEvent event = newMatcherEvent();
         event.eventType = MatcherEventType.REDUCE;
@@ -91,8 +91,7 @@ public final class OrderBookEventsHelper {
 
         event.bidderHoldPrice = order.getReserveBidPrice(); // set order reserved price for correct released EBids
 
-        event.nextEvent = cmd.matcherEvent;
-        cmd.matcherEvent = event;
+        return event;
     }
 
 
@@ -163,6 +162,7 @@ public final class OrderBookEventsHelper {
 
     public static NavigableMap<Integer, Wire> deserializeEvents(final MatcherTradeEvent evtHead) {
 
+        // TODO Optimize
         final Map<Integer, List<MatcherTradeEvent>> sections = MatcherTradeEvent.asList(evtHead).stream()
                 .collect(Collectors.groupingBy(evt -> evt.section, Collectors.toList()));
 

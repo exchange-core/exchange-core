@@ -16,10 +16,9 @@
 package exchange.core2.core.orderbook;
 
 import exchange.core2.core.common.IOrder;
+import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.Order;
-import exchange.core2.core.common.cmd.OrderCommand;
-import lombok.Getter;
-import net.openhft.chronicle.bytes.BytesIn;
+import lombok.AllArgsConstructor;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 
 import java.util.Arrays;
@@ -50,14 +49,12 @@ public interface IOrdersBucket extends Comparable<IOrdersBucket>, WriteBytesMars
      * Match specified volume,
      * ignore orders from uid
      *
-     * @param volumeToCollect     - volume to collect
-     * @param activeOrder         -  (ignore orders same uid)
-     * @param triggerCmd          - triggered command (taker data)
-     * @param removeOrderCallback - called to remove order
-     * @param helper              - events helper
-     * @return - total matched volume
+     * @param volumeToCollect - volume to collect
+     * @param activeOrder     - for getReserveBidPrice
+     * @param helper          - events helper
+     * @return - total matched volume, events, completed orders to remove
      */
-    long match(long volumeToCollect, IOrder activeOrder, OrderCommand triggerCmd, Consumer<Order> removeOrderCallback, OrderBookEventsHelper helper);
+    MatcherResult match(long volumeToCollect, IOrder activeOrder, OrderBookEventsHelper helper);
 
     /**
      * Get number of orders in the bucket
@@ -83,6 +80,7 @@ public interface IOrdersBucket extends Comparable<IOrdersBucket>, WriteBytesMars
 
     /**
      * Reduce size of the order
+     *
      * @param reduceSize - size to reduce (difference)
      */
     void reduceSize(long reduceSize);
@@ -112,55 +110,12 @@ public interface IOrdersBucket extends Comparable<IOrdersBucket>, WriteBytesMars
      */
     void forEachOrder(Consumer<Order> consumer);
 
-
-    /**
-     * @return actual implementation
-     */
-    OrderBucketImplType getImplementationType();
-
-    static IOrdersBucket create(OrderBucketImplType type) {
-        switch (type) {
-            case NAIVE:
-                return new OrdersBucketNaiveImpl();
-            case FAST:
-                return new OrdersBucketFastImpl();
-            default:
-                throw new IllegalArgumentException();
-        }
-    }
-
-    static IOrdersBucket create(BytesIn bytes) {
-        switch (OrderBucketImplType.of(bytes.readByte())) {
-            case NAIVE:
-                return new OrdersBucketNaiveImpl(bytes);
-            case FAST:
-                return new OrdersBucketFastImpl(bytes);
-            default:
-                throw new IllegalArgumentException();
-        }
-    }
-
-    @Getter
-    enum OrderBucketImplType {
-        NAIVE(0),
-        FAST(1);
-
-        private byte code;
-
-        OrderBucketImplType(int code) {
-            this.code = (byte) code;
-        }
-
-        public static OrderBucketImplType of(byte code) {
-            switch (code) {
-                case 0:
-                    return NAIVE;
-                case 1:
-                    return FAST;
-                default:
-                    throw new IllegalArgumentException("unknown OrderBucketImplType:" + code);
-            }
-        }
+    @AllArgsConstructor
+    final class MatcherResult {
+        public MatcherTradeEvent eventsChainHead;
+        public MatcherTradeEvent eventsChainTail;
+        public long volume;
+        public List<Long> ordersToRemove;
     }
 
     // testing only

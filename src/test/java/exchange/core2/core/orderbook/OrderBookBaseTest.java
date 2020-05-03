@@ -491,8 +491,8 @@ public abstract class OrderBookBaseTest {
         List<MatcherTradeEvent> events = cmd.extractEvents();
         assertThat(events.size(), is(7));
 
-        // 7 trades generated and then rejection with size=25 left unmatched
-        checkEventRejection(events.get(6), 25L, 400000L, MAX_PRICE + 1);
+        // 6 trades generated, first comes rejection with size=25 left unmatched
+        checkEventRejection(events.get(0), 25L, 400000L, MAX_PRICE + 1);
     }
 
     // MARKETABLE GTC ORDERS

@@ -27,14 +27,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Random;
-import java.util.function.Consumer;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
-
-// TODO add test ignoring own order
 
 @Slf4j
 public abstract class OrdersBucketBaseTest {
@@ -47,9 +44,6 @@ public abstract class OrdersBucketBaseTest {
     protected abstract IOrdersBucket createNewBucket();
 
     protected final OrderBookEventsHelper eventsHelper = new OrderBookEventsHelper(MatcherTradeEvent::new);
-
-    public final static Consumer<Order> IGNORE_CMD_CONSUMER = cmd -> {
-    };
 
     protected IOrdersBucket bucket;
 
@@ -198,8 +192,9 @@ public abstract class OrdersBucketBaseTest {
         }
 
         OrderCommand triggerOrd = OrderCommand.update(8182, UID_9, 1000);
-        bucket.match(expectedVolume, triggerOrd, triggerOrd, IGNORE_CMD_CONSUMER, eventsHelper);
-        assertThat(triggerOrd.extractEvents().size(), is(expectedNumOrders));
+        IOrdersBucket.MatcherResult matcherResult = bucket.match(expectedVolume, triggerOrd, eventsHelper);
+
+        assertThat(MatcherTradeEvent.asList(matcherResult.eventsChainHead).size(), is(expectedNumOrders));
 
         assertThat(bucket.getNumOrders(), is(0));
         assertThat(bucket.getTotalVolume(), is(0L));
@@ -252,7 +247,9 @@ public abstract class OrdersBucketBaseTest {
             long toMatch = expectedVolume / 2;
 
             OrderCommand triggerOrd = OrderCommand.update(119283900, UID_9, 1000);
-            long totalVolume = bucket.match(toMatch, triggerOrd, triggerOrd, IGNORE_CMD_CONSUMER, eventsHelper);
+
+            IOrdersBucket.MatcherResult matcherResult = bucket.match(toMatch, triggerOrd, eventsHelper);
+            long totalVolume = matcherResult.volume;
             assertThat(totalVolume, is(toMatch));
             expectedVolume -= totalVolume;
             assertThat(bucket.getTotalVolume(), is(expectedVolume));
@@ -262,8 +259,10 @@ public abstract class OrdersBucketBaseTest {
         }
 
         OrderCommand triggerOrd = OrderCommand.update(1238729387, UID_9, 1000);
-        bucket.match(expectedVolume, triggerOrd, triggerOrd, IGNORE_CMD_CONSUMER, eventsHelper);
-        assertThat(triggerOrd.extractEvents().size(), is(expectedNumOrders));
+
+        IOrdersBucket.MatcherResult matcherResult = bucket.match(expectedVolume, triggerOrd, eventsHelper);
+
+        assertThat(MatcherTradeEvent.asList(matcherResult.eventsChainHead).size(), is(expectedNumOrders));
 
         assertThat(bucket.getNumOrders(), is(0));
         assertThat(bucket.getTotalVolume(), is(0L));

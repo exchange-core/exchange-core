@@ -80,7 +80,7 @@ public class LatencyTestsModule {
 
                     final CountDownLatch latchBenchmark = new CountDownLatch(genResult.getBenchmarkCommandsSize());
 
-                    container.setConsumer(cmd -> {
+                    container.setConsumer((cmd, seq) -> {
                         final long latency = System.nanoTime() - cmd.timestamp;
                         hdrRecorder.recordValue(Math.min(latency, Integer.MAX_VALUE));
                         latchBenchmark.countDown();
@@ -101,7 +101,7 @@ public class LatencyTestsModule {
                     }
 
                     latchBenchmark.await();
-                    container.setConsumer(cmd -> {
+                    container.setConsumer((cmd, seq) -> {
                     });
 
                     final long processingTimeMs = System.currentTimeMillis() - startTimeMs;
@@ -179,7 +179,7 @@ public class LatencyTestsModule {
                     MutableInteger counter = new MutableInteger(0);
 
                     final AtomicLong orderProgressCounter = new AtomicLong(0);
-                    container.setConsumer(cmd -> {
+                    container.setConsumer((cmd, seq) -> {
 
                         orderProgressCounter.lazySet(cmd.timestamp);
 
@@ -210,7 +210,7 @@ public class LatencyTestsModule {
                         }
                     }
 
-                    container.setConsumer(cmd -> {
+                    container.setConsumer((cmd, seq) -> {
                     });
 
                     final Map<Class<? extends ApiCommand>, SingleWriterRecorder> commandsClassLatencies = new HashMap<>();
@@ -334,7 +334,7 @@ public class LatencyTestsModule {
 
                     final MutableLong nextHiccupAcceptTimestampNs = new MutableLong(0);
 
-                    container.setConsumer(cmd -> {
+                    container.setConsumer((cmd, seq) -> {
                         long now = System.nanoTime();
                         // skip other messages in delayed group
                         if (now < nextHiccupAcceptTimestampNs.value) {
@@ -366,7 +366,7 @@ public class LatencyTestsModule {
 
                     latchBenchmark.await();
 
-                    container.setConsumer(cmd -> {
+                    container.setConsumer((cmd, seq) -> {
                     });
 
                     final TreeMap<ZonedDateTime, Long> sorted = new TreeMap<>();

@@ -57,8 +57,8 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
     public OrderBookNaiveImpl(final BytesIn bytes) {
         this.symbolSpec = new CoreSymbolSpecification(bytes);
-        this.askBuckets = SerializationUtils.readLongMap(bytes, TreeMap::new, IOrdersBucket::create);
-        this.bidBuckets = SerializationUtils.readLongMap(bytes, () -> new TreeMap<>(Collections.reverseOrder()), IOrdersBucket::create);
+        this.askBuckets = SerializationUtils.readLongMap(bytes, TreeMap::new, OrdersBucketNaiveImpl::new);
+        this.bidBuckets = SerializationUtils.readLongMap(bytes, () -> new TreeMap<>(Collections.reverseOrder()), OrdersBucketNaiveImpl::new);
 
         this.eventsHelper = new OrderBookEventsHelper(() -> MatcherTradeEvent.createEventChain(512));
         // reconstruct ordersId-> Order cache
@@ -154,17 +154,29 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
         final long orderSize = activeOrder.getSize();
 
+        MatcherTradeEvent eventsTail = null;
+
         List<Long> emptyBuckets = new ArrayList<>();
         for (IOrdersBucket bucket : matchingBuckets.values()) {
 
 //            log.debug("Matching bucket: {} ...", bucket);
 //            log.debug("... with order: {}", activeOrder);
 
-            //OrderMatchingResult matchingOrders = bucket.match(activeOrder.size - filled, activeOrder.uid);
-
             final long sizeLeft = orderSize - filled;
 
-            filled += bucket.match(sizeLeft, activeOrder, triggerCmd, this::removeFullyMatchedOrder, eventsHelper);
+            final IOrdersBucket.MatcherResult bucketMatchings = bucket.match(sizeLeft, activeOrder, eventsHelper);
+
+            bucketMatchings.ordersToRemove.forEach(idMap::remove);
+
+            filled += bucketMatchings.volume;
+
+            // attach chain received from bucket matcher
+            if (eventsTail == null) {
+                triggerCmd.matcherEvent = bucketMatchings.eventsChainHead;
+            } else {
+                eventsTail.nextEvent = bucketMatchings.eventsChainHead;
+            }
+            eventsTail = bucketMatchings.eventsChainTail;
 
 //            log.debug("Matching orders: {}", matchingOrders);
 //            log.debug("order.filled: {}", activeOrder.filled);
@@ -190,10 +202,6 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 //        log.debug("matchingRecords: {}", matchingRecords);
 
         return filled;
-    }
-
-    private void removeFullyMatchedOrder(Order mOrder) {
-        idMap.remove(mOrder.orderId);
     }
 
     /**
@@ -229,7 +237,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         }
 
         // send reduce event
-        eventsHelper.sendReduceEvent(cmd, order, order.getSize() - order.getFilled(), true);
+        cmd.matcherEvent = eventsHelper.sendReduceEvent(order, order.getSize() - order.getFilled(), true);
 
         // fill action fields (for events handling)
         cmd.action = order.getAction();
@@ -282,7 +290,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         }
 
         // send reduce event
-        eventsHelper.sendReduceEvent(cmd, order, reduceBy, canRemove);
+        cmd.matcherEvent = eventsHelper.sendReduceEvent(order, reduceBy, canRemove);
 
         // fill action fields (for events handling)
         cmd.action = order.getAction();

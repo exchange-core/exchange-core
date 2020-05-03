@@ -103,7 +103,7 @@ public final class PerfThroughput {
      * - 3M active users (10M currency accounts)
      * - 3M pending limit-orders
      * - 1M+ messages per second throughput
-     * - 100K symbols
+     * - 50K symbols
      * - less than 1 millisecond 99.99% latency
      * 12-threads CPU and 32GiB RAM is required for running this test in 2+4 configuration.
      */
@@ -121,7 +121,7 @@ public final class PerfThroughput {
      * - 10M active users (33M currency accounts)
      * - 30M pending limit-orders
      * - 1M+ messages per second throughput
-     * - 200K symbols
+     * - 100K symbols
      * - less than 1 millisecond 99.99% latency
      * 12-threads CPU and 32GiB RAM is required for running this test in 2+4 configuration.
      */
