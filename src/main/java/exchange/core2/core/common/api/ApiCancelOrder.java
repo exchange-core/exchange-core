@@ -17,9 +17,11 @@ package exchange.core2.core.common.api;
 
 
 import lombok.Builder;
+import lombok.EqualsAndHashCode;
 import lombok.RequiredArgsConstructor;
 
 @Builder
+@EqualsAndHashCode(callSuper = false)
 @RequiredArgsConstructor
 public final class ApiCancelOrder extends ApiCommand {
 
@@ -30,6 +32,6 @@ public final class ApiCancelOrder extends ApiCommand {
 
     @Override
     public String toString() {
-        return "[CANCEL " + orderId + "]";
+        return "[CANCEL " + orderId + " u" + uid + " s" + symbol + "]";
     }
 }

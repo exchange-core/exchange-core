@@ -103,7 +103,7 @@ public final class OrderBookEventsHelper {
 
         final MatcherTradeEvent event = newMatcherEvent();
 
-        event.eventType = MatcherEventType.REJECTION;
+        event.eventType = MatcherEventType.REJECT;
 
         event.section = 0;
 

@@ -27,37 +27,38 @@ import static exchange.core2.tests.util.LatencyTestsModule.latencyTestImpl;
 @Slf4j
 public final class PerfLatencyJournaling {
 
-
     /*
      * -------------- Disk Journaling tests -----------------
+     * Recommended tuned profile: latency-performance
+     *
      */
 
     @Test
     public void testLatencyMarginJournaling() {
         latencyTestImpl(
                 PerformanceConfiguration.latencyPerformanceBuilder()
-                        .ringBufferSize(2 * 1024)
+                        .ringBufferSize(32 * 1024)
                         .matchingEnginesNum(1)
                         .riskEnginesNum(1)
                         .msgsInGroupLimit(256)
                         .build(),
                 TestDataParameters.singlePairMarginBuilder().build(),
                 InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
-                16);
+                6);
     }
 
     @Test
     public void testLatencyExchangeJournaling() {
         latencyTestImpl(
                 PerformanceConfiguration.latencyPerformanceBuilder()
-                        .ringBufferSize(2 * 1024)
+                        .ringBufferSize(32 * 1024)
                         .matchingEnginesNum(1)
                         .riskEnginesNum(1)
                         .msgsInGroupLimit(256)
                         .build(),
                 TestDataParameters.singlePairExchangeBuilder().build(),
                 InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
-                16);
+                6);
     }
 
     @Test
@@ -71,7 +72,7 @@ public final class PerfLatencyJournaling {
                         .build(),
                 TestDataParameters.mediumBuilder().build(),
                 InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
-                4);
+                3);
     }
 
     @Test

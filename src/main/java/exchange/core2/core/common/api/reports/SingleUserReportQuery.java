@@ -19,6 +19,7 @@ import exchange.core2.core.common.Order;
 import exchange.core2.core.common.UserProfile;
 import exchange.core2.core.processors.MatchingEngineRouter;
 import exchange.core2.core.processors.RiskEngine;
+import lombok.EqualsAndHashCode;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
@@ -28,6 +29,7 @@ import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
+@EqualsAndHashCode
 public final class SingleUserReportQuery implements ReportQuery<SingleUserReportResult> {
 
     private final long uid;

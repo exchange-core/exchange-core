@@ -19,9 +19,11 @@ package exchange.core2.core.common.api;
 import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.OrderType;
 import lombok.Builder;
+import lombok.EqualsAndHashCode;
 import lombok.RequiredArgsConstructor;
 
 @Builder
+@EqualsAndHashCode(callSuper = false)
 @RequiredArgsConstructor
 public final class ApiPlaceOrder extends ApiCommand {
 

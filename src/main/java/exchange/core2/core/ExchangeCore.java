@@ -82,11 +82,7 @@ public final class ExchangeCore {
 
         final PerformanceConfiguration perfCfg = exchangeConfiguration.getPerfCfg();
 
-        final int msgsInGroupLimit = perfCfg.getMsgsInGroupLimit();
         final int ringBufferSize = perfCfg.getRingBufferSize();
-        if (msgsInGroupLimit > ringBufferSize / 4) {
-            throw new IllegalArgumentException("msgsInGroupLimit should be less than quarter ringBufferSize");
-        }
 
         this.disruptor = new Disruptor<>(
                 OrderCommand::new,
@@ -175,7 +171,7 @@ public final class ExchangeCore {
 
         // 1. grouping processor (G)
         final EventHandlerGroup<OrderCommand> afterGrouping =
-                disruptor.handleEventsWith((rb, bs) -> new GroupingProcessor(rb, rb.newBarrier(bs), msgsInGroupLimit, waitStrategy, sharedPool));
+                disruptor.handleEventsWith((rb, bs) -> new GroupingProcessor(rb, rb.newBarrier(bs), perfCfg, waitStrategy, sharedPool));
 
         // 2. [journaling (J)] in parallel with risk hold (R1) + matching engine (ME)
 

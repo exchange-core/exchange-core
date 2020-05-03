@@ -15,9 +15,15 @@ import lombok.Getter;
 public final class ExchangeConfiguration {
 
     /*
+     * Orders processing configuration
+     */
+    private final OrdersProcessingConfiguration ordersProcessingCfg;
+
+    /*
      * Performance configuration
      */
     private final PerformanceConfiguration perfCfg;
+
 
     /*
      * Exchange initialization configuration
@@ -36,6 +42,7 @@ public final class ExchangeConfiguration {
      */
     public static ExchangeConfiguration.ExchangeConfigurationBuilder defaultBuilder() {
         return ExchangeConfiguration.builder()
+                .ordersProcessingCfg(OrdersProcessingConfiguration.DEFAULT)
                 .initStateCfg(InitialStateConfiguration.cleanStart("MY_EXCHANGE"))
                 .perfCfg(PerformanceConfiguration.baseBuilder().build())
                 .reportsQueriesCfg(ReportsQueriesConfiguration.createStandardConfig());

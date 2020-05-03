@@ -18,6 +18,7 @@ package exchange.core2.core.common.api.reports;
 
 import exchange.core2.core.utils.SerializationUtils;
 import lombok.AllArgsConstructor;
+import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
@@ -26,6 +27,7 @@ import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import java.util.stream.Stream;
 
 @AllArgsConstructor
+@EqualsAndHashCode
 @Getter
 public final class TotalCurrencyBalanceReportResult implements ReportResult {
 

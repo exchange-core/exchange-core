@@ -17,6 +17,7 @@ package exchange.core2.core.common;
 
 
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.NoArgsConstructor;
 import org.jetbrains.annotations.NotNull;
 
@@ -24,34 +25,42 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
+// TODO move activeOrderCompleted, eventType, section into the order?
+// TODO REDUCE needs remaining size (can write into size), bidderHoldPrice - can write into price
+// TODO REJECT needs remaining size (can not write into size),
+
 @AllArgsConstructor
 @NoArgsConstructor
+@Builder
 public final class MatcherTradeEvent {
-    /*
-        CANCEL needs remaining size (can write into size), bidderHoldPrice - can write into price
-        REJECT needs remaining size (can not write into size),
-     */
 
-    // TODO move to the order?
-    public MatcherEventType eventType; // TRADE, CANCEL, REJECTION (rare) or BINARY_EVENT (reports data)
+    public MatcherEventType eventType; // TRADE, REDUCE, REJECT (rare) or BINARY_EVENT (reports data)
 
-    // TODO join (requires 11+ bits)
     public int section;
 
-    // taker (for TRADE)
-    // TODO move to the order?
-    public boolean activeOrderCompleted; // false, except when activeOrder is completely filled, removed or rejected
+    // TODO join (requires 11+ bits)
+    // false, except when activeOrder is completely filled, removed or rejected
+    // it is always true for REJECT event
+    // it is true for REDUCE event if reduce was triggered by COMMAND
+    public boolean activeOrderCompleted;
 
-    // maker (for TRADE)
+    // maker (for TRADE event type only)
     public long matchedOrderId;
     public long matchedOrderUid; // 0 for rejection
     public boolean matchedOrderCompleted; // false, except when matchedOrder is completely filled
 
-    public long price; // actual price of the deal (from maker order), 0 for rejection
-    public long size;  // trade size, or unmatched size for REJECTION or CANCEL
+    // actual price of the deal (from maker order), 0 for rejection (price can be take from original order)
+    public long price;
+
+    // TRADE - trade size
+    // REDUCE - effective reduce size of REDUCE command, or not filled size for CANCEL command
+    // REJECT - unmatched size of rejected order
+    public long size;
+
     //public long timestamp; // same as activeOrder related event timestamp
 
-    public long bidderHoldPrice; // frozen price from BID order owner (depends on activeOrderAction)
+    // frozen price from BID order owner (depends on activeOrderAction)
+    public long bidderHoldPrice;
 
     // reference to next event in chain
     public MatcherTradeEvent nextEvent;

@@ -309,7 +309,7 @@ public final class TestOrdersGenerator {
                 session.priceDirection = -1;
             }
 
-        } else if (ev.eventType == MatcherEventType.REJECTION) {
+        } else if (ev.eventType == MatcherEventType.REJECT) {
             session.numRejected++;
 
             // update order book stat if order get rejected

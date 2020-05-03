@@ -17,8 +17,10 @@ package exchange.core2.core.common.api;
 
 
 import lombok.Builder;
+import lombok.EqualsAndHashCode;
 
 @Builder
+@EqualsAndHashCode(callSuper = false)
 public final class ApiResumeUser extends ApiCommand {
 
     public final long uid;

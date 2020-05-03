@@ -25,6 +25,7 @@ import exchange.core2.core.common.api.reports.ReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.config.ExchangeConfiguration;
+import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.processors.journaling.ISerializationProcessor;
 import exchange.core2.core.utils.CoreArithmeticUtils;
 import exchange.core2.core.utils.HashingUtils;
@@ -65,6 +66,8 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
     // configuration
     private final int shardId;
     private final long shardMask;
+
+    private final boolean ignoreRiskProcessing;
 
     private final ISerializationProcessor serializationProcessor;
 
@@ -145,6 +148,9 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             this.adjustments = new IntLongHashMap();
             this.suspends = new IntLongHashMap();
         }
+
+        final OrdersProcessingConfiguration.RiskProcessingMode riskProcessingMode = exchangeConfiguration.getOrdersProcessingCfg().getRiskProcessingMode();
+        this.ignoreRiskProcessing = riskProcessingMode == OrdersProcessingConfiguration.RiskProcessingMode.NO_RISK_PROCESSING;
     }
 
     @ToString
@@ -335,13 +341,15 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         }
 
         // check if account has enough funds
-        if (!placeOrder(cmd, userProfile, spec)) {
+        if (ignoreRiskProcessing || placeOrder(cmd, userProfile, spec)) {
+
+            return CommandResultCode.VALID_FOR_MATCHING_ENGINE;
+
+        } else {
             log.warn("{} NSF uid={}: Can not place {}", cmd.orderId, userProfile.uid, cmd);
             log.warn("{} accounts:{}", cmd.orderId, userProfile.accounts);
             return CommandResultCode.RISK_NSF;
         }
-
-        return CommandResultCode.VALID_FOR_MATCHING_ENGINE;
     }
 
 
@@ -536,7 +544,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 final long fee = spec.takerFee * sizeOpen;
                 takerUp.accounts.addToValue(spec.quoteCurrency, -fee);
                 fees.addToValue(spec.quoteCurrency, fee);
-            } else if (ev.eventType == MatcherEventType.REJECTION || ev.eventType == MatcherEventType.REDUCE) {
+            } else if (ev.eventType == MatcherEventType.REJECT || ev.eventType == MatcherEventType.REDUCE) {
                 // for cancel/rejection only one party is involved
                 takerSpr.pendingRelease(takerAction, ev.size);
             }
@@ -576,7 +584,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                 processExchangeHoldRelease(ev, spec, true, takerAction, takerUp);
 
 
-            } else if (ev.eventType == MatcherEventType.REJECTION || ev.eventType == MatcherEventType.REDUCE) {
+            } else if (ev.eventType == MatcherEventType.REJECT || ev.eventType == MatcherEventType.REDUCE) {
 
 //                log.debug("CANCEL/REJ uid: {}", ev.activeOrderUid);
 

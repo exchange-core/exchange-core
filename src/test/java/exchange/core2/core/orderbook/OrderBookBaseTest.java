@@ -787,7 +787,7 @@ public abstract class OrderBookBaseTest {
     }
 
     public void checkEventRejection(MatcherTradeEvent event, long size, long price, Long bidderHoldPrice) {
-        assertThat(event.eventType, is(MatcherEventType.REJECTION));
+        assertThat(event.eventType, is(MatcherEventType.REJECT));
         assertThat(event.size, is(size));
         assertThat(event.price, is(price));
         assertTrue(event.activeOrderCompleted);

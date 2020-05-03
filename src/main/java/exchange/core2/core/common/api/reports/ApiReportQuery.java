@@ -17,8 +17,10 @@ package exchange.core2.core.common.api.reports;
 
 
 import lombok.Builder;
+import lombok.EqualsAndHashCode;
 
 @Builder
+@EqualsAndHashCode
 public final class ApiReportQuery {
 
     public long timestamp;

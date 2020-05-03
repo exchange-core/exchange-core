@@ -21,6 +21,7 @@ import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
+import exchange.core2.core.common.config.PerformanceConfiguration;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.concurrent.atomic.AtomicInteger;
@@ -35,8 +36,8 @@ public final class GroupingProcessor implements EventProcessor {
 
     private static final int GROUP_SPIN_LIMIT = 1000;
 
+    // TODO move into configuration
     private static final int L2_PUBLISH_INTERVAL_NS = 10_000_000;
-    private static final int GROUP_MAX_DURATION_NS = 10_000;
 
     private final AtomicInteger running = new AtomicInteger(IDLE);
     private final RingBuffer<OrderCommand> ringBuffer;
@@ -46,13 +47,24 @@ public final class GroupingProcessor implements EventProcessor {
 
     private final SharedPool sharedPool;
 
-    private final long msgsInGroupLimit;
+    private final int msgsInGroupLimit;
+    private final long maxGroupDurationNs;
 
-    public GroupingProcessor(RingBuffer<OrderCommand> ringBuffer, SequenceBarrier sequenceBarrier, long msgsInGroupLimit, CoreWaitStrategy coreWaitStrategy, SharedPool sharedPool) {
+    public GroupingProcessor(RingBuffer<OrderCommand> ringBuffer,
+                             SequenceBarrier sequenceBarrier,
+                             PerformanceConfiguration perfCfg,
+                             CoreWaitStrategy coreWaitStrategy,
+                             SharedPool sharedPool) {
+
+        if (perfCfg.getMsgsInGroupLimit() > perfCfg.getRingBufferSize() / 4) {
+            throw new IllegalArgumentException("msgsInGroupLimit should be less than quarter ringBufferSize");
+        }
+
         this.ringBuffer = ringBuffer;
         this.sequenceBarrier = sequenceBarrier;
         this.waitSpinningHelper = new WaitSpinningHelper(ringBuffer, sequenceBarrier, GROUP_SPIN_LIMIT, coreWaitStrategy);
-        this.msgsInGroupLimit = msgsInGroupLimit;
+        this.msgsInGroupLimit = perfCfg.getMsgsInGroupLimit();
+        this.maxGroupDurationNs = perfCfg.getMaxGroupDurationNs();
         this.sharedPool = sharedPool;
     }
 
@@ -210,7 +222,7 @@ public final class GroupingProcessor implements EventProcessor {
 
                     }
                     sequence.set(availableSequence);
-                    groupLastNs = System.nanoTime() + GROUP_MAX_DURATION_NS;
+                    groupLastNs = System.nanoTime() + maxGroupDurationNs;
 
                 } else {
                     final long t = System.nanoTime();

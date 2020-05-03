@@ -17,9 +17,11 @@ package exchange.core2.core.common.api;
 
 
 import lombok.Builder;
+import lombok.EqualsAndHashCode;
 import lombok.RequiredArgsConstructor;
 
 @Builder
+@EqualsAndHashCode(callSuper = false)
 @RequiredArgsConstructor
 public final class ApiMoveOrder extends ApiCommand {
 
@@ -32,6 +34,6 @@ public final class ApiMoveOrder extends ApiCommand {
 
     @Override
     public String toString() {
-        return "[MOVE " + orderId + " " + newPrice + "]";
+        return "[MOVE " + orderId + " " + newPrice + " u" + uid + " s" + symbol + "]";
     }
 }

@@ -27,10 +27,7 @@ import exchange.core2.core.common.api.binary.BinaryDataCommand;
 import exchange.core2.core.common.api.reports.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
-import exchange.core2.core.common.config.ExchangeConfiguration;
-import exchange.core2.core.common.config.InitialStateConfiguration;
-import exchange.core2.core.common.config.PerformanceConfiguration;
-import exchange.core2.core.common.config.ReportsQueriesConfiguration;
+import exchange.core2.core.common.config.*;
 import exchange.core2.core.processors.journaling.DiskSerializationProcessor;
 import exchange.core2.core.processors.journaling.DiskSerializationProcessorConfiguration;
 import exchange.core2.core.utils.AffinityThreadFactory;
@@ -130,6 +127,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
                 .initStateCfg(initStateCfg)
                 .perfCfg(perfCfg)
                 .reportsQueriesCfg(ReportsQueriesConfiguration.createStandardConfig())
+                .ordersProcessingCfg(OrdersProcessingConfiguration.DEFAULT)
                 .build();
 
         this.exchangeCore = ExchangeCore.builder()

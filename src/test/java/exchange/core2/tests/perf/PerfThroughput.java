@@ -40,7 +40,6 @@ public final class PerfThroughput {
                         .ringBufferSize(32 * 1024)
                         .matchingEnginesNum(1)
                         .riskEnginesNum(1)
-                        .msgsInGroupLimit(1536)
                         .build(),
                 TestDataParameters.singlePairMarginBuilder().build(),
                 InitialStateConfiguration.CLEAN_TEST,
@@ -54,7 +53,6 @@ public final class PerfThroughput {
                         .ringBufferSize(32 * 1024)
                         .matchingEnginesNum(1)
                         .riskEnginesNum(1)
-                        .msgsInGroupLimit(1536)
                         .build(),
                 TestDataParameters.singlePairExchangeBuilder().build(),
                 InitialStateConfiguration.CLEAN_TEST,

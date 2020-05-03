@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.agrona.collections.MutableBoolean;
 import org.agrona.collections.MutableLong;
+import org.agrona.collections.MutableReference;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,9 +26,13 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
 
     @Override
     public void accept(OrderCommand cmd, long seq) {
-        sendCommandResult(cmd, seq);
-        sendTradeEvents(cmd);
-        sendMarketData(cmd);
+        try {
+            sendCommandResult(cmd, seq);
+            sendTradeEvents(cmd);
+            sendMarketData(cmd);
+        } catch (Exception ex) {
+            log.error("Exception when handling command result data", ex);
+        }
     }
 
     private void sendTradeEvents(OrderCommand cmd) {
@@ -41,6 +46,7 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
             final IEventsHandler.ReduceEvent evt = new IEventsHandler.ReduceEvent(
                     cmd.symbol,
                     firstEvent.size,
+                    firstEvent.activeOrderCompleted,
                     firstEvent.price,
                     cmd.orderId,
                     cmd.uid,
@@ -49,48 +55,54 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
             eventsHandler.reduceEvent(evt);
 
             if (firstEvent.nextEvent != null) {
-                throw new IllegalStateException("Only single CANCEL event is expected");
+                throw new IllegalStateException("Only single REDUCE event is expected");
             }
 
-        } else if (firstEvent.eventType == MatcherEventType.REJECTION) {
+            return;
+        }
 
-            final IEventsHandler.RejectEvent evt = new IEventsHandler.RejectEvent(
-                    cmd.symbol,
-                    firstEvent.size,
-                    firstEvent.price,
-                    cmd.orderId,
-                    cmd.uid,
-                    cmd.timestamp);
+        sendTradeEvent(cmd);
+    }
 
-            eventsHandler.rejectEvent(evt);
+    private void sendTradeEvent(OrderCommand cmd) {
 
-            if (firstEvent.nextEvent != null) {
-                throw new IllegalStateException("Only single REJECTION event is expected");
-            }
+        final MutableBoolean takerOrderCompleted = new MutableBoolean(false);
+        final MutableLong mutableLong = new MutableLong(0L);
+        final List<IEventsHandler.Trade> trades = new ArrayList<>();
 
-        } else if (firstEvent.eventType == MatcherEventType.TRADE) {
+        final MutableReference<IEventsHandler.RejectEvent> rejectEvent = new MutableReference<>(null);
 
-            final MutableBoolean takerOrderCompleted = new MutableBoolean(false);
-            final MutableLong mutableLong = new MutableLong(0L);
-            final List<IEventsHandler.Deal> deals = new ArrayList<>();
-            cmd.processMatcherEvents(evt -> {
-                final IEventsHandler.Deal deal = new IEventsHandler.Deal(
+        cmd.processMatcherEvents(evt -> {
+
+            if (evt.eventType == MatcherEventType.TRADE) {
+
+                final IEventsHandler.Trade trade = new IEventsHandler.Trade(
                         evt.matchedOrderId,
                         evt.matchedOrderUid,
                         evt.matchedOrderCompleted,
                         evt.price,
                         evt.size);
 
-                deals.add(deal);
+                trades.add(trade);
                 mutableLong.value += evt.size;
 
                 if (evt.activeOrderCompleted) {
                     takerOrderCompleted.value = true;
                 }
-                if (evt.eventType != MatcherEventType.TRADE) {
-                    throw new IllegalStateException("Only TRADE events are expected");
-                }
-            });
+
+            } else if (evt.eventType == MatcherEventType.REJECT) {
+
+                rejectEvent.set(new IEventsHandler.RejectEvent(
+                        cmd.symbol,
+                        evt.size,
+                        evt.price,
+                        cmd.orderId,
+                        cmd.uid,
+                        cmd.timestamp));
+            }
+        });
+
+        if (!trades.isEmpty()) {
 
             final IEventsHandler.TradeEvent evt = new IEventsHandler.TradeEvent(
                     cmd.symbol,
@@ -100,9 +112,13 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
                     cmd.action,
                     takerOrderCompleted.value,
                     cmd.timestamp,
-                    deals);
+                    trades);
 
             eventsHandler.tradeEvent(evt);
+        }
+
+        if (rejectEvent.ref != null) {
+            eventsHandler.rejectEvent(rejectEvent.ref);
         }
     }
 

@@ -40,8 +40,19 @@ public final class PerformanceConfiguration {
 
     /*
      * max number of messages not processed by R2 stage. Must be less than quarter of ringBufferSize.
+     * Lower values, like 100, provide better mean latency.
+     * Higher values, like 2000 provide better throughput and tail latency.
      */
     private final int msgsInGroupLimit;
+
+
+    /*
+     * max interval when messages not processed by R2 stage.
+     * Interfere with msgsInGroupLimit parameter.
+     * Lower values, like 1000 (1us), provide better mean latency.
+     * Higher values, like 2000 provide better throughput and tail latency.
+     */
+    private final int maxGroupDurationNs;
 
     /*
      * Disruptor threads factory
@@ -72,6 +83,7 @@ public final class PerformanceConfiguration {
                 .matchingEnginesNum(1)
                 .riskEnginesNum(1)
                 .msgsInGroupLimit(256)
+                .maxGroupDurationNs(10_000)
                 .threadFactory(Thread::new)
                 .waitStrategy(CoreWaitStrategy.SLEEPING)
                 .binaryCommandsLz4CompressorFactory(() -> LZ4Factory.fastestInstance().highCompressor())
@@ -85,6 +97,7 @@ public final class PerformanceConfiguration {
                 .matchingEnginesNum(1)
                 .riskEnginesNum(1)
                 .msgsInGroupLimit(256)
+                .maxGroupDurationNs(10_000)
                 .threadFactory(new AffinityThreadFactory(AffinityThreadFactory.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE))
                 .waitStrategy(CoreWaitStrategy.BUSY_SPIN)
                 .binaryCommandsLz4CompressorFactory(() -> LZ4Factory.fastestInstance().highCompressor())
@@ -97,7 +110,8 @@ public final class PerformanceConfiguration {
                 .ringBufferSize(64 * 1024)
                 .matchingEnginesNum(4)
                 .riskEnginesNum(2)
-                .msgsInGroupLimit(2048)
+                .msgsInGroupLimit(4_096)
+                .maxGroupDurationNs(4_000_000)
                 .threadFactory(new AffinityThreadFactory(AffinityThreadFactory.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE))
                 .waitStrategy(CoreWaitStrategy.BUSY_SPIN)
                 .binaryCommandsLz4CompressorFactory(() -> LZ4Factory.fastestInstance().highCompressor())

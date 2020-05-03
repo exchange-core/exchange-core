@@ -17,6 +17,7 @@ package exchange.core2.core.common.api.reports;
 
 import exchange.core2.core.processors.MatchingEngineRouter;
 import exchange.core2.core.processors.RiskEngine;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
@@ -26,6 +27,7 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 
 @NoArgsConstructor
+@EqualsAndHashCode
 public final class StateHashReportQuery implements ReportQuery<StateHashReportResult> {
 
     public StateHashReportQuery(BytesIn bytesIn) {

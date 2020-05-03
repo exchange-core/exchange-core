@@ -18,8 +18,10 @@ package exchange.core2.core.common.api;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
+import lombok.EqualsAndHashCode;
 
 @Builder
+@EqualsAndHashCode(callSuper = false)
 @AllArgsConstructor
 public final class ApiAddUser extends ApiCommand {
 

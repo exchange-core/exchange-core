@@ -83,7 +83,7 @@ public interface IOrdersBucket extends Comparable<IOrdersBucket>, WriteBytesMars
 
     /**
      * Reduce size of the order
-     * @param reduceSize
+     * @param reduceSize - size to reduce (difference)
      */
     void reduceSize(long reduceSize);
 

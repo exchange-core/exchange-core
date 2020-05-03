@@ -21,6 +21,7 @@ import exchange.core2.core.common.PositionDirection;
 import exchange.core2.core.common.UserStatus;
 import exchange.core2.core.utils.SerializationUtils;
 import lombok.AllArgsConstructor;
+import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -36,6 +37,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @AllArgsConstructor
+@EqualsAndHashCode
 @Getter
 public final class SingleUserReportResult implements ReportResult {
 

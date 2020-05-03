@@ -17,16 +17,16 @@ package exchange.core2.core.common.api.binary;
 
 import exchange.core2.core.utils.SerializationUtils;
 import lombok.AllArgsConstructor;
+import lombok.EqualsAndHashCode;
 import lombok.Getter;
-import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 
 @AllArgsConstructor
+@EqualsAndHashCode
 @Getter
-@Slf4j
 public final class BatchAddAccountsCommand implements BinaryDataCommand {
 
     private final LongObjectHashMap<IntLongHashMap> users;
