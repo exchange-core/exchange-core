@@ -20,47 +20,59 @@ import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.Order;
 import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.utils.SerializationUtils;
+import lombok.AllArgsConstructor;
 import lombok.Getter;
-import lombok.Setter;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
+import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 @Slf4j
 @ToString
-public final class OrdersBucketNaiveImpl implements IOrdersBucket {
+public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, WriteBytesMarshallable {
 
     @Getter
-    @Setter
-    private long price;
+    private final long price;
 
     private final LinkedHashMap<Long, Order> entries;
 
     @Getter
-    private long totalVolume = 0;
+    private long totalVolume;
 
-
-    public OrdersBucketNaiveImpl() {
+    public OrdersBucketNaive(final long price) {
+        this.price = price;
         this.entries = new LinkedHashMap<>();
+        this.totalVolume = 0;
     }
 
-    public OrdersBucketNaiveImpl(BytesIn bytes) {
+    public OrdersBucketNaive(BytesIn bytes) {
         this.price = bytes.readLong();
         this.entries = SerializationUtils.readLongMap(bytes, LinkedHashMap::new, Order::new);
         this.totalVolume = bytes.readLong();
     }
 
-    @Override
+    /**
+     * Put a new order into bucket
+     *
+     * @param order - order
+     */
     public void put(Order order) {
         entries.put(order.orderId, order);
         totalVolume += order.size - order.filled;
     }
 
-    @Override
+    /**
+     * Remove order from the bucket
+     *
+     * @param orderId - order id
+     * @param uid     - order uid
+     * @return order if removed, or null if not found
+     */
     public Order remove(long orderId, long uid) {
         Order order = entries.get(orderId);
 //        log.debug("removing order: {}", order);
@@ -83,7 +95,6 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
      * @param helper          - events helper
      * @return - total matched volume, events, completed orders to remove
      */
-    @Override
     public MatcherResult match(long volumeToCollect, IOrder activeOrder, OrderBookEventsHelper helper) {
 
 //        log.debug("---- match: {}", volumeToCollect);
@@ -134,18 +145,25 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
         return new MatcherResult(eventsHead, eventsTail, totalMatchingVolume, ordersToRemove);
     }
 
-    @Override
+    /**
+     * Get number of orders in the bucket
+     *
+     * @return number of orders in the bucket
+     */
     public int getNumOrders() {
         return entries.size();
     }
 
-    @Override
+    /**
+     * Reduce size of the order
+     *
+     * @param reduceSize - size to reduce (difference)
+     */
     public void reduceSize(long reduceSize) {
 
         totalVolume -= reduceSize;
     }
 
-    @Override
     public void validate() {
         long sum = entries.values().stream().mapToLong(c -> c.size - c.filled).sum();
         if (sum != totalVolume) {
@@ -154,19 +172,35 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
         }
     }
 
-    @Override
     public Order findOrder(long orderId) {
         return entries.get(orderId);
     }
 
-    @Override
+    /**
+     * Inefficient method - for testing only
+     *
+     * @return new array with references to orders, preserving execution queue order
+     */
     public List<Order> getAllOrders() {
         return new ArrayList<>(entries.values());
     }
 
-    @Override
+
+    /**
+     * execute some action for each order (preserving execution queue order)
+     *
+     * @param consumer action consumer function
+     */
     public void forEachOrder(Consumer<Order> consumer) {
         entries.values().forEach(consumer);
+    }
+
+    public String dumpToSingleLine() {
+        String orders = getAllOrders().stream()
+                .map(o -> String.format("id%d_L%d_F%d", o.orderId, o.size, o.filled))
+                .collect(Collectors.joining(", "));
+
+        return String.format("%d : vol:%d num:%d : %s", getPrice(), getTotalVolume(), getNumOrders(), orders);
     }
 
     @Override
@@ -177,19 +211,33 @@ public final class OrdersBucketNaiveImpl implements IOrdersBucket {
     }
 
     @Override
+    public int compareTo(OrdersBucketNaive other) {
+        return Long.compare(this.getPrice(), other.getPrice());
+    }
+
+    @Override
     public int hashCode() {
-        return IOrdersBucket.hash(
+        return Objects.hash(
                 price,
-                entries.values().toArray(new Order[0]));
+                Arrays.hashCode(entries.values().toArray(new Order[0])));
     }
 
     @Override
     public boolean equals(Object o) {
         if (o == this) return true;
         if (o == null) return false;
-        if (!(o instanceof IOrdersBucket)) return false;
-        IOrdersBucket other = (IOrdersBucket) o;
+        if (!(o instanceof OrdersBucketNaive)) return false;
+        OrdersBucketNaive other = (OrdersBucketNaive) o;
         return price == other.getPrice()
                 && getAllOrders().equals(other.getAllOrders());
     }
+
+    @AllArgsConstructor
+    public final class MatcherResult {
+        public MatcherTradeEvent eventsChainHead;
+        public MatcherTradeEvent eventsChainTail;
+        public long volume;
+        public List<Long> ordersToRemove;
+    }
+
 }

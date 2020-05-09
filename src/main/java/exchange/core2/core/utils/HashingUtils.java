@@ -25,7 +25,7 @@ import java.util.*;
 import java.util.stream.Stream;
 
 @Slf4j
-public class HashingUtils {
+public final class HashingUtils {
 
     public static int stateHash(final BitSet bitSet) {
         return Arrays.hashCode(bitSet.toLongArray());

@@ -18,7 +18,7 @@ package exchange.core2.core.utils;
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.OrderAction;
 
-public class CoreArithmeticUtils {
+public final class CoreArithmeticUtils {
 
     public static long calculateHoldAmount(OrderAction action, long size, long price, CoreSymbolSpecification spec) {
         return action == OrderAction.BID ? calculateAmountBidTakerFee(size, price, spec) : calculateAmountAsk(size, spec);

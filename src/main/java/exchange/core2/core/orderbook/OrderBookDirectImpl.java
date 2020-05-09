@@ -87,20 +87,28 @@ public final class OrderBookDirectImpl implements IOrderBook {
     }
 
     @Override
-    public CommandResultCode newOrder(OrderCommand cmd) {
-        final OrderType orderType = cmd.orderType;
+    public CommandResultCode newOrder(final OrderCommand cmd) {
+
+        switch (cmd.orderType) {
+            case GTC:
+                return newOrderPlaceGtc(cmd);
+            case IOC:
+                return newOrderMatchIoc(cmd);
+            case FOK_BUDGET:
+                return newOrderMatchFokBudget(cmd);
+            // TODO FOK_BUDGET, IOC_BUDGET and FOK support
+            default:
+                return CommandResultCode.MATCHING_UNSUPPORTED_ORDER_TYPE;
+        }
+    }
+
+    private CommandResultCode newOrderPlaceGtc(final OrderCommand cmd) {
         final long size = cmd.size;
 
         // check if order is marketable there are matching orders
         final long filledSize = tryMatchInstantly(cmd, cmd);
         if (filledSize == size) {
             // completed before being placed - can just return
-            return CommandResultCode.SUCCESS;
-        }
-
-        if (orderType == OrderType.IOC) {
-            // send reject for not-completed ImmediateOrCancel order
-            eventsHelper.attachRejectEvent(cmd, size - filledSize);
             return CommandResultCode.SUCCESS;
         }
 
@@ -131,6 +139,67 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         return CommandResultCode.SUCCESS;
     }
+
+    private CommandResultCode newOrderMatchIoc(final OrderCommand cmd) {
+
+        final long filledSize = tryMatchInstantly(cmd, cmd);
+
+        final long rejectedSize = cmd.size - filledSize;
+
+        if (rejectedSize != 0) {
+            // was not matched completely - send reject for not-completed IoC order
+            eventsHelper.attachRejectEvent(cmd, rejectedSize);
+        }
+
+        return CommandResultCode.SUCCESS;
+    }
+
+    private CommandResultCode newOrderMatchFokBudget(final OrderCommand cmd) {
+
+        final long budget = checkBudgetToFill(cmd.action, cmd.size);
+
+        if (isBudgetLimitSatisfied(cmd.action, budget, cmd.price)) {
+            tryMatchInstantly(cmd, cmd);
+        } else {
+            eventsHelper.attachRejectEvent(cmd, cmd.size);
+        }
+
+        return CommandResultCode.SUCCESS;
+    }
+
+    private boolean isBudgetLimitSatisfied(final OrderAction orderAction, final long calculated, final long limit) {
+        return calculated != Long.MAX_VALUE
+                && (calculated == limit || (orderAction == OrderAction.ASK ^ calculated > limit));
+    }
+
+    private long checkBudgetToFill(final OrderAction action,
+                                   long size) {
+
+        DirectOrder makerOrder = (action == OrderAction.BID) ? bestAskOrder : bestBidOrder;
+
+        long budget = 0L;
+
+        // iterate through all orders
+        while (makerOrder != null) {
+            final Bucket bucket = makerOrder.parent;
+
+            final long availableSize = bucket.volume;
+            final long price = makerOrder.price;
+
+            if (size > availableSize) {
+                size -= availableSize;
+                budget += availableSize * price;
+            } else {
+                return budget + size * price;
+            }
+
+            // switch to next order (can be null)
+            makerOrder = bucket.tail.prev;
+        }
+
+        return Long.MAX_VALUE;
+    }
+
 
     private long tryMatchInstantly(final IOrder takerOrder,
                                    final OrderCommand triggerCmd) {
@@ -620,7 +689,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
 //        }
 //    }
 
-    public void thrw(final String msg) {
+    private void thrw(final String msg) {
         throw new IllegalStateException(msg);
     }
 

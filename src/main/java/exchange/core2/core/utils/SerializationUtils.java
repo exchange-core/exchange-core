@@ -42,7 +42,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 @Slf4j
-public class SerializationUtils {
+public final class SerializationUtils {
 
 
     public static long[] bytesToLongArray(final NativeBytes<Void> bytes, final int padding) {

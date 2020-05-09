@@ -23,19 +23,13 @@ import lombok.extern.slf4j.Slf4j;
 import static net.openhft.chronicle.core.UnsafeMemory.UNSAFE;
 
 @Slf4j
-public class UnsafeUtils {
+public final class UnsafeUtils {
 
-    final static long OFFSET_ORDER_ID;
-    final static long OFFSET_RESULT_CODE;
-    final static long OFFSET_PRICE;
-    final static long OFFSET_UID;
-    final static long OFFSET_EVENT;
+    private static final long OFFSET_RESULT_CODE;
+    private static final long OFFSET_EVENT;
 
     static {
         try {
-            OFFSET_ORDER_ID = UNSAFE.objectFieldOffset(OrderCommand.class.getDeclaredField("orderId"));
-            OFFSET_PRICE = UNSAFE.objectFieldOffset(OrderCommand.class.getDeclaredField("price"));
-            OFFSET_UID = UNSAFE.objectFieldOffset(OrderCommand.class.getDeclaredField("uid"));
             OFFSET_RESULT_CODE = UNSAFE.objectFieldOffset(OrderCommand.class.getDeclaredField("resultCode"));
             OFFSET_EVENT = UNSAFE.objectFieldOffset(OrderCommand.class.getDeclaredField("matcherEvent"));
         } catch (NoSuchFieldException ex) {

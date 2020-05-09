@@ -34,23 +34,21 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 
 @Slf4j
-public abstract class OrdersBucketBaseTest {
+public class OrdersBucketNaiveTest {
 
-    static final int PRICE = 1000;
-    static final int UID_1 = 412;
-    static final int UID_2 = 413;
-    static final int UID_9 = 419;
+    private static final int PRICE = 1000;
+    private static final int UID_1 = 412;
+    private static final int UID_2 = 413;
+    private static final int UID_9 = 419;
 
-    protected abstract IOrdersBucket createNewBucket();
+    private final OrderBookEventsHelper eventsHelper = new OrderBookEventsHelper(MatcherTradeEvent::new);
 
-    protected final OrderBookEventsHelper eventsHelper = new OrderBookEventsHelper(MatcherTradeEvent::new);
-
-    protected IOrdersBucket bucket;
+    private OrdersBucketNaive bucket;
 
     @Before
     public void beforeGlobal() {
 
-        bucket = createNewBucket();
+        bucket = new OrdersBucketNaive(PRICE);
 
         bucket.put(Order.builder().orderId(1).uid(UID_1).size(100).build());
         assertThat(bucket.getNumOrders(), is(1));
@@ -192,7 +190,7 @@ public abstract class OrdersBucketBaseTest {
         }
 
         OrderCommand triggerOrd = OrderCommand.update(8182, UID_9, 1000);
-        IOrdersBucket.MatcherResult matcherResult = bucket.match(expectedVolume, triggerOrd, eventsHelper);
+        OrdersBucketNaive.MatcherResult matcherResult = bucket.match(expectedVolume, triggerOrd, eventsHelper);
 
         assertThat(MatcherTradeEvent.asList(matcherResult.eventsChainHead).size(), is(expectedNumOrders));
 
@@ -248,7 +246,7 @@ public abstract class OrdersBucketBaseTest {
 
             OrderCommand triggerOrd = OrderCommand.update(119283900, UID_9, 1000);
 
-            IOrdersBucket.MatcherResult matcherResult = bucket.match(toMatch, triggerOrd, eventsHelper);
+            OrdersBucketNaive.MatcherResult matcherResult = bucket.match(toMatch, triggerOrd, eventsHelper);
             long totalVolume = matcherResult.volume;
             assertThat(totalVolume, is(toMatch));
             expectedVolume -= totalVolume;
@@ -260,7 +258,7 @@ public abstract class OrdersBucketBaseTest {
 
         OrderCommand triggerOrd = OrderCommand.update(1238729387, UID_9, 1000);
 
-        IOrdersBucket.MatcherResult matcherResult = bucket.match(expectedVolume, triggerOrd, eventsHelper);
+        OrdersBucketNaive.MatcherResult matcherResult = bucket.match(expectedVolume, triggerOrd, eventsHelper);
 
         assertThat(MatcherTradeEvent.asList(matcherResult.eventsChainHead).size(), is(expectedNumOrders));
 
