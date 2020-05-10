@@ -70,22 +70,26 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     }
 
     @Override
-    public CommandResultCode newOrder(final OrderCommand cmd) {
+    public void newOrder(final OrderCommand cmd) {
 
         switch (cmd.orderType) {
             case GTC:
-                return newOrderPlaceGtc(cmd);
+                newOrderPlaceGtc(cmd);
+                break;
             case IOC:
-                return newOrderMatchIoc(cmd);
+                newOrderMatchIoc(cmd);
+                break;
             case FOK_BUDGET:
-                return newOrderMatchFokBudget(cmd);
+                newOrderMatchFokBudget(cmd);
+                break;
             // TODO IOC_BUDGET and FOK support
             default:
-                return CommandResultCode.MATCHING_UNSUPPORTED_ORDER_TYPE;
+                log.warn("Unsupported order type: {}", cmd);
+                eventsHelper.attachRejectEvent(cmd, cmd.size);
         }
     }
 
-    private CommandResultCode newOrderPlaceGtc(final OrderCommand cmd) {
+    private void newOrderPlaceGtc(final OrderCommand cmd) {
 
         final OrderAction action = cmd.action;
         final long price = cmd.price;
@@ -95,14 +99,15 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         final long filledSize = tryMatchInstantly(cmd, subtreeForMatching(action, price), 0, cmd);
         if (filledSize == size) {
             // order was matched completely - nothing to place - can just return
-            return CommandResultCode.SUCCESS;
+            return;
         }
 
         long newOrderId = cmd.orderId;
         if (idMap.containsKey(newOrderId)) {
             // duplicate order id - can match, but can not place
             eventsHelper.attachRejectEvent(cmd, cmd.size - filledSize);
-            return CommandResultCode.MATCHING_DUPLICATE_ORDER_ID;
+            log.warn("duplicate order id: {}", cmd);
+            return;
         }
 
         // normally placing regular GTC limit order
@@ -121,11 +126,9 @@ public final class OrderBookNaiveImpl implements IOrderBook {
                 .put(orderRecord);
 
         idMap.put(newOrderId, orderRecord);
-
-        return CommandResultCode.SUCCESS;
     }
 
-    private CommandResultCode newOrderMatchIoc(final OrderCommand cmd) {
+    private void newOrderMatchIoc(final OrderCommand cmd) {
 
         final long filledSize = tryMatchInstantly(cmd, subtreeForMatching(cmd.action, cmd.price), 0, cmd);
 
@@ -135,11 +138,9 @@ public final class OrderBookNaiveImpl implements IOrderBook {
             // was not matched completely - send reject for not-completed IoC order
             eventsHelper.attachRejectEvent(cmd, rejectedSize);
         }
-
-        return CommandResultCode.SUCCESS;
     }
 
-    private CommandResultCode newOrderMatchFokBudget(final OrderCommand cmd) {
+    private void newOrderMatchFokBudget(final OrderCommand cmd) {
 
         final long size = cmd.size;
 
@@ -153,12 +154,10 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         } else {
             eventsHelper.attachRejectEvent(cmd, size);
         }
-
-        return CommandResultCode.SUCCESS;
     }
 
     private boolean isBudgetLimitSatisfied(final OrderAction orderAction, final long calculated, final long limit) {
-        return calculated == limit || (orderAction == OrderAction.ASK ^ calculated > limit);
+        return calculated == limit || (orderAction == OrderAction.BID ^ calculated > limit);
     }
 
 

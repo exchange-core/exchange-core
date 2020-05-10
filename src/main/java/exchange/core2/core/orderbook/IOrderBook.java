@@ -37,11 +37,12 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
      * In case of remaining volume (order was not matched completely):
      * IOC - reject it as partially filled.
      * GTC - place as a new limit order into th order book.
+     * <p>
+     * Rejection chain attached in case of error (to simplify risk handling)
      *
      * @param cmd - order to match/place
-     * @return command code (success, or rejection reason)
      */
-    CommandResultCode newOrder(OrderCommand cmd);
+    void newOrder(OrderCommand cmd);
 
     /**
      * Cancel order completely.
@@ -176,9 +177,12 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
         } else if (commandType == OrderCommandType.PLACE_ORDER) {
 
-            return (cmd.resultCode == CommandResultCode.VALID_FOR_MATCHING_ENGINE)
-                    ? orderBook.newOrder(cmd)
-                    : cmd.resultCode; // no change
+            if (cmd.resultCode == CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
+                orderBook.newOrder(cmd);
+                return CommandResultCode.SUCCESS;
+            } else {
+                return cmd.resultCode; // no change
+            }
 
         } else if (commandType == OrderCommandType.ORDER_BOOK_REQUEST) {
             int size = (int) cmd.size;

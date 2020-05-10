@@ -20,6 +20,7 @@ import exchange.core2.collections.objpool.ObjectsPool;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
+import exchange.core2.core.common.cmd.OrderCommandType;
 import lombok.*;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -87,29 +88,34 @@ public final class OrderBookDirectImpl implements IOrderBook {
     }
 
     @Override
-    public CommandResultCode newOrder(final OrderCommand cmd) {
+    public void newOrder(final OrderCommand cmd) {
 
         switch (cmd.orderType) {
             case GTC:
-                return newOrderPlaceGtc(cmd);
+                newOrderPlaceGtc(cmd);
+                break;
             case IOC:
-                return newOrderMatchIoc(cmd);
+                newOrderMatchIoc(cmd);
+                break;
             case FOK_BUDGET:
-                return newOrderMatchFokBudget(cmd);
-            // TODO FOK_BUDGET, IOC_BUDGET and FOK support
+                newOrderMatchFokBudget(cmd);
+                break;
+            // TODO IOC_BUDGET and FOK support
             default:
-                return CommandResultCode.MATCHING_UNSUPPORTED_ORDER_TYPE;
+                log.warn("Unsupported order type: {}", cmd);
+                eventsHelper.attachRejectEvent(cmd, cmd.size);
         }
     }
 
-    private CommandResultCode newOrderPlaceGtc(final OrderCommand cmd) {
+
+    private void newOrderPlaceGtc(final OrderCommand cmd) {
         final long size = cmd.size;
 
         // check if order is marketable there are matching orders
         final long filledSize = tryMatchInstantly(cmd, cmd);
         if (filledSize == size) {
             // completed before being placed - can just return
-            return CommandResultCode.SUCCESS;
+            return;
         }
 
         final long orderId = cmd.orderId;
@@ -117,7 +123,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
         if (orderIdIndex.get(orderId) != null) { // containsKey for hashtable
             // duplicate order id - can match, but can not place
             eventsHelper.attachRejectEvent(cmd, size - filledSize);
-            return CommandResultCode.MATCHING_DUPLICATE_ORDER_ID;
+            log.warn("duplicate order id: {}", cmd);
+            return;
         }
 
         final long price = cmd.price;
@@ -136,11 +143,9 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         orderIdIndex.put(orderId, orderRecord);
         insertOrder(orderRecord, null);
-
-        return CommandResultCode.SUCCESS;
     }
 
-    private CommandResultCode newOrderMatchIoc(final OrderCommand cmd) {
+    private void newOrderMatchIoc(final OrderCommand cmd) {
 
         final long filledSize = tryMatchInstantly(cmd, cmd);
 
@@ -150,26 +155,24 @@ public final class OrderBookDirectImpl implements IOrderBook {
             // was not matched completely - send reject for not-completed IoC order
             eventsHelper.attachRejectEvent(cmd, rejectedSize);
         }
-
-        return CommandResultCode.SUCCESS;
     }
 
-    private CommandResultCode newOrderMatchFokBudget(final OrderCommand cmd) {
+    private void newOrderMatchFokBudget(final OrderCommand cmd) {
 
         final long budget = checkBudgetToFill(cmd.action, cmd.size);
+
+//        log.debug("Budget calc: {} requested: {}", budget, cmd.price);
 
         if (isBudgetLimitSatisfied(cmd.action, budget, cmd.price)) {
             tryMatchInstantly(cmd, cmd);
         } else {
             eventsHelper.attachRejectEvent(cmd, cmd.size);
         }
-
-        return CommandResultCode.SUCCESS;
     }
 
     private boolean isBudgetLimitSatisfied(final OrderAction orderAction, final long calculated, final long limit) {
         return calculated != Long.MAX_VALUE
-                && (calculated == limit || (orderAction == OrderAction.ASK ^ calculated > limit));
+                && (calculated == limit || (orderAction == OrderAction.BID ^ calculated > limit));
     }
 
     private long checkBudgetToFill(final OrderAction action,
@@ -189,14 +192,16 @@ public final class OrderBookDirectImpl implements IOrderBook {
             if (size > availableSize) {
                 size -= availableSize;
                 budget += availableSize * price;
+//                log.debug("+ {} * {} = {}", price , availableSize, price*availableSize);
             } else {
+//                log.debug("R {} * {} = {}", price , size, price*availableSize);
                 return budget + size * price;
             }
 
             // switch to next order (can be null)
             makerOrder = bucket.tail.prev;
         }
-
+//        log.debug("U");
         return Long.MAX_VALUE;
     }
 
@@ -204,10 +209,13 @@ public final class OrderBookDirectImpl implements IOrderBook {
     private long tryMatchInstantly(final IOrder takerOrder,
                                    final OrderCommand triggerCmd) {
 
-        final long limitPrice = takerOrder.getPrice();
+        final boolean isBidAction = takerOrder.getAction() == OrderAction.BID;
+
+        final long limitPrice = (triggerCmd.command == OrderCommandType.PLACE_ORDER && triggerCmd.orderType == OrderType.FOK_BUDGET && !isBidAction)
+                ? 0L
+                : takerOrder.getPrice();
 
         DirectOrder makerOrder;
-        boolean isBidAction = takerOrder.getAction() == OrderAction.BID;
         if (isBidAction) {
             makerOrder = bestAskOrder;
             if (makerOrder == null || makerOrder.price > limitPrice) {

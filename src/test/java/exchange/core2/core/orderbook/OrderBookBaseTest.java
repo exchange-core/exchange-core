@@ -24,6 +24,7 @@ import exchange.core2.tests.util.L2MarketDataHelper;
 import exchange.core2.tests.util.TestConstants;
 import exchange.core2.tests.util.TestOrdersGenerator;
 import lombok.extern.slf4j.Slf4j;
+import org.hamcrest.core.Is;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -33,8 +34,7 @@ import java.util.List;
 
 import static exchange.core2.core.common.OrderAction.ASK;
 import static exchange.core2.core.common.OrderAction.BID;
-import static exchange.core2.core.common.OrderType.GTC;
-import static exchange.core2.core.common.OrderType.IOC;
+import static exchange.core2.core.common.OrderType.*;
 import static exchange.core2.core.common.cmd.CommandResultCode.*;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
@@ -75,15 +75,14 @@ public abstract class OrderBookBaseTest {
         processAndValidate(OrderCommand.newOrder(GTC, 1L, UID_1, 81600L, 0L, 100L, ASK), SUCCESS);
         processAndValidate(OrderCommand.newOrder(GTC, 2L, UID_1, 81599L, 0L, 50L, ASK), SUCCESS);
         processAndValidate(OrderCommand.newOrder(GTC, 3L, UID_1, 81599L, 0L, 25L, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 8L, UID_1, 201000L, 0L, 28L, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 9L, UID_1, 201000L, 0L, 32L, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 10L, UID_1, 200954L, 0L, 10L, ASK), SUCCESS);
+
         processAndValidate(OrderCommand.newOrder(GTC, 4L, UID_1, 81593L, 82000L, 40L, BID), SUCCESS);
         processAndValidate(OrderCommand.newOrder(GTC, 5L, UID_1, 81590L, 82000L, 20L, BID), SUCCESS);
         processAndValidate(OrderCommand.newOrder(GTC, 6L, UID_1, 81590L, 82000L, 1L, BID), SUCCESS);
         processAndValidate(OrderCommand.newOrder(GTC, 7L, UID_1, 81200L, 82000L, 20L, BID), SUCCESS);
-
-        // FAR orders section
-        processAndValidate(OrderCommand.newOrder(GTC, 8L, UID_1, 201000L, 0L, 28L, ASK), SUCCESS);
-        processAndValidate(OrderCommand.newOrder(GTC, 9L, UID_1, 201000L, 0L, 32L, ASK), SUCCESS);
-        processAndValidate(OrderCommand.newOrder(GTC, 10L, UID_1, 200954L, 0L, 10L, ASK), SUCCESS);
         processAndValidate(OrderCommand.newOrder(GTC, 11L, UID_1, 10000L, 12000L, 12L, BID), SUCCESS);
         processAndValidate(OrderCommand.newOrder(GTC, 12L, UID_1, 10000L, 12000L, 1L, BID), SUCCESS);
         processAndValidate(OrderCommand.newOrder(GTC, 13L, UID_1, 9136L, 12000L, 2L, BID), SUCCESS);
@@ -179,7 +178,7 @@ public abstract class OrderBookBaseTest {
     @Test
     public void shouldIgnoredDuplicateOrder() {
         OrderCommand orderCommand = OrderCommand.newOrder(GTC, 1, UID_1, 81600, 0, 100, ASK);
-        processAndValidate(orderCommand, CommandResultCode.MATCHING_DUPLICATE_ORDER_ID);
+        processAndValidate(orderCommand, SUCCESS);
         List<MatcherTradeEvent> events = orderCommand.extractEvents();
         assertThat(events.size(), is(1));
     }
@@ -188,7 +187,7 @@ public abstract class OrderBookBaseTest {
      * Remove existing order
      */
     @Test
-    public void shouldRemoveOrder() {
+    public void shouldRemoveBidOrder() {
 
         // remove bid order
         OrderCommand cmd = OrderCommand.cancel(5, UID_1);
@@ -202,9 +201,12 @@ public abstract class OrderBookBaseTest {
         List<MatcherTradeEvent> events = cmd.extractEvents();
         assertThat(events.size(), is(1));
         checkEventReduce(events.get(0), 20L, 81590, true, null);
+    }
 
+    @Test
+    public void shouldRemoveAskOrder() {
         // remove ask order
-        cmd = OrderCommand.cancel(2, UID_1);
+        OrderCommand cmd = OrderCommand.cancel(2, UID_1);
         processAndValidate(cmd, SUCCESS);
 
         expectedState.setAskVolume(0, 25).decrementAskOrdersNum(0);
@@ -212,13 +214,13 @@ public abstract class OrderBookBaseTest {
 
         assertThat(cmd.action, is(ASK));
 
-        events = cmd.extractEvents();
+        List<MatcherTradeEvent> events = cmd.extractEvents();
         assertThat(events.size(), is(1));
         checkEventReduce(events.get(0), 50L, 81599L, true, null);
     }
 
     @Test
-    public void shouldReduceOrder() {
+    public void shouldReduceBidOrder() {
 
         // reduce bid order
         OrderCommand cmd = OrderCommand.reduce(5, UID_1, 3);
@@ -232,9 +234,12 @@ public abstract class OrderBookBaseTest {
         List<MatcherTradeEvent> events = cmd.extractEvents();
         assertThat(events.size(), is(1));
         checkEventReduce(events.get(0), 3L, 81590L, false, null);
+    }
 
+    @Test
+    public void shouldReduceAskOrder() {
         // reduce ask order - will effectively remove order
-        cmd = OrderCommand.reduce(1, UID_1, 300);
+        OrderCommand cmd = OrderCommand.reduce(1, UID_1, 300);
         processAndValidate(cmd, SUCCESS);
 
         expectedState.removeAsk(1);
@@ -242,7 +247,7 @@ public abstract class OrderBookBaseTest {
 
         assertThat(cmd.action, is(ASK));
 
-        events = cmd.extractEvents();
+        List<MatcherTradeEvent> events = cmd.extractEvents();
         assertThat(events.size(), is(1));
         checkEventReduce(events.get(0), 100L, 81600L, true, null);
     }
@@ -494,6 +499,129 @@ public abstract class OrderBookBaseTest {
         // 6 trades generated, first comes rejection with size=25 left unmatched
         checkEventRejection(events.get(0), 25L, 400000L, MAX_PRICE + 1);
     }
+
+    // ---------------------- FOK BUDGET ORDERS ---------------------------
+
+    @Test
+    public void shouldRejectFokBidOrderOutOfBudget() {
+
+        long size = 180L;
+        long buyBudget = expectedState.aggregateBuyBudget(size) - 1;
+        assertThat(buyBudget, Is.is(81599L * 75L + 81600L * 100L + 200954L * 5L - 1));
+
+        OrderCommand cmd = OrderCommand.newOrder(FOK_BUDGET, 123L, UID_2, buyBudget, buyBudget, size, BID);
+        processAndValidate(cmd, SUCCESS);
+
+        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
+        assertEquals(expectedState.build(), snapshot);
+
+        List<MatcherTradeEvent> events = cmd.extractEvents();
+        assertThat(events.size(), is(1));
+
+        // no trades generated, rejection with full size unmatched
+        checkEventRejection(events.get(0), size, buyBudget, buyBudget);
+    }
+
+    @Test
+    public void shouldMatchFokBidOrderExactBudget() {
+
+        long size = 180L;
+        long buyBudget = expectedState.aggregateBuyBudget(size);
+        assertThat(buyBudget, Is.is(81599L * 75L + 81600L * 100L + 200954L * 5L));
+
+        OrderCommand cmd = OrderCommand.newOrder(FOK_BUDGET, 123L, UID_2, buyBudget, buyBudget, size, BID);
+        processAndValidate(cmd, SUCCESS);
+
+        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
+        assertEquals(expectedState.removeAsk(0).removeAsk(0).setAskVolume(0, 5).build(), snapshot);
+
+        List<MatcherTradeEvent> events = cmd.extractEvents();
+        assertThat(events.size(), is(4));
+        checkEventTrade(events.get(0), 2L, 81599, 50L);
+        checkEventTrade(events.get(1), 3L, 81599, 25L);
+        checkEventTrade(events.get(2), 1L, 81600L, 100L);
+        checkEventTrade(events.get(3), 10L, 200954L, 5L);
+    }
+
+    @Test
+    public void shouldMatchFokBidOrderExtraBudget() {
+
+        long size = 176L;
+        long buyBudget = expectedState.aggregateBuyBudget(size) + 1;
+        assertThat(buyBudget, Is.is(81599L * 75L + 81600L * 100L + 200954L + 1L));
+
+        OrderCommand cmd = OrderCommand.newOrder(FOK_BUDGET, 123L, UID_2, buyBudget, buyBudget, size, BID);
+        processAndValidate(cmd, SUCCESS);
+
+        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
+        assertEquals(expectedState.removeAsk(0).removeAsk(0).setAskVolume(0, 9).build(), snapshot);
+
+        List<MatcherTradeEvent> events = cmd.extractEvents();
+        assertThat(events.size(), is(4));
+        checkEventTrade(events.get(0), 2L, 81599, 50L);
+        checkEventTrade(events.get(1), 3L, 81599, 25L);
+        checkEventTrade(events.get(2), 1L, 81600L, 100L);
+        checkEventTrade(events.get(3), 10L, 200954L, 1L);
+    }
+
+    @Test
+    public void shouldRejectFokAskOrderBelowExpectation() {
+
+        long size = 60L;
+        long sellExpectation = expectedState.aggregateSellExpectation(size) + 1;
+        assertThat(sellExpectation, Is.is(81593L * 40L + 81590L * 20L + 1));
+
+        OrderCommand cmd = OrderCommand.newOrder(FOK_BUDGET, 123L, UID_2, sellExpectation, sellExpectation, size, ASK);
+        processAndValidate(cmd, SUCCESS);
+
+        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
+        assertEquals(expectedState.build(), snapshot);
+
+        List<MatcherTradeEvent> events = cmd.extractEvents();
+        assertThat(events.size(), is(1));
+        // no trades generated, rejection with full size unmatched
+        checkEventRejection(events.get(0), size, sellExpectation, sellExpectation);
+    }
+
+    @Test
+    public void shouldMatchFokAskOrderExactExpectation() {
+
+        long size = 60L;
+        long sellExpectation = expectedState.aggregateSellExpectation(size);
+        assertThat(sellExpectation, Is.is(81593L * 40L + 81590L * 20L));
+
+        OrderCommand cmd = OrderCommand.newOrder(FOK_BUDGET, 123L, UID_2, sellExpectation, sellExpectation, size, ASK);
+        processAndValidate(cmd, SUCCESS);
+
+        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
+        assertEquals(expectedState.removeBid(0).setBidVolume(0, 1).decrementBidOrdersNum(0).build(), snapshot);
+
+        List<MatcherTradeEvent> events = cmd.extractEvents();
+        assertThat(events.size(), is(2));
+        checkEventTrade(events.get(0), 4L, 81593L, 40L);
+        checkEventTrade(events.get(1), 5L, 81590L, 20L);
+    }
+
+    @Test
+    public void shouldMatchFokAskOrderExtraBudget() {
+
+        long size = 61L;
+        long sellExpectation = expectedState.aggregateSellExpectation(size) - 1;
+        assertThat(sellExpectation, Is.is(81593L * 40L + 81590L * 21L - 1));
+
+        OrderCommand cmd = OrderCommand.newOrder(FOK_BUDGET, 123L, UID_2, sellExpectation, sellExpectation, size, ASK);
+        processAndValidate(cmd, SUCCESS);
+
+        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
+        assertEquals(expectedState.removeBid(0).removeBid(0).build(), snapshot);
+
+        List<MatcherTradeEvent> events = cmd.extractEvents();
+        assertThat(events.size(), is(3));
+        checkEventTrade(events.get(0), 4L, 81593L, 40L);
+        checkEventTrade(events.get(1), 5L, 81590L, 20L);
+        checkEventTrade(events.get(2), 6L, 81590L, 1L);
+    }
+
 
     // MARKETABLE GTC ORDERS
 

@@ -55,8 +55,8 @@ public final class TestOrdersGenerator {
     public static final UnaryOperator<Integer> UID_PLAIN_MAPPER = i -> i + 1;
 
     // TODO allow limiting max volume
-
     // TODO allow limiting number of opened positions (currently it just grows)
+    // TODO use longs for prices (optionally)
 
     public static MultiSymbolGenResult generateMultipleSymbols(final TestOrdersGeneratorConfig config) {
 
@@ -493,7 +493,8 @@ public final class TestOrdersGenerator {
                 priceMoveRounded = rand.nextInt(2) * 2 - 1;
             }
 
-            int newPrice = prevPrice + priceMoveRounded;
+            final int newPrice = Math.min(prevPrice + priceMoveRounded, (int) session.maxPrice);
+            // todo add min limit
 
             // log.debug("session.seq={} orderId={} size={} p={}", session.seq, orderId, session.actualOrders.size(), priceMoveRounded);
 

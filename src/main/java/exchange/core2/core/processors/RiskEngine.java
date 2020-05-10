@@ -340,22 +340,27 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             return CommandResultCode.INVALID_SYMBOL;
         }
 
-        // check if account has enough funds
-        if (ignoreRiskProcessing || placeOrder(cmd, userProfile, spec)) {
-
+        if (ignoreRiskProcessing) {
+            // skip processing
             return CommandResultCode.VALID_FOR_MATCHING_ENGINE;
+        }
 
-        } else {
-            log.warn("{} NSF uid={}: Can not place {}", cmd.orderId, userProfile.uid, cmd);
+        // check if account has enough funds
+        final CommandResultCode resultCode = placeOrder(cmd, userProfile, spec);
+
+        if (resultCode != CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
+            log.warn("{} risk result={} uid={}: Can not place {}", cmd.orderId, resultCode, userProfile.uid, cmd);
             log.warn("{} accounts:{}", cmd.orderId, userProfile.accounts);
             return CommandResultCode.RISK_NSF;
         }
+
+        return resultCode;
     }
 
 
-    private boolean placeOrder(final OrderCommand cmd,
-                               final UserProfile userProfile,
-                               final CoreSymbolSpecification spec) {
+    private CommandResultCode placeOrder(final OrderCommand cmd,
+                                         final UserProfile userProfile,
+                                         final CoreSymbolSpecification spec) {
 
 
         if (spec.type == SymbolType.CURRENCY_EXCHANGE_PAIR) {
@@ -374,27 +379,27 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             final boolean canPlaceOrder = canPlaceMarginOrder(cmd, userProfile, spec, position);
             if (canPlaceOrder) {
                 position.pendingHold(cmd.action, cmd.size);
-                return true;
+                return CommandResultCode.VALID_FOR_MATCHING_ENGINE;
             } else {
                 // try to cleanup position if refusing to place
                 if (position.isEmpty()) {
                     removePositionRecord(position, userProfile);
                 }
-                return false;
+                return CommandResultCode.RISK_NSF;
             }
 
         } else {
-            log.error("Symbol {} - unsupported type: {}", cmd.symbol, spec.type);
-            return false;
+            return CommandResultCode.UNSUPPORTED_SYMBOL_TYPE;
         }
     }
 
-    private boolean placeExchangeOrder(final OrderCommand cmd,
-                                       final UserProfile userProfile,
-                                       final CoreSymbolSpecification spec) {
+    private CommandResultCode placeExchangeOrder(final OrderCommand cmd,
+                                                 final UserProfile userProfile,
+                                                 final CoreSymbolSpecification spec) {
 
         final int currency = (cmd.action == OrderAction.BID) ? spec.quoteCurrency : spec.baseCurrency;
 
+        // TODO disable margin trades through configuration
         // futures positions check for this currency
         long freeFuturesMargin = 0L;
         for (final SymbolPositionRecord position : userProfile.positions) {
@@ -407,31 +412,48 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             }
         }
 
-        if (cmd.action == OrderAction.BID && cmd.reserveBidPrice < cmd.price) {
-            // TODO refactor
-            log.warn("reserveBidPrice={} less than price={}", cmd.reserveBidPrice, cmd.price);
-            return false;
+        final long size = cmd.size;
+        final long orderHoldAmount;
+        if (cmd.action == OrderAction.BID) {
+            if (cmd.reserveBidPrice < cmd.price) {
+                //log.warn("reserveBidPrice={} less than price={}", cmd.reserveBidPrice, cmd.price);
+                return CommandResultCode.RISK_INVALID_RESERVE_BID_PRICE;
+            }
+
+            if (cmd.orderType == OrderType.FOK_BUDGET || cmd.orderType == OrderType.IOC_BUDGET) {
+                orderHoldAmount = CoreArithmeticUtils.calculateAmountBidTakerFeeForBudget(size, cmd.reserveBidPrice, spec);
+            } else {
+                orderHoldAmount = CoreArithmeticUtils.calculateAmountBidTakerFee(size, cmd.reserveBidPrice, spec);
+            }
+
+        } else {
+
+            if (cmd.price < spec.takerFee) {
+                // todo also check for move command
+                return CommandResultCode.RISK_ASK_PRICE_LOWER_THAN_FEE;
+            }
+
+            orderHoldAmount = CoreArithmeticUtils.calculateAmountAsk(size, spec);
         }
 
-        final long orderAmount = CoreArithmeticUtils.calculateHoldAmount(cmd.action, cmd.size, cmd.action == OrderAction.BID ? cmd.reserveBidPrice : cmd.price, spec);
-
-//        log.debug("--------- {} -----------", cmd.orderId);
-//        log.debug("serProfile.accounts.get(currency)={}", userProfile.accounts.get(currency));
+//        log.debug("--------- EXCHANGE RISK ORDER: {} ", cmd);
+//        log.debug("serProfile.accounts.get({})={}", currency, userProfile.accounts.get(currency));
 //        log.debug("freeFuturesMargin={}", freeFuturesMargin);
-//        log.debug("orderAmount={}", orderAmount);
+//        log.debug("orderHoldAmount={}", orderHoldAmount);
 
         // speculative change balance
-        long newBalance = userProfile.accounts.addToValue(currency, -orderAmount);
+        long newBalance = userProfile.accounts.addToValue(currency, -orderHoldAmount);
 
         final boolean canPlace = newBalance + freeFuturesMargin >= 0;
 
         if (!canPlace) {
             // revert balance change
-            userProfile.accounts.addToValue(currency, orderAmount);
+            userProfile.accounts.addToValue(currency, orderHoldAmount);
 //            log.warn("orderAmount={} > userProfile.accounts.get({})={}", orderAmount, currency, userProfile.accounts.get(currency));
+            return CommandResultCode.RISK_NSF;
+        } else {
+            return CommandResultCode.VALID_FOR_MATCHING_ENGINE;
         }
-
-        return canPlace;
     }
 
 
@@ -503,16 +525,36 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             throw new IllegalStateException("Symbol not found: " + symbol);
         }
 
+        final boolean takerSell = cmd.action == OrderAction.ASK;
+
         if (mte != null && mte.eventType != MatcherEventType.BINARY_EVENT) {
             // at least one event to process, resolving primary/taker user profile
-            final UserProfile takerUp = uidForThisHandler(cmd.uid) ? userProfileService.getUserProfileOrAddSuspended(cmd.uid) : null;
             // TODO processing order is reversed
             if (spec.type == SymbolType.CURRENCY_EXCHANGE_PAIR) {
-                do {
-                    handleMatcherEventExchange(mte, spec, cmd.action, takerUp);
+
+                final UserProfile takerUp = uidForThisHandler(cmd.uid)
+                        ? userProfileService.getUserProfileOrAddSuspended(cmd.uid)
+                        : null;
+
+                // REJECT always comes first; REDUCE is always single event
+                if (mte.eventType == MatcherEventType.REDUCE || mte.eventType == MatcherEventType.REJECT) {
+                    if (takerUp != null) {
+                        handleMatcherRejectReduceEventExchange(cmd, mte, spec, takerSell, takerUp);
+                    }
                     mte = mte.nextEvent;
-                } while (mte != null);
+                }
+
+                if (mte != null) {
+                    if (takerSell) {
+                        handleMatcherEventsExchangeSell(mte, spec, takerUp);
+                    } else {
+                        handleMatcherEventsExchangeBuy(mte, spec, takerUp, cmd);
+                    }
+                }
             } else {
+
+                final UserProfile takerUp = uidForThisHandler(cmd.uid) ? userProfileService.getUserProfileOrAddSuspended(cmd.uid) : null;
+
                 // for margin-mode symbols also resolve position record
                 final SymbolPositionRecord takerSpr = (takerUp != null) ? takerUp.getPositionRecordOrThrowEx(symbol) : null;
                 do {
@@ -569,77 +611,135 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
     }
 
+    private void handleMatcherRejectReduceEventExchange(final OrderCommand cmd,
+                                                        final MatcherTradeEvent ev,
+                                                        final CoreSymbolSpecification spec,
+                                                        final boolean takerSell,
+                                                        final UserProfile taker) {
 
-    private void handleMatcherEventExchange(final MatcherTradeEvent ev,
-                                            final CoreSymbolSpecification spec,
-                                            final OrderAction takerAction,
-                                            final UserProfile takerUp) {
-        if (takerUp != null) {
-            if (ev.eventType == MatcherEventType.TRADE) {
-                // TODO group by user profile ??
+        //log.debug("REDUCE/REJECT {} {}", cmd, ev);
 
-                // perform account-to-account transfers
+        // for cancel/rejection only one party is involved
+        if (takerSell) {
 
-//                log.debug("Processing release for taker");
-                processExchangeHoldRelease(ev, spec, true, takerAction, takerUp);
+            taker.accounts.addToValue(spec.baseCurrency, CoreArithmeticUtils.calculateAmountAsk(ev.size, spec));
 
+        } else {
 
-            } else if (ev.eventType == MatcherEventType.REJECT || ev.eventType == MatcherEventType.REDUCE) {
-
-//                log.debug("CANCEL/REJ uid: {}", ev.activeOrderUid);
-
-                // for cancel/rejection only one party is involved
-                final int currency = (takerAction == OrderAction.ASK) ? spec.baseCurrency : spec.quoteCurrency;
-                final long amountForRelease = CoreArithmeticUtils.calculateHoldAmount(takerAction, ev.size, ev.bidderHoldPrice, spec);
-
-                takerUp.accounts.addToValue(currency, amountForRelease);
-
-//                log.debug("REJ/CAN ASK: uid={} amountToRelease = {}  ACC:{}",
-//                        ev.activeOrderUid, amountForRelease, userProfileService.getUserProfile(ev.activeOrderUid).accounts);
-
+            if (cmd.orderType != OrderType.FOK_BUDGET) {
+                taker.accounts.addToValue(spec.quoteCurrency, CoreArithmeticUtils.calculateAmountBidTakerFee(ev.size, ev.bidderHoldPrice, spec));
+            } else {
+                taker.accounts.addToValue(spec.quoteCurrency, CoreArithmeticUtils.calculateAmountBidTakerFeeForBudget(ev.size, ev.price, spec));
             }
+            // TODO for OrderType.IOC_BUDGET - for REJECT should release leftover deposit after all trades calculated
         }
 
-        if (ev.eventType == MatcherEventType.TRADE && uidForThisHandler(ev.matchedOrderUid)) {
-            //                log.debug("Processing release for maker");
-            processExchangeHoldRelease(ev, spec, false, takerAction, takerUp);
+    }
+
+
+    private void handleMatcherEventsExchangeSell(MatcherTradeEvent ev,
+                                                 final CoreSymbolSpecification spec,
+                                                 final UserProfile taker) {
+
+        //log.debug("TRADE EXCH SELL {}", ev);
+
+        long takerSizeForThisHandler = 0L;
+        long makerSizeForThisHandler = 0L;
+
+        long takerSizePriceForThisHandler = 0L;
+
+        final int quoteCurrency = spec.quoteCurrency;
+
+        while (ev != null) {
+            assert ev.eventType == MatcherEventType.TRADE;
+
+            // aggregate transfers for selling taker
+            if (taker != null) {
+                takerSizePriceForThisHandler += ev.size * ev.price;
+                takerSizeForThisHandler += ev.size;
+            }
+
+            // process transfers for buying maker
+            if (uidForThisHandler(ev.matchedOrderUid)) {
+                final long size = ev.size;
+                final UserProfile maker = userProfileService.getUserProfileOrAddSuspended(ev.matchedOrderUid);
+
+                // buying, use bidderHoldPrice to calculate released amount based on price difference
+                final long priceDiff = ev.bidderHoldPrice - ev.price;
+                final long amountDiffToReleaseInQuoteCurrency = CoreArithmeticUtils.calculateAmountBidReleaseCorrMaker(size, priceDiff, spec);
+                maker.accounts.addToValue(quoteCurrency, amountDiffToReleaseInQuoteCurrency);
+
+                final long gainedAmountInBaseCurrency = CoreArithmeticUtils.calculateAmountAsk(size, spec);
+                maker.accounts.addToValue(spec.baseCurrency, gainedAmountInBaseCurrency);
+
+                makerSizeForThisHandler += size;
+            }
+
+            ev = ev.nextEvent;
+        }
+
+        if (taker != null) {
+            taker.accounts.addToValue(quoteCurrency, takerSizePriceForThisHandler * spec.quoteScaleK - spec.takerFee * takerSizeForThisHandler);
+        }
+
+        if (takerSizeForThisHandler != 0 || makerSizeForThisHandler != 0) {
+
+            fees.addToValue(quoteCurrency, spec.takerFee * takerSizeForThisHandler + spec.makerFee * makerSizeForThisHandler);
         }
     }
 
-    private void processExchangeHoldRelease(MatcherTradeEvent ev,
-                                            CoreSymbolSpecification spec,
-                                            boolean isTaker,
-                                            final OrderAction takerAction,
-                                            final UserProfile takerUp) {
-        final long size = ev.size;
-        final UserProfile up = isTaker ? takerUp : userProfileService.getUserProfileOrAddSuspended(ev.matchedOrderUid);
+    private void handleMatcherEventsExchangeBuy(MatcherTradeEvent ev,
+                                                final CoreSymbolSpecification spec,
+                                                final UserProfile taker,
+                                                final OrderCommand cmd) {
+        //log.debug("TRADE EXCH BUY {}", ev);
 
-        final long feeForSize = (isTaker ? spec.takerFee : spec.makerFee) * size;
-        fees.addToValue(spec.quoteCurrency, feeForSize);
+        long takerSizeForThisHandler = 0L;
+        long makerSizeForThisHandler = 0L;
 
-        final boolean isSelling = takerAction == OrderAction.BID ^ isTaker;
-        if (isSelling) {
+        long takerSizePriceSum = 0L;
+        long takerSizePriceHeldSum = 0L;
 
-            // selling
-            final long obtainedAmountInQuoteCurrency = CoreArithmeticUtils.calculateAmountBid(size, ev.price, spec);
-            up.accounts.addToValue(spec.quoteCurrency, obtainedAmountInQuoteCurrency - feeForSize);
-//            log.debug("{} sells - getting {} -fee:{} (in quote cur={}) size={} ACCOUNTS:{}", up.uid, obtainedAmountInQuoteCurrency, feeForSize, spec.quoteCurrency, size, userProfileService.getUserProfile(uid).accounts);
-        } else {
+        final int quoteCurrency = spec.quoteCurrency;
 
-            //final long makerFeeCorrection = isTaker ? 0 : (spec.takerFee - spec.makerFee) * size;
-            //log.debug("makerFeeCorrection={} ....(   - makerFee {} ) * {}", makerFeeCorrection, spec.makerFee, size);
+        while (ev != null) {
+            assert ev.eventType == MatcherEventType.TRADE;
 
-            // buying, use bidderHoldPrice to calculate released amount based on price difference
-            final long amountDiffToReleaseInQuoteCurrency = CoreArithmeticUtils.calculateAmountBidReleaseCorr(size, ev.bidderHoldPrice - ev.price, spec, isTaker);
-            up.accounts.addToValue(spec.quoteCurrency, amountDiffToReleaseInQuoteCurrency);
+            // perform transfers for taker
+            if (taker != null) {
 
-            final long obtainedAmountInBaseCurrency = CoreArithmeticUtils.calculateAmountAsk(size, spec);
-            up.accounts.addToValue(spec.baseCurrency, obtainedAmountInBaseCurrency);
+                takerSizePriceSum += ev.size * ev.price;
+                takerSizePriceHeldSum += ev.size * ev.bidderHoldPrice;
 
-//            log.debug("{} buys - amountDiffToReleaseInQuoteCurrency={} ({}-{}) (in quote cur={})",
-//                    up.uid, amountDiffToReleaseInQuoteCurrency, ev.bidderHoldPrice, ev.price, spec.quoteCurrency);
-//            log.debug("{} buys - getting {} (in base cur={}) size={} ACCOUNTS:{}",
-//                    up.uid, obtainedAmountInBaseCurrency, spec.baseCurrency, size, userProfileService.getUserProfile(uid).accounts);
+                takerSizeForThisHandler += ev.size;
+            }
+
+            // process transfers for maker
+            if (uidForThisHandler(ev.matchedOrderUid)) {
+                final long size = ev.size;
+                final UserProfile maker = userProfileService.getUserProfileOrAddSuspended(ev.matchedOrderUid);
+                final long gainedAmountInQuoteCurrency = CoreArithmeticUtils.calculateAmountBid(size, ev.price, spec);
+                maker.accounts.addToValue(quoteCurrency, gainedAmountInQuoteCurrency - spec.makerFee * size);
+                makerSizeForThisHandler += size;
+            }
+
+            ev = ev.nextEvent;
+        }
+
+        if (taker != null) {
+
+            if (cmd.orderType == OrderType.FOK_BUDGET) {
+                // for FOK budget held sum calculated differently
+                takerSizePriceHeldSum = cmd.price;
+            }
+            // TODO IOC_BUDGET - order can be partially rejected - need held taker fee correction
+
+            taker.accounts.addToValue(quoteCurrency, (takerSizePriceHeldSum - takerSizePriceSum) * spec.quoteScaleK);
+            taker.accounts.addToValue(spec.baseCurrency, takerSizeForThisHandler * spec.baseScaleK);
+        }
+
+        if (takerSizeForThisHandler != 0 || makerSizeForThisHandler != 0) {
+            fees.addToValue(quoteCurrency, spec.takerFee * takerSizeForThisHandler + spec.makerFee * makerSizeForThisHandler);
         }
     }
 

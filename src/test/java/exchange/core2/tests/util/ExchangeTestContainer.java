@@ -151,8 +151,8 @@ public final class ExchangeTestContainer implements AutoCloseable {
     }
 
     public void initFeeSymbols() {
-
         addSymbol(TestConstants.SYMBOLSPECFEE_XBT_LTC);
+        addSymbol(TestConstants.SYMBOLSPECFEE_USD_JPY);
     }
 
     public void initBasicUsers() {
@@ -162,11 +162,26 @@ public final class ExchangeTestContainer implements AutoCloseable {
         initBasicUser(TestConstants.UID_4);
     }
 
-    private void initBasicUser(long uid) {
+    public void initFeeUsers() {
+        initFeeUser(TestConstants.UID_1);
+        initFeeUser(TestConstants.UID_2);
+        initFeeUser(TestConstants.UID_3);
+        initFeeUser(TestConstants.UID_4);
+    }
+
+    public void initBasicUser(long uid) {
         assertThat(api.submitCommandAsync(ApiAddUser.builder().uid(uid).build()).join(), Is.is(CommandResultCode.SUCCESS));
         assertThat(api.submitCommandAsync(ApiAdjustUserBalance.builder().uid(uid).transactionId(1L).amount(10_000_00L).currency(TestConstants.CURRENECY_USD).build()).join(), Is.is(CommandResultCode.SUCCESS));
         assertThat(api.submitCommandAsync(ApiAdjustUserBalance.builder().uid(uid).transactionId(2L).amount(1_0000_0000L).currency(TestConstants.CURRENECY_XBT).build()).join(), Is.is(CommandResultCode.SUCCESS));
         assertThat(api.submitCommandAsync(ApiAdjustUserBalance.builder().uid(uid).transactionId(3L).amount(1_0000_0000L).currency(TestConstants.CURRENECY_ETH).build()).join(), Is.is(CommandResultCode.SUCCESS));
+    }
+
+    public void initFeeUser(long uid) {
+        assertThat(api.submitCommandAsync(ApiAddUser.builder().uid(uid).build()).join(), Is.is(CommandResultCode.SUCCESS));
+        assertThat(api.submitCommandAsync(ApiAdjustUserBalance.builder().uid(uid).transactionId(1L).amount(10_000_00L).currency(TestConstants.CURRENECY_USD).build()).join(), Is.is(CommandResultCode.SUCCESS));
+        assertThat(api.submitCommandAsync(ApiAdjustUserBalance.builder().uid(uid).transactionId(2L).amount(10_000_000L).currency(TestConstants.CURRENECY_JPY).build()).join(), Is.is(CommandResultCode.SUCCESS));
+        assertThat(api.submitCommandAsync(ApiAdjustUserBalance.builder().uid(uid).transactionId(3L).amount(1_0000_0000L).currency(TestConstants.CURRENECY_XBT).build()).join(), Is.is(CommandResultCode.SUCCESS));
+        assertThat(api.submitCommandAsync(ApiAdjustUserBalance.builder().uid(uid).transactionId(4L).amount(1000_0000_0000L).currency(TestConstants.CURRENECY_LTC).build()).join(), Is.is(CommandResultCode.SUCCESS));
     }
 
     public void createUserWithMoney(long uid, int currency, long amount) {

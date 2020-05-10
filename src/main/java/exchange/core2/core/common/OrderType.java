@@ -31,13 +31,13 @@ public enum OrderType {
     FOK(3), // with price cap
     FOK_BUDGET(4); // total amount cap
 
-    private byte code;
+    private final byte code;
 
-    OrderType(int code) {
+    OrderType(final int code) {
         this.code = (byte) code;
     }
 
-    public static OrderType of(byte code) {
+    public static OrderType of(final byte code) {
         switch (code) {
             case 0:
                 return GTC;

@@ -172,6 +172,8 @@ public final class ITExchangeCoreIntegration {
 
             l2helper.setAskPriceVolume(0, 1580, 1).removeBid(0);
             assertEquals(l2helper.build(), container.requestCurrentOrderBook(symbolSpec.symbolId));
+
+            assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
         }
     }
 
@@ -262,6 +264,8 @@ public final class ITExchangeCoreIntegration {
                 assertThat(profile.getAccounts().get(CURRENECY_XBT), is(0L));
                 assertTrue(profile.fetchIndexedOrders().isEmpty());
             });
+
+            assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
         }
     }
 
@@ -505,6 +509,8 @@ public final class ITExchangeCoreIntegration {
                 assertThat(profile.getAccounts().get(CURRENECY_ETH), is(50_000_000L));
                 assertTrue(profile.fetchIndexedOrders().isEmpty());
             });
+
+            assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
         }
     }
 
@@ -554,6 +560,8 @@ public final class ITExchangeCoreIntegration {
                 assertThat(profile.getAccounts().get(CURRENECY_XBT), is(94_000_000L));
                 assertTrue(profile.fetchIndexedOrders().isEmpty());
             });
+
+            assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
         }
     }
 }

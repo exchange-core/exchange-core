@@ -81,6 +81,7 @@ public final class PerfLatencyCommandsAvalanche {
                         .msgsInGroupLimit(256)
                         .build(),
                 TestDataParameters.mediumBuilder()
+                        .numSymbols(2_000)
                         .avalancheIOC(true)
                         .build(),
                 InitialStateConfiguration.CLEAN_TEST);
@@ -97,7 +98,7 @@ public final class PerfLatencyCommandsAvalanche {
                         .msgsInGroupLimit(256)
                         .build(),
                 TestDataParameters.largeBuilder()
-                        .numSymbols(20_000)
+                        .numSymbols(5_000)
                         .avalancheIOC(true)
                         .build(),
                 InitialStateConfiguration.CLEAN_TEST);

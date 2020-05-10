@@ -18,11 +18,13 @@ package exchange.core2.tests.util;
 import com.google.common.base.Strings;
 import exchange.core2.core.common.L2MarketData;
 import lombok.NoArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ArrayUtils;
 
 import java.util.Arrays;
 
 @NoArgsConstructor
+@Slf4j
 public class L2MarketDataHelper {
 
     private long[] askPrices;
@@ -52,6 +54,39 @@ public class L2MarketDataHelper {
         );
     }
 
+    public long aggregateBuyBudget(long size) {
+
+        long budget = 0;
+        for (int i = 0; i < askPrices.length; i++) {
+            long v = askVolumes[i];
+            long p = askPrices[i];
+            if (v < size) {
+                budget += v * p;
+                size -= v;
+            } else {
+                return budget + size * p;
+            }
+        }
+
+        throw new IllegalArgumentException("Can not collect size " + size);
+    }
+
+    public long aggregateSellExpectation(long size) {
+
+        long expectation = 0;
+        for (int i = 0; i < bidPrices.length; i++) {
+            long v = bidVolumes[i];
+            long p = bidPrices[i];
+            if (v < size) {
+                expectation += v * p;
+                size -= v;
+            } else {
+                return expectation + size * p;
+            }
+        }
+
+        throw new IllegalArgumentException("Can not collect size " + size);
+    }
 
     public L2MarketDataHelper setAskPrice(int pos, int askPrice) {
         askPrices[pos] = askPrice;

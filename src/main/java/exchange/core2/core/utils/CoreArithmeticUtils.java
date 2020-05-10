@@ -16,13 +16,10 @@
 package exchange.core2.core.utils;
 
 import exchange.core2.core.common.CoreSymbolSpecification;
-import exchange.core2.core.common.OrderAction;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 public final class CoreArithmeticUtils {
-
-    public static long calculateHoldAmount(OrderAction action, long size, long price, CoreSymbolSpecification spec) {
-        return action == OrderAction.BID ? calculateAmountBidTakerFee(size, price, spec) : calculateAmountAsk(size, spec);
-    }
 
     public static long calculateAmountAsk(long size, CoreSymbolSpecification spec) {
         return size * spec.baseScaleK;
@@ -36,8 +33,13 @@ public final class CoreArithmeticUtils {
         return size * (price * spec.quoteScaleK + spec.takerFee);
     }
 
-    public static long calculateAmountBidReleaseCorr(long size, long priceDiff, CoreSymbolSpecification spec, boolean isTaker) {
-        return size * (priceDiff * spec.quoteScaleK + (isTaker ? 0 : (spec.takerFee - spec.makerFee)));
+    public static long calculateAmountBidReleaseCorrMaker(long size, long priceDiff, CoreSymbolSpecification spec) {
+        return size * (priceDiff * spec.quoteScaleK + (spec.takerFee - spec.makerFee));
+    }
+
+    public static long calculateAmountBidTakerFeeForBudget(long size, long budgetInSteps, CoreSymbolSpecification spec) {
+
+        return budgetInSteps * spec.quoteScaleK + size * spec.takerFee;
     }
 
 }
