@@ -19,9 +19,9 @@ Exchange-core includes:
 - trading, admin and reports API
 
 Designed for high scalability and pauseless 24/7 operation under high-load conditions and providing low-latency responses:
-- 3M users having 10M accounts int total
-- 100K order books (symbols) having 4M pending orders
-- less than 1ms worst wire-to-wire target latency for 1M+ operations per second
+- 3M users having 10M accounts in total
+- 100K order books (symbols) having 4M pending orders in total
+- less than 1ms worst wire-to-wire target latency for 1M+ operations per second throughput
 - 150ns per matching for large market orders
 
 Single order book configuration is capable to process 5M operations per second on 10-years old hardware (Intel® Xeon® X5690) with moderate latency degradation:
@@ -64,7 +64,8 @@ Benchmark configuration:
 - Pipelined multi-core processing (based on LMAX Disruptor): each CPU core is responsible for certain processing stage, user accounts shard, or symbol order books shard.
 - Two different risk processing modes (specified per symbol): direct-exchange and margin-trade.
 - Maker/taker fees (defined in quote currency units).
-- 3 implementations of matching engine: reference simple implementation ("Naive"), small order books optimized ("Fast"), scalability optimized ("Direct").
+- Two order books implementations: simple implementation ("Naive") and performance implementation ("Direct").
+- Order types: Immediate-or-Cancel (IOC), Good-till-Cancel (GTC), Fill-or-Kill Budget (FOK-B)
 - Testing - unit-tests, integration tests, stress tests, integrity/consistency tests.
 - Low GC pressure, objects pooling, single ring-buffer.
 - Threads affinity (requires JNA).
@@ -78,7 +79,7 @@ Benchmark configuration:
 <dependency>
     <groupId>exchange.core2</groupId>
     <artifactId>exchange-core</artifactId>
-    <version>0.4.3</version>
+    <version>0.5.0</version>
 </dependency>
 ```
 
@@ -269,7 +270,7 @@ System.out.println("LTC fees collected: " + totalsReport.get().getFees().get(cur
 - FIX and REST API gateways
 - cryptocurrency payment gateway
 - more tests and benchmarks
-- NUMA-aware
+- NUMA-aware and CPU layout custom configuration
 
 ### Contributing
 Exchange-core is an open-source project and contributions are welcome!
