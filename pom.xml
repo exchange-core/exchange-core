@@ -4,7 +4,7 @@
 
     <groupId>exchange.core2</groupId>
     <artifactId>exchange-core</artifactId>
-    <version>0.4.4-SNAPSHOT</version>
+    <version>0.5.0</version>
     <packaging>jar</packaging>
 
     <name>${project.groupId}:${project.artifactId}</name>
@@ -23,7 +23,7 @@
         <url>https://github.com/mzheravin/exchange-core.git</url>
         <connection>scm:git:git://github.com/mzheravin/exchange-core.git</connection>
         <developerConnection>scm:git:ssh://git@github.com:mzheravin/exchange-core.git</developerConnection>
-        <tag>HEAD</tag>
+        <tag>exchange-core-0.5.0</tag>
     </scm>
 
     <issueManagement>
