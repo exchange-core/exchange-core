@@ -8,14 +8,14 @@ import lombok.Data;
 import java.util.List;
 
 /**
- * Convenient events handler interface for non latency-critical applications.<p>
- * Custom handler implementation should be attached to SimpleEventProcessor.<p>
- * Handler method are invoked from single thread in following order:<p>
- * <table>
- * <tr><td>1. <td> commandResult
- * <tr><td>2A.  <td> optional reduceEvent <td> optional tradeEvent
- * <tr><td>2B. <td> <td>optional rejectEvent
- * <tr><td>3. <td> orderBook - mandatory for ApiOrderBookRequest, optional for other commands
+ * Convenient events handler interface for non latency-critical applications.<br>
+ * Custom handler implementation should be attached to SimpleEventProcessor.<br>
+ * Handler method are invoked from single thread in following order:
+ * <table summary="execution order">
+ * <tr><td>1. </td><td> commandResult</td></tr>
+ * <tr><td>2A.  </td><td> optional reduceEvent <td> optional tradeEvent</td></tr>
+ * <tr><td>2B. </td><td> <td>optional rejectEvent</td></tr>
+ * <tr><td>3. </td><td> orderBook - mandatory for ApiOrderBookRequest, optional for other commands</td></tr>
  * </table>
  * Events processing will stop immediately if any handler throws an exception - you should consider wrapping logic into try-catch block if necessary.
  */

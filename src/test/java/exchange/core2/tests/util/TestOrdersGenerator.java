@@ -411,6 +411,8 @@ public final class TestOrdersGenerator {
                 session.counterPlaceLimit++;
             } else {
 
+                placeCmd.price = action == OrderAction.BID ? session.maxPrice : session.minPrice;
+                placeCmd.reserveBidPrice = action == OrderAction.BID ? placeCmd.price : 0; // set limit price
                 placeCmd.orderType = OrderType.IOC;
 
                 if (session.avalancheIOC) {
@@ -428,13 +430,20 @@ public final class TestOrdersGenerator {
                     }
 //                    log.debug("huge size={} at {}", placeCmd.size, session.seq);
 
+                } else if (rand.nextInt(32) == 0) {
+                    // IOC:FOKB = 31:1
+                    placeCmd.orderType = OrderType.FOK_BUDGET;
+                    placeCmd.size = 1 + rand.nextInt(8) * rand.nextInt(8) * rand.nextInt(8);
+
+                    // set budget-expectation
+                    placeCmd.price = placeCmd.size * (action == OrderAction.BID ? session.maxPrice : session.minPrice);
+                    placeCmd.reserveBidPrice = placeCmd.price;
                 } else {
                     placeCmd.size = 1 + rand.nextInt(6) * rand.nextInt(6) * rand.nextInt(6);
                 }
 
                 session.orderSizes.put(newOrderId, (int) placeCmd.size);
-                placeCmd.price = action == OrderAction.BID ? session.maxPrice : session.minPrice;
-                placeCmd.reserveBidPrice = action == OrderAction.BID ? placeCmd.price : 0; // set limit price
+
                 session.counterPlaceMarket++;
             }
 
@@ -551,6 +560,7 @@ public final class TestOrdersGenerator {
     private static void printStatistics(final List<OrderCommand> allCommands) {
         int counterPlaceIOC = 0;
         int counterPlaceGTC = 0;
+        int counterPlaceFOKB = 0;
         int counterCancel = 0;
         int counterMove = 0;
         int counterReduce = 0;
@@ -575,6 +585,8 @@ public final class TestOrdersGenerator {
                         counterPlaceIOC++;
                     } else if (cmd.orderType == OrderType.GTC) {
                         counterPlaceGTC++;
+                    } else if (cmd.orderType == OrderType.FOK_BUDGET) {
+                        counterPlaceFOKB++;
                     }
                     break;
             }
@@ -586,10 +598,11 @@ public final class TestOrdersGenerator {
 
         final String commandsGtc = String.format("%.2f%%", (float) counterPlaceGTC / (float) commandsListSize * 100.0f);
         final String commandsIoc = String.format("%.2f%%", (float) counterPlaceIOC / (float) commandsListSize * 100.0f);
+        final String commandsFokb = String.format("%.2f%%", (float) counterPlaceFOKB / (float) commandsListSize * 100.0f);
         final String commandsCancel = String.format("%.2f%%", (float) counterCancel / (float) commandsListSize * 100.0f);
         final String commandsMove = String.format("%.2f%%", (float) counterMove / (float) commandsListSize * 100.0f);
         final String commandsReduce = String.format("%.2f%%", (float) counterReduce / (float) commandsListSize * 100.0f);
-        log.info("GTC:{} IOC:{} cancel:{} move:{} reduce:{}", commandsGtc, commandsIoc, commandsCancel, commandsMove, commandsReduce);
+        log.info("GTC:{} IOC:{} FOKB:{} cancel:{} move:{} reduce:{}", commandsGtc, commandsIoc, commandsFokb, commandsCancel, commandsMove, commandsReduce);
 
         final String cpsMax = String.format("%d (%.2f%%)", symbolStat.getMax(), symbolStat.getMax() * 100.0f / commandsListSize);
         final String cpsAvg = String.format("%d (%.2f%%)", (int) symbolStat.getAverage(), symbolStat.getAverage() * 100.0f / commandsListSize);

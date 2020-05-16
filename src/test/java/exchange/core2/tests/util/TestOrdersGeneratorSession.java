@@ -82,7 +82,15 @@ public final class TestOrdersGeneratorSession {
 
 //    public SingleWriterRecorder hdrRecorder = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
 
-    public TestOrdersGeneratorSession(IOrderBook orderBook, int transactionsNumber, int targetOrderBookOrdersHalf, boolean avalancheIOC, int numUsers, UnaryOperator<Integer> uidMapper, int symbol, boolean enableSlidingPrice, int seed) {
+    public TestOrdersGeneratorSession(IOrderBook orderBook,
+                                      int transactionsNumber,
+                                      int targetOrderBookOrdersHalf,
+                                      boolean avalancheIOC,
+                                      int numUsers,
+                                      UnaryOperator<Integer> uidMapper,
+                                      int symbol,
+                                      boolean enableSlidingPrice,
+                                      int seed) {
         this.orderBook = orderBook;
         this.transactionsNumber = transactionsNumber;
         this.targetOrderBookOrdersHalf = targetOrderBookOrdersHalf;
