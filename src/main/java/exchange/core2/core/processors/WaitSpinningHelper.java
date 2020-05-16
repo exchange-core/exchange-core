@@ -26,7 +26,7 @@ import java.util.concurrent.locks.LockSupport;
 
 public final class WaitSpinningHelper {
 
-    private static final long SLEEP_NS = 200;
+    private static final long SLEEP_NS = 200_000; // 0.2ms
 
     private final SequenceBarrier sequenceBarrier;
     private final Sequencer sequencer;

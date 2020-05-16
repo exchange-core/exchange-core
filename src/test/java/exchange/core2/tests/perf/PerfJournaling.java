@@ -38,6 +38,19 @@ public final class PerfJournaling {
     }
 
     @Test
+    public void testJournalingExchange() throws Exception {
+        JournalingTestsModule.journalingTestImpl(
+                PerformanceConfiguration.throughputPerformanceBuilder()
+                        .matchingEnginesNum(1)
+                        .riskEnginesNum(1)
+                        .build(),
+                TestDataParameters.singlePairExchangeBuilder()
+                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER_PLUS_QUARTER)
+                        .build(),
+                10);
+    }
+
+    @Test
     public void testJournalingMultiSymbolSmall() throws Exception {
         JournalingTestsModule.journalingTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()

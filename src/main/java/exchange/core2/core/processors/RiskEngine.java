@@ -24,6 +24,7 @@ import exchange.core2.core.common.api.reports.ReportQuery;
 import exchange.core2.core.common.api.reports.ReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
+import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.ExchangeConfiguration;
 import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.processors.journaling.ISerializationProcessor;
@@ -415,20 +416,28 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         final long size = cmd.size;
         final long orderHoldAmount;
         if (cmd.action == OrderAction.BID) {
-            if (cmd.reserveBidPrice < cmd.price) {
-                //log.warn("reserveBidPrice={} less than price={}", cmd.reserveBidPrice, cmd.price);
-                return CommandResultCode.RISK_INVALID_RESERVE_BID_PRICE;
-            }
 
             if (cmd.orderType == OrderType.FOK_BUDGET || cmd.orderType == OrderType.IOC_BUDGET) {
+
+                if (cmd.reserveBidPrice != cmd.price) {
+                    //log.warn("reserveBidPrice={} less than price={}", cmd.reserveBidPrice, cmd.price);
+                    return CommandResultCode.RISK_INVALID_RESERVE_BID_PRICE;
+                }
                 orderHoldAmount = CoreArithmeticUtils.calculateAmountBidTakerFeeForBudget(size, cmd.reserveBidPrice, spec);
+
             } else {
+
+                if (cmd.reserveBidPrice < cmd.price) {
+                    //log.warn("reserveBidPrice={} less than price={}", cmd.reserveBidPrice, cmd.price);
+                    return CommandResultCode.RISK_INVALID_RESERVE_BID_PRICE;
+                }
                 orderHoldAmount = CoreArithmeticUtils.calculateAmountBidTakerFee(size, cmd.reserveBidPrice, spec);
             }
 
         } else {
 
-            if (cmd.price < spec.takerFee) {
+            if (cmd.price * spec.quoteScaleK < spec.takerFee) {
+                // log.debug("cmd.price {} * spec.quoteScaleK {} < {} spec.takerFee", cmd.price, spec.quoteScaleK, spec.takerFee);
                 // todo also check for move command
                 return CommandResultCode.RISK_ASK_PRICE_LOWER_THAN_FEE;
             }
@@ -626,10 +635,10 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
         } else {
 
-            if (cmd.orderType != OrderType.FOK_BUDGET) {
-                taker.accounts.addToValue(spec.quoteCurrency, CoreArithmeticUtils.calculateAmountBidTakerFee(ev.size, ev.bidderHoldPrice, spec));
-            } else {
+            if (cmd.command == OrderCommandType.PLACE_ORDER && cmd.orderType == OrderType.FOK_BUDGET) {
                 taker.accounts.addToValue(spec.quoteCurrency, CoreArithmeticUtils.calculateAmountBidTakerFeeForBudget(ev.size, ev.price, spec));
+            } else {
+                taker.accounts.addToValue(spec.quoteCurrency, CoreArithmeticUtils.calculateAmountBidTakerFee(ev.size, ev.bidderHoldPrice, spec));
             }
             // TODO for OrderType.IOC_BUDGET - for REJECT should release leftover deposit after all trades calculated
         }
@@ -728,7 +737,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
         if (taker != null) {
 
-            if (cmd.orderType == OrderType.FOK_BUDGET) {
+            if (cmd.command == OrderCommandType.PLACE_ORDER && cmd.orderType == OrderType.FOK_BUDGET) {
                 // for FOK budget held sum calculated differently
                 takerSizePriceHeldSum = cmd.price;
             }
