@@ -46,7 +46,7 @@ public final class TwoStepSlaveProcessor implements EventProcessor {
                                  final String name) {
         this.dataProvider = ringBuffer;
         this.sequenceBarrier = sequenceBarrier;
-        this.waitSpinningHelper = new WaitSpinningHelper(ringBuffer, sequenceBarrier, 0, CoreWaitStrategy.NO_WAIT);
+        this.waitSpinningHelper = new WaitSpinningHelper(ringBuffer, sequenceBarrier, 0, CoreWaitStrategy.SECOND_STEP_NO_WAIT);
         this.eventHandler = eventHandler;
         this.exceptionHandler = exceptionHandler;
         this.name = name;
@@ -84,7 +84,7 @@ public final class TwoStepSlaveProcessor implements EventProcessor {
         nextSequence = sequence.get() + 1L;
     }
 
-    public void handlingCycle(long processUpToSequence) {
+    public void handlingCycle(final long processUpToSequence) {
         while (true) {
             OrderCommand event = null;
             try {
@@ -99,15 +99,15 @@ public final class TwoStepSlaveProcessor implements EventProcessor {
 
                 // exit if finished processing entire group (up to specified sequence)
                 if (nextSequence == processUpToSequence) {
-                    sequence.set(nextSequence - 1);
+                    sequence.set(processUpToSequence - 1);
+                    waitSpinningHelper.signalAllWhenBlocking();
                     return;
                 }
-
-                sequence.set(availableSequence);
 
             } catch (final Throwable ex) {
                 exceptionHandler.handleEventException(ex, nextSequence, event);
                 sequence.set(nextSequence);
+                waitSpinningHelper.signalAllWhenBlocking();
                 nextSequence++;
             }
         }

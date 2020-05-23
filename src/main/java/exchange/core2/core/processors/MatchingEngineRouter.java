@@ -18,6 +18,7 @@ package exchange.core2.core.processors;
 import exchange.core2.collections.objpool.ObjectsPool;
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.StateHash;
+import exchange.core2.core.common.SymbolType;
 import exchange.core2.core.common.api.binary.BatchAddAccountsCommand;
 import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
 import exchange.core2.core.common.api.reports.ReportQuery;
@@ -26,6 +27,7 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.ExchangeConfiguration;
+import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.orderbook.OrderBookEventsHelper;
 import exchange.core2.core.processors.journaling.ISerializationProcessor;
@@ -61,8 +63,11 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
     // local objects pool for order books
     private final ObjectsPool objectsPool;
 
+    // sharding by symbolId
     private final int shardId;
     private final long shardMask;
+
+    private final boolean cfgMarginTradingEnabled;
 
     private final ISerializationProcessor serializationProcessor;
 
@@ -130,6 +135,8 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
             this.orderBooks = new IntObjectHashMap<>();
         }
 
+        final OrdersProcessingConfiguration ordersProcCfg = exchangeConfiguration.getOrdersProcessingCfg();
+        this.cfgMarginTradingEnabled = ordersProcCfg.getMarginTradingMode() == OrdersProcessingConfiguration.MarginTradingMode.MARGIN_TRADING_ENABLED;
     }
 
     public void processOrder(long seq, OrderCommand cmd) {
@@ -199,16 +206,18 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
     }
 
 
-    private CommandResultCode addSymbol(final CoreSymbolSpecification symbolSpecification) {
+    private void addSymbol(final CoreSymbolSpecification spec) {
 
 //        log.debug("ME add symbolSpecification: {}", symbolSpecification);
 
-        final int symbolId = symbolSpecification.symbolId;
-        if (orderBooks.get(symbolId) != null) {
-            return CommandResultCode.MATCHING_ORDER_BOOK_ALREADY_EXISTS;
+        if (spec.type != SymbolType.CURRENCY_EXCHANGE_PAIR && !cfgMarginTradingEnabled) {
+            log.warn("Margin symbols are not allowed: {}", spec);
+        }
+
+        if (orderBooks.get(spec.symbolId) == null) {
+            orderBooks.put(spec.symbolId, orderBookFactory.create(spec, objectsPool, eventsHelper));
         } else {
-            orderBooks.put(symbolId, orderBookFactory.create(symbolSpecification, objectsPool, eventsHelper));
-            return CommandResultCode.SUCCESS;
+            log.warn("OrderBook for symbol id={} already exists! Can not add symbol: {}", spec.symbolId, spec);
         }
     }
 

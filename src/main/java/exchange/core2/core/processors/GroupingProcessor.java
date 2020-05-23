@@ -222,6 +222,7 @@ public final class GroupingProcessor implements EventProcessor {
 
                     }
                     sequence.set(availableSequence);
+                    waitSpinningHelper.signalAllWhenBlocking();
                     groupLastNs = System.nanoTime() + maxGroupDurationNs;
 
                 } else {
@@ -233,6 +234,9 @@ public final class GroupingProcessor implements EventProcessor {
                     }
 
                     if (t > l2dataLastNs) {
+                        // TODO fix order best price updating mechanism,
+                        //  this does not work for multi-symbol configuration
+
                         l2dataLastNs = t + L2_PUBLISH_INTERVAL_NS; // trigger L2 data every 10ms
                         triggerL2DataRequest = true;
                     }
@@ -244,6 +248,7 @@ public final class GroupingProcessor implements EventProcessor {
                 }
             } catch (final Throwable ex) {
                 sequence.set(nextSequence);
+                waitSpinningHelper.signalAllWhenBlocking();
                 nextSequence++;
             }
         }

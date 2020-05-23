@@ -16,9 +16,11 @@ public final class OrdersProcessingConfiguration {
 
     public static OrdersProcessingConfiguration DEFAULT = OrdersProcessingConfiguration.builder()
             .riskProcessingMode(RiskProcessingMode.FULL_PER_CURRENCY)
+            .marginTradingMode(MarginTradingMode.MARGIN_TRADING_ENABLED)
             .build();
 
     private final RiskProcessingMode riskProcessingMode;
+    private final MarginTradingMode marginTradingMode;
 
     public enum RiskProcessingMode {
         // risk processing is on, every currency/asset account is checked independently
@@ -26,5 +28,10 @@ public final class OrdersProcessingConfiguration {
 
         // risk processing is off, any orders accepted and placed
         NO_RISK_PROCESSING
+    }
+
+    public enum MarginTradingMode {
+        MARGIN_TRADING_DISABLED,
+        MARGIN_TRADING_ENABLED
     }
 }

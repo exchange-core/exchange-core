@@ -79,13 +79,13 @@ public final class PerformanceConfiguration {
     public static PerformanceConfiguration.PerformanceConfigurationBuilder baseBuilder() {
 
         return builder()
-                .ringBufferSize(2 * 1024)
+                .ringBufferSize(16 * 1024)
                 .matchingEnginesNum(1)
                 .riskEnginesNum(1)
                 .msgsInGroupLimit(256)
                 .maxGroupDurationNs(10_000)
                 .threadFactory(Thread::new)
-                .waitStrategy(CoreWaitStrategy.SLEEPING)
+                .waitStrategy(CoreWaitStrategy.BLOCKING)
                 .binaryCommandsLz4CompressorFactory(() -> LZ4Factory.fastestInstance().highCompressor())
                 .orderBookFactory(OrderBookNaiveImpl::new);
     }

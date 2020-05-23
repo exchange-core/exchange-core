@@ -97,7 +97,7 @@ public final class TwoStepMasterProcessor implements EventProcessor {
 
     private void processEvents() {
 
-        Thread.currentThread().setName("Thread-"+name);
+        Thread.currentThread().setName("Thread-" + name);
 
         long nextSequence = sequence.get() + 1L;
 
@@ -115,14 +115,13 @@ public final class TwoStepMasterProcessor implements EventProcessor {
                 // should spin and also check another barrier
                 final long availableSequence = waitSpinningHelper.tryWaitFor(nextSequence);
 
-                if (availableSequence >= nextSequence) {
+                if (nextSequence <= availableSequence) {
                     while (nextSequence <= availableSequence) {
                         cmd = dataProvider.get(nextSequence);
 
-                        // switch to next group - let slave processor to do a handling cycle
+                        // switch to next group - let slave processor start doing its handling cycle
                         if (cmd.eventsGroup != currentSequenceGroup) {
-                            sequence.set(nextSequence - 1);
-                            slaveProcessor.handlingCycle(nextSequence);
+                            publishProgressAndTriggerSlaveProcessor(nextSequence);
                             currentSequenceGroup = cmd.eventsGroup;
                         }
 
@@ -131,19 +130,18 @@ public final class TwoStepMasterProcessor implements EventProcessor {
 
                         if (forcedPublish) {
                             sequence.set(nextSequence - 1);
+                            waitSpinningHelper.signalAllWhenBlocking();
                         }
 
                         if (cmd.command == OrderCommandType.SHUTDOWN_SIGNAL) {
                             // having all sequences aligned with the ringbuffer cursor is a requirement for proper shutdown
 
                             // let following processors to catch up
-                            sequence.set(nextSequence - 1);
-
-                            // trigger slave processor
-                            slaveProcessor.handlingCycle(nextSequence);
+                            publishProgressAndTriggerSlaveProcessor(nextSequence);
                         }
                     }
                     sequence.set(availableSequence);
+                    waitSpinningHelper.signalAllWhenBlocking();
                 }
             } catch (final AlertException ex) {
                 if (running.get() != RUNNING) {
@@ -152,10 +150,17 @@ public final class TwoStepMasterProcessor implements EventProcessor {
             } catch (final Throwable ex) {
                 exceptionHandler.handleEventException(ex, nextSequence, cmd);
                 sequence.set(nextSequence);
+                waitSpinningHelper.signalAllWhenBlocking();
                 nextSequence++;
             }
 
         }
+    }
+
+    private void publishProgressAndTriggerSlaveProcessor(long nextSequence) {
+        sequence.set(nextSequence - 1);
+        waitSpinningHelper.signalAllWhenBlocking();
+        slaveProcessor.handlingCycle(nextSequence);
     }
 
 

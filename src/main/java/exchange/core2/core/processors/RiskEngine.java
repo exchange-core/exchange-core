@@ -64,11 +64,12 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
     private final IntLongHashMap suspends;
     private final ObjectsPool objectsPool;
 
-    // configuration
+    // sharding by symbolId
     private final int shardId;
     private final long shardMask;
 
-    private final boolean ignoreRiskProcessing;
+    private final boolean cfgIgnoreRiskProcessing;
+    private final boolean cfgMarginTradingEnabled;
 
     private final ISerializationProcessor serializationProcessor;
 
@@ -150,8 +151,9 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             this.suspends = new IntLongHashMap();
         }
 
-        final OrdersProcessingConfiguration.RiskProcessingMode riskProcessingMode = exchangeConfiguration.getOrdersProcessingCfg().getRiskProcessingMode();
-        this.ignoreRiskProcessing = riskProcessingMode == OrdersProcessingConfiguration.RiskProcessingMode.NO_RISK_PROCESSING;
+        final OrdersProcessingConfiguration ordersProcCfg = exchangeConfiguration.getOrdersProcessingCfg();
+        this.cfgIgnoreRiskProcessing = ordersProcCfg.getRiskProcessingMode() == OrdersProcessingConfiguration.RiskProcessingMode.NO_RISK_PROCESSING;
+        this.cfgMarginTradingEnabled = ordersProcCfg.getMarginTradingMode() == OrdersProcessingConfiguration.MarginTradingMode.MARGIN_TRADING_ENABLED;
     }
 
     @ToString
@@ -303,7 +305,13 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         if (message instanceof BatchAddSymbolsCommand) {
 
             final IntObjectHashMap<CoreSymbolSpecification> symbols = ((BatchAddSymbolsCommand) message).getSymbols();
-            symbols.forEach(symbolSpecificationProvider::addSymbol);
+            symbols.forEach(spec -> {
+                if (spec.type == SymbolType.CURRENCY_EXCHANGE_PAIR || cfgMarginTradingEnabled) {
+                    symbolSpecificationProvider.addSymbol(spec);
+                } else {
+                    log.warn("Margin symbols are not allowed: {}", spec);
+                }
+            });
 
         } else if (message instanceof BatchAddAccountsCommand) {
 
@@ -341,7 +349,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             return CommandResultCode.INVALID_SYMBOL;
         }
 
-        if (ignoreRiskProcessing) {
+        if (cfgIgnoreRiskProcessing) {
             // skip processing
             return CommandResultCode.VALID_FOR_MATCHING_ENGINE;
         }
@@ -369,6 +377,10 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             return placeExchangeOrder(cmd, userProfile, spec);
 
         } else if (spec.type == SymbolType.FUTURES_CONTRACT) {
+
+            if (!cfgMarginTradingEnabled) {
+                return CommandResultCode.RISK_MARGIN_TRADING_DISABLED;
+            }
 
             SymbolPositionRecord position = userProfile.positions.get(spec.symbolId); // TODO getIfAbsentPut?
             if (position == null) {
@@ -400,16 +412,17 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
         final int currency = (cmd.action == OrderAction.BID) ? spec.quoteCurrency : spec.baseCurrency;
 
-        // TODO disable margin trades through configuration
         // futures positions check for this currency
         long freeFuturesMargin = 0L;
-        for (final SymbolPositionRecord position : userProfile.positions) {
-            if (position.currency == currency) {
-                final int recSymbol = position.symbol;
-                final CoreSymbolSpecification spec2 = symbolSpecificationProvider.getSymbolSpecification(recSymbol);
-                // add P&L subtract margin
-                freeFuturesMargin += position.estimateProfit(spec2, lastPriceCache.get(recSymbol));
-                freeFuturesMargin -= position.calculateRequiredMarginForFutures(spec2);
+        if (cfgMarginTradingEnabled) {
+            for (final SymbolPositionRecord position : userProfile.positions) {
+                if (position.currency == currency) {
+                    final int recSymbol = position.symbol;
+                    final CoreSymbolSpecification spec2 = symbolSpecificationProvider.getSymbolSpecification(recSymbol);
+                    // add P&L subtract margin
+                    freeFuturesMargin += position.estimateProfit(spec2, lastPriceCache.get(recSymbol));
+                    freeFuturesMargin -= position.calculateRequiredMarginForFutures(spec2);
+                }
             }
         }
 
@@ -574,7 +587,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         }
 
         // Process marked data
-        if (marketData != null) {
+        if (marketData != null && cfgMarginTradingEnabled) {
             final RiskEngine.LastPriceCacheRecord record = lastPriceCache.getIfAbsentPut(symbol, RiskEngine.LastPriceCacheRecord::new);
             record.askPrice = (marketData.askSize != 0) ? marketData.askPrices[0] : Long.MAX_VALUE;
             record.bidPrice = (marketData.bidSize != 0) ? marketData.bidPrices[0] : 0;

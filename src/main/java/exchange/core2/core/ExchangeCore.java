@@ -89,7 +89,7 @@ public final class ExchangeCore {
                 ringBufferSize,
                 perfCfg.getThreadFactory(),
                 ProducerType.MULTI, // multiple gateway threads are writing
-                perfCfg.getWaitStrategy().create());
+                perfCfg.getWaitStrategy().getDisruptorWaitStrategy());
 
         this.api = new ExchangeApi(disruptor.getRingBuffer(), perfCfg.getBinaryCommandsLz4CompressorFactory().get());
 
@@ -98,7 +98,7 @@ public final class ExchangeCore {
 
         final ThreadFactory threadFactory = perfCfg.getThreadFactory();
         final IOrderBook.OrderBookFactory orderBookFactory = perfCfg.getOrderBookFactory();
-        final CoreWaitStrategy waitStrategy = perfCfg.getWaitStrategy();
+        final CoreWaitStrategy coreWaitStrategy = perfCfg.getWaitStrategy();
 
         final int matchingEnginesNum = perfCfg.getMatchingEnginesNum();
         final int riskEnginesNum = perfCfg.getRiskEnginesNum();
@@ -133,6 +133,7 @@ public final class ExchangeCore {
                                 () -> new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, orderBookFactory, sharedPool, exchangeConfiguration),
                                 loaderExecutor)));
 
+        // TODO create processors in same thread we will execute it??
 
         // start creating risk engines
         final Map<Integer, CompletableFuture<RiskEngine>> riskEngineFutures = IntStream.range(0, riskEnginesNum)
@@ -171,7 +172,7 @@ public final class ExchangeCore {
 
         // 1. grouping processor (G)
         final EventHandlerGroup<OrderCommand> afterGrouping =
-                disruptor.handleEventsWith((rb, bs) -> new GroupingProcessor(rb, rb.newBarrier(bs), perfCfg, waitStrategy, sharedPool));
+                disruptor.handleEventsWith((rb, bs) -> new GroupingProcessor(rb, rb.newBarrier(bs), perfCfg, coreWaitStrategy, sharedPool));
 
         // 2. [journaling (J)] in parallel with risk hold (R1) + matching engine (ME)
 
@@ -184,7 +185,7 @@ public final class ExchangeCore {
 
         riskEngines.forEach((idx, riskEngine) -> afterGrouping.handleEventsWith(
                 (rb, bs) -> {
-                    final TwoStepMasterProcessor r1 = new TwoStepMasterProcessor(rb, rb.newBarrier(bs), riskEngine::preProcessCommand, exceptionHandler, waitStrategy, "R1_" + idx);
+                    final TwoStepMasterProcessor r1 = new TwoStepMasterProcessor(rb, rb.newBarrier(bs), riskEngine::preProcessCommand, exceptionHandler, coreWaitStrategy, "R1_" + idx);
                     procR1.add(r1);
                     return r1;
                 }));
