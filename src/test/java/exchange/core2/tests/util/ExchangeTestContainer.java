@@ -77,7 +77,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
     public ExchangeTestContainer() {
         this(
-                PerformanceConfiguration.baseBuilder().build(),
+                PerformanceConfiguration.latencyPerformanceBuilder().build(),
                 InitialStateConfiguration.CLEAN_TEST,
                 SerializationConfiguration.DEFAULT);
     }
