@@ -17,7 +17,10 @@ package exchange.core2.tests.perf;
 
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
-import exchange.core2.tests.util.*;
+import exchange.core2.core.common.config.SerializationConfiguration;
+import exchange.core2.tests.util.ExchangeTestContainer;
+import exchange.core2.tests.util.TestDataParameters;
+import exchange.core2.tests.util.ThroughputTestsModule;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 
@@ -44,6 +47,7 @@ public final class PerfThroughputJournaling {
                         .build(),
                 TestDataParameters.singlePairMarginBuilder().build(),
                 InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
+                SerializationConfiguration.DISK_JOURNALING,
                 50);
     }
 
@@ -58,6 +62,7 @@ public final class PerfThroughputJournaling {
                         .build(),
                 TestDataParameters.singlePairExchangeBuilder().build(),
                 InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
+                SerializationConfiguration.DISK_JOURNALING,
                 50);
     }
 
@@ -75,6 +80,7 @@ public final class PerfThroughputJournaling {
                 PerformanceConfiguration.throughputPerformanceBuilder().build(),
                 TestDataParameters.mediumBuilder().build(),
                 InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
+                SerializationConfiguration.DISK_JOURNALING,
                 25);
     }
 
@@ -93,6 +99,7 @@ public final class PerfThroughputJournaling {
                 PerformanceConfiguration.throughputPerformanceBuilder().build(),
                 TestDataParameters.largeBuilder().build(),
                 InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
+                SerializationConfiguration.DISK_JOURNALING,
                 25);
     }
 
@@ -111,6 +118,7 @@ public final class PerfThroughputJournaling {
                 PerformanceConfiguration.throughputPerformanceBuilder().build(),
                 TestDataParameters.hugeBuilder().build(),
                 InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
+                SerializationConfiguration.DISK_JOURNALING,
                 25);
     }
 

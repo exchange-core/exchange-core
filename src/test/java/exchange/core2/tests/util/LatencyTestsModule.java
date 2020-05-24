@@ -24,6 +24,7 @@ import exchange.core2.core.common.api.ApiPlaceOrder;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
+import exchange.core2.core.common.config.SerializationConfiguration;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.HdrHistogram.Histogram;
@@ -53,9 +54,10 @@ public class LatencyTestsModule {
 
     private static final boolean WRITE_HDR_HISTOGRAMS = false;
 
-    public static void latencyTestImpl(final PerformanceConfiguration performanceConfiguration,
+    public static void latencyTestImpl(final PerformanceConfiguration performanceCfg,
                                        final TestDataParameters testDataParameters,
-                                       final InitialStateConfiguration initialStateConfiguration,
+                                       final InitialStateConfiguration initialStateCfg,
+                                       final SerializationConfiguration serializationCfg,
                                        final int warmupCycles) {
 
         final int targetTps = 200_000; // transactions per second
@@ -65,7 +67,7 @@ public class LatencyTestsModule {
 
         final ExchangeTestContainer.TestDataFutures testDataFutures = ExchangeTestContainer.prepareTestDataAsync(testDataParameters, 1);
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, initialStateConfiguration)) {
+        try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceCfg, initialStateCfg, serializationCfg)) {
 
             final ExchangeApi api = container.getApi();
             final SingleWriterRecorder hdrRecorder = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
@@ -160,7 +162,7 @@ public class LatencyTestsModule {
         final int[] minLatencies = new int[testDataParameters.totalTransactionsNumber];
         Arrays.fill(minLatencies, Integer.MAX_VALUE);
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, initialStateConfiguration)) {
+        try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, initialStateConfiguration, SerializationConfiguration.DEFAULT)) {
 
             // TODO - first run should validate the output (orders are accepted and processed properly)
 
@@ -319,7 +321,7 @@ public class LatencyTestsModule {
 
         final ExchangeTestContainer.TestDataFutures testDataFutures = ExchangeTestContainer.prepareTestDataAsync(testDataParameters, 1);
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, initialStateConfiguration)) {
+        try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, initialStateConfiguration, SerializationConfiguration.DEFAULT)) {
 
             final ExchangeApi api = container.getApi();
 

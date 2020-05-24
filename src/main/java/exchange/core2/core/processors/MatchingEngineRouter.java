@@ -27,6 +27,7 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.ExchangeConfiguration;
+import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.orderbook.OrderBookEventsHelper;
@@ -71,12 +72,15 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
 
     private final ISerializationProcessor serializationProcessor;
 
+    private final LoggingConfiguration loggingCfg;
+    private final boolean logDebug;
+
     public MatchingEngineRouter(final int shardId,
                                 final long numShards,
                                 final ISerializationProcessor serializationProcessor,
                                 final IOrderBook.OrderBookFactory orderBookFactory,
                                 final SharedPool sharedPool,
-                                final ExchangeConfiguration exchangeConfiguration) {
+                                final ExchangeConfiguration exchangeCfg) {
 
         if (Long.bitCount(numShards) != 1) {
             throw new IllegalArgumentException("Invalid number of shards " + numShards + " - must be power of 2");
@@ -87,6 +91,9 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         this.orderBookFactory = orderBookFactory;
         this.eventsHelper = new OrderBookEventsHelper(sharedPool::getChain);
 
+        this.loggingCfg = exchangeCfg.getLoggingCfg();
+        this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
+
         // initialize object pools // TODO move to perf config
         final HashMap<Integer, Integer> objectsPoolConfig = new HashMap<>();
         objectsPoolConfig.put(ObjectsPool.DIRECT_ORDER, 1024 * 1024);
@@ -96,9 +103,9 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         objectsPoolConfig.put(ObjectsPool.ART_NODE_48, 1024 * 8);
         objectsPoolConfig.put(ObjectsPool.ART_NODE_256, 1024 * 4);
         this.objectsPool = new ObjectsPool(objectsPoolConfig);
-        if (exchangeConfiguration.getInitStateCfg().fromSnapshot()) {
+        if (exchangeCfg.getInitStateCfg().fromSnapshot()) {
             final DeserializedData deserialized = serializationProcessor.loadData(
-                    exchangeConfiguration.getInitStateCfg().getSnapshotId(),
+                    exchangeCfg.getInitStateCfg().getSnapshotId(),
                     ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER,
                     shardId,
                     bytesIn -> {
@@ -113,11 +120,14 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
                                 this::handleBinaryMessage,
                                 this::handleReportQuery,
                                 sharedPool,
-                                exchangeConfiguration.getReportsQueriesCfg(),
+                                exchangeCfg.getReportsQueriesCfg(),
                                 bytesIn,
                                 shardId + 1024);
 
-                        final IntObjectHashMap<IOrderBook> ob = SerializationUtils.readIntHashMap(bytesIn, bytes -> IOrderBook.create(bytes, objectsPool, eventsHelper));
+                        final IntObjectHashMap<IOrderBook> ob = SerializationUtils.readIntHashMap(
+                                bytesIn,
+                                bytes -> IOrderBook.create(bytes, objectsPool, eventsHelper, loggingCfg));
+
                         return DeserializedData.builder().binaryCommandsProcessor(bcp).orderBooks(ob).build();
                     });
 
@@ -129,13 +139,13 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
                     this::handleBinaryMessage,
                     this::handleReportQuery,
                     sharedPool,
-                    exchangeConfiguration.getReportsQueriesCfg(),
+                    exchangeCfg.getReportsQueriesCfg(),
                     shardId + 1024);
 
             this.orderBooks = new IntObjectHashMap<>();
         }
 
-        final OrdersProcessingConfiguration ordersProcCfg = exchangeConfiguration.getOrdersProcessingCfg();
+        final OrdersProcessingConfiguration ordersProcCfg = exchangeCfg.getOrdersProcessingCfg();
         this.cfgMarginTradingEnabled = ordersProcCfg.getMarginTradingMode() == OrdersProcessingConfiguration.MarginTradingMode.MARGIN_TRADING_ENABLED;
     }
 
@@ -215,7 +225,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
         }
 
         if (orderBooks.get(spec.symbolId) == null) {
-            orderBooks.put(spec.symbolId, orderBookFactory.create(spec, objectsPool, eventsHelper));
+            orderBooks.put(spec.symbolId, orderBookFactory.create(spec, objectsPool, eventsHelper, loggingCfg));
         } else {
             log.warn("OrderBook for symbol id={} already exists! Can not add symbol: {}", spec.symbolId, spec);
         }

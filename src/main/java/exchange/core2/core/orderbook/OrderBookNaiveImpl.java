@@ -19,6 +19,7 @@ import exchange.core2.collections.objpool.ObjectsPool;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
+import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.core.utils.SerializationUtils;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -41,31 +42,42 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
     private final OrderBookEventsHelper eventsHelper;
 
-    public OrderBookNaiveImpl(final CoreSymbolSpecification symbolSpec, ObjectsPool pool, OrderBookEventsHelper eventsHelper) {
+    private final boolean logDebug;
+
+    public OrderBookNaiveImpl(final CoreSymbolSpecification symbolSpec,
+                              final ObjectsPool pool,
+                              final OrderBookEventsHelper eventsHelper,
+                              final LoggingConfiguration loggingCfg) {
+
         this.symbolSpec = symbolSpec;
         this.askBuckets = new TreeMap<>();
         this.bidBuckets = new TreeMap<>(Collections.reverseOrder());
         this.eventsHelper = eventsHelper;
+        this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
     }
 
-    public OrderBookNaiveImpl(final CoreSymbolSpecification symbolSpec) {
+    public OrderBookNaiveImpl(final CoreSymbolSpecification symbolSpec,
+                              final LoggingConfiguration loggingCfg) {
+
         this.symbolSpec = symbolSpec;
         this.askBuckets = new TreeMap<>();
         this.bidBuckets = new TreeMap<>(Collections.reverseOrder());
-        this.eventsHelper = new OrderBookEventsHelper(() -> MatcherTradeEvent.createEventChain(512));
+        this.eventsHelper = OrderBookEventsHelper.NON_POOLED_EVENTS_HELPER;
+        this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
     }
 
-    public OrderBookNaiveImpl(final BytesIn bytes) {
+    public OrderBookNaiveImpl(final BytesIn bytes, final LoggingConfiguration loggingCfg) {
         this.symbolSpec = new CoreSymbolSpecification(bytes);
         this.askBuckets = SerializationUtils.readLongMap(bytes, TreeMap::new, OrdersBucketNaive::new);
         this.bidBuckets = SerializationUtils.readLongMap(bytes, () -> new TreeMap<>(Collections.reverseOrder()), OrdersBucketNaive::new);
 
-        this.eventsHelper = new OrderBookEventsHelper(() -> MatcherTradeEvent.createEventChain(512));
+        this.eventsHelper = OrderBookEventsHelper.NON_POOLED_EVENTS_HELPER;
         // reconstruct ordersId-> Order cache
         // TODO check resulting performance
         askBuckets.values().forEach(bucket -> bucket.forEachOrder(order -> idMap.put(order.orderId, order)));
         bidBuckets.values().forEach(bucket -> bucket.forEachOrder(order -> idMap.put(order.orderId, order)));
 
+        this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
         //validateInternalState();
     }
 

@@ -15,13 +15,14 @@
  */
 package exchange.core2.core.orderbook;
 
+import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.tests.util.TestConstants;
 
 public class OrderBookNaiveImplTest extends OrderBookBaseTest {
 
     @Override
     protected IOrderBook createNewOrderBook() {
-        return new OrderBookNaiveImpl(TestConstants.SYMBOLSPEC_ETH_XBT);
+        return new OrderBookNaiveImpl(TestConstants.SYMBOLSPEC_ETH_XBT, LoggingConfiguration.DEFAULT);
     }
 
     @Override

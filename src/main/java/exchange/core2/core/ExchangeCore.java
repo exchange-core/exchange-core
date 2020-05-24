@@ -26,8 +26,8 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.ExchangeConfiguration;
-import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
+import exchange.core2.core.common.config.SerializationConfiguration;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.processors.*;
 import exchange.core2.core.processors.journaling.ISerializationProcessor;
@@ -40,7 +40,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
 import java.util.function.ObjLongConsumer;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -64,23 +63,23 @@ public final class ExchangeCore {
     private boolean stopped = false;
 
     // enable MatcherTradeEvent pooling
-    public static boolean EVENTS_POOLING = false;
+    public static final boolean EVENTS_POOLING = false;
 
     /**
      * Exchange core constructor.
      *
-     * @param resultsConsumer               - custom consumer of processed commands
-     * @param serializationProcessorFactory - serialization processor factory
-     * @param exchangeConfiguration         - exchange configuration
+     * @param resultsConsumer       - custom consumer of processed commands
+     * @param exchangeConfiguration - exchange configuration
      */
     @Builder
     public ExchangeCore(final ObjLongConsumer<OrderCommand> resultsConsumer,
-                        final Supplier<? extends ISerializationProcessor> serializationProcessorFactory,
                         final ExchangeConfiguration exchangeConfiguration) {
+
+        log.debug("Building exchange core from configuration: {}", exchangeConfiguration);
 
         this.exchangeConfiguration = exchangeConfiguration;
 
-        final PerformanceConfiguration perfCfg = exchangeConfiguration.getPerfCfg();
+        final PerformanceConfiguration perfCfg = exchangeConfiguration.getPerformanceCfg();
 
         final int ringBufferSize = perfCfg.getRingBufferSize();
 
@@ -93,9 +92,6 @@ public final class ExchangeCore {
 
         this.api = new ExchangeApi(disruptor.getRingBuffer(), perfCfg.getBinaryCommandsLz4CompressorFactory().get());
 
-        final InitialStateConfiguration initStateCfg = exchangeConfiguration.getInitStateCfg();
-
-
         final ThreadFactory threadFactory = perfCfg.getThreadFactory();
         final IOrderBook.OrderBookFactory orderBookFactory = perfCfg.getOrderBookFactory();
         final CoreWaitStrategy coreWaitStrategy = perfCfg.getWaitStrategy();
@@ -103,8 +99,10 @@ public final class ExchangeCore {
         final int matchingEnginesNum = perfCfg.getMatchingEnginesNum();
         final int riskEnginesNum = perfCfg.getRiskEnginesNum();
 
+        final SerializationConfiguration serializationCfg = exchangeConfiguration.getSerializationCfg();
+
         // creating serialization processor
-        serializationProcessor = serializationProcessorFactory.get();
+        serializationProcessor = serializationCfg.getSerializationProcessorFactory().apply(exchangeConfiguration);
 
         // creating shared objects pool
         final int poolInitialSize = (matchingEnginesNum + riskEnginesNum) * 8;
@@ -145,26 +143,14 @@ public final class ExchangeCore {
                                 loaderExecutor)));
 
         final EventHandler<OrderCommand>[] matchingEngineHandlers = matchingEngineFutures.values().stream()
-                .map(merFuture -> {
-                    try {
-                        return merFuture.get();
-                    } catch (InterruptedException | ExecutionException ex) {
-                        throw new RuntimeException(ex);
-                    }
-                })
+                .map(CompletableFuture::join)
                 .map(mer -> (EventHandler<OrderCommand>) (cmd, seq, eob) -> mer.processOrder(seq, cmd))
                 .toArray(ExchangeCore::newEventHandlersArray);
 
         final Map<Integer, RiskEngine> riskEngines = riskEngineFutures.entrySet().stream()
                 .collect(Collectors.toMap(
                         Map.Entry::getKey,
-                        entry -> {
-                            try {
-                                return entry.getValue().get();
-                            } catch (InterruptedException | ExecutionException ex) {
-                                throw new RuntimeException(ex);
-                            }
-                        }));
+                        entry -> entry.getValue().join()));
 
 
         final List<TwoStepMasterProcessor> procR1 = new ArrayList<>(riskEnginesNum);
@@ -176,7 +162,7 @@ public final class ExchangeCore {
 
         // 2. [journaling (J)] in parallel with risk hold (R1) + matching engine (ME)
 
-        boolean enableJournaling = initStateCfg.isEnableJournaling();
+        boolean enableJournaling = serializationCfg.isEnableJournaling();
         final EventHandler<OrderCommand> jh = enableJournaling ? serializationProcessor::writeToJournal : null;
 
         if (enableJournaling) {
@@ -258,11 +244,12 @@ public final class ExchangeCore {
     }
 
     /**
+     * Will throw IllegalStateException if an exchange core can not stop gracefully.
+     *
      * @param timeout  the amount of time to wait for all events to be processed. <code>-1</code> will give an infinite timeout
      * @param timeUnit the unit the timeOut is specified in
-     * @return true if an exchange core is stopped gracefully
      */
-    public synchronized boolean shutdown(final long timeout, final TimeUnit timeUnit) {
+    public synchronized void shutdown(final long timeout, final TimeUnit timeUnit) {
         if (!stopped) {
             stopped = true;
             // TODO stop accepting new events first
@@ -272,11 +259,9 @@ public final class ExchangeCore {
                 disruptor.shutdown(timeout, timeUnit);
                 log.info("Disruptor stopped");
             } catch (TimeoutException e) {
-                log.error("could not stop a disruptor gracefully. Not all events may be executed.");
-                return false;
+                throw new IllegalStateException("could not stop a disruptor gracefully. Not all events may be executed.");
             }
         }
-        return true;
     }
 
     private static EventHandler<OrderCommand>[] arraysAddHandler(EventHandler<OrderCommand>[] handlers, EventHandler<OrderCommand> extraHandler) {

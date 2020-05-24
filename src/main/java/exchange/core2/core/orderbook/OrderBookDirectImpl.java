@@ -21,6 +21,7 @@ import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
+import exchange.core2.core.common.config.LoggingConfiguration;
 import lombok.*;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -62,22 +63,34 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
     private final OrderBookEventsHelper eventsHelper;
 
-    public OrderBookDirectImpl(final CoreSymbolSpecification symbolSpec, final ObjectsPool objectsPool, final OrderBookEventsHelper eventsHelper) {
+    private final boolean logDebug;
+
+    public OrderBookDirectImpl(final CoreSymbolSpecification symbolSpec,
+                               final ObjectsPool objectsPool,
+                               final OrderBookEventsHelper eventsHelper,
+                               final LoggingConfiguration loggingCfg) {
+
         this.symbolSpec = symbolSpec;
         this.objectsPool = objectsPool;
         this.askPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.bidPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.eventsHelper = eventsHelper;
         this.orderIdIndex = new LongAdaptiveRadixTreeMap<>(objectsPool);
+        this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
     }
 
-    public OrderBookDirectImpl(final BytesIn bytes, final ObjectsPool objectsPool, final OrderBookEventsHelper eventsHelper) {
+    public OrderBookDirectImpl(final BytesIn bytes,
+                               final ObjectsPool objectsPool,
+                               final OrderBookEventsHelper eventsHelper,
+                               final LoggingConfiguration loggingCfg) {
+
         this.symbolSpec = new CoreSymbolSpecification(bytes);
         this.objectsPool = objectsPool;
         this.askPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.bidPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.eventsHelper = eventsHelper;
         this.orderIdIndex = new LongAdaptiveRadixTreeMap<>(objectsPool);
+        this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
 
         final int size = bytes.readInt();
         for (int i = 0; i < size; i++) {

@@ -15,6 +15,7 @@
  */
 package exchange.core2.tests.perf.modules;
 
+import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.orderbook.OrderBookNaiveImpl;
 import exchange.core2.tests.util.TestConstants;
@@ -23,6 +24,6 @@ public class ITOrderBookNaiveImpl extends ITOrderBookBase {
 
     @Override
     protected IOrderBook createNewOrderBook() {
-        return new OrderBookNaiveImpl(TestConstants.SYMBOLSPEC_EUR_USD);
+        return new OrderBookNaiveImpl(TestConstants.SYMBOLSPEC_EUR_USD, LoggingConfiguration.DEFAULT);
     }
 }

@@ -18,6 +18,7 @@ package exchange.core2.core.orderbook;
 import exchange.core2.collections.objpool.ObjectsPool;
 import exchange.core2.core.common.L2MarketData;
 import exchange.core2.core.common.cmd.OrderCommand;
+import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.tests.util.TestConstants;
 import org.junit.Test;
 
@@ -39,7 +40,8 @@ public class OrderBookDirectImplTest extends OrderBookBaseTest {
         return new OrderBookDirectImpl(
                 TestConstants.SYMBOLSPEC_EUR_USD,
                 ObjectsPool.createDefaultTestPool(),
-                OrderBookEventsHelper.NON_POOLED_EVENTS_HELPER);
+                OrderBookEventsHelper.NON_POOLED_EVENTS_HELPER,
+                LoggingConfiguration.DEFAULT);
     }
 
     @Test

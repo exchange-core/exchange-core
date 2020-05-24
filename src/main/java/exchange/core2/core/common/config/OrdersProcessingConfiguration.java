@@ -4,6 +4,7 @@ package exchange.core2.core.common.config;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
+import lombok.ToString;
 
 
 /**
@@ -12,6 +13,7 @@ import lombok.Getter;
 @AllArgsConstructor
 @Getter
 @Builder
+@ToString
 public final class OrdersProcessingConfiguration {
 
     public static OrdersProcessingConfiguration DEFAULT = OrdersProcessingConfiguration.builder()

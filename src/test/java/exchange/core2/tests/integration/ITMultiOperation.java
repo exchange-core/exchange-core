@@ -17,6 +17,7 @@ package exchange.core2.tests.integration;
 
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
+import exchange.core2.core.common.config.SerializationConfiguration;
 import exchange.core2.tests.util.*;
 import org.junit.Test;
 
@@ -40,6 +41,7 @@ public class ITMultiOperation {
                         .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
                         .build(),
                 InitialStateConfiguration.CLEAN_TEST,
+                SerializationConfiguration.DEFAULT,
                 2
         );
     }
@@ -61,6 +63,7 @@ public class ITMultiOperation {
                         .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
                         .build(),
                 InitialStateConfiguration.CLEAN_TEST,
+                SerializationConfiguration.DEFAULT,
                 2);
     }
 
@@ -81,6 +84,7 @@ public class ITMultiOperation {
                         .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
                         .build(),
                 InitialStateConfiguration.CLEAN_TEST,
+                SerializationConfiguration.DEFAULT,
                 2);
     }
 }

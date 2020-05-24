@@ -20,6 +20,7 @@ import exchange.core2.core.common.MatcherEventType;
 import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
+import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.tests.util.L2MarketDataHelper;
 import exchange.core2.tests.util.TestConstants;
 import exchange.core2.tests.util.TestOrdersGenerator;
@@ -835,7 +836,7 @@ public abstract class OrderBookBaseTest {
         final IOrderBook orderBook = createNewOrderBook();
 //        IOrderBook orderBook = new OrderBookFastImpl(4096, TestConstants.SYMBOLSPEC_EUR_USD);
         //IOrderBook orderBook = new OrderBookNaiveImpl();
-        final IOrderBook orderBookRef = new OrderBookNaiveImpl(TestConstants.SYMBOLSPEC_EUR_USD);
+        final IOrderBook orderBookRef = new OrderBookNaiveImpl(TestConstants.SYMBOLSPEC_EUR_USD, LoggingConfiguration.DEFAULT);
 
         assertEquals(orderBook.stateHash(), orderBookRef.stateHash());
 

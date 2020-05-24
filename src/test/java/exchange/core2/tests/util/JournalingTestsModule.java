@@ -19,11 +19,11 @@ import exchange.core2.core.common.api.ApiPersistState;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
+import exchange.core2.core.common.config.SerializationConfiguration;
 import lombok.extern.slf4j.Slf4j;
 import org.hamcrest.core.Is;
 
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeoutException;
 
 import static junit.framework.TestCase.assertTrue;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -35,7 +35,7 @@ public class JournalingTestsModule {
 
     public static void journalingTestImpl(final PerformanceConfiguration performanceConfiguration,
                                           final TestDataParameters testDataParameters,
-                                          final int iterations) throws InterruptedException, ExecutionException, TimeoutException {
+                                          final int iterations) throws InterruptedException, ExecutionException {
 
         for (int iteration = 0; iteration < iterations; iteration++) {
 
@@ -50,7 +50,7 @@ public class JournalingTestsModule {
 
             final InitialStateConfiguration firstStartConfig = InitialStateConfiguration.cleanStartJournaling(exchangeId);
 
-            try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, firstStartConfig)) {
+            try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, firstStartConfig, SerializationConfiguration.DISK_JOURNALING)) {
 
                 container.loadSymbolsUsersAndPrefillOrders(testDataFutures);
 
@@ -78,7 +78,7 @@ public class JournalingTestsModule {
 
             log.debug("Creating new exchange from persisted state...");
             final long tLoad = System.currentTimeMillis();
-            try (final ExchangeTestContainer recreatedContainer = new ExchangeTestContainer(performanceConfiguration, fromSnapshotConfig)) {
+            try (final ExchangeTestContainer recreatedContainer = new ExchangeTestContainer(performanceConfiguration, fromSnapshotConfig, SerializationConfiguration.DISK_JOURNALING)) {
 
                 // simple sync query in order to wait until core is started to respond
                 recreatedContainer.totalBalanceReport();

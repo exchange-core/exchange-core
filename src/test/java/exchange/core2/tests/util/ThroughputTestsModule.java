@@ -17,6 +17,7 @@ package exchange.core2.tests.util;
 
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
+import exchange.core2.core.common.config.SerializationConfiguration;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.stream.IntStream;
@@ -27,14 +28,15 @@ import static org.junit.Assert.assertEquals;
 @Slf4j
 public class ThroughputTestsModule {
 
-    public static void throughputTestImpl(final PerformanceConfiguration performanceConfiguration,
+    public static void throughputTestImpl(final PerformanceConfiguration performanceCfg,
                                           final TestDataParameters testDataParameters,
-                                          final InitialStateConfiguration initialStateConfiguration,
+                                          final InitialStateConfiguration initialStateCfg,
+                                          final SerializationConfiguration serializationCfg,
                                           final int iterations) {
 
         final ExchangeTestContainer.TestDataFutures testDataFutures = ExchangeTestContainer.prepareTestDataAsync(testDataParameters, 1);
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, initialStateConfiguration)) {
+        try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceCfg, initialStateCfg, serializationCfg)) {
 
             final float avgMt = container.executeTestingThread(
                     () -> (float) IntStream.range(0, iterations)

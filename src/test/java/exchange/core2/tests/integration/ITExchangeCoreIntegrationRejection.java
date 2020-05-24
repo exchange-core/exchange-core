@@ -24,6 +24,7 @@ import exchange.core2.core.common.api.ApiPlaceOrder;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
+import exchange.core2.core.common.config.SerializationConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import junit.framework.TestCase;
 import lombok.extern.slf4j.Slf4j;
@@ -235,7 +236,7 @@ public abstract class ITExchangeCoreIntegrationRejection {
 
         final long size = 40L + (rejectionCause == REJECTION_BY_SIZE ? 1 : 0);
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer(getPerfCfg(), InitialStateConfiguration.CLEAN_TEST)) {
+        try (final ExchangeTestContainer container = new ExchangeTestContainer(getPerfCfg(), InitialStateConfiguration.CLEAN_TEST, SerializationConfiguration.DEFAULT)) {
             container.initFeeSymbols();
             container.initFeeUsers();
 

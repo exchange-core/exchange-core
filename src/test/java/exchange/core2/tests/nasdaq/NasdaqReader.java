@@ -5,6 +5,7 @@ import com.paritytrading.nassau.util.BinaryFILE;
 import exchange.core2.core.ExchangeApi;
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
+import exchange.core2.core.common.config.SerializationConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.ExecutionTime;
 import exchange.core2.tests.util.TestConstants;
@@ -33,7 +34,7 @@ public class NasdaqReader {
         final PerformanceConfiguration perfCfg = PerformanceConfiguration.throughputPerformanceBuilder().build();
         final InitialStateConfiguration initStateCfg = InitialStateConfiguration.cleanStart("NASDAQ_TEST");
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer(perfCfg, initStateCfg)) {
+        try (final ExchangeTestContainer container = new ExchangeTestContainer(perfCfg, initStateCfg, SerializationConfiguration.DEFAULT)) {
 
 
             final ExchangeApi api = container.getApi();

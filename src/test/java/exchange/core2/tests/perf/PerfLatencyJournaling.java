@@ -17,6 +17,7 @@ package exchange.core2.tests.perf;
 
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
+import exchange.core2.core.common.config.SerializationConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.TestDataParameters;
 import lombok.extern.slf4j.Slf4j;
@@ -44,6 +45,7 @@ public final class PerfLatencyJournaling {
                         .build(),
                 TestDataParameters.singlePairMarginBuilder().build(),
                 InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
+                SerializationConfiguration.DISK_JOURNALING,
                 6);
     }
 
@@ -58,6 +60,7 @@ public final class PerfLatencyJournaling {
                         .build(),
                 TestDataParameters.singlePairExchangeBuilder().build(),
                 InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
+                SerializationConfiguration.DISK_JOURNALING,
                 6);
     }
 
@@ -72,6 +75,7 @@ public final class PerfLatencyJournaling {
                         .build(),
                 TestDataParameters.mediumBuilder().build(),
                 InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
+                SerializationConfiguration.DISK_JOURNALING,
                 3);
     }
 
@@ -86,6 +90,7 @@ public final class PerfLatencyJournaling {
                         .build(),
                 TestDataParameters.largeBuilder().build(),
                 InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
+                SerializationConfiguration.DISK_JOURNALING,
                 3);
     }
 
@@ -100,6 +105,7 @@ public final class PerfLatencyJournaling {
                         .build(),
                 TestDataParameters.hugeBuilder().build(),
                 InitialStateConfiguration.cleanStartJournaling(ExchangeTestContainer.timeBasedExchangeId()),
+                SerializationConfiguration.DISK_JOURNALING,
                 2);
     }
 }

@@ -101,7 +101,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
         this.baseSnapshotId = initStateCfg.getSnapshotId();
         this.baseSeq = initStateCfg.getSnapshotBaseSeq();
 
-        final PerformanceConfiguration perfCfg = exchangeConfig.getPerfCfg();
+        final PerformanceConfiguration perfCfg = exchangeConfig.getPerformanceCfg();
 
         this.lastJournalDescriptor = null; // no journal
         this.lastSnapshotDescriptor = SnapshotDescriptor.createEmpty(perfCfg.getMatchingEnginesNum(), perfCfg.getRiskEnginesNum());

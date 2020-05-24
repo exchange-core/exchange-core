@@ -9,6 +9,7 @@ import exchange.core2.core.utils.AffinityThreadFactory;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
+import lombok.ToString;
 import net.jpountz.lz4.LZ4Compressor;
 import net.jpountz.lz4.LZ4Factory;
 
@@ -21,6 +22,7 @@ import java.util.function.Supplier;
 @AllArgsConstructor
 @Getter
 @Builder
+@ToString
 public final class PerformanceConfiguration {
 
     /*

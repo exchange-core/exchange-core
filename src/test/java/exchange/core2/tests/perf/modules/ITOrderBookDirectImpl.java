@@ -16,6 +16,7 @@
 package exchange.core2.tests.perf.modules;
 
 import exchange.core2.collections.objpool.ObjectsPool;
+import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.orderbook.OrderBookDirectImpl;
 import exchange.core2.core.orderbook.OrderBookEventsHelper;
@@ -29,6 +30,7 @@ public class ITOrderBookDirectImpl extends ITOrderBookBase {
         return new OrderBookDirectImpl(
                 TestConstants.SYMBOLSPEC_EUR_USD,
                 ObjectsPool.createDefaultTestPool(),
-                OrderBookEventsHelper.NON_POOLED_EVENTS_HELPER);
+                OrderBookEventsHelper.NON_POOLED_EVENTS_HELPER,
+                LoggingConfiguration.DEFAULT);
     }
 }

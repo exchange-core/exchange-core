@@ -17,6 +17,7 @@ package exchange.core2.tests.perf;
 
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
+import exchange.core2.core.common.config.SerializationConfiguration;
 import exchange.core2.tests.util.*;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
@@ -43,6 +44,7 @@ public final class PerfThroughput {
                         .build(),
                 TestDataParameters.singlePairMarginBuilder().build(),
                 InitialStateConfiguration.CLEAN_TEST,
+                SerializationConfiguration.DEFAULT,
                 50);
     }
 
@@ -56,6 +58,7 @@ public final class PerfThroughput {
                         .build(),
                 TestDataParameters.singlePairExchangeBuilder().build(),
                 InitialStateConfiguration.CLEAN_TEST,
+                SerializationConfiguration.DEFAULT,
                 50);
     }
 
@@ -78,6 +81,7 @@ public final class PerfThroughput {
                         .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
                         .build(),
                 InitialStateConfiguration.CLEAN_TEST,
+                SerializationConfiguration.DEFAULT,
                 50);
     }
 
@@ -95,6 +99,7 @@ public final class PerfThroughput {
                 PerformanceConfiguration.throughputPerformanceBuilder().build(),
                 TestDataParameters.mediumBuilder().build(),
                 InitialStateConfiguration.CLEAN_TEST,
+                SerializationConfiguration.DEFAULT,
                 25);
     }
 
@@ -113,6 +118,7 @@ public final class PerfThroughput {
                 PerformanceConfiguration.throughputPerformanceBuilder().build(),
                 TestDataParameters.largeBuilder().build(),
                 InitialStateConfiguration.CLEAN_TEST,
+                SerializationConfiguration.DEFAULT,
                 25);
     }
 
@@ -134,6 +140,7 @@ public final class PerfThroughput {
                         .build(),
                 TestDataParameters.hugeBuilder().build(),
                 InitialStateConfiguration.CLEAN_TEST,
+                SerializationConfiguration.DEFAULT,
                 25);
     }
 

@@ -7,6 +7,7 @@ import exchange.core2.core.common.api.binary.BinaryCommandType;
 import exchange.core2.core.common.api.binary.BinaryDataCommand;
 import exchange.core2.core.common.api.reports.*;
 import lombok.Getter;
+import lombok.ToString;
 import net.openhft.chronicle.bytes.BytesIn;
 
 import java.lang.reflect.Constructor;
@@ -18,6 +19,7 @@ import java.util.Map;
  * Reports configuration
  */
 @Getter
+@ToString
 public final class ReportsQueriesConfiguration {
 
     private final Map<Integer, Constructor<? extends ReportQuery<?>>> reportConstructors;

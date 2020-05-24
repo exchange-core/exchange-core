@@ -17,9 +17,12 @@ package exchange.core2.core.processors;
 
 import com.lmax.disruptor.*;
 import exchange.core2.core.common.CoreWaitStrategy;
+import exchange.core2.core.utils.ReflectionUtils;
 import lombok.extern.slf4j.Slf4j;
 
 import java.lang.reflect.Field;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.Lock;
 
 @Slf4j
 public final class WaitSpinningHelper {
@@ -29,20 +32,26 @@ public final class WaitSpinningHelper {
 
     private final int spinLimit;
     private final int yieldLimit;
+
+    // blocking mode, using same locking objects that Disruptor operates with
     private final boolean block;
-
-    private final Object mutex;
-
     private final BlockingWaitStrategy blockingDiruptorWaitStrategy;
+    private final Lock lock;
+    private final Condition processorNotifyCondition;
+    // next Disruptor release will have mutex (to avoid allocations)
+    // private final Object mutex;
 
     public <T> WaitSpinningHelper(RingBuffer<T> ringBuffer, SequenceBarrier sequenceBarrier, int spinLimit, CoreWaitStrategy waitStrategy) {
         this.sequenceBarrier = sequenceBarrier;
         this.spinLimit = spinLimit;
         this.sequencer = extractSequencer(ringBuffer);
         this.yieldLimit = waitStrategy.isYield() ? spinLimit / 2 : 0;
+
         this.block = waitStrategy.isBlock();
         this.blockingDiruptorWaitStrategy = (BlockingWaitStrategy) CoreWaitStrategy.BLOCKING.getDisruptorWaitStrategy();
-        this.mutex = extractBlockingMutex(blockingDiruptorWaitStrategy);
+        this.lock = ReflectionUtils.extractField(BlockingWaitStrategy.class, blockingDiruptorWaitStrategy, "lock");
+        this.processorNotifyCondition = ReflectionUtils.extractField(BlockingWaitStrategy.class, blockingDiruptorWaitStrategy, "processorNotifyCondition");
+        //this.mutex = extractBlockingMutex(blockingDiruptorWaitStrategy);
     }
 
     public long tryWaitFor(final long seq) throws AlertException, InterruptedException {
@@ -54,9 +63,18 @@ public final class WaitSpinningHelper {
             if (spin < yieldLimit && spin > 1) {
                 Thread.yield();
             } else if (block) {
+/*
                 synchronized (mutex) {
                     sequenceBarrier.checkAlert();
                     mutex.wait();
+                }
+*/
+                lock.lock();
+                try {
+                    sequenceBarrier.checkAlert();
+                    processorNotifyCondition.await();
+                } finally {
+                    lock.unlock();
                 }
             }
 
@@ -76,36 +94,11 @@ public final class WaitSpinningHelper {
 
     private static <T> Sequencer extractSequencer(RingBuffer<T> ringBuffer) {
         try {
-            final Field f = getField(RingBuffer.class, "sequencer");
+            final Field f = ReflectionUtils.getField(RingBuffer.class, "sequencer");
             f.setAccessible(true);
             return (Sequencer) f.get(ringBuffer);
         } catch (NoSuchFieldException | IllegalAccessException e) {
             throw new IllegalStateException("Can not access Disruptor internals: ", e);
         }
     }
-
-    private static Object extractBlockingMutex(BlockingWaitStrategy blockingWaitStrategy) {
-        try {
-            final Field f = getField(BlockingWaitStrategy.class, "mutex");
-            f.setAccessible(true);
-            return f.get(blockingWaitStrategy);
-        } catch (NoSuchFieldException | IllegalAccessException e) {
-            throw new IllegalStateException("Can not access Disruptor internals: ", e);
-        }
-    }
-
-    private static Field getField(Class clazz, String fieldName) throws NoSuchFieldException {
-        try {
-            return clazz.getDeclaredField(fieldName);
-        } catch (NoSuchFieldException e) {
-            Class superClass = clazz.getSuperclass();
-            if (superClass == null) {
-                throw e;
-            } else {
-                return getField(superClass, fieldName);
-            }
-        }
-    }
-
-
 }

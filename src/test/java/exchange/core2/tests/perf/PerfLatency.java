@@ -17,6 +17,7 @@ package exchange.core2.tests.perf;
 
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
+import exchange.core2.core.common.config.SerializationConfiguration;
 import exchange.core2.tests.util.TestDataParameters;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
@@ -44,6 +45,7 @@ public final class PerfLatency {
                         .build(),
                 TestDataParameters.singlePairMarginBuilder().build(),
                 InitialStateConfiguration.CLEAN_TEST,
+                SerializationConfiguration.DEFAULT,
                 16);
     }
 
@@ -65,6 +67,7 @@ public final class PerfLatency {
                         .build(),
                 TestDataParameters.singlePairExchangeBuilder().build(),
                 InitialStateConfiguration.CLEAN_TEST,
+                SerializationConfiguration.DEFAULT,
                 16);
     }
 
@@ -88,6 +91,7 @@ public final class PerfLatency {
                         .build(),
                 TestDataParameters.mediumBuilder().build(),
                 InitialStateConfiguration.CLEAN_TEST,
+                SerializationConfiguration.DEFAULT,
                 8);
     }
 
@@ -111,6 +115,7 @@ public final class PerfLatency {
                         .build(),
                 TestDataParameters.largeBuilder().build(),
                 InitialStateConfiguration.CLEAN_TEST,
+                SerializationConfiguration.DEFAULT,
                 4);
     }
 
@@ -133,6 +138,7 @@ public final class PerfLatency {
                         .build(),
                 TestDataParameters.hugeBuilder().build(),
                 InitialStateConfiguration.CLEAN_TEST,
+                SerializationConfiguration.DEFAULT,
                 2);
     }
 

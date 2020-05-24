@@ -3,6 +3,7 @@ package exchange.core2.core.common.config;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
+import lombok.ToString;
 
 /**
  * Exchange initialization configuration
@@ -10,6 +11,7 @@ import lombok.Getter;
 @AllArgsConstructor
 @Getter
 @Builder
+@ToString
 public final class InitialStateConfiguration {
 
     public static InitialStateConfiguration CLEAN_TEST = InitialStateConfiguration.cleanStart("EC0");
@@ -18,12 +20,6 @@ public final class InitialStateConfiguration {
      * Should not have special characters because it is used for file names.
      */
     private final String exchangeId;
-
-    /*
-     * Enables journaling.
-     * Set to false for analytics instances.
-     */
-    private final boolean enableJournaling;
 
     /*
      * SnapshotID to load.
@@ -55,7 +51,6 @@ public final class InitialStateConfiguration {
 
         return InitialStateConfiguration.builder()
                 .exchangeId(exchangeId)
-                .enableJournaling(false)
                 .snapshotId(0)
                 .build();
     }
@@ -70,7 +65,6 @@ public final class InitialStateConfiguration {
 
         return InitialStateConfiguration.builder()
                 .exchangeId(exchangeId)
-                .enableJournaling(true)
                 .snapshotId(0)
                 .snapshotBaseSeq(0)
                 .build();
@@ -88,7 +82,6 @@ public final class InitialStateConfiguration {
 
         return InitialStateConfiguration.builder()
                 .exchangeId(exchangeId)
-                .enableJournaling(false)
                 .snapshotId(snapshotId)
                 .snapshotBaseSeq(baseSeq)
                 .build();
@@ -108,7 +101,6 @@ public final class InitialStateConfiguration {
 
         return InitialStateConfiguration.builder()
                 .exchangeId(exchangeId)
-                .enableJournaling(true)
                 .snapshotId(snapshotId)
                 .snapshotBaseSeq(baseSeq)
                 .journalTimestampNs(Long.MAX_VALUE)

@@ -13,14 +13,11 @@ import exchange.core2.core.common.api.reports.TotalCurrencyBalanceReportQuery;
 import exchange.core2.core.common.api.reports.TotalCurrencyBalanceReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.config.ExchangeConfiguration;
-import exchange.core2.core.processors.journaling.DummySerializationProcessor;
-import exchange.core2.core.processors.journaling.ISerializationProcessor;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
-import java.util.function.Supplier;
 
 @Slf4j
 public class ITCoreExample {
@@ -59,13 +56,9 @@ public class ITCoreExample {
         // default exchange configuration
         ExchangeConfiguration conf = ExchangeConfiguration.defaultBuilder().build();
 
-        // no serialization
-        Supplier<ISerializationProcessor> serializationProcessorFactory = () -> DummySerializationProcessor.INSTANCE;
-
         // build exchange core
         ExchangeCore exchangeCore = ExchangeCore.builder()
                 .resultsConsumer(eventsProcessor)
-                .serializationProcessorFactory(serializationProcessorFactory)
                 .exchangeConfiguration(conf)
                 .build();
 

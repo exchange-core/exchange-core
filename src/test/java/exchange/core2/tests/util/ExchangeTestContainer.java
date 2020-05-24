@@ -28,8 +28,6 @@ import exchange.core2.core.common.api.reports.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.config.*;
-import exchange.core2.core.processors.journaling.DiskSerializationProcessor;
-import exchange.core2.core.processors.journaling.DiskSerializationProcessorConfiguration;
 import exchange.core2.core.utils.AffinityThreadFactory;
 import lombok.Builder;
 import lombok.Data;
@@ -78,7 +76,10 @@ public final class ExchangeTestContainer implements AutoCloseable {
     }
 
     public ExchangeTestContainer() {
-        this(PerformanceConfiguration.latencyPerformanceBuilder().build(), InitialStateConfiguration.CLEAN_TEST);
+        this(
+                PerformanceConfiguration.baseBuilder().build(),
+                InitialStateConfiguration.CLEAN_TEST,
+                SerializationConfiguration.DEFAULT);
     }
 
     public static TestDataFutures prepareTestDataAsync(TestDataParameters parameters, int seed) {
@@ -118,22 +119,24 @@ public final class ExchangeTestContainer implements AutoCloseable {
     }
 
     public ExchangeTestContainer(final PerformanceConfiguration perfCfg,
-                                 final InitialStateConfiguration initStateCfg) {
+                                 final InitialStateConfiguration initStateCfg,
+                                 final SerializationConfiguration serializationCfg) {
 
         //log.debug("CREATING exchange container");
 
         this.threadFactory = new AffinityThreadFactory(AffinityThreadFactory.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE);
 
-        final ExchangeConfiguration exchangeConfiguration = ExchangeConfiguration.builder()
+        final ExchangeConfiguration exchangeConfiguration = ExchangeConfiguration.defaultBuilder()
                 .initStateCfg(initStateCfg)
-                .perfCfg(perfCfg)
+                .performanceCfg(perfCfg)
                 .reportsQueriesCfg(ReportsQueriesConfiguration.createStandardConfig())
                 .ordersProcessingCfg(OrdersProcessingConfiguration.DEFAULT)
+                .loggingCfg(LoggingConfiguration.DEFAULT)
+                .serializationCfg(serializationCfg)
                 .build();
 
         this.exchangeCore = ExchangeCore.builder()
                 .resultsConsumer((cmd, seq) -> consumer.accept(cmd, seq))
-                .serializationProcessorFactory(() -> new DiskSerializationProcessor(exchangeConfiguration, DiskSerializationProcessorConfiguration.createDefaultConfig()))
                 .exchangeConfiguration(exchangeConfiguration)
                 .build();
 
@@ -442,7 +445,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
     @Override
     public void close() {
-        exchangeCore.shutdown(1000, TimeUnit.MILLISECONDS);
+        exchangeCore.shutdown(3000, TimeUnit.MILLISECONDS);
     }
 
     public enum AllowedSymbolTypes {

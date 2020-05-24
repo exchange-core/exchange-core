@@ -21,6 +21,7 @@ import exchange.core2.core.common.api.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
+import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.orderbook.OrderBookNaiveImpl;
 import lombok.Builder;
@@ -180,7 +181,7 @@ public final class TestOrdersGenerator {
             final int seed) {
 
         // TODO specify symbol type (for testing exchange-bid-move rejects)
-        final IOrderBook orderBook = new OrderBookNaiveImpl(SYMBOLSPEC_EUR_USD);
+        final IOrderBook orderBook = new OrderBookNaiveImpl(SYMBOLSPEC_EUR_USD, LoggingConfiguration.DEFAULT);
 //        final IOrderBook orderBook = new OrderBookDirectImpl(SYMBOLSPEC_EUR_USD, ObjectsPool.createDefaultTestPool());
 
         final TestOrdersGeneratorSession session = new TestOrdersGeneratorSession(
