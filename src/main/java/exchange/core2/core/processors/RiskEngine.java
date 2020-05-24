@@ -26,6 +26,7 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.ExchangeConfiguration;
+import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.processors.journaling.ISerializationProcessor;
 import exchange.core2.core.utils.CoreArithmeticUtils;
@@ -73,6 +74,8 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
 
     private final ISerializationProcessor serializationProcessor;
 
+    private final boolean logDebug;
+
     public RiskEngine(final int shardId,
                       final long numShards,
                       final ISerializationProcessor serializationProcessor,
@@ -89,6 +92,8 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         final HashMap<Integer, Integer> objectsPoolConfig = new HashMap<>();
         objectsPoolConfig.put(ObjectsPool.SYMBOL_POSITION_RECORD, 1024 * 256);
         this.objectsPool = new ObjectsPool(objectsPoolConfig);
+
+        this.logDebug = exchangeConfiguration.getLoggingCfg().getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_RISK_DEBUG);
 
         if (exchangeConfiguration.getInitStateCfg().fromSnapshot()) {
 
@@ -420,8 +425,8 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                     final int recSymbol = position.symbol;
                     final CoreSymbolSpecification spec2 = symbolSpecificationProvider.getSymbolSpecification(recSymbol);
                     // add P&L subtract margin
-                    freeFuturesMargin += position.estimateProfit(spec2, lastPriceCache.get(recSymbol));
-                    freeFuturesMargin -= position.calculateRequiredMarginForFutures(spec2);
+                    freeFuturesMargin +=
+                            (position.estimateProfit(spec2, lastPriceCache.get(recSymbol)) - position.calculateRequiredMarginForFutures(spec2));
                 }
             }
         }
@@ -436,7 +441,9 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                     //log.warn("reserveBidPrice={} less than price={}", cmd.reserveBidPrice, cmd.price);
                     return CommandResultCode.RISK_INVALID_RESERVE_BID_PRICE;
                 }
-                orderHoldAmount = CoreArithmeticUtils.calculateAmountBidTakerFeeForBudget(size, cmd.reserveBidPrice, spec);
+
+                orderHoldAmount = CoreArithmeticUtils.calculateAmountBidTakerFeeForBudget(size, cmd.price, spec);
+                if (logDebug) log.debug("hold amount budget buy {} = {} * {} + {} * {}", cmd.price, size, spec.quoteScaleK, size, spec.takerFee);
 
             } else {
 
@@ -445,6 +452,7 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
                     return CommandResultCode.RISK_INVALID_RESERVE_BID_PRICE;
                 }
                 orderHoldAmount = CoreArithmeticUtils.calculateAmountBidTakerFee(size, cmd.reserveBidPrice, spec);
+                if (logDebug) log.debug("hold amount buy {} = {} * ( {} * {} + {} )", orderHoldAmount, size, cmd.reserveBidPrice, spec.quoteScaleK, spec.takerFee);
             }
 
         } else {
@@ -456,12 +464,13 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
             }
 
             orderHoldAmount = CoreArithmeticUtils.calculateAmountAsk(size, spec);
+            if (logDebug) log.debug("hold sell {} = {} * {} ", orderHoldAmount, size, spec.baseScaleK);
         }
 
-//        log.debug("--------- EXCHANGE RISK ORDER: {} ", cmd);
-//        log.debug("serProfile.accounts.get({})={}", currency, userProfile.accounts.get(currency));
-//        log.debug("freeFuturesMargin={}", freeFuturesMargin);
-//        log.debug("orderHoldAmount={}", orderHoldAmount);
+        if (logDebug) {
+            log.debug("R1 uid={} : orderHoldAmount={} vs serProfile.accounts.get({})={} + freeFuturesMargin={}",
+                    userProfile.uid, orderHoldAmount, currency, userProfile.accounts.get(currency), freeFuturesMargin);
+        }
 
         // speculative change balance
         long newBalance = userProfile.accounts.addToValue(currency, -orderHoldAmount);

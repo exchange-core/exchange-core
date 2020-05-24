@@ -161,6 +161,8 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
         final Optional<Long> budget = checkBudgetToFill(size, subtreeForMatching);
 
+        if (logDebug) log.debug("Budget calc: {} requested: {}", budget, cmd.price);
+
         if (budget.isPresent() && isBudgetLimitSatisfied(cmd.action, budget.get(), cmd.price)) {
             tryMatchInstantly(cmd, subtreeForMatching, 0, cmd);
         } else {
@@ -187,11 +189,14 @@ public final class OrderBookNaiveImpl implements IOrderBook {
             if (size > availableSize) {
                 size -= availableSize;
                 budget += availableSize * price;
+                if (logDebug) log.debug("add    {} * {} -> {}", price, availableSize, budget);
             } else {
-                return Optional.of(budget + size * price);
+                final long result = budget + size * price;
+                if (logDebug) log.debug("return {} * {} -> {}", price, size, result);
+                return Optional.of(result);
             }
         }
-
+        if (logDebug) log.debug("not enough liquidity to fill size={}", size);
         return Optional.empty();
     }
 

@@ -174,7 +174,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         final long budget = checkBudgetToFill(cmd.action, cmd.size);
 
-//        log.debug("Budget calc: {} requested: {}", budget, cmd.price);
+        if (logDebug) log.debug("Budget calc: {} requested: {}", budget, cmd.price);
 
         if (isBudgetLimitSatisfied(cmd.action, budget, cmd.price)) {
             tryMatchInstantly(cmd, cmd);
@@ -205,16 +205,16 @@ public final class OrderBookDirectImpl implements IOrderBook {
             if (size > availableSize) {
                 size -= availableSize;
                 budget += availableSize * price;
-//                log.debug("+ {} * {} = {}", price , availableSize, price*availableSize);
+                if (logDebug) log.debug("add    {} * {} -> {}", price, availableSize, budget);
             } else {
-//                log.debug("R {} * {} = {}", price , size, price*availableSize);
+                if (logDebug) log.debug("return {} * {} -> {}", price, size, budget + size * price);
                 return budget + size * price;
             }
 
             // switch to next order (can be null)
             makerOrder = bucket.tail.prev;
         }
-//        log.debug("U");
+        if (logDebug) log.debug("not enough liquidity to fill size={}", size);
         return Long.MAX_VALUE;
     }
 
