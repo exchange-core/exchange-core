@@ -75,14 +75,14 @@ public final class TestOrdersGenerator {
             int quotaLeft = totalTransactionsNumber;
             final Map<Integer, CompletableFuture<GenResult>> futures = new HashMap<>();
 
-            final LongConsumer sharedProgressLogger = createAsyncProgressLogger(totalTransactionsNumber);
+            final LongConsumer sharedProgressLogger = createAsyncProgressLogger(totalTransactionsNumber + targetOrderBookOrdersTotal);
 
             for (int i = coreSymbolSpecifications.size() - 1; i >= 0; i--) {
                 final CoreSymbolSpecification spec = coreSymbolSpecifications.get(i);
-                final int orderBookSizeTarget = (int) (targetOrderBookOrdersTotal * distribution[i]);
-                final int commandsNum = (i != 0) ? (int) (totalTransactionsNumber * distribution[i]) : quotaLeft;
+                final int orderBookSizeTarget = (int) (targetOrderBookOrdersTotal * distribution[i] + 0.5);
+                final int commandsNum = (i != 0) ? (int) (totalTransactionsNumber * distribution[i] + 0.5) : Math.max(quotaLeft, 1);
                 quotaLeft -= commandsNum;
-//                log.debug("{}. Generating symbol {} : commands={} orderBookSizeTarget={}", i, spec.symbolId, commandsNum, orderBookSizeTarget);
+//                log.debug("{}. Generating symbol {} : commands={} orderBookSizeTarget={} (quotaLeft={})", i, spec.symbolId, commandsNum, orderBookSizeTarget, quotaLeft);
                 futures.put(spec.symbolId, CompletableFuture.supplyAsync(() -> {
                     final int[] uidsAvailableForSymbol = UserCurrencyAccountsGenerator.createUserListForSymbol(usersAccounts, spec, commandsNum);
                     final int numUsers = uidsAvailableForSymbol.length;
@@ -169,8 +169,9 @@ public final class TestOrdersGenerator {
         };
     }
 
+    // TODO generate ApiCommands (less GC load)
     public static GenResult generateCommands(
-            final int transactionsNumber,
+            final int benchmarkTransactionsNumber,
             final int targetOrderBookOrders,
             final int numUsers,
             final UnaryOperator<Integer> uidMapper,
@@ -186,7 +187,7 @@ public final class TestOrdersGenerator {
 
         final TestOrdersGeneratorSession session = new TestOrdersGeneratorSession(
                 orderBook,
-                transactionsNumber,
+                benchmarkTransactionsNumber,
                 targetOrderBookOrders / 2, // asks + bids
                 avalancheIOC,
                 numUsers,
@@ -195,18 +196,27 @@ public final class TestOrdersGenerator {
                 enableSlidingPrice,
                 seed);
 
-        final List<OrderCommand> commandsFill = new ArrayList<>();
-        final List<OrderCommand> commandsBenchmark = new ArrayList<>();
+        final List<OrderCommand> commandsFill = new ArrayList<>(targetOrderBookOrders);
+        final List<OrderCommand> commandsBenchmark = new ArrayList<>(benchmarkTransactionsNumber);
 
         int nextSizeCheck = Math.min(CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND, targetOrderBookOrders + 1);
 
-        int lastProgress = 0;
+        final int totalCommandsNumber = benchmarkTransactionsNumber + targetOrderBookOrders;
 
-        for (int i = 0; i < transactionsNumber; i++) {
-            OrderCommand cmd = generateRandomOrder(session);
-            if (cmd == null) {
-                i--;
-                continue;
+        int lastProgressReported = 0;
+
+        for (int i = 0; i < totalCommandsNumber; i++) {
+
+            final boolean fillInProgress = i < targetOrderBookOrders;
+
+            final OrderCommand cmd;
+
+            if (fillInProgress) {
+                cmd = generateRandomGtcOrder(session);
+                commandsFill.add(cmd);
+            } else {
+                cmd = generateRandomOrder(session);
+                commandsBenchmark.add(cmd);
             }
 
             cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
@@ -218,13 +228,6 @@ public final class TestOrdersGenerator {
                 throw new IllegalStateException("Unsuccessful result code: " + resultCode + " for " + cmd);
             }
 
-            cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
-            if (session.filledAtSeq == null) {
-                commandsFill.add(cmd);
-            } else {
-                commandsBenchmark.add(cmd);
-            }
-
             // process and cleanup matcher events
             cmd.processMatcherEvents(ev -> matcherTradeEventEventHandler(session, ev, cmd));
             cmd.matcherEvent = null;
@@ -234,15 +237,15 @@ public final class TestOrdersGenerator {
                 nextSizeCheck += Math.min(CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND, targetOrderBookOrders + 1);
 
                 updateOrderBookSizeStat(session);
+            }
 
-                // TODO report less often
-                asyncProgressConsumer.accept(i - lastProgress);
-                lastProgress = i;
-
+            if (i % 10000 == 9999) {
+                asyncProgressConsumer.accept(i - lastProgressReported);
+                lastProgressReported = i;
             }
         }
 
-        asyncProgressConsumer.accept(transactionsNumber - lastProgress);
+        asyncProgressConsumer.accept(totalCommandsNumber - lastProgressReported);
 
         updateOrderBookSizeStat(session);
 
@@ -286,7 +289,7 @@ public final class TestOrdersGenerator {
         }
     }
 
-    private static void matcherTradeEventEventHandler(TestOrdersGeneratorSession session, MatcherTradeEvent ev, OrderCommand orderCommand) {
+    private static void matcherTradeEventEventHandler(final TestOrdersGeneratorSession session, final MatcherTradeEvent ev, final OrderCommand orderCommand) {
         int activeOrderId = (int) orderCommand.orderId;
         if (ev.eventType == MatcherEventType.TRADE) {
             if (ev.activeOrderCompleted) {
@@ -326,7 +329,7 @@ public final class TestOrdersGenerator {
 
         // decrease size (important for reduce operation)
         if (session.orderSizes.addToValue(activeOrderId, (int) -ev.size) < 0) {
-            throw new IllegalStateException();
+            throw new IllegalStateException("Incorrect filled size for order " + activeOrderId);
         }
 
         if (ev.activeOrderCompleted) {
@@ -358,7 +361,7 @@ public final class TestOrdersGenerator {
 
         final int lackOfOrders = (action == OrderAction.ASK) ? lackOfOrdersAsk : lackOfOrdersBid;
 
-        final boolean requireFastFill = session.filledAtSeq == null || lackOfOrders > Math.min(CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND, session.targetOrderBookOrdersHalf * 3 / 4);
+        final boolean requireFastFill = session.filledAtSeq == null || lackOfOrders > session.lackOrOrdersFastFillThreshold;
 
         final boolean growOrders = lackOfOrders > 0;
 
@@ -373,92 +376,19 @@ public final class TestOrdersGenerator {
                 ? (requireFastFill ? 2 : 10)
                 : 40);
 
-        if (q < 2) {
-
-            final int uid = session.uidMapper.apply(rand.nextInt(session.numUsers));
-
-            final int newOrderId = session.seq;
-            final OrderCommand placeCmd = OrderCommand.builder()
-                    .command(OrderCommandType.PLACE_ORDER)
-                    .uid(uid)
-                    .orderId(newOrderId)
-                    .action(action)
-                    .build();
+        if (q < 2 || session.orderUids.isEmpty()) {
 
             if (growOrders) {
-                placeCmd.orderType = OrderType.GTC;
-                placeCmd.size = 1 + rand.nextInt(6) * rand.nextInt(6) * rand.nextInt(6);
-
-                final int dev = 1 + (int) (Math.pow(rand.nextDouble(), 2) * session.priceDeviation);
-
-                long p = 0;
-                final int x = 4;
-                for (int i = 0; i < x; i++) {
-                    p += rand.nextInt(dev);
-                }
-                p = p / x * 2 - dev;
-                if (p > 0 ^ action == OrderAction.ASK) {
-                    p = -p;
-                }
-
-                //log.debug("p={} action={}", p, action);
-                final int price = (int) session.lastTradePrice + (int) p;
-
-                session.orderPrices.put(newOrderId, price);
-                session.orderSizes.put(newOrderId, (int) placeCmd.size);
-                session.orderUids.put(newOrderId, uid);
-                placeCmd.price = price;
-                placeCmd.reserveBidPrice = action == OrderAction.BID ? session.maxPrice : 0; // set limit price
-                session.counterPlaceLimit++;
+                return generateRandomGtcOrder(session);
             } else {
-
-                placeCmd.price = action == OrderAction.BID ? session.maxPrice : session.minPrice;
-                placeCmd.reserveBidPrice = action == OrderAction.BID ? placeCmd.price : 0; // set limit price
-                placeCmd.orderType = OrderType.IOC;
-
-                if (session.avalancheIOC) {
-
-                    final long availableVolume = action == OrderAction.ASK ? session.lastTotalVolumeAsk : session.lastTotalVolumeBid;
-
-                    long bigRand = rand.nextLong();
-                    bigRand = bigRand < 0 ? -1 - bigRand : bigRand;
-                    placeCmd.size = 1 + bigRand % (availableVolume + 1);
-
-                    if (action == OrderAction.ASK) {
-                        session.lastTotalVolumeAsk = Math.max(session.lastTotalVolumeAsk - placeCmd.size, 0);
-                    } else {
-                        session.lastTotalVolumeBid = Math.max(session.lastTotalVolumeAsk - placeCmd.size, 0);
-                    }
-//                    log.debug("huge size={} at {}", placeCmd.size, session.seq);
-
-                } else if (rand.nextInt(32) == 0) {
-                    // IOC:FOKB = 31:1
-                    placeCmd.orderType = OrderType.FOK_BUDGET;
-                    placeCmd.size = 1 + rand.nextInt(8) * rand.nextInt(8) * rand.nextInt(8);
-
-                    // set budget-expectation
-                    placeCmd.price = placeCmd.size * (action == OrderAction.BID ? session.maxPrice : session.minPrice);
-                    placeCmd.reserveBidPrice = placeCmd.price;
-                } else {
-                    placeCmd.size = 1 + rand.nextInt(6) * rand.nextInt(6) * rand.nextInt(6);
-                }
-
-                session.orderSizes.put(newOrderId, (int) placeCmd.size);
-
-                session.counterPlaceMarket++;
+                return generateRandomInstantOrder(session);
             }
 
-            session.seq++;
-
-            return placeCmd;
         }
 
         // TODO improve random picking performance (custom hashset implementation?)
 //        long t = System.nanoTime();
         int size = Math.min(session.orderUids.size(), 512);
-        if (size == 0) {
-            return null;
-        }
 
         int randPos = rand.nextInt(size);
         Iterator<Map.Entry<Integer, Integer>> iterator = session.orderUids.entrySet().iterator();
@@ -472,7 +402,7 @@ public final class TestOrdersGenerator {
 
         int uid = rec.getValue();
         if (uid == 0) {
-            return null;
+            throw new IllegalStateException();
         }
 
         if (q == 2) {
@@ -490,7 +420,7 @@ public final class TestOrdersGenerator {
         } else {
             int prevPrice = session.orderPrices.get(orderId);
             if (prevPrice == 0) {
-                return null;
+                throw new IllegalStateException();
             }
 
             double priceMove = (session.lastTradePrice - prevPrice) * CENTRAL_MOVE_ALPHA;
@@ -514,6 +444,120 @@ public final class TestOrdersGenerator {
 
             return OrderCommand.update(orderId, (int) (long) uid, newPrice);
         }
+    }
+
+    private static OrderCommand generateRandomGtcOrder(TestOrdersGeneratorSession session) {
+
+        final Random rand = session.rand;
+
+        final OrderAction action = (rand.nextInt(4) + session.priceDirection >= 2) ? OrderAction.BID : OrderAction.ASK;
+        final int uid = session.uidMapper.apply(rand.nextInt(session.numUsers));
+        final int newOrderId = session.seq;
+
+        final int dev = 1 + (int) (Math.pow(rand.nextDouble(), 2) * session.priceDeviation);
+
+        long p = 0;
+        final int x = 4;
+        for (int i = 0; i < x; i++) {
+            p += rand.nextInt(dev);
+        }
+        p = p / x * 2 - dev;
+        if (p > 0 ^ action == OrderAction.ASK) {
+            p = -p;
+        }
+
+        //log.debug("p={} action={}", p, action);
+        final int price = (int) session.lastTradePrice + (int) p;
+
+        int size = 1 + rand.nextInt(6) * rand.nextInt(6) * rand.nextInt(6);
+
+
+        session.orderPrices.put(newOrderId, price);
+        session.orderSizes.put(newOrderId, size);
+        session.orderUids.put(newOrderId, uid);
+        session.counterPlaceLimit++;
+        session.seq++;
+
+        return OrderCommand.builder()
+                .command(OrderCommandType.PLACE_ORDER)
+                .uid(uid)
+                .orderId(newOrderId)
+                .action(action)
+                .orderType(OrderType.GTC)
+                .size(size)
+                .price(price)
+                .reserveBidPrice(action == OrderAction.BID ? session.maxPrice : 0)// set limit price
+                .build();
+    }
+
+    private static OrderCommand generateRandomInstantOrder(TestOrdersGeneratorSession session) {
+
+        final Random rand = session.rand;
+
+        final OrderAction action = (rand.nextInt(4) + session.priceDirection >= 2) ? OrderAction.BID : OrderAction.ASK;
+
+        final int uid = session.uidMapper.apply(rand.nextInt(session.numUsers));
+
+        final int newOrderId = session.seq;
+
+        final long priceLimit = action == OrderAction.BID ? session.maxPrice : session.minPrice;
+
+        final long size;
+        final OrderType orderType;
+        final long priceOrBudget;
+        final long reserveBidPrice;
+
+        if (session.avalancheIOC) {
+
+            // just match with available liquidity
+
+            orderType = OrderType.IOC;
+            priceOrBudget = priceLimit;
+            reserveBidPrice = action == OrderAction.BID ? session.maxPrice : 0; // set limit price
+            final long availableVolume = action == OrderAction.ASK ? session.lastTotalVolumeAsk : session.lastTotalVolumeBid;
+
+            long bigRand = rand.nextLong();
+            bigRand = bigRand < 0 ? -1 - bigRand : bigRand;
+            size = 1 + bigRand % (availableVolume + 1);
+
+            if (action == OrderAction.ASK) {
+                session.lastTotalVolumeAsk = Math.max(session.lastTotalVolumeAsk - size, 0);
+            } else {
+                session.lastTotalVolumeBid = Math.max(session.lastTotalVolumeAsk - size, 0);
+            }
+//                    log.debug("huge size={} at {}", placeCmd.size, session.seq);
+
+        } else if (rand.nextInt(32) == 0) {
+            // IOC:FOKB = 31:1
+            orderType = OrderType.FOK_BUDGET;
+            size = 1 + rand.nextInt(8) * rand.nextInt(8) * rand.nextInt(8);
+
+            // set budget-expectation
+            priceOrBudget = size * priceLimit;
+            reserveBidPrice = priceOrBudget;
+        } else {
+            orderType = OrderType.IOC;
+            priceOrBudget = priceLimit;
+            reserveBidPrice = action == OrderAction.BID ? session.maxPrice : 0; // set limit price
+            size = 1 + rand.nextInt(6) * rand.nextInt(6) * rand.nextInt(6);
+        }
+
+
+        session.orderSizes.put(newOrderId, (int) size);
+        session.counterPlaceMarket++;
+        session.seq++;
+
+
+        return OrderCommand.builder()
+                .command(OrderCommandType.PLACE_ORDER)
+                .orderType(orderType)
+                .uid(uid)
+                .orderId(newOrderId)
+                .action(action)
+                .size(size)
+                .price(priceOrBudget)
+                .reserveBidPrice(reserveBidPrice)
+                .build();
     }
 
     public static List<ApiCommand> convertToApiCommand(TestOrdersGenerator.GenResult genResult) {

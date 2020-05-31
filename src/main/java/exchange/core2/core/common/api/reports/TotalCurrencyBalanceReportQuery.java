@@ -24,6 +24,7 @@ import exchange.core2.core.processors.SymbolSpecificationProvider;
 import exchange.core2.core.utils.CoreArithmeticUtils;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
@@ -35,6 +36,7 @@ import java.util.stream.Stream;
 
 @NoArgsConstructor
 @EqualsAndHashCode
+@ToString
 public final class TotalCurrencyBalanceReportQuery implements ReportQuery<TotalCurrencyBalanceReportResult> {
 
     public TotalCurrencyBalanceReportQuery(BytesIn bytesIn) {

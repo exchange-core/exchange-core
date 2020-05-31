@@ -30,7 +30,7 @@ import static org.mockito.Mockito.*;
 
 @Slf4j
 @RunWith(MockitoJUnitRunner.class)
-public class SimpleEventsProcessorTest {
+public final class SimpleEventsProcessorTest {
 
     private SimpleEventsProcessor processor;
 
@@ -420,7 +420,6 @@ public class SimpleEventsProcessorTest {
                 .matcherEvent(null)
                 .marketData(null)
                 .build();
-
     }
 
     private void verifyOriginalFields(OrderCommand source, OrderCommand result) {
@@ -438,6 +437,5 @@ public class SimpleEventsProcessorTest {
         assertThat(source.userCookie, Is.is(result.userCookie));
         assertThat(source.resultCode, Is.is(result.resultCode));
     }
-
 
 }

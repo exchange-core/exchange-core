@@ -2,11 +2,11 @@ package exchange.core2.tests.integration;
 
 import exchange.core2.core.common.config.PerformanceConfiguration;
 
-public class ITExchangeCoreIntegrationRejectionNaive extends ITExchangeCoreIntegrationRejection {
+public class ITExchangeCoreIntegrationRejectionBasic extends ITExchangeCoreIntegrationRejection {
 
 
     @Override
-    public PerformanceConfiguration getPerfCfg() {
+    public PerformanceConfiguration getPerformanceConfiguration() {
         return PerformanceConfiguration.baseBuilder().build();
     }
 }

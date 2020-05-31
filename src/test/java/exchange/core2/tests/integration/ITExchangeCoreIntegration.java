@@ -22,6 +22,7 @@ import exchange.core2.core.common.api.ApiMoveOrder;
 import exchange.core2.core.common.api.ApiPlaceOrder;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommandType;
+import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.L2MarketDataHelper;
 import lombok.extern.slf4j.Slf4j;
@@ -39,38 +40,41 @@ import static org.junit.Assert.*;
 
 @Slf4j
 //TODO test cases are moved to cucumber scenarios, remove this class
-public final class ITExchangeCoreIntegration {
+public abstract class ITExchangeCoreIntegration {
+
+    // configuration provided by child class
+    public abstract PerformanceConfiguration getPerformanceConfiguration();
 
     @Test(timeout = 5_000)
-    public void basicFullCycleTestMargin() throws Exception {
+    public void basicFullCycleTestMargin() {
         basicFullCycleTest(SYMBOLSPEC_EUR_USD);
     }
 
     @Test(timeout = 5_000)
-    public void basicFullCycleTestExchange() throws Exception {
+    public void basicFullCycleTestExchange() {
 
         basicFullCycleTest(SYMBOLSPEC_ETH_XBT);
     }
 
     @Test(timeout = 5_000)
     public void shouldInitSymbols() {
-        try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
             container.initBasicSymbols();
         }
     }
 
     @Test(timeout = 5_000)
     public void shouldInitUsers() {
-        try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
             container.initBasicUsers();
         }
     }
 
 
     // TODO count/verify number of commands and events
-    private void basicFullCycleTest(final CoreSymbolSpecification symbolSpec) throws Exception {
+    private void basicFullCycleTest(final CoreSymbolSpecification symbolSpec) {
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
             container.initBasicSymbols();
             container.initBasicUsers();
 
@@ -181,7 +185,7 @@ public final class ITExchangeCoreIntegration {
     @Test(timeout = 5_000)
     public void exchangeRiskBasicTest() throws Exception {
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
             container.initBasicSymbols();
             container.createUserWithMoney(UID_1, CURRENECY_XBT, 2_000_000); // 2M satoshi (0.02 BTC)
 
@@ -272,7 +276,7 @@ public final class ITExchangeCoreIntegration {
     @Test(timeout = 5_000)
     public void exchangeRiskMoveTest() throws Exception {
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
             container.initBasicSymbols();
             container.createUserWithMoney(UID_1, CURRENECY_ETH, 100_000_000); // 100M szabo (100 ETH)
 
@@ -517,7 +521,7 @@ public final class ITExchangeCoreIntegration {
     @Test(timeout = 5_000)
     public void exchangeCancelBid() throws Exception {
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
             container.initBasicSymbols();
 
             // create user

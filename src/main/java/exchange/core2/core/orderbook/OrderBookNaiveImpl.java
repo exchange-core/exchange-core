@@ -393,15 +393,14 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         // fill action fields (for events handling)
         cmd.action = order.getAction();
 
-        // optimistic risk check mode for exchange bids
+        // reserved price risk check for exchange bids
         if (symbolSpec.type == SymbolType.CURRENCY_EXCHANGE_PAIR && order.action == OrderAction.BID && cmd.price > order.reserveBidPrice) {
-            // put order back (yes it will be in the end of queue)
-            bucket.put(order);
             return CommandResultCode.MATCHING_MOVE_FAILED_PRICE_OVER_RISK_LIMIT;
         }
 
         // take order out of the original bucket and clean bucket if its empty
         bucket.remove(orderId, cmd.uid);
+
         if (bucket.getTotalVolume() == 0) {
             buckets.remove(price);
         }

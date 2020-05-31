@@ -48,7 +48,7 @@ public class TestDataParameters {
      */
     public static TestDataParameters.TestDataParametersBuilder mediumBuilder() {
         return TestDataParameters.builder()
-                .totalTransactionsNumber(4_000_000)
+                .totalTransactionsNumber(3_000_000)
                 .targetOrderBookOrdersTotal(1_000_000)
                 .numAccounts(3_300_000)
                 .currenciesAllowed(TestConstants.ALL_CURRENCIES)
@@ -66,7 +66,7 @@ public class TestDataParameters {
      */
     public static TestDataParameters.TestDataParametersBuilder largeBuilder() {
         return TestDataParameters.builder()
-                .totalTransactionsNumber(6_000_000)
+                .totalTransactionsNumber(3_000_000)
                 .targetOrderBookOrdersTotal(3_000_000)
                 .numAccounts(10_000_000)
                 .currenciesAllowed(TestConstants.ALL_CURRENCIES)
@@ -84,7 +84,7 @@ public class TestDataParameters {
      */
     public static TestDataParameters.TestDataParametersBuilder hugeBuilder() {
         return TestDataParameters.builder()
-                .totalTransactionsNumber(40_000_000)
+                .totalTransactionsNumber(10_000_000)
                 .targetOrderBookOrdersTotal(30_000_000)
                 .numAccounts(33_000_000)
                 .currenciesAllowed(TestConstants.ALL_CURRENCIES)

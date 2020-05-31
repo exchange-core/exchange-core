@@ -34,7 +34,7 @@ public class NasdaqReader {
         final PerformanceConfiguration perfCfg = PerformanceConfiguration.throughputPerformanceBuilder().build();
         final InitialStateConfiguration initStateCfg = InitialStateConfiguration.cleanStart("NASDAQ_TEST");
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer(perfCfg, initStateCfg, SerializationConfiguration.DEFAULT)) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(perfCfg, initStateCfg, SerializationConfiguration.DEFAULT)) {
 
 
             final ExchangeApi api = container.getApi();

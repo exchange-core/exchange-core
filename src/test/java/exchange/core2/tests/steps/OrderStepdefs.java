@@ -5,6 +5,7 @@ import exchange.core2.core.common.api.*;
 import exchange.core2.core.common.api.reports.SingleUserReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommandType;
+import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.L2MarketDataHelper;
 import exchange.core2.tests.util.TestConstants;
@@ -31,7 +32,9 @@ import static org.junit.Assert.assertNotNull;
 @Slf4j
 public class OrderStepdefs {
 
-    private ExchangeTestContainer container;
+    public static PerformanceConfiguration testPerformanceConfiguration = null;
+
+    private ExchangeTestContainer container = null;
 
     private List<MatcherTradeEvent> matcherEvents;
     private Map<Long, ApiPlaceOrder> orders = new HashMap<>();
@@ -41,8 +44,7 @@ public class OrderStepdefs {
 
     @Before
     public void before() {
-        log.info("before");
-        container = new ExchangeTestContainer();
+        container = ExchangeTestContainer.create(testPerformanceConfiguration);
         container.initBasicSymbols();
     }
 

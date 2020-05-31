@@ -22,9 +22,7 @@ import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.OrderType;
 import exchange.core2.core.common.api.ApiPlaceOrder;
 import exchange.core2.core.common.cmd.CommandResultCode;
-import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
-import exchange.core2.core.common.config.SerializationConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import junit.framework.TestCase;
 import lombok.extern.slf4j.Slf4j;
@@ -221,7 +219,8 @@ public abstract class ITExchangeCoreIntegrationRejection {
         testMultiSell(SYMBOLSPECFEE_XBT_LTC, FOK_BUDGET, REJECTION_BY_BUDGET);
     }
 
-    public abstract PerformanceConfiguration getPerfCfg();
+    // configuration provided by child class
+    public abstract PerformanceConfiguration getPerformanceConfiguration();
 
     // ------------------------------------------------------------------------------
 
@@ -236,7 +235,7 @@ public abstract class ITExchangeCoreIntegrationRejection {
 
         final long size = 40L + (rejectionCause == REJECTION_BY_SIZE ? 1 : 0);
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer(getPerfCfg(), InitialStateConfiguration.CLEAN_TEST, SerializationConfiguration.DEFAULT)) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
             container.initFeeSymbols();
             container.initFeeUsers();
 
@@ -324,7 +323,7 @@ public abstract class ITExchangeCoreIntegrationRejection {
 
         final long size = 22L + (rejectionCause == REJECTION_BY_SIZE ? 1 : 0);
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
             container.initFeeSymbols();
             container.initFeeUsers();
 

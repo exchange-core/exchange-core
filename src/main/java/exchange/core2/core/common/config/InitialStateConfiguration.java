@@ -14,6 +14,8 @@ import lombok.ToString;
 @ToString
 public final class InitialStateConfiguration {
 
+    public static InitialStateConfiguration DEFAULT = InitialStateConfiguration.cleanStart("MY_EXCHANGE");
+
     public static InitialStateConfiguration CLEAN_TEST = InitialStateConfiguration.cleanStart("EC0");
     /*
      * Exchange ID string.

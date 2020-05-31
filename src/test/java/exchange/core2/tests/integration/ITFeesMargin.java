@@ -22,6 +22,7 @@ import exchange.core2.core.common.api.ApiCancelOrder;
 import exchange.core2.core.common.api.ApiPlaceOrder;
 import exchange.core2.core.common.api.reports.TotalCurrencyBalanceReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
+import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
@@ -38,16 +39,19 @@ import static org.junit.Assert.assertTrue;
  */
 
 @Slf4j
-public final class ITFeesMargin {
+public abstract class ITFeesMargin {
 
     private final long makerFee = SYMBOLSPECFEE_USD_JPY.makerFee;
     private final long takerFee = SYMBOLSPECFEE_USD_JPY.takerFee;
     private final int symbolId = SYMBOLSPECFEE_USD_JPY.symbolId;
 
+    // configuration provided by child class
+    public abstract PerformanceConfiguration getPerformanceConfiguration();
+
     @Test(timeout = 10_000)
     public void shouldProcessFees_AskGtcMakerPartial_BidIocTaker() throws Exception {
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
             container.addSymbol(SYMBOLSPECFEE_USD_JPY);
 
             final long jpyAmount1 = 240_000L;
@@ -132,7 +136,7 @@ public final class ITFeesMargin {
     @Test(timeout = 10_000)
     public void shouldProcessFees_BidGtcMakerPartial_AskIocTaker() throws Exception {
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
             container.addSymbol(SYMBOLSPECFEE_USD_JPY);
 
             final long jpyAmount1 = 250_000L;
@@ -183,25 +187,25 @@ public final class ITFeesMargin {
 
             // verify buyer maker balance
             container.validateUserState(UID_1, profile -> {
-                        assertThat(profile.getAccounts().get(CURRENECY_JPY), is(250_000L - makerFee * 30));
-                        assertThat(profile.getAccounts().get(CURRENECY_USD), is(0L));
-                        assertThat(profile.getPositions().get(symbolId).direction, is(PositionDirection.LONG));
-                        assertThat(profile.getPositions().get(symbolId).openVolume, is(30L));
-                        assertThat(profile.getPositions().get(symbolId).pendingBuySize, is(20L));
-                        assertThat(profile.getPositions().get(symbolId).pendingSellSize, is(0L));
-                        assertFalse(profile.fetchIndexedOrders().isEmpty());
-                    });
+                assertThat(profile.getAccounts().get(CURRENECY_JPY), is(250_000L - makerFee * 30));
+                assertThat(profile.getAccounts().get(CURRENECY_USD), is(0L));
+                assertThat(profile.getPositions().get(symbolId).direction, is(PositionDirection.LONG));
+                assertThat(profile.getPositions().get(symbolId).openVolume, is(30L));
+                assertThat(profile.getPositions().get(symbolId).pendingBuySize, is(20L));
+                assertThat(profile.getPositions().get(symbolId).pendingSellSize, is(0L));
+                assertFalse(profile.fetchIndexedOrders().isEmpty());
+            });
 
             // verify seller taker balance
             container.validateUserState(UID_2, profile -> {
-                        assertThat(profile.getAccounts().get(CURRENECY_JPY), is(200_000L - takerFee * 30));
-                        assertThat(profile.getAccounts().get(CURRENECY_USD), is(0L));
-                        assertThat(profile.getPositions().get(symbolId).direction, is(PositionDirection.SHORT));
-                        assertThat(profile.getPositions().get(symbolId).openVolume, is(30L));
-                        assertThat(profile.getPositions().get(symbolId).pendingBuySize, is(0L));
-                        assertThat(profile.getPositions().get(symbolId).pendingSellSize, is(0L));
-                        assertTrue(profile.fetchIndexedOrders().isEmpty());
-                    });
+                assertThat(profile.getAccounts().get(CURRENECY_JPY), is(200_000L - takerFee * 30));
+                assertThat(profile.getAccounts().get(CURRENECY_USD), is(0L));
+                assertThat(profile.getPositions().get(symbolId).direction, is(PositionDirection.SHORT));
+                assertThat(profile.getPositions().get(symbolId).openVolume, is(30L));
+                assertThat(profile.getPositions().get(symbolId).pendingBuySize, is(0L));
+                assertThat(profile.getPositions().get(symbolId).pendingSellSize, is(0L));
+                assertTrue(profile.fetchIndexedOrders().isEmpty());
+            });
 
             // total balance remains the same
             final TotalCurrencyBalanceReportResult totalBal2 = container.totalBalanceReport();
@@ -218,7 +222,7 @@ public final class ITFeesMargin {
     @Test(timeout = 10_000)
     public void shouldNotTakeFeesForCancelAsk() throws Exception {
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
             container.addSymbol(SYMBOLSPECFEE_USD_JPY);
 
             final long jpyAmount1 = 240_000L;

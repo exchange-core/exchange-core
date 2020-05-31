@@ -53,6 +53,8 @@ public final class TestOrdersGeneratorSession {
     public final long minPrice;
     public final long maxPrice;
 
+    public final int lackOrOrdersFastFillThreshold;
+
     public long lastTradePrice;
 
     // set to 1 to make price move up and down
@@ -110,5 +112,7 @@ public final class TestOrdersGeneratorSession {
         // log.debug("Symbol:{} price={} dev={} range({},{})", symbol, price, priceDeviation, minPrice, maxPrice);
 
         this.priceDirection = enableSlidingPrice ? 1 : 0;
+
+        this.lackOrOrdersFastFillThreshold = Math.min(TestOrdersGenerator.CHECK_ORDERBOOK_STAT_EVERY_NTH_COMMAND, targetOrderBookOrdersHalf * 3 / 4);
     }
 }

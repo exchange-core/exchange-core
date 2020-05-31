@@ -50,7 +50,7 @@ public class JournalingTestsModule {
 
             final InitialStateConfiguration firstStartConfig = InitialStateConfiguration.cleanStartJournaling(exchangeId);
 
-            try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, firstStartConfig, SerializationConfiguration.DISK_JOURNALING)) {
+            try (final ExchangeTestContainer container = ExchangeTestContainer.create(performanceConfiguration, firstStartConfig, SerializationConfiguration.DISK_JOURNALING)) {
 
                 container.loadSymbolsUsersAndPrefillOrders(testDataFutures);
 
@@ -78,7 +78,7 @@ public class JournalingTestsModule {
 
             log.debug("Creating new exchange from persisted state...");
             final long tLoad = System.currentTimeMillis();
-            try (final ExchangeTestContainer recreatedContainer = new ExchangeTestContainer(performanceConfiguration, fromSnapshotConfig, SerializationConfiguration.DISK_JOURNALING)) {
+            try (final ExchangeTestContainer recreatedContainer = ExchangeTestContainer.create(performanceConfiguration, fromSnapshotConfig, SerializationConfiguration.DISK_JOURNALING)) {
 
                 // simple sync query in order to wait until core is started to respond
                 recreatedContainer.totalBalanceReport();

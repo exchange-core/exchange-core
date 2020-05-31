@@ -19,6 +19,7 @@ import exchange.core2.core.ExchangeApi;
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.L2MarketData;
 import exchange.core2.core.common.api.ApiCommand;
+import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.TestOrdersGenerator;
 import lombok.extern.slf4j.Slf4j;
@@ -40,7 +41,10 @@ import static org.hamcrest.number.OrderingComparison.greaterThan;
 import static org.junit.Assert.assertEquals;
 
 @Slf4j
-public final class ITExchangeCoreIntegrationStress {
+public abstract class ITExchangeCoreIntegrationStress {
+
+    // configuration provided by child class
+    public abstract PerformanceConfiguration getPerformanceConfiguration();
 
     @Test(timeout = 60_000)
     public void manyOperationsMargin() throws Exception {
@@ -55,7 +59,7 @@ public final class ITExchangeCoreIntegrationStress {
     }
 
     public void manyOperations(final CoreSymbolSpecification symbolSpec) throws Exception {
-        try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
             container.initBasicSymbols();
             //container.initBasicUsers();
             final ExchangeApi api = container.getApi();

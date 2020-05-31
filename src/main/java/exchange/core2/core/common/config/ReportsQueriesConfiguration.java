@@ -7,20 +7,21 @@ import exchange.core2.core.common.api.binary.BinaryCommandType;
 import exchange.core2.core.common.api.binary.BinaryDataCommand;
 import exchange.core2.core.common.api.reports.*;
 import lombok.Getter;
-import lombok.ToString;
 import net.openhft.chronicle.bytes.BytesIn;
 
 import java.lang.reflect.Constructor;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Reports configuration
  */
 @Getter
-@ToString
 public final class ReportsQueriesConfiguration {
+
+    public static final ReportsQueriesConfiguration DEFAULT = createStandardConfig();
 
     private final Map<Integer, Constructor<? extends ReportQuery<?>>> reportConstructors;
     private final Map<Integer, Constructor<? extends BinaryDataCommand>> binaryCommandConstructors;
@@ -44,7 +45,6 @@ public final class ReportsQueriesConfiguration {
 
         final Map<Integer, Constructor<? extends ReportQuery<?>>> reportConstructors = new HashMap<>();
         final Map<Integer, Constructor<? extends BinaryDataCommand>> binaryCommandConstructors = new HashMap<>();
-
 
         // binary commands (not extendable)
         addBinaryCommandClass(binaryCommandConstructors, BinaryCommandType.ADD_ACCOUNTS, BatchAddAccountsCommand.class);
@@ -97,4 +97,17 @@ public final class ReportsQueriesConfiguration {
         this.binaryCommandConstructors = binaryCommandConstructors;
     }
 
+    @Override
+    public String toString() {
+        return "ReportsQueriesConfiguration{" +
+                "reportConstructors=[" + reportToString(reportConstructors) +
+                "], binaryCommandConstructors=[" + reportToString(binaryCommandConstructors) +
+                "]}";
+    }
+
+    private static String reportToString(final Map<Integer, ? extends Constructor<?>> mapping) {
+        return mapping.entrySet().stream()
+                .map(entry -> String.format("%d:%s", entry.getKey(), entry.getValue().getDeclaringClass().getSimpleName()))
+                .collect(Collectors.joining(", "));
+    }
 }

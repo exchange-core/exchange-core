@@ -13,24 +13,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package exchange.core2.core.common;
+package exchange.core2.core.orderbook;
 
-public interface IOrder extends StateHash {
+import exchange.core2.core.common.CoreSymbolSpecification;
+import exchange.core2.core.common.config.LoggingConfiguration;
+import exchange.core2.tests.util.TestConstants;
 
-    long getPrice();
+public final class OrderBookNaiveImplExchangeTest extends OrderBookBaseTest {
 
-    long getSize();
+    @Override
+    protected IOrderBook createNewOrderBook() {
+        return new OrderBookNaiveImpl(getCoreSymbolSpec(), LoggingConfiguration.DEFAULT);
+    }
 
-    long getFilled();
+    @Override
+    protected CoreSymbolSpecification getCoreSymbolSpec() {
+        return TestConstants.SYMBOLSPEC_ETH_XBT;
+    }
 
-    long getUid();
-
-    OrderAction getAction();
-
-    long getOrderId();
-
-    long getTimestamp();
-
-    long getReserveBidPrice();
 
 }

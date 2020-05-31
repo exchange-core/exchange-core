@@ -9,7 +9,6 @@ import exchange.core2.core.utils.AffinityThreadFactory;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
-import lombok.ToString;
 import net.jpountz.lz4.LZ4Compressor;
 import net.jpountz.lz4.LZ4Factory;
 
@@ -22,8 +21,9 @@ import java.util.function.Supplier;
 @AllArgsConstructor
 @Getter
 @Builder
-@ToString
 public final class PerformanceConfiguration {
+
+    public static final PerformanceConfiguration DEFAULT = PerformanceConfiguration.baseBuilder().build();
 
     /*
      * Disruptor ring buffer size (number of commands). Must be power of 2.
@@ -75,6 +75,21 @@ public final class PerformanceConfiguration {
      * LZ4 compressor factory for binary commands and reports
      */
     private final Supplier<LZ4Compressor> binaryCommandsLz4CompressorFactory;
+
+    @Override
+    public String toString() {
+        return "PerformanceConfiguration{" +
+                "ringBufferSize=" + ringBufferSize +
+                ", matchingEnginesNum=" + matchingEnginesNum +
+                ", riskEnginesNum=" + riskEnginesNum +
+                ", msgsInGroupLimit=" + msgsInGroupLimit +
+                ", maxGroupDurationNs=" + maxGroupDurationNs +
+                ", threadFactory=" + (threadFactory == null ? null : threadFactory.getClass().getSimpleName()) +
+                ", waitStrategy=" + waitStrategy +
+                ", orderBookFactory=" + (orderBookFactory == null ? null : orderBookFactory.getClass().getSimpleName()) +
+                ", binaryCommandsLz4CompressorFactory=" + (binaryCommandsLz4CompressorFactory == null ? null : binaryCommandsLz4CompressorFactory.getClass().getSimpleName()) +
+                '}';
+    }
 
     // TODO add expected number of users and symbols
 

@@ -36,7 +36,7 @@ public class ThroughputTestsModule {
 
         final ExchangeTestContainer.TestDataFutures testDataFutures = ExchangeTestContainer.prepareTestDataAsync(testDataParameters, 1);
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceCfg, initialStateCfg, serializationCfg)) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(performanceCfg, initialStateCfg, serializationCfg)) {
 
             final float avgMt = container.executeTestingThread(
                     () -> (float) IntStream.range(0, iterations)

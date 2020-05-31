@@ -65,9 +65,9 @@ public final class ExchangeConfiguration {
     public static ExchangeConfiguration.ExchangeConfigurationBuilder defaultBuilder() {
         return ExchangeConfiguration.builder()
                 .ordersProcessingCfg(OrdersProcessingConfiguration.DEFAULT)
-                .initStateCfg(InitialStateConfiguration.cleanStart("MY_EXCHANGE"))
-                .performanceCfg(PerformanceConfiguration.baseBuilder().build())
-                .reportsQueriesCfg(ReportsQueriesConfiguration.createStandardConfig())
+                .initStateCfg(InitialStateConfiguration.DEFAULT)
+                .performanceCfg(PerformanceConfiguration.DEFAULT)
+                .reportsQueriesCfg(ReportsQueriesConfiguration.DEFAULT)
                 .loggingCfg(LoggingConfiguration.DEFAULT)
                 .serializationCfg(SerializationConfiguration.DEFAULT);
     }

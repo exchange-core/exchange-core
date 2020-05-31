@@ -34,7 +34,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 
 @Slf4j
-public class OrdersBucketNaiveTest {
+public final class OrdersBucketNaiveTest {
 
     private static final int PRICE = 1000;
     private static final int UID_1 = 412;

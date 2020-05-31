@@ -67,7 +67,7 @@ public class LatencyTestsModule {
 
         final ExchangeTestContainer.TestDataFutures testDataFutures = ExchangeTestContainer.prepareTestDataAsync(testDataParameters, 1);
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceCfg, initialStateCfg, serializationCfg)) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(performanceCfg, initialStateCfg, serializationCfg)) {
 
             final ExchangeApi api = container.getApi();
             final SingleWriterRecorder hdrRecorder = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
@@ -162,7 +162,7 @@ public class LatencyTestsModule {
         final int[] minLatencies = new int[testDataParameters.totalTransactionsNumber];
         Arrays.fill(minLatencies, Integer.MAX_VALUE);
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, initialStateConfiguration, SerializationConfiguration.DEFAULT)) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(performanceConfiguration, initialStateConfiguration, SerializationConfiguration.DEFAULT)) {
 
             // TODO - first run should validate the output (orders are accepted and processed properly)
 
@@ -321,7 +321,7 @@ public class LatencyTestsModule {
 
         final ExchangeTestContainer.TestDataFutures testDataFutures = ExchangeTestContainer.prepareTestDataAsync(testDataParameters, 1);
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, initialStateConfiguration, SerializationConfiguration.DEFAULT)) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(performanceConfiguration, initialStateConfiguration, SerializationConfiguration.DEFAULT)) {
 
             final ExchangeApi api = container.getApi();
 

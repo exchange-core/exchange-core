@@ -15,14 +15,13 @@
  */
 package exchange.core2.core.orderbook;
 
+import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.L2MarketData;
 import exchange.core2.core.common.MatcherEventType;
 import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
-import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.tests.util.L2MarketDataHelper;
-import exchange.core2.tests.util.TestConstants;
 import exchange.core2.tests.util.TestOrdersGenerator;
 import lombok.extern.slf4j.Slf4j;
 import org.hamcrest.core.Is;
@@ -63,6 +62,8 @@ public abstract class OrderBookBaseTest {
     static final long UID_2 = 413L;
 
     protected abstract IOrderBook createNewOrderBook();
+
+    protected abstract CoreSymbolSpecification getCoreSymbolSpec();
 
 
     @Before
@@ -818,84 +819,6 @@ public abstract class OrderBookBaseTest {
             assertThat(commandResultCode, is(SUCCESS));
             localOrderBook.validateInternalState();
         });
-
-    }
-
-
-    @Test
-    public void multipleCommandsCompareTest() {
-
-        // TODO more efficient - multi-threaded executions with different seed and order book type
-
-        long nextUpdateTime = 0;
-
-        final int tranNum = 100_000;
-        final int targetOrderBookOrders = 500;
-        final int numUsers = 100;
-
-        final IOrderBook orderBook = createNewOrderBook();
-//        IOrderBook orderBook = new OrderBookFastImpl(4096, TestConstants.SYMBOLSPEC_EUR_USD);
-        //IOrderBook orderBook = new OrderBookNaiveImpl();
-        final IOrderBook orderBookRef = new OrderBookNaiveImpl(TestConstants.SYMBOLSPEC_EUR_USD, LoggingConfiguration.DEFAULT);
-
-        assertEquals(orderBook.stateHash(), orderBookRef.stateHash());
-
-        TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(
-                tranNum,
-                targetOrderBookOrders,
-                numUsers,
-                TestOrdersGenerator.UID_PLAIN_MAPPER,
-                0,
-                true,
-                false,
-                TestOrdersGenerator.createAsyncProgressLogger(tranNum),
-                1825793762);
-
-        long i = 0;
-        for (OrderCommand cmd : genResult.getCommands()) {
-            i++;
-            cmd.orderId += 100;
-
-            cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
-            IOrderBook.processCommand(orderBook, cmd);
-
-            cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
-            CommandResultCode commandResultCode = IOrderBook.processCommand(orderBookRef, cmd);
-
-            assertThat(commandResultCode, is(SUCCESS));
-
-//            if (!orderBook.equals(orderBookRef)) {
-//
-//                if (!orderBook.getAllAskBuckets().equals(orderBookRef.getAllAskBuckets())) {
-//                    log.warn("ASK FAST: {}", orderBook.getAllAskBuckets());
-//                    log.warn("ASK REF : {}", orderBookRef.getAllAskBuckets());
-//                } else {
-//                    log.info("ASK ok");
-//                }
-//
-//                if (!orderBook.getAllBidBuckets().equals(orderBookRef.getAllBidBuckets())) {
-//                    log.warn("BID FAST: {}", orderBook.getAllBidBuckets().stream().map(x -> x.getPrice() + " " + x.getTotalVolume()).toArray());
-//                    log.warn("BID REF : {}", orderBookRef.getAllBidBuckets().stream().map(x -> x.getPrice() + " " + x.getTotalVolume()).toArray());
-//                } else {
-//                    log.info("BID ok");
-//                }
-//
-//            }
-
-            if (i % 100 == 0) {
-                assertEquals(orderBook.stateHash(), orderBookRef.stateHash());
-//            assertTrue(checkSameOrders(orderBook, orderBookRef));
-            }
-
-            // TODO compare events!
-            // TODO compare L2 marketdata
-
-            if (System.currentTimeMillis() > nextUpdateTime) {
-                log.debug("{}% done ({})", (i * 10000 / (float) genResult.size()) / 100f, i);
-                nextUpdateTime = System.currentTimeMillis() + 3000;
-            }
-
-        }
 
     }
 

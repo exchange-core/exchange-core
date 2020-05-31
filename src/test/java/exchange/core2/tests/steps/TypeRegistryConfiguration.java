@@ -34,16 +34,15 @@ public class TypeRegistryConfiguration implements TypeRegistryConfigurer {
                 ));
 
         final Map<String, Long> users = new HashMap<>();
-        users.put("A", 1440001L);
-        users.put("B", 1440002L);
-        users.put("C", 1440003L);
+        users.put("Alice", 1440001L);
+        users.put("Bob", 1440002L);
+        users.put("Charlie", 1440003L);
 
         typeRegistry.defineParameterType(
                 new ParameterType<>("user",
-                        "([ABC]{1})",
+                        "(Alice)?(Bob)?(Charlie)?",
                         Long.class,
-                        (Transformer<Long>) users::get
-                ));
+                        (Transformer<Long>) users::get));
 
         typeRegistry.defineDataTableType(new DataTableType(
                 L2MarketDataHelper.class,

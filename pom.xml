@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>exchange.core2</groupId>
@@ -71,233 +72,73 @@
         <delombok.output>delombok</delombok.output>
     </properties>
 
-    <dependencyManagement>
-        <dependencies>
-
-            <dependency>
-                <groupId>exchange.core2</groupId>
-                <artifactId>collections</artifactId>
-                <version>0.5.1</version>
-            </dependency>
-
-            <!-- LMAX Disruptor -->
-            <dependency>
-                <groupId>com.lmax</groupId>
-                <artifactId>disruptor</artifactId>
-                <version>${lmax.com.lmax.disruptor.version}</version>
-            </dependency>
-
-            <!-- OpenHFT -->
-            <dependency>
-                <groupId>net.openhft</groupId>
-                <artifactId>affinity</artifactId>
-                <version>${openhft.affinity.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>net.openhft</groupId>
-                <artifactId>chronicle-wire</artifactId>
-                <version>${openhft.chronicle.wire.version}</version>
-            </dependency>
-
-            <!-- Real Logic Agrona -->
-            <dependency>
-                <groupId>org.agrona</groupId>
-                <artifactId>agrona</artifactId>
-                <version>${agrona.version}</version>
-            </dependency>
-
-
-            <!-- HDR Histogram -->
-            <dependency>
-                <groupId>org.hdrhistogram</groupId>
-                <artifactId>HdrHistogram</artifactId>
-                <version>${hdr.histogram.version}</version>
-            </dependency>
-
-            <!-- Eclipse (Goldman Sachs) collections -->
-            <dependency>
-                <groupId>org.eclipse.collections</groupId>
-                <artifactId>eclipse-collections-api</artifactId>
-                <version>${eclipse.collections.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.eclipse.collections</groupId>
-                <artifactId>eclipse-collections</artifactId>
-                <version>${eclipse.collections.version}</version>
-            </dependency>
-
-            <!-- Google Guava -->
-            <dependency>
-                <groupId>com.google.guava</groupId>
-                <artifactId>guava</artifactId>
-                <version>${guava.version}</version>
-            </dependency>
-
-            <!-- Apache Commons -->
-            <dependency>
-                <groupId>org.apache.commons</groupId>
-                <artifactId>commons-lang3</artifactId>
-                <version>${commons-lang3.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.commons</groupId>
-                <artifactId>commons-math3</artifactId>
-                <version>${commons-math3.version}</version>
-            </dependency>
-
-            <!-- lz4-java -->
-            <dependency>
-                <groupId>org.lz4</groupId>
-                <artifactId>lz4-java</artifactId>
-                <version>${lz4.java}</version>
-            </dependency>
-
-            <!-- FastUtil -->
-            <!--
-                        <dependency>
-                            <groupId>it.unimi.dsi</groupId>
-                            <artifactId>fastutil</artifactId>
-                            <version>8.2.1</version>
-                        </dependency>
-            -->
-
-
-            <!-- HPPC -->
-            <!--
-                        <dependency>
-                            <groupId>com.carrotsearch</groupId>
-                            <artifactId>hppc</artifactId>
-                            <version>0.8.1</version>
-                        </dependency>
-            -->
-
-            <dependency>
-                <groupId>org.projectlombok</groupId>
-                <artifactId>lombok</artifactId>
-                <version>${lombok.version}</version>
-                <scope>provided</scope>
-            </dependency>
-
-            <!-- logging -->
-            <dependency>
-                <groupId>org.slf4j</groupId>
-                <artifactId>slf4j-api</artifactId>
-                <version>${slf4j.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>ch.qos.logback</groupId>
-                <artifactId>logback-classic</artifactId>
-                <version>${logback.version}</version>
-                <scope>provided</scope>
-            </dependency>
-
-            <!-- JMH -->
-            <dependency>
-                <groupId>org.openjdk.jmh</groupId>
-                <artifactId>jmh-core</artifactId>
-                <version>${jmh.version}</version>
-                <scope>test</scope>
-            </dependency>
-            <dependency>
-                <groupId>org.openjdk.jmh</groupId>
-                <artifactId>jmh-generator-annprocess</artifactId>
-                <version>${jmh.version}</version>
-                <scope>test</scope>
-            </dependency>
-
-            <!-- unit tests -->
-            <dependency>
-                <groupId>junit</groupId>
-                <artifactId>junit</artifactId>
-                <version>${junit.version}</version>
-                <scope>test</scope>
-            </dependency>
-            <dependency>
-                <groupId>org.mockito</groupId>
-                <artifactId>mockito-core</artifactId>
-                <version>${mockito.version}</version>
-                <scope>test</scope>
-            </dependency>
-            <dependency>
-                <groupId>org.hamcrest</groupId>
-                <artifactId>hamcrest-library</artifactId>
-                <version>${hamcrest.version}</version>
-                <scope>test</scope>
-            </dependency>
-
-            <dependency>
-                <groupId>io.cucumber</groupId>
-                <artifactId>cucumber-java</artifactId>
-                <version>${cucumber.version}</version>
-                <scope>test</scope>
-            </dependency>
-
-            <dependency>
-                <groupId>io.cucumber</groupId>
-                <artifactId>cucumber-junit</artifactId>
-                <version>${cucumber.version}</version>
-                <scope>test</scope>
-            </dependency>
-
-            <dependency>
-                <groupId>io.cucumber</groupId>
-                <artifactId>cucumber-picocontainer</artifactId>
-                <version>${cucumber.version}</version>
-                <scope>test</scope>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
-
     <dependencies>
 
         <dependency>
             <groupId>exchange.core2</groupId>
             <artifactId>collections</artifactId>
+            <version>0.5.1</version>
         </dependency>
 
+        <!-- LMAX Disruptor -->
         <dependency>
             <groupId>com.lmax</groupId>
             <artifactId>disruptor</artifactId>
+            <version>${lmax.com.lmax.disruptor.version}</version>
         </dependency>
 
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
+            <version>${lombok.version}</version>
+            <scope>provided</scope>
         </dependency>
 
+        <!-- logging -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
+            <version>${slf4j.version}</version>
         </dependency>
 
+        <!-- OpenHFT -->
         <dependency>
             <groupId>net.openhft</groupId>
             <artifactId>affinity</artifactId>
+            <version>${openhft.affinity.version}</version>
         </dependency>
 
         <dependency>
             <groupId>net.openhft</groupId>
             <artifactId>chronicle-wire</artifactId>
+            <version>${openhft.chronicle.wire.version}</version>
         </dependency>
 
+        <!-- Real Logic Agrona -->
         <dependency>
             <groupId>org.agrona</groupId>
             <artifactId>agrona</artifactId>
+            <version>${agrona.version}</version>
         </dependency>
 
+        <!-- Eclipse (Goldman Sachs) collections -->
         <dependency>
             <groupId>org.eclipse.collections</groupId>
             <artifactId>eclipse-collections-api</artifactId>
+            <version>${eclipse.collections.version}</version>
         </dependency>
 
         <dependency>
             <groupId>org.eclipse.collections</groupId>
             <artifactId>eclipse-collections</artifactId>
+            <version>${eclipse.collections.version}</version>
         </dependency>
 
+        <!-- lz4-java -->
         <dependency>
             <groupId>org.lz4</groupId>
             <artifactId>lz4-java</artifactId>
+            <version>${lz4.java}</version>
         </dependency>
 
         <!-- test scope -->
@@ -306,71 +147,119 @@
             <groupId>com.paritytrading.juncture</groupId>
             <artifactId>juncture-nasdaq</artifactId>
             <version>0.6.0</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>com.paritytrading.nassau</groupId>
             <artifactId>nassau-util</artifactId>
             <version>0.13.0</version>
+            <scope>test</scope>
         </dependency>
 
+        <!-- HDR Histogram -->
         <dependency>
             <groupId>org.hdrhistogram</groupId>
             <artifactId>HdrHistogram</artifactId>
+            <version>${hdr.histogram.version}</version>
             <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
+            <version>${logback.version}</version>
             <scope>test</scope>
         </dependency>
 
+        <!-- FastUtil
+        <dependency>
+            <groupId>it.unimi.dsi</groupId>
+            <artifactId>fastutil</artifactId>
+            <version>8.2.1</version>
+        </dependency>
+        -->
+
+        <!-- HPPC
+        <dependency>
+            <groupId>com.carrotsearch</groupId>
+            <artifactId>hppc</artifactId>
+            <version>0.8.1</version>
+        </dependency>
+        -->
+
+        <!-- Google Guava -->
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
+            <version>${guava.version}</version>
             <scope>test</scope>
         </dependency>
 
+        <!-- Apache Commons -->
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
+            <version>${commons-lang3.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-math3</artifactId>
+            <version>${commons-math3.version}</version>
             <scope>test</scope>
         </dependency>
 
+        <!-- JMH
+        <dependency>
+            <groupId>org.openjdk.jmh</groupId>
+            <artifactId>jmh-core</artifactId>
+            <version>${jmh.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.openjdk.jmh</groupId>
+            <artifactId>jmh-generator-annprocess</artifactId>
+            <version>${jmh.version}</version>
+            <scope>test</scope>
+        </dependency>
+        -->
+
+        <!-- unit tests -->
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
+            <version>${junit.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
+            <version>${mockito.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.hamcrest</groupId>
             <artifactId>hamcrest-library</artifactId>
+            <version>${hamcrest.version}</version>
             <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>io.cucumber</groupId>
             <artifactId>cucumber-java</artifactId>
+            <version>${cucumber.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>io.cucumber</groupId>
             <artifactId>cucumber-junit</artifactId>
+            <version>${cucumber.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>io.cucumber</groupId>
             <artifactId>cucumber-picocontainer</artifactId>
+            <version>${cucumber.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

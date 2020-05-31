@@ -75,11 +75,16 @@ public final class ExchangeTestContainer implements AutoCloseable {
         return String.format("%012X", System.currentTimeMillis());
     }
 
-    public ExchangeTestContainer() {
-        this(
-                PerformanceConfiguration.latencyPerformanceBuilder().build(),
+    public static ExchangeTestContainer create(final PerformanceConfiguration perfCfg) {
+        return new ExchangeTestContainer(perfCfg,
                 InitialStateConfiguration.CLEAN_TEST,
                 SerializationConfiguration.DEFAULT);
+    }
+
+    public static ExchangeTestContainer create(final PerformanceConfiguration perfCfg,
+                                               final InitialStateConfiguration initStateCfg,
+                                               final SerializationConfiguration serializationCfg) {
+        return new ExchangeTestContainer(perfCfg, initStateCfg, serializationCfg);
     }
 
     public static TestDataFutures prepareTestDataAsync(TestDataParameters parameters, int seed) {
@@ -118,13 +123,13 @@ public final class ExchangeTestContainer implements AutoCloseable {
         final CompletableFuture<TestOrdersGenerator.MultiSymbolGenResult> genResult;
     }
 
-    public ExchangeTestContainer(final PerformanceConfiguration perfCfg,
-                                 final InitialStateConfiguration initStateCfg,
-                                 final SerializationConfiguration serializationCfg) {
+    private ExchangeTestContainer(final PerformanceConfiguration perfCfg,
+                                  final InitialStateConfiguration initStateCfg,
+                                  final SerializationConfiguration serializationCfg) {
 
         //log.debug("CREATING exchange container");
 
-        this.threadFactory = new AffinityThreadFactory(AffinityThreadFactory.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE);
+        this.threadFactory = new AffinityThreadFactory(AffinityThreadFactory.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_PHYSICAL_CORE);
 
         final ExchangeConfiguration exchangeConfiguration = ExchangeConfiguration.defaultBuilder()
                 .initStateCfg(initStateCfg)
@@ -430,7 +435,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
     public float executeTestingThreadPerfMtps(final Callable<Integer> test) {
         return executeTestingThread(() -> {
             final long tStart = System.currentTimeMillis();
-            final int numMessages = Executors.newFixedThreadPool(1, threadFactory).submit(test).get();
+            final int numMessages = test.call();
             final long tDuration = System.currentTimeMillis() - tStart;
             return numMessages / (float) tDuration / 1000.0f;
         });

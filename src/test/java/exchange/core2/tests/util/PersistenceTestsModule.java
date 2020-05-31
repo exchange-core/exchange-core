@@ -55,7 +55,7 @@ public class PersistenceTestsModule {
             final long originalPrefillStateHash;
             final float originalPerfMt;
 
-            try (final ExchangeTestContainer container = new ExchangeTestContainer(performanceConfiguration, firstStartConfig, SerializationConfiguration.DISK_SNAPSHOT_ONLY)) {
+            try (final ExchangeTestContainer container = ExchangeTestContainer.create(performanceConfiguration, firstStartConfig, SerializationConfiguration.DISK_SNAPSHOT_ONLY)) {
 
                 container.loadSymbolsUsersAndPrefillOrders(testDataFutures);
 
@@ -67,6 +67,7 @@ public class PersistenceTestsModule {
                     assertThat(resultCode, Is.is(CommandResultCode.SUCCESS));
                 }
 
+                log.info("Requesting state hash...");
                 originalPrefillStateHash = container.requestStateHash();
 
                 log.info("Benchmarking original state...");
@@ -90,7 +91,7 @@ public class PersistenceTestsModule {
 
             log.debug("Creating new exchange from persisted state...");
             final long tLoad = System.currentTimeMillis();
-            try (final ExchangeTestContainer recreatedContainer = new ExchangeTestContainer(performanceConfiguration, fromSnapshotConfig, SerializationConfiguration.DISK_SNAPSHOT_ONLY)) {
+            try (final ExchangeTestContainer recreatedContainer = ExchangeTestContainer.create(performanceConfiguration, fromSnapshotConfig, SerializationConfiguration.DISK_SNAPSHOT_ONLY)) {
 
                 // simple sync query in order to wait until core is started to respond
                 recreatedContainer.totalBalanceReport();
@@ -98,6 +99,7 @@ public class PersistenceTestsModule {
                 float loadTimeSec = (float) (System.currentTimeMillis() - tLoad) / 1000.0f;
                 log.debug("Load+start time: {}s", String.format("%.3f", loadTimeSec));
 
+                log.info("Requesting state hash...");
                 final long restoredPrefillStateHash = recreatedContainer.requestStateHash();
                 assertThat(restoredPrefillStateHash, is(originalPrefillStateHash));
 

@@ -22,7 +22,7 @@ import exchange.core2.tests.util.*;
 import org.junit.Test;
 
 
-public class ITMultiOperation {
+public final class ITMultiOperation {
 
     @Test(timeout = 60000L)
     public void shouldPerformMarginOperations() {

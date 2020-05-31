@@ -182,7 +182,7 @@ public final class TestConstants {
 
     public static int getCurrency(String currency) {
 
-        switch (currency){
+        switch (currency) {
             case "USD":
                 return CURRENECY_USD;
             case "XBT":

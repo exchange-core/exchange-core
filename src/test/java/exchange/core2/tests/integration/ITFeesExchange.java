@@ -21,6 +21,7 @@ import exchange.core2.core.common.api.ApiCancelOrder;
 import exchange.core2.core.common.api.ApiPlaceOrder;
 import exchange.core2.core.common.api.reports.TotalCurrencyBalanceReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
+import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
@@ -39,17 +40,20 @@ import static org.junit.Assert.assertTrue;
  */
 
 @Slf4j
-public final class ITFeesExchange {
+public abstract class ITFeesExchange {
 
     private final long step = SYMBOLSPECFEE_XBT_LTC.quoteScaleK;
     private final long makerFee = SYMBOLSPECFEE_XBT_LTC.makerFee;
     private final long takerFee = SYMBOLSPECFEE_XBT_LTC.takerFee;
 
+    // configuration provided by child class
+    public abstract PerformanceConfiguration getPerformanceConfiguration();
+
 
     @Test(timeout = 10_000)
     public void shouldRequireTakerFees_GtcCancel() throws Exception {
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
             container.initFeeSymbols();
 
             // ----------------- 1 test GTC BID cancel ------------------
@@ -119,7 +123,7 @@ public final class ITFeesExchange {
     @Test(timeout = 10_000)
     public void shouldProcessFees_BidGtcMaker_AskIocTakerPartial() throws Exception {
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
             container.initFeeSymbols();
             final long ltcAmount = 200_000_000_000L;
             container.createUserWithMoney(UID_1, CURRENECY_LTC, ltcAmount); // 200B litoshi (2,000 LTC)
@@ -198,7 +202,7 @@ public final class ITFeesExchange {
     @Test(timeout = 10_000)
     public void shouldProcessFees_BidGtcMakerPartial_AskIocTaker() throws Exception {
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
             container.initFeeSymbols();
             final long ltcAmount = 200_000_000_000L;
             container.createUserWithMoney(UID_1, CURRENECY_LTC, ltcAmount); // 200B litoshi (2,000 LTC)
@@ -277,7 +281,7 @@ public final class ITFeesExchange {
     @Test(timeout = 10_000)
     public void shouldProcessFees_AskGtcMaker_BidIocTakerPartial() throws Exception {
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
             container.initFeeSymbols();
 
             final long btcAmount = 2_000_000_000L;
@@ -355,7 +359,7 @@ public final class ITFeesExchange {
     @Test(timeout = 10_000)
     public void shouldProcessFees_AskGtcMakerPartial_BidIocTaker() throws Exception {
 
-        try (final ExchangeTestContainer container = new ExchangeTestContainer()) {
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
             container.initFeeSymbols();
 
             final long btcAmount = 2_000_000_000L;
