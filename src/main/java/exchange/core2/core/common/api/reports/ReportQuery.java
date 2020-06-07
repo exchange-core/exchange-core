@@ -21,7 +21,6 @@ import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 
 import java.util.Optional;
-import java.util.function.Function;
 import java.util.stream.Stream;
 
 /**
@@ -39,7 +38,7 @@ public interface ReportQuery<T extends ReportResult> extends WriteBytesMarshalla
     /**
      * @return report map-reduce constructor
      */
-    Function<Stream<BytesIn>, ? extends T> getResultBuilder();
+    T createResult(Stream<BytesIn> sections);
 
     /**
      * Report main logic.

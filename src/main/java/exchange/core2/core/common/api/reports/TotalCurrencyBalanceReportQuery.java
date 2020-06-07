@@ -31,7 +31,6 @@ import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
 import java.util.Optional;
-import java.util.function.Function;
 import java.util.stream.Stream;
 
 @NoArgsConstructor
@@ -49,12 +48,12 @@ public final class TotalCurrencyBalanceReportQuery implements ReportQuery<TotalC
     }
 
     @Override
-    public Function<Stream<BytesIn>, TotalCurrencyBalanceReportResult> getResultBuilder() {
-        return TotalCurrencyBalanceReportResult::merge;
+    public TotalCurrencyBalanceReportResult createResult(final Stream<BytesIn> sections) {
+        return TotalCurrencyBalanceReportResult.merge(sections);
     }
 
     @Override
-    public Optional<TotalCurrencyBalanceReportResult> process(MatchingEngineRouter matchingEngine) {
+    public Optional<TotalCurrencyBalanceReportResult> process(final MatchingEngineRouter matchingEngine) {
 
         final IntLongHashMap currencyBalance = new IntLongHashMap();
 
@@ -76,7 +75,7 @@ public final class TotalCurrencyBalanceReportQuery implements ReportQuery<TotalC
     }
 
     @Override
-    public Optional<TotalCurrencyBalanceReportResult> process(RiskEngine riskEngine) {
+    public Optional<TotalCurrencyBalanceReportResult> process(final RiskEngine riskEngine) {
 
         // prepare fast price cache for profit estimation with some price (exact value is not important, except ask==bid condition)
         final IntObjectHashMap<RiskEngine.LastPriceCacheRecord> dummyLastPriceCache = new IntObjectHashMap<>();

@@ -135,7 +135,6 @@ public final class TwoStepMasterProcessor implements EventProcessor {
 
                         if (cmd.command == OrderCommandType.SHUTDOWN_SIGNAL) {
                             // having all sequences aligned with the ringbuffer cursor is a requirement for proper shutdown
-
                             // let following processors to catch up
                             publishProgressAndTriggerSlaveProcessor(nextSequence);
                         }
@@ -157,7 +156,7 @@ public final class TwoStepMasterProcessor implements EventProcessor {
         }
     }
 
-    private void publishProgressAndTriggerSlaveProcessor(long nextSequence) {
+    private void publishProgressAndTriggerSlaveProcessor(final long nextSequence) {
         sequence.set(nextSequence - 1);
         waitSpinningHelper.signalAllWhenBlocking();
         slaveProcessor.handlingCycle(nextSequence);

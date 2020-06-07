@@ -65,5 +65,11 @@ Feature: An exchange accepts bid\ask orders, manage and publish order book and m
       | id  | price | size | filled | reservePrice | side |
       | 203 | 18500 | 500  | 0      | 18500        | BID  |
 
-    When A client Charlie cancels the remaining size 500 of the order 203
+    And An ETH_XBT order book is:
+      | 500 | 18500 |  |
 
+    When A client Charlie cancels the remaining size 500 of the order 203
+    Then A client Charlie does not have active orders
+    And A balance of a client Charlie:
+      | ETH | 0        |
+      | XBT | 94000000 |

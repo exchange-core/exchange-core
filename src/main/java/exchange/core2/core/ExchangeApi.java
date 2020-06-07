@@ -35,7 +35,6 @@ import exchange.core2.core.utils.SerializationUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.jpountz.lz4.LZ4Compressor;
-import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import net.openhft.chronicle.wire.Wire;
 import org.agrona.collections.LongLongConsumer;
@@ -271,10 +270,8 @@ public final class ExchangeApi {
         return submitQueryAsync(
                 query,
                 transferId,
-                cmd -> {
-                    final Stream<BytesIn> sections = OrderBookEventsHelper.deserializeEvents(cmd.matcherEvent).values().stream().map(Wire::bytes);
-                    return query.getResultBuilder().apply(sections);
-                });
+                cmd -> query.createResult(
+                        OrderBookEventsHelper.deserializeEvents(cmd).values().parallelStream().map(Wire::bytes)));
     }
 
     public void publishBinaryData(final ApiBinaryDataCommand apiCmd, final LongConsumer endSeqConsumer) {

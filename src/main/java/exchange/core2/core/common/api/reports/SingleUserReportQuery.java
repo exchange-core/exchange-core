@@ -21,17 +21,18 @@ import exchange.core2.core.processors.MatchingEngineRouter;
 import exchange.core2.core.processors.RiskEngine;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
+import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Function;
 import java.util.stream.Stream;
 
 @EqualsAndHashCode
 @ToString
+@Slf4j
 public final class SingleUserReportQuery implements ReportQuery<SingleUserReportResult> {
 
     private final long uid;
@@ -54,21 +55,28 @@ public final class SingleUserReportQuery implements ReportQuery<SingleUserReport
     }
 
     @Override
-    public Function<Stream<BytesIn>, SingleUserReportResult> getResultBuilder() {
-        return SingleUserReportResult::merge;
+    public SingleUserReportResult createResult(final Stream<BytesIn> sections) {
+        return SingleUserReportResult.merge(sections);
     }
 
     @Override
-    public Optional<SingleUserReportResult> process(MatchingEngineRouter matchingEngine) {
+    public Optional<SingleUserReportResult> process(final MatchingEngineRouter matchingEngine) {
         final IntObjectHashMap<List<Order>> orders = new IntObjectHashMap<>();
-        matchingEngine.getOrderBooks().forEach(ob -> orders.put(ob.getSymbolSpec().symbolId, ob.findUserOrders(this.uid)));
 
-        //log.debug("orders: {}", orders.size());
-        return Optional.of(new SingleUserReportResult(uid, null, null, null, orders, SingleUserReportResult.QueryExecutionStatus.OK));
+        matchingEngine.getOrderBooks().forEach(ob -> {
+            final List<Order> userOrders = ob.findUserOrders(this.uid);
+            // dont put empty results, so that the report result merge procedure would be simple
+            if (!userOrders.isEmpty()) {
+                orders.put(ob.getSymbolSpec().symbolId, userOrders);
+            }
+        });
+
+        //log.debug("ME{}: orders: {}", matchingEngine.getShardId(), orders);
+        return Optional.of(SingleUserReportResult.createFromMatchingEngine(uid, orders));
     }
 
     @Override
-    public Optional<SingleUserReportResult> process(RiskEngine riskEngine) {
+    public Optional<SingleUserReportResult> process(final RiskEngine riskEngine) {
 
         if (!riskEngine.uidForThisHandler(this.uid)) {
             return Optional.empty();

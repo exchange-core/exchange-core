@@ -30,7 +30,6 @@ import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.processors.journaling.ISerializationProcessor;
 import exchange.core2.core.utils.CoreArithmeticUtils;
-import exchange.core2.core.utils.HashingUtils;
 import exchange.core2.core.utils.SerializationUtils;
 import exchange.core2.core.utils.UnsafeUtils;
 import lombok.AllArgsConstructor;
@@ -53,7 +52,7 @@ import java.util.Optional;
  */
 @Slf4j
 @Getter
-public final class RiskEngine implements WriteBytesMarshallable, StateHash {
+public final class RiskEngine implements WriteBytesMarshallable {
 
     // state
     private final SymbolSpecificationProvider symbolSpecificationProvider;
@@ -802,23 +801,6 @@ public final class RiskEngine implements WriteBytesMarshallable, StateHash {
         fees.clear();
         adjustments.clear();
         suspends.clear();
-    }
-
-    @Override
-    public int stateHash() {
-
-        return Objects.hash(
-                shardId,
-                shardMask,
-                symbolSpecificationProvider.stateHash(),
-                userProfileService.stateHash(),
-                binaryCommandsProcessor.stateHash(),
-                HashingUtils.stateHash(lastPriceCache),
-                fees.hashCode(),
-                adjustments.hashCode(),
-                suspends.hashCode());
-
-        //log.debug("HASH RE{}/{} hash={} -- ssp={} ups={} bcp={} lpc={}", shardId, shardMask, hash, symbolSpecificationProvider.stateHash(), userProfileService.stateHash(), binaryCommandsProcessor.stateHash(), lastPriceCache.hashCode());
     }
 
     @AllArgsConstructor

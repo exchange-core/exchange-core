@@ -16,12 +16,15 @@
 package exchange.core2.core.utils;
 
 import exchange.core2.core.common.StateHash;
-import exchange.core2.core.orderbook.IOrderBook;
 import lombok.extern.slf4j.Slf4j;
+import org.agrona.collections.MutableLong;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 
-import java.util.*;
+import java.util.Arrays;
+import java.util.BitSet;
+import java.util.Iterator;
+import java.util.Objects;
 import java.util.stream.Stream;
 
 @Slf4j
@@ -31,67 +34,28 @@ public final class HashingUtils {
         return Arrays.hashCode(bitSet.toLongArray());
     }
 
-
     public static <T extends StateHash> int stateHash(final LongObjectHashMap<T> hashMap) {
-        final SortedMap<Long, T> sortedMap = new TreeMap<>();
-        hashMap.forEachKeyValue(sortedMap::put);
-        return Arrays.hashCode(sortedMap.entrySet().stream().mapToInt(ent -> Objects.hash(ent.getKey(), ent.getValue().stateHash())).toArray());
-    }
 
+        final MutableLong mutableLong = new MutableLong();
+        hashMap.forEachKeyValue((k, v) -> mutableLong.addAndGet(Objects.hash(k, v.stateHash())));
+        return Long.hashCode(mutableLong.value);
+    }
 
     public static <T extends StateHash> int stateHash(final IntObjectHashMap<T> hashMap) {
-        final SortedMap<Integer, T> sortedMap = new TreeMap<>();
-        hashMap.forEachKeyValue(sortedMap::put);
-        return Arrays.hashCode(sortedMap.entrySet().stream().mapToInt(ent -> Objects.hash(ent.getKey(), ent.getValue().stateHash())).toArray());
+
+        final MutableLong mutableLong = new MutableLong();
+        hashMap.forEachKeyValue((k, v) -> mutableLong.addAndGet(Objects.hash(k, v.stateHash())));
+        return Long.hashCode(mutableLong.value);
     }
 
 
-    public static <T extends StateHash> int stateHash(final Map<Long, T> map) {
-        final SortedMap<Long, T> sortedMap = new TreeMap<>();
-        map.forEach(sortedMap::put);
-        return Arrays.hashCode(sortedMap.entrySet().stream().mapToInt(ent -> Objects.hash(ent.getKey(), ent.getValue().stateHash())).toArray());
-    }
-
-    public static int stateHash(IOrderBook orderBook) {
-
-//        log.debug("State hash of {}", orderBook.getClass().getSimpleName());
-//        log.debug("  Ask orders stream: {}", orderBook.askOrdersStream(true).collect(Collectors.toList()));
-//        log.debug("  Ask orders hash: {}", stateHashStream(orderBook.askOrdersStream(true)));
-//        log.debug("  Bid orders stream: {}", orderBook.bidOrdersStream(true).collect(Collectors.toList()));
-//        log.debug("  Bid orders hash: {}", stateHashStream(orderBook.bidOrdersStream(true)));
-//        log.debug("  getSymbolSpec: {}", orderBook.getSymbolSpec());
-//        log.debug("  getSymbolSpec hash: {}", orderBook.getSymbolSpec().stateHash());
-
-        return Objects.hash(
-                stateHashStream(orderBook.askOrdersStream(true)),
-                stateHashStream(orderBook.bidOrdersStream(true)),
-                orderBook.getSymbolSpec().stateHash());
-    }
-
-    public static boolean checkSameOrders(IOrderBook ob1, IOrderBook ob2) {
-        return ob1.getSymbolSpec().equals(ob2.getSymbolSpec())
-                && checkStreamsEqual(ob1.askOrdersStream(true), ob2.askOrdersStream(true))
-                && checkStreamsEqual(ob1.bidOrdersStream(true), ob2.bidOrdersStream(true));
-    }
-
-
-    private static int stateHashStream(Stream<? extends StateHash> stream) {
+    public static int stateHashStream(final Stream<? extends StateHash> stream) {
         int h = 0;
         final Iterator<? extends StateHash> iterator = stream.iterator();
         while (iterator.hasNext()) {
             h = h * 31 + iterator.next().stateHash();
         }
         return h;
-    }
-
-    public static boolean eq(IOrderBook me, Object o) {
-        if (o == me) return true;
-        if (o == null) return false;
-        if (!(o instanceof IOrderBook)) return false;
-        IOrderBook other = (IOrderBook) o;
-        return me.getSymbolSpec().equals(((IOrderBook) o).getSymbolSpec())
-                && checkStreamsEqual(me.askOrdersStream(true), other.askOrdersStream(true))
-                && checkStreamsEqual(me.bidOrdersStream(true), other.bidOrdersStream(true));
     }
 
     /**

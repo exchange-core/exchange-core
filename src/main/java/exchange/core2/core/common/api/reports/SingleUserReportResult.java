@@ -20,10 +20,8 @@ import exchange.core2.core.common.Order;
 import exchange.core2.core.common.PositionDirection;
 import exchange.core2.core.common.UserStatus;
 import exchange.core2.core.utils.SerializationUtils;
-import lombok.AllArgsConstructor;
-import lombok.EqualsAndHashCode;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
+import lombok.*;
+import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
@@ -36,9 +34,10 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-@AllArgsConstructor
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
 @EqualsAndHashCode
 @Getter
+@Slf4j
 public final class SingleUserReportResult implements ReportResult {
 
     public static SingleUserReportResult IDENTITY = new SingleUserReportResult(0L, null, null, null, null, QueryExecutionStatus.OK);
@@ -89,7 +88,7 @@ public final class SingleUserReportResult implements ReportResult {
     }
 
     @Override
-    public void writeMarshallable(BytesOut bytes) {
+    public void writeMarshallable(final BytesOut bytes) {
 
         bytes.writeLong(uid);
 

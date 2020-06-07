@@ -325,6 +325,30 @@ public final class SerializationUtils {
         return map;
     }
 
+    public static <K, V> void marshallGenericMap(final Map<K, V> map,
+                                                 final BytesOut bytes,
+                                                 final BiConsumer<BytesOut, K> keyMarshaller,
+                                                 final BiConsumer<BytesOut, V> valMarshaller) {
+        bytes.writeInt(map.size());
+
+        map.forEach((k, v) -> {
+            keyMarshaller.accept(bytes, k);
+            valMarshaller.accept(bytes, v);
+        });
+    }
+
+    public static <K, V, M extends Map<K, V>> M readGenericMap(final BytesIn bytes,
+                                                               final Supplier<M> mapSupplier,
+                                                               final Function<BytesIn, K> keyCreator,
+                                                               final Function<BytesIn, V> valCreator) {
+        int length = bytes.readInt();
+        final M map = mapSupplier.get();
+        for (int i = 0; i < length; i++) {
+            map.put(keyCreator.apply(bytes), valCreator.apply(bytes));
+        }
+        return map;
+    }
+
     public static <T extends WriteBytesMarshallable> void marshallList(final List<T> list, final BytesOut bytes) {
         bytes.writeInt(list.size());
         list.forEach(v -> v.writeMarshallable(bytes));
