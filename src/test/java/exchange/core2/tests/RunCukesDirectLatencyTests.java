@@ -12,7 +12,7 @@ import org.junit.runner.RunWith;
 @RunWith(Cucumber.class)
 @CucumberOptions(plugin = {"pretty", "html:target/cucumber"}, strict = true)
 @Slf4j
-public class RunCukesDirectTests {
+public class RunCukesDirectLatencyTests {
 
     @BeforeClass
     public static void beforeClass() {

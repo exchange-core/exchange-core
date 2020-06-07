@@ -25,12 +25,8 @@ import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.NativeBytes;
 import net.openhft.chronicle.wire.Wire;
 
-import java.util.List;
-import java.util.Map;
-import java.util.NavigableMap;
-import java.util.TreeMap;
+import java.util.*;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static exchange.core2.core.ExchangeCore.EVENTS_POOLING;
@@ -160,11 +156,10 @@ public final class OrderBookEventsHelper {
     }
 
 
-    public static NavigableMap<Integer, Wire> deserializeEvents(final MatcherTradeEvent evtHead) {
+    public static NavigableMap<Integer, Wire> deserializeEvents(final OrderCommand cmd) {
 
-        // TODO Optimize
-        final Map<Integer, List<MatcherTradeEvent>> sections = MatcherTradeEvent.asList(evtHead).stream()
-                .collect(Collectors.groupingBy(evt -> evt.section, Collectors.toList()));
+        final Map<Integer, List<MatcherTradeEvent>> sections = new HashMap<>();
+        cmd.processMatcherEvents(evt -> sections.computeIfAbsent(evt.section, k -> new ArrayList<>()).add(evt));
 
         NavigableMap<Integer, Wire> result = new TreeMap<>();
 

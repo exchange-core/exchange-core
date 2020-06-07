@@ -28,8 +28,6 @@ import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 
-import java.util.Objects;
-
 /**
  * Stateful (!) User profile service
  * <p>
@@ -191,7 +189,7 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
 
     @Override
     public int stateHash() {
-        return Objects.hash(HashingUtils.stateHash(userProfiles));
+        return HashingUtils.stateHash(userProfiles);
     }
 
 }

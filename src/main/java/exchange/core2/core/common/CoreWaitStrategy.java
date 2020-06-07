@@ -22,20 +22,22 @@ import com.lmax.disruptor.YieldingWaitStrategy;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
+import java.util.function.Supplier;
+
 @RequiredArgsConstructor
 public enum CoreWaitStrategy {
 
-    BUSY_SPIN(new BusySpinWaitStrategy(), false, false),
+    BUSY_SPIN(BusySpinWaitStrategy::new, false, false),
 
-    YIELDING(new YieldingWaitStrategy(), true, false),
+    YIELDING(YieldingWaitStrategy::new, true, false),
 
-    BLOCKING(new BlockingWaitStrategy(), false, true),
+    BLOCKING(BlockingWaitStrategy::new, false, true),
 
     // special case
     SECOND_STEP_NO_WAIT(null, false, false);
 
     @Getter
-    private final WaitStrategy disruptorWaitStrategy;
+    private final Supplier<WaitStrategy> disruptorWaitStrategyFactory;
 
     @Getter
     private final boolean yield;

@@ -17,7 +17,6 @@ package exchange.core2.core.processors;
 
 import exchange.core2.collections.objpool.ObjectsPool;
 import exchange.core2.core.common.CoreSymbolSpecification;
-import exchange.core2.core.common.StateHash;
 import exchange.core2.core.common.SymbolType;
 import exchange.core2.core.common.api.binary.BatchAddAccountsCommand;
 import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
@@ -32,7 +31,6 @@ import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.orderbook.OrderBookEventsHelper;
 import exchange.core2.core.processors.journaling.ISerializationProcessor;
-import exchange.core2.core.utils.HashingUtils;
 import exchange.core2.core.utils.SerializationUtils;
 import exchange.core2.core.utils.UnsafeUtils;
 import lombok.Builder;
@@ -44,12 +42,11 @@ import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
 import java.util.HashMap;
-import java.util.Objects;
 import java.util.Optional;
 
 @Slf4j
 @Getter
-public final class MatchingEngineRouter implements WriteBytesMarshallable, StateHash {
+public final class MatchingEngineRouter implements WriteBytesMarshallable {
 
     // state
     private final BinaryCommandsProcessor binaryCommandsProcessor;
@@ -255,16 +252,6 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable, State
 
         // write orderBooks
         SerializationUtils.marshallIntHashMap(orderBooks, bytes);
-    }
-
-    @Override
-    public int stateHash() {
-//        log.debug("HASH ME{} : HashingUtils.stateHash(orderBooks)={}", shardId, HashingUtils.stateHash(orderBooks));
-        return Objects.hash(
-                shardId,
-                shardMask,
-                binaryCommandsProcessor.stateHash(),
-                HashingUtils.stateHash(orderBooks));
     }
 
     @Builder

@@ -35,7 +35,7 @@ public final class WaitSpinningHelper {
 
     // blocking mode, using same locking objects that Disruptor operates with
     private final boolean block;
-    private final BlockingWaitStrategy blockingDiruptorWaitStrategy;
+    private final BlockingWaitStrategy blockingDisruptorWaitStrategy;
     private final Lock lock;
     private final Condition processorNotifyCondition;
     // next Disruptor release will have mutex (to avoid allocations)
@@ -48,10 +48,15 @@ public final class WaitSpinningHelper {
         this.yieldLimit = waitStrategy.isYield() ? spinLimit / 2 : 0;
 
         this.block = waitStrategy.isBlock();
-        this.blockingDiruptorWaitStrategy = (BlockingWaitStrategy) CoreWaitStrategy.BLOCKING.getDisruptorWaitStrategy();
-        this.lock = ReflectionUtils.extractField(BlockingWaitStrategy.class, blockingDiruptorWaitStrategy, "lock");
-        this.processorNotifyCondition = ReflectionUtils.extractField(BlockingWaitStrategy.class, blockingDiruptorWaitStrategy, "processorNotifyCondition");
-        //this.mutex = extractBlockingMutex(blockingDiruptorWaitStrategy);
+        if (block) {
+            this.blockingDisruptorWaitStrategy = ReflectionUtils.extractField(AbstractSequencer.class, (AbstractSequencer) sequencer, "waitStrategy");
+            this.lock = ReflectionUtils.extractField(BlockingWaitStrategy.class, blockingDisruptorWaitStrategy, "lock");
+            this.processorNotifyCondition = ReflectionUtils.extractField(BlockingWaitStrategy.class, blockingDisruptorWaitStrategy, "processorNotifyCondition");
+        } else {
+            this.blockingDisruptorWaitStrategy = null;
+            this.lock = null;
+            this.processorNotifyCondition = null;
+        }
     }
 
     public long tryWaitFor(final long seq) throws AlertException, InterruptedException {
@@ -72,7 +77,10 @@ public final class WaitSpinningHelper {
                 lock.lock();
                 try {
                     sequenceBarrier.checkAlert();
-                    processorNotifyCondition.await();
+                    // lock only if sequence barrier did not progressed since last check
+                    if (availableSequence == sequenceBarrier.getCursor()) {
+                        processorNotifyCondition.await();
+                    }
                 } finally {
                     lock.unlock();
                 }
@@ -88,7 +96,7 @@ public final class WaitSpinningHelper {
 
     public void signalAllWhenBlocking() {
         if (block) {
-            blockingDiruptorWaitStrategy.signalAllWhenBlocking();
+            blockingDisruptorWaitStrategy.signalAllWhenBlocking();
         }
     }
 
