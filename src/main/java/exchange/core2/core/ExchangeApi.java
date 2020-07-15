@@ -333,6 +333,114 @@ public final class ExchangeApi {
 
     }
 
+    private static final EventTranslatorOneArg<OrderCommand, ApiPlaceOrder> NEW_ORDER_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.PLACE_ORDER;
+        cmd.price = api.price;
+        cmd.reserveBidPrice = api.reservePrice;
+        cmd.size = api.size;
+        cmd.orderId = api.orderId;
+        cmd.timestamp = api.timestamp;
+        cmd.action = api.action;
+        cmd.orderType = api.orderType;
+        cmd.symbol = api.symbol;
+        cmd.uid = api.uid;
+        cmd.userCookie = api.userCookie;
+        cmd.resultCode = CommandResultCode.NEW;
+        cmd.matcherEvent = null;
+        cmd.marketData = null;
+    };
+    private static final EventTranslatorOneArg<OrderCommand, ApiMoveOrder> MOVE_ORDER_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.MOVE_ORDER;
+        cmd.price = api.newPrice;
+        cmd.orderId = api.orderId;
+        cmd.symbol = api.symbol;
+        cmd.uid = api.uid;
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+        cmd.matcherEvent = null;
+        cmd.marketData = null;
+    };
+    private static final EventTranslatorOneArg<OrderCommand, ApiCancelOrder> CANCEL_ORDER_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.CANCEL_ORDER;
+        cmd.orderId = api.orderId;
+        cmd.symbol = api.symbol;
+        cmd.uid = api.uid;
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+        cmd.matcherEvent = null;
+        cmd.marketData = null;
+    };
+    private static final EventTranslatorOneArg<OrderCommand, ApiReduceOrder> REDUCE_ORDER_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.REDUCE_ORDER;
+        cmd.orderId = api.orderId;
+        cmd.symbol = api.symbol;
+        cmd.uid = api.uid;
+        cmd.size = api.reduceSize;
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+        cmd.matcherEvent = null;
+        cmd.marketData = null;
+    };
+    private static final EventTranslatorOneArg<OrderCommand, ApiOrderBookRequest> ORDER_BOOK_REQUEST_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.ORDER_BOOK_REQUEST;
+        cmd.symbol = api.symbol;
+        cmd.size = api.size;
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+        cmd.matcherEvent = null;
+        cmd.marketData = null;
+    };
+    private static final EventTranslatorOneArg<OrderCommand, ApiAddUser> ADD_USER_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.ADD_USER;
+        cmd.uid = api.uid;
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+        cmd.matcherEvent = null;
+        cmd.marketData = null;
+    };
+    private static final EventTranslatorOneArg<OrderCommand, ApiSuspendUser> SUSPEND_USER_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.SUSPEND_USER;
+        cmd.uid = api.uid;
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+        cmd.matcherEvent = null;
+        cmd.marketData = null;
+    };
+    private static final EventTranslatorOneArg<OrderCommand, ApiResumeUser> RESUME_USER_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.RESUME_USER;
+        cmd.uid = api.uid;
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+        cmd.matcherEvent = null;
+        cmd.marketData = null;
+    };
+    private static final EventTranslatorOneArg<OrderCommand, ApiAdjustUserBalance> ADJUST_USER_BALANCE_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.BALANCE_ADJUSTMENT;
+        cmd.orderId = api.transactionId;
+        cmd.symbol = api.currency;
+        cmd.uid = api.uid;
+        cmd.price = api.amount;
+        cmd.orderType = OrderType.of(api.adjustmentType.getCode());
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+        cmd.matcherEvent = null;
+        cmd.marketData = null;
+    };
+    private static final EventTranslatorOneArg<OrderCommand, ApiReset> RESET_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.RESET;
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+        cmd.matcherEvent = null;
+        cmd.marketData = null;
+    };
+    private static final EventTranslatorOneArg<OrderCommand, ApiNop> NOP_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.NOP;
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+        cmd.matcherEvent = null;
+        cmd.marketData = null;
+    };
+
     private void publishBinaryMessageFragment(OrderCommandType cmdType,
                                               int transferId,
                                               long timestamp,
@@ -365,6 +473,9 @@ public final class ExchangeApi {
 
                 cmd.timestamp = timestamp;
                 cmd.resultCode = CommandResultCode.NEW;
+
+                cmd.matcherEvent = null;
+                cmd.marketData = null;
 
 //                log.debug("ORIG {}", String.format("f=%d word0=%X word1=%X word2=%X word3=%X word4=%X",
 //                cmd.symbol, longArray[i], longArray[i + 1], longArray[i + 2], longArray[i + 3], longArray[i + 4]));
@@ -401,6 +512,8 @@ public final class ExchangeApi {
             cmdMatching.price = 0;
             cmdMatching.timestamp = api.timestamp;
             cmdMatching.resultCode = CommandResultCode.NEW;
+            cmdMatching.matcherEvent = null;
+            cmdMatching.marketData = null;
 
             //log.debug("seq={} cmd.command={} data={}", firstSeq, cmdMatching.command, cmdMatching.price);
 
@@ -413,6 +526,8 @@ public final class ExchangeApi {
             cmdRisk.price = 0;
             cmdRisk.timestamp = api.timestamp;
             cmdRisk.resultCode = CommandResultCode.NEW;
+            cmdRisk.matcherEvent = null;
+            cmdRisk.marketData = null;
 
             //log.debug("seq={} cmd.command={} data={}", firstSeq, cmdMatching.command, cmdMatching.price);
 
@@ -422,103 +537,6 @@ public final class ExchangeApi {
             ringBuffer.publish(firstSeq, secondSeq);
         }
     }
-
-
-    private static final EventTranslatorOneArg<OrderCommand, ApiPlaceOrder> NEW_ORDER_TRANSLATOR = (cmd, seq, api) -> {
-        cmd.command = OrderCommandType.PLACE_ORDER;
-        cmd.price = api.price;
-        cmd.reserveBidPrice = api.reservePrice;
-        cmd.size = api.size;
-        cmd.orderId = api.orderId;
-        cmd.timestamp = api.timestamp;
-        cmd.action = api.action;
-        cmd.orderType = api.orderType;
-        cmd.symbol = api.symbol;
-        cmd.uid = api.uid;
-        cmd.userCookie = api.userCookie;
-        cmd.resultCode = CommandResultCode.NEW;
-    };
-
-    private static final EventTranslatorOneArg<OrderCommand, ApiMoveOrder> MOVE_ORDER_TRANSLATOR = (cmd, seq, api) -> {
-        cmd.command = OrderCommandType.MOVE_ORDER;
-        cmd.price = api.newPrice;
-        cmd.orderId = api.orderId;
-        cmd.symbol = api.symbol;
-        cmd.uid = api.uid;
-        cmd.timestamp = api.timestamp;
-        cmd.resultCode = CommandResultCode.NEW;
-    };
-
-    private static final EventTranslatorOneArg<OrderCommand, ApiCancelOrder> CANCEL_ORDER_TRANSLATOR = (cmd, seq, api) -> {
-        cmd.command = OrderCommandType.CANCEL_ORDER;
-        cmd.orderId = api.orderId;
-        cmd.symbol = api.symbol;
-        cmd.uid = api.uid;
-        cmd.timestamp = api.timestamp;
-        cmd.resultCode = CommandResultCode.NEW;
-    };
-
-    private static final EventTranslatorOneArg<OrderCommand, ApiReduceOrder> REDUCE_ORDER_TRANSLATOR = (cmd, seq, api) -> {
-        cmd.command = OrderCommandType.REDUCE_ORDER;
-        cmd.orderId = api.orderId;
-        cmd.symbol = api.symbol;
-        cmd.uid = api.uid;
-        cmd.size = api.reduceSize;
-        cmd.timestamp = api.timestamp;
-        cmd.resultCode = CommandResultCode.NEW;
-    };
-
-    private static final EventTranslatorOneArg<OrderCommand, ApiOrderBookRequest> ORDER_BOOK_REQUEST_TRANSLATOR = (cmd, seq, api) -> {
-        cmd.command = OrderCommandType.ORDER_BOOK_REQUEST;
-        cmd.symbol = api.symbol;
-        cmd.size = api.size;
-        cmd.timestamp = api.timestamp;
-        cmd.resultCode = CommandResultCode.NEW;
-    };
-
-    private static final EventTranslatorOneArg<OrderCommand, ApiAddUser> ADD_USER_TRANSLATOR = (cmd, seq, api) -> {
-        cmd.command = OrderCommandType.ADD_USER;
-        cmd.uid = api.uid;
-        cmd.timestamp = api.timestamp;
-        cmd.resultCode = CommandResultCode.NEW;
-    };
-
-    private static final EventTranslatorOneArg<OrderCommand, ApiSuspendUser> SUSPEND_USER_TRANSLATOR = (cmd, seq, api) -> {
-        cmd.command = OrderCommandType.SUSPEND_USER;
-        cmd.uid = api.uid;
-        cmd.timestamp = api.timestamp;
-        cmd.resultCode = CommandResultCode.NEW;
-    };
-
-    private static final EventTranslatorOneArg<OrderCommand, ApiResumeUser> RESUME_USER_TRANSLATOR = (cmd, seq, api) -> {
-        cmd.command = OrderCommandType.RESUME_USER;
-        cmd.uid = api.uid;
-        cmd.timestamp = api.timestamp;
-        cmd.resultCode = CommandResultCode.NEW;
-    };
-
-    private static final EventTranslatorOneArg<OrderCommand, ApiAdjustUserBalance> ADJUST_USER_BALANCE_TRANSLATOR = (cmd, seq, api) -> {
-        cmd.command = OrderCommandType.BALANCE_ADJUSTMENT;
-        cmd.orderId = api.transactionId;
-        cmd.symbol = api.currency;
-        cmd.uid = api.uid;
-        cmd.price = api.amount;
-        cmd.orderType = OrderType.of(api.adjustmentType.getCode());
-        cmd.timestamp = api.timestamp;
-        cmd.resultCode = CommandResultCode.NEW;
-    };
-
-    private static final EventTranslatorOneArg<OrderCommand, ApiReset> RESET_TRANSLATOR = (cmd, seq, api) -> {
-        cmd.command = OrderCommandType.RESET;
-        cmd.timestamp = api.timestamp;
-        cmd.resultCode = CommandResultCode.NEW;
-    };
-
-    private static final EventTranslatorOneArg<OrderCommand, ApiNop> NOP_TRANSLATOR = (cmd, seq, api) -> {
-        cmd.command = OrderCommandType.NOP;
-        cmd.timestamp = api.timestamp;
-        cmd.resultCode = CommandResultCode.NEW;
-    };
 
     public void binaryData(int serviceFlags, long eventsGroup, long timestampNs, byte lastFlag, long word0, long word1, long word2, long word3, long word4) {
         ringBuffer.publishEvent(((cmd, seq) -> {
@@ -535,6 +553,10 @@ public final class ExchangeApi {
             cmd.uid = word4;
             cmd.timestamp = timestampNs;
             cmd.resultCode = CommandResultCode.NEW;
+
+            cmd.matcherEvent = null;
+            cmd.marketData = null;
+
 //            log.debug("REPLAY {}", String.format("f=%d word0=%X word1=%X word2=%X word3=%X word4=%X", lastFlag, word0, word1, word2, word3, word4));
 //            log.debug("REPLAY seq={} cmd={}", seq, cmd);
         }));
@@ -549,6 +571,9 @@ public final class ExchangeApi {
             cmd.timestamp = System.currentTimeMillis();
             cmd.resultCode = CommandResultCode.NEW;
 
+            cmd.matcherEvent = null;
+            cmd.marketData = null;
+
             promises.put(seq, callback);
         }));
     }
@@ -562,6 +587,9 @@ public final class ExchangeApi {
             cmd.timestamp = System.currentTimeMillis();
             cmd.resultCode = CommandResultCode.NEW;
 
+            cmd.matcherEvent = null;
+            cmd.marketData = null;
+
             promises.put(seq, callback);
         }));
     }
@@ -574,6 +602,9 @@ public final class ExchangeApi {
             cmd.uid = userId;
             cmd.timestamp = System.currentTimeMillis();
             cmd.resultCode = CommandResultCode.NEW;
+
+            cmd.matcherEvent = null;
+            cmd.marketData = null;
 
             promises.put(seq, callback);
         }));
@@ -592,6 +623,9 @@ public final class ExchangeApi {
             cmd.timestamp = timestampNs;
             cmd.resultCode = CommandResultCode.NEW;
 
+            cmd.matcherEvent = null;
+            cmd.marketData = null;
+
         }));
     }
 
@@ -608,6 +642,9 @@ public final class ExchangeApi {
             cmd.timestamp = timestampNs;
             cmd.resultCode = CommandResultCode.NEW;
 
+            cmd.matcherEvent = null;
+            cmd.marketData = null;
+
         }));
     }
 
@@ -623,6 +660,9 @@ public final class ExchangeApi {
             cmd.uid = userId;
             cmd.timestamp = timestampNs;
             cmd.resultCode = CommandResultCode.NEW;
+
+            cmd.matcherEvent = null;
+            cmd.marketData = null;
 
         }));
     }
@@ -644,6 +684,9 @@ public final class ExchangeApi {
             cmd.size = 0;
             cmd.timestamp = System.currentTimeMillis();
             cmd.resultCode = CommandResultCode.NEW;
+
+            cmd.matcherEvent = null;
+            cmd.marketData = null;
 
             promises.put(seq, callback);
         }));
@@ -671,6 +714,9 @@ public final class ExchangeApi {
             cmd.size = 0;
             cmd.timestamp = timestampNs;
             cmd.resultCode = CommandResultCode.NEW;
+
+            cmd.matcherEvent = null;
+            cmd.marketData = null;
         }));
     }
 
@@ -685,6 +731,9 @@ public final class ExchangeApi {
             cmd.size = depth;
             cmd.timestamp = System.currentTimeMillis();
             cmd.resultCode = CommandResultCode.NEW;
+
+            cmd.matcherEvent = null;
+            cmd.marketData = null;
 
             promises.put(seq, callback);
         }));
@@ -703,6 +752,9 @@ public final class ExchangeApi {
             cmd.size = depth;
             cmd.timestamp = System.currentTimeMillis();
             cmd.resultCode = CommandResultCode.NEW;
+
+            cmd.matcherEvent = null;
+            cmd.marketData = null;
 
             promises.put(seq, cmd1 -> future.complete(cmd1.marketData));
         }));
@@ -737,6 +789,10 @@ public final class ExchangeApi {
             cmd.symbol = symbol;
             cmd.uid = uid;
             cmd.userCookie = userCookie;
+
+            cmd.matcherEvent = null;
+            cmd.marketData = null;
+
             promises.put(seq, callback);
 
         } finally {
@@ -776,6 +832,9 @@ public final class ExchangeApi {
             cmd.symbol = symbol;
             cmd.uid = uid;
             cmd.userCookie = userCookie;
+
+            cmd.matcherEvent = null;
+            cmd.marketData = null;
         });
     }
 
@@ -795,6 +854,9 @@ public final class ExchangeApi {
             cmd.timestamp = System.currentTimeMillis();
             cmd.symbol = symbol;
             cmd.uid = uid;
+
+            cmd.matcherEvent = null;
+            cmd.marketData = null;
 
             promises.put(seq, callback);
         });
@@ -821,6 +883,9 @@ public final class ExchangeApi {
             cmd.timestamp = timestampNs;
             cmd.symbol = symbol;
             cmd.uid = uid;
+
+            cmd.matcherEvent = null;
+            cmd.marketData = null;
         });
     }
 
@@ -838,6 +903,9 @@ public final class ExchangeApi {
             cmd.timestamp = System.currentTimeMillis();
             cmd.symbol = symbol;
             cmd.uid = uid;
+
+            cmd.matcherEvent = null;
+            cmd.marketData = null;
 
             promises.put(seq, callback);
         });
@@ -863,6 +931,9 @@ public final class ExchangeApi {
             cmd.timestamp = timestampNs;
             cmd.symbol = symbol;
             cmd.uid = uid;
+
+            cmd.matcherEvent = null;
+            cmd.marketData = null;
         });
     }
 
@@ -882,6 +953,9 @@ public final class ExchangeApi {
             cmd.timestamp = System.currentTimeMillis();
             cmd.symbol = symbol;
             cmd.uid = uid;
+
+            cmd.matcherEvent = null;
+            cmd.marketData = null;
 
             promises.put(seq, callback);
         });
@@ -908,6 +982,9 @@ public final class ExchangeApi {
             cmd.timestamp = timestampNs;
             cmd.symbol = symbol;
             cmd.uid = uid;
+
+            cmd.matcherEvent = null;
+            cmd.marketData = null;
         });
     }
 
@@ -919,6 +996,9 @@ public final class ExchangeApi {
 
             cmd.orderId = mode;
             cmd.timestamp = timestampNs;
+
+            cmd.matcherEvent = null;
+            cmd.marketData = null;
         });
 
     }
@@ -929,6 +1009,9 @@ public final class ExchangeApi {
             cmd.command = OrderCommandType.RESET;
             cmd.resultCode = CommandResultCode.NEW;
             cmd.timestamp = timestampNs;
+
+            cmd.matcherEvent = null;
+            cmd.marketData = null;
         });
 
     }

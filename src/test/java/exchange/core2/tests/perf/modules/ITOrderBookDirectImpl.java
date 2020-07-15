@@ -31,6 +31,7 @@ public class ITOrderBookDirectImpl extends ITOrderBookBase {
                 TestConstants.SYMBOLSPEC_EUR_USD,
                 ObjectsPool.createDefaultTestPool(),
                 OrderBookEventsHelper.NON_POOLED_EVENTS_HELPER,
-                LoggingConfiguration.DEFAULT);
+                LoggingConfiguration.DEFAULT,
+                null);
     }
 }

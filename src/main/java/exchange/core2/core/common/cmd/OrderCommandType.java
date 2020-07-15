@@ -30,10 +30,14 @@ public enum OrderCommandType {
 
     ORDER_BOOK_REQUEST((byte) 6, false),
 
+    // always wait for risk processing commands (starting from 10)
+
     ADD_USER((byte) 10, true),
     BALANCE_ADJUSTMENT((byte) 11, true),
     SUSPEND_USER((byte) 12, true),
     RESUME_USER((byte) 13, true),
+
+    // flushing Rb state commands section (starting from 50)
 
     BINARY_DATA_QUERY((byte) 90, false),
     BINARY_DATA_COMMAND((byte) 91, true),
@@ -48,19 +52,18 @@ public enum OrderCommandType {
 
     RESERVED_COMPRESSED((byte) -1, false);
 
-    private byte code;
-    private boolean mutate;
+    private final static HashMap<Byte, OrderCommandType> codes = new HashMap<>();
+    private final byte code;
+    private final boolean mutate;
 
-    public static OrderCommandType fromCode(byte code) {
-        // TODO try if-else
+    public static OrderCommandType fromCode(final byte code) {
+        // TODO try if-else or switch-case
         final OrderCommandType result = codes.get(code);
         if (result == null) {
             throw new IllegalArgumentException("Unknown order command type code:" + code);
         }
         return result;
     }
-
-    private static HashMap<Byte, OrderCommandType> codes = new HashMap<>();
 
     static {
         for (OrderCommandType x : values()) {

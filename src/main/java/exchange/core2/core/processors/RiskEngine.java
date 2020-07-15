@@ -255,9 +255,9 @@ public final class RiskEngine implements WriteBytesMarshallable {
             case BINARY_DATA_COMMAND:
             case BINARY_DATA_QUERY:
                 binaryCommandsProcessor.acceptBinaryFrame(cmd); // ignore return result, because it should be set by MatchingEngineRouter
-                if (shardId == 0) {
-                    cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
-                }
+//                if (shardId == 0) {
+//                    cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
+//                }
                 return false;
 
             case RESET:
@@ -268,9 +268,9 @@ public final class RiskEngine implements WriteBytesMarshallable {
                 return false;
 
             case PERSIST_STATE_MATCHING:
-                if (shardId == 0) {
-                    cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
-                }
+//                if (shardId == 0) {
+//                    cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
+//                }
                 return true;// true = publish sequence before finishing processing whole batch
 
             case PERSIST_STATE_RISK:

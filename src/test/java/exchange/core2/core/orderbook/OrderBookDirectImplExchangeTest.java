@@ -28,7 +28,8 @@ public final class OrderBookDirectImplExchangeTest extends OrderBookDirectImplTe
                 getCoreSymbolSpec(),
                 ObjectsPool.createDefaultTestPool(),
                 OrderBookEventsHelper.NON_POOLED_EVENTS_HELPER,
-                LoggingConfiguration.DEFAULT);
+                LoggingConfiguration.DEFAULT,
+                null);
     }
 
     @Override

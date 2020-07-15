@@ -20,6 +20,7 @@ import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.config.LoggingConfiguration;
+import exchange.core2.core.processors.MatchingEngineRouter;
 import exchange.core2.core.utils.SerializationUtils;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -47,7 +48,8 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     public OrderBookNaiveImpl(final CoreSymbolSpecification symbolSpec,
                               final ObjectsPool pool,
                               final OrderBookEventsHelper eventsHelper,
-                              final LoggingConfiguration loggingCfg) {
+                              final LoggingConfiguration loggingCfg,
+                              final MatchingEngineRouter matchingEngineRouter) {
 
         this.symbolSpec = symbolSpec;
         this.askBuckets = new TreeMap<>();
@@ -99,6 +101,11 @@ public final class OrderBookNaiveImpl implements IOrderBook {
                 log.warn("Unsupported order type: {}", cmd);
                 eventsHelper.attachRejectEvent(cmd, cmd.size);
         }
+    }
+
+    @Override
+    public CommandResultCode newOrder2(OrderCommand cmd, long seq) {
+        throw new UnsupportedOperationException();
     }
 
     private void newOrderPlaceGtc(final OrderCommand cmd) {

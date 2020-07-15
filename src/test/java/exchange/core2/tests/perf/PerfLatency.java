@@ -18,7 +18,10 @@ package exchange.core2.tests.perf;
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.core.common.config.SerializationConfiguration;
+import exchange.core2.tests.util.ExchangeTestContainer;
+import exchange.core2.tests.util.TestConstants;
 import exchange.core2.tests.util.TestDataParameters;
+import exchange.core2.tests.util.TestOrdersGeneratorConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 
@@ -90,6 +93,29 @@ public final class PerfLatency {
                         .msgsInGroupLimit(256)
                         .build(),
                 TestDataParameters.mediumBuilder().build(),
+                InitialStateConfiguration.CLEAN_TEST,
+                SerializationConfiguration.DEFAULT,
+                8);
+    }
+
+    @Test
+    public void testLatencyPeak() {
+        latencyTestImpl(
+                PerformanceConfiguration.throughputPerformanceBuilder()
+                        .ringBufferSize(32 * 1024)
+                        .matchingEnginesNum(4)
+                        .riskEnginesNum(2)
+                        .msgsInGroupLimit(1536)
+                        .build(),
+                TestDataParameters.builder()
+                        .totalTransactionsNumber(3_000_000)
+                        .targetOrderBookOrdersTotal(10_000)
+                        .numAccounts(10_000)
+                        .currenciesAllowed(TestConstants.ALL_CURRENCIES)
+                        .numSymbols(100)
+                        .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
+                        .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER)
+                        .build(),
                 InitialStateConfiguration.CLEAN_TEST,
                 SerializationConfiguration.DEFAULT,
                 8);

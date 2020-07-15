@@ -15,6 +15,9 @@
  */
 package exchange.core2.core.processors;
 
+import com.lmax.disruptor.AlertException;
+import com.lmax.disruptor.SequenceBarrier;
+import com.lmax.disruptor.TimeoutException;
 import exchange.core2.collections.objpool.ObjectsPool;
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.SymbolType;
@@ -40,6 +43,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
+import sun.misc.Contended;
 
 import java.util.HashMap;
 import java.util.Optional;
@@ -72,12 +76,18 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
     private final LoggingConfiguration loggingCfg;
     private final boolean logDebug;
 
+    private final SequenceBarrier sequenceBarrierR1;
+
+    @Contended
+    private long lastKnownSequenceR1 = -1L;
+
     public MatchingEngineRouter(final int shardId,
                                 final long numShards,
                                 final ISerializationProcessor serializationProcessor,
                                 final IOrderBook.OrderBookFactory orderBookFactory,
                                 final SharedPool sharedPool,
-                                final ExchangeConfiguration exchangeCfg) {
+                                final ExchangeConfiguration exchangeCfg,
+                                final SequenceBarrier sequenceBarrierR1) {
 
         if (Long.bitCount(numShards) != 1) {
             throw new IllegalArgumentException("Invalid number of shards " + numShards + " - must be power of 2");
@@ -90,6 +100,8 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
 
         this.loggingCfg = exchangeCfg.getLoggingCfg();
         this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
+
+        this.sequenceBarrierR1 = sequenceBarrierR1;
 
         // initialize object pools // TODO move to perf config
         final HashMap<Integer, Integer> objectsPoolConfig = new HashMap<>();
@@ -150,16 +162,47 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
 
         final OrderCommandType command = cmd.command;
 
-        if (command == OrderCommandType.MOVE_ORDER
-                || command == OrderCommandType.CANCEL_ORDER
-                || command == OrderCommandType.PLACE_ORDER
-                || command == OrderCommandType.REDUCE_ORDER
-                || command == OrderCommandType.ORDER_BOOK_REQUEST) {
-            // process specific symbol group only
-            if (symbolForThisHandler(cmd.symbol)) {
-                processMatchingCommand(cmd);
+        if (symbolForThisHandler(cmd.symbol) && command.getCode() < 10) {
+            final IOrderBook orderBook = orderBooks.get(cmd.symbol);
+            if (orderBook == null) {
+                cmd.resultCode = CommandResultCode.MATCHING_INVALID_ORDER_BOOK_ID;
+                return;
             }
-        } else if (command == OrderCommandType.BINARY_DATA_QUERY || command == OrderCommandType.BINARY_DATA_COMMAND) {
+
+            if (command == OrderCommandType.MOVE_ORDER) {
+
+                cmd.resultCode = orderBook.moveOrder(cmd);
+
+            } else if (command == OrderCommandType.CANCEL_ORDER) {
+
+                cmd.resultCode = orderBook.cancelOrder(cmd);
+
+            } else if (command == OrderCommandType.REDUCE_ORDER) {
+
+                cmd.resultCode = orderBook.reduceOrder(cmd);
+
+            } else if (command == OrderCommandType.PLACE_ORDER) {
+
+                cmd.resultCode = orderBook.newOrder2(cmd, seq);
+
+            } else if (command == OrderCommandType.ORDER_BOOK_REQUEST) {
+                int size = (int) cmd.size;
+                cmd.marketData = orderBook.getL2MarketDataSnapshot(size >= 0 ? size : Integer.MAX_VALUE);
+                cmd.resultCode = CommandResultCode.SUCCESS;
+            }
+
+            // posting market data for risk processor makes sense only if command execution is successful, otherwise it will be ignored (possible garbage from previous cycle)
+            // TODO don't need for EXCHANGE mode order books?
+            // TODO doing this for many order books simultaneously can introduce hiccups
+            if ((cmd.serviceFlags & 1) != 0 && cmd.command != OrderCommandType.ORDER_BOOK_REQUEST && cmd.resultCode == CommandResultCode.SUCCESS) {
+                cmd.marketData = orderBook.getL2MarketDataSnapshot(8);
+            }
+
+            return;
+        }
+
+
+        if (command == OrderCommandType.BINARY_DATA_QUERY || command == OrderCommandType.BINARY_DATA_COMMAND) {
 
             final CommandResultCode resultCode = binaryCommandsProcessor.acceptBinaryFrame(cmd);
             if (shardId == 0) {
@@ -190,7 +233,6 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
             // Send ACCEPTED because this is a first command in series. Risk engine is second - so it will return SUCCESS
             UnsafeUtils.setResultVolatile(cmd, isSuccess, CommandResultCode.ACCEPTED, CommandResultCode.STATE_PERSIST_MATCHING_ENGINE_FAILED);
         }
-
     }
 
     private void handleBinaryMessage(Object message) {
@@ -222,26 +264,27 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
         }
 
         if (orderBooks.get(spec.symbolId) == null) {
-            orderBooks.put(spec.symbolId, orderBookFactory.create(spec, objectsPool, eventsHelper, loggingCfg));
+            orderBooks.put(spec.symbolId, orderBookFactory.create(spec, objectsPool, eventsHelper, loggingCfg, this));
         } else {
             log.warn("OrderBook for symbol id={} already exists! Can not add symbol: {}", spec.symbolId, spec);
         }
     }
 
-    private void processMatchingCommand(final OrderCommand cmd) {
+    public void waitForRiskBarrier(final long seq) {
 
-        final IOrderBook orderBook = orderBooks.get(cmd.symbol);
-        if (orderBook == null) {
-            cmd.resultCode = CommandResultCode.MATCHING_INVALID_ORDER_BOOK_ID;
-        } else {
-            cmd.resultCode = IOrderBook.processCommand(orderBook, cmd);
+        if (seq <= lastKnownSequenceR1) {
+            return;
+        }
 
-            // posting market data for risk processor makes sense only if command execution is successful, otherwise it will be ignored (possible garbage from previous cycle)
-            // TODO don't need for EXCHANGE mode order books?
-            // TODO doing this for many order books simultaneously can introduce hiccups
-            if ((cmd.serviceFlags & 1) != 0 && cmd.command != OrderCommandType.ORDER_BOOK_REQUEST && cmd.resultCode == CommandResultCode.SUCCESS) {
-                cmd.marketData = orderBook.getL2MarketDataSnapshot(8);
-            }
+        try {
+            do {
+                lastKnownSequenceR1 = sequenceBarrierR1.waitFor(seq);
+            } while (lastKnownSequenceR1 < seq);
+        } catch (AlertException ex) {
+            log.warn("Ignoring disruptor alert signalling");
+
+        } catch (InterruptedException | TimeoutException ex) {
+            throw new RuntimeException(ex);
         }
     }
 

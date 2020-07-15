@@ -99,6 +99,8 @@ public final class TwoStepMasterProcessor implements EventProcessor {
 
         Thread.currentThread().setName("Thread-" + name);
 
+        final GroupingHelper groupingHelper = new GroupingHelper();
+
         long nextSequence = sequence.get() + 1L;
 
         long currentSequenceGroup = 0;
@@ -120,9 +122,10 @@ public final class TwoStepMasterProcessor implements EventProcessor {
                         cmd = dataProvider.get(nextSequence);
 
                         // switch to next group - let slave processor start doing its handling cycle
-                        if (cmd.eventsGroup != currentSequenceGroup) {
+//                        if (cmd.eventsGroup != currentSequenceGroup) {
+                        if (groupingHelper.nextEvent(nextSequence, cmd)) {
                             publishProgressAndTriggerSlaveProcessor(nextSequence);
-                            currentSequenceGroup = cmd.eventsGroup;
+//                            currentSequenceGroup = cmd.eventsGroup;
                         }
 
                         boolean forcedPublish = eventHandler.onEvent(nextSequence, cmd);

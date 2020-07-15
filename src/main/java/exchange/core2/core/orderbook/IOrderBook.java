@@ -21,6 +21,7 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.LoggingConfiguration;
+import exchange.core2.core.processors.MatchingEngineRouter;
 import exchange.core2.core.utils.HashingUtils;
 import lombok.Getter;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -45,6 +46,9 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
      * @param cmd - order to match/place
      */
     void newOrder(OrderCommand cmd);
+
+    // TODO add description
+    CommandResultCode newOrder2(OrderCommand cmd, long seq);
 
     /**
      * Cancel order completely.
@@ -223,7 +227,7 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     @FunctionalInterface
     interface OrderBookFactory {
 
-        IOrderBook create(CoreSymbolSpecification spec, ObjectsPool pool, OrderBookEventsHelper eventsHelper, LoggingConfiguration loggingCfg);
+        IOrderBook create(CoreSymbolSpecification spec, ObjectsPool pool, OrderBookEventsHelper eventsHelper, LoggingConfiguration loggingCfg, MatchingEngineRouter matchingEngineRouter);
     }
 
     @Getter

@@ -15,9 +15,8 @@
  */
 package exchange.core2.core;
 
-import com.lmax.disruptor.EventHandler;
-import com.lmax.disruptor.EventTranslator;
 import com.lmax.disruptor.TimeoutException;
+import com.lmax.disruptor.*;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.EventHandlerGroup;
 import com.lmax.disruptor.dsl.ProducerType;
@@ -58,9 +57,14 @@ public final class ExchangeCore {
 
     private final ExchangeConfiguration exchangeConfiguration;
 
+    private final ResultsHandler resultsHandler;
+    private final SequenceBarrier sequenceBarrierR1;
+
     // core can be started and stopped only once
     private boolean started = false;
     private boolean stopped = false;
+
+    private long lastKnownSequenceR1 = -1L;
 
     // enable MatcherTradeEvent pooling
     public static final boolean EVENTS_POOLING = false;
@@ -87,7 +91,8 @@ public final class ExchangeCore {
                 OrderCommand::new,
                 ringBufferSize,
                 perfCfg.getThreadFactory(),
-                ProducerType.MULTI, // multiple gateway threads are writing
+//                ProducerType.MULTI, // multiple gateway threads are writing
+                ProducerType.SINGLE, // TODO customizable
                 perfCfg.getWaitStrategy().getDisruptorWaitStrategyFactory().get());
 
         this.api = new ExchangeApi(disruptor.getRingBuffer(), perfCfg.getBinaryCommandsLz4CompressorFactory().get());
@@ -122,14 +127,6 @@ public final class ExchangeCore {
         // advice completable future to use the same CPU socket as disruptor
         final ExecutorService loaderExecutor = Executors.newFixedThreadPool(matchingEnginesNum + riskEnginesNum, threadFactory);
 
-        // start creating matching engines
-        final Map<Integer, CompletableFuture<MatchingEngineRouter>> matchingEngineFutures = IntStream.range(0, matchingEnginesNum)
-                .boxed()
-                .collect(Collectors.toMap(
-                        shardId -> shardId,
-                        shardId -> CompletableFuture.supplyAsync(
-                                () -> new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, orderBookFactory, sharedPool, exchangeConfiguration),
-                                loaderExecutor)));
 
         // TODO create processors in same thread we will execute it??
 
@@ -142,11 +139,6 @@ public final class ExchangeCore {
                                 () -> new RiskEngine(shardId, riskEnginesNum, serializationProcessor, sharedPool, exchangeConfiguration),
                                 loaderExecutor)));
 
-        final EventHandler<OrderCommand>[] matchingEngineHandlers = matchingEngineFutures.values().stream()
-                .map(CompletableFuture::join)
-                .map(mer -> (EventHandler<OrderCommand>) (cmd, seq, eob) -> mer.processOrder(seq, cmd))
-                .toArray(ExchangeCore::newEventHandlersArray);
-
         final Map<Integer, RiskEngine> riskEngines = riskEngineFutures.entrySet().stream()
                 .collect(Collectors.toMap(
                         Map.Entry::getKey,
@@ -155,19 +147,25 @@ public final class ExchangeCore {
 
         final List<TwoStepMasterProcessor> procR1 = new ArrayList<>(riskEnginesNum);
         final List<TwoStepSlaveProcessor> procR2 = new ArrayList<>(riskEnginesNum);
+        final List<BatchEventProcessor2> procME = new ArrayList<>(matchingEnginesNum);
+
 
         // 1. grouping processor (G)
-        final EventHandlerGroup<OrderCommand> afterGrouping =
-                disruptor.handleEventsWith((rb, bs) -> new GroupingProcessor(rb, rb.newBarrier(bs), perfCfg, coreWaitStrategy, sharedPool));
+//        final EventHandlerGroup<OrderCommand> afterGrouping =
+//                disruptor.handleEventsWith((rb, bs) -> new GroupingProcessor(rb, rb.newBarrier(bs), perfCfg, coreWaitStrategy, sharedPool));
+
+        final Disruptor<OrderCommand> afterGrouping = disruptor;
+
 
         // 2. [journaling (J)] in parallel with risk hold (R1) + matching engine (ME)
 
-        boolean enableJournaling = serializationCfg.isEnableJournaling();
-        final EventHandler<OrderCommand> jh = enableJournaling ? serializationProcessor::writeToJournal : null;
+//        boolean enableJournaling = serializationCfg.isEnableJournaling();
+//        final EventHandler<OrderCommand> jh = enableJournaling ? serializationProcessor::writeToJournal : null;
 
-        if (enableJournaling) {
-            afterGrouping.handleEventsWith(jh);
-        }
+//        if (enableJournaling) {
+//            afterGrouping.handleEventsWith(jh);
+//        }
+
 
         riskEngines.forEach((idx, riskEngine) -> afterGrouping.handleEventsWith(
                 (rb, bs) -> {
@@ -176,12 +174,53 @@ public final class ExchangeCore {
                     return r1;
                 }));
 
-        disruptor.after(procR1.toArray(new TwoStepMasterProcessor[0])).handleEventsWith(matchingEngineHandlers);
+
+        final Sequence[] sequencesR1 = procR1.stream().map(TwoStepMasterProcessor::getSequence).toArray(Sequence[]::new);
+        sequenceBarrierR1 = disruptor.getRingBuffer().newBarrier(sequencesR1);
+
+
+//        disruptor.after(procR1.toArray(new TwoStepMasterProcessor[0])).handleEventsWith(matchingEngineHandlers);
+
+        // TODO try to avoid waiting for RiskEngine to start loading matching engines state
+
+        // start creating matching engines
+        final Map<Integer, CompletableFuture<MatchingEngineRouter>> matchingEngineFutures = IntStream.range(0, matchingEnginesNum)
+                .boxed()
+                .collect(Collectors.toMap(
+                        shardId -> shardId,
+                        shardId -> CompletableFuture.supplyAsync(
+                                () -> new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, orderBookFactory, sharedPool, exchangeConfiguration, sequenceBarrierR1),
+                                loaderExecutor)));
+
+        final Map<Integer, MatchingEngineRouter> matchingEngines = matchingEngineFutures.entrySet().stream()
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        entry -> entry.getValue().join()));
+
+
+        // handle with matching handler
+        matchingEngines.forEach((idx, matchingEngine) -> afterGrouping.handleEventsWith(
+                (rb, bs) -> {
+                    final EventHandler<OrderCommand> handler = (cmd, seq, eob) -> matchingEngine.processOrder(seq, cmd);
+                    final BatchEventProcessor2 me = new BatchEventProcessor2(rb, rb.newBarrier(bs), handler);
+                    procME.add(me);
+                    return me;
+                }));
+
+
+//        Arrays.stream(matchingEngineHandlers).forEach(afterGrouping::handleEventsWith);
+
+//        disruptor.after(procR1.toArray(new TwoStepMasterProcessor[0])).handleEventsWith(matchingEngineHandlers);
+
+        final List<EventProcessor> mainProcessors = new ArrayList<>();
+        mainProcessors.addAll(procR1);
+        mainProcessors.addAll(procME);
+        EventProcessor[] mainProcessorsArray = mainProcessors.toArray(new EventProcessor[0]);
 
         // 3. risk release (R2) after matching engine (ME)
-        final EventHandlerGroup<OrderCommand> afterMatchingEngine = disruptor.after(matchingEngineHandlers);
+        final EventHandlerGroup<OrderCommand> afterMainProcessors = disruptor.after(mainProcessorsArray);
 
-        riskEngines.forEach((idx, riskEngine) -> afterMatchingEngine.handleEventsWith(
+        riskEngines.forEach((idx, riskEngine) -> afterMainProcessors.handleEventsWith(
                 (rb, bs) -> {
                     final TwoStepSlaveProcessor r2 = new TwoStepSlaveProcessor(rb, rb.newBarrier(bs), riskEngine::handlerRiskRelease, exceptionHandler, "R2_" + idx);
                     procR2.add(r2);
@@ -190,16 +229,18 @@ public final class ExchangeCore {
 
 
         // 4. results handler (E) after matching engine (ME) + [journaling (J)]
-        final EventHandlerGroup<OrderCommand> mainHandlerGroup = enableJournaling
-                ? disruptor.after(arraysAddHandler(matchingEngineHandlers, jh))
-                : afterMatchingEngine;
+//        final EventHandlerGroup<OrderCommand> mainHandlerGroup = enableJournaling
+//                ? disruptor.after(arraysAddHandler(matchingEngineHandlers, jh))
+//                : afterMatchingEngine;
 
-        final ResultsHandler resultsHandler = new ResultsHandler(resultsConsumer);
+        this.resultsHandler = new ResultsHandler(resultsConsumer);
 
-        mainHandlerGroup.handleEventsWith((cmd, seq, eob) -> {
-            resultsHandler.onEvent(cmd, seq, eob);
-            api.processResult(seq, cmd); // TODO SLOW ?(volatile operations)
-        });
+//        afterMainProcessors.handleEventsWith((cmd, seq, eob) -> {
+
+        // can handle
+        final EventHandlerGroup<OrderCommand> afterMatching = disruptor.after(procME.toArray(new EventProcessor[0]));
+
+        afterMatching.handleEventsWith(this::handleResult);
 
         // attach slave processors to master processor
         IntStream.range(0, riskEnginesNum).forEach(i -> procR1.get(i).setSlaveProcessor(procR2.get(i)));
@@ -208,6 +249,35 @@ public final class ExchangeCore {
             loaderExecutor.shutdown();
             loaderExecutor.awaitTermination(1, TimeUnit.SECONDS);
         } catch (InterruptedException ex) {
+            throw new RuntimeException(ex);
+        }
+    }
+
+    private void handleResult(final OrderCommand cmd, final long seq, final boolean eob) {
+
+        // do not wait for trade operation - ME will wait for risk check if necessary
+        if (cmd.command.getCode() >= 10) {
+            waitForRiskBarrier(seq);
+        }
+
+        resultsHandler.onEvent(cmd, seq, eob);
+        api.processResult(seq, cmd); // TODO SLOW ?(volatile operations)
+    }
+
+    private void waitForRiskBarrier(final long seq) {
+
+        if (seq <= lastKnownSequenceR1) {
+            return;
+        }
+
+        try {
+            do {
+                lastKnownSequenceR1 = sequenceBarrierR1.waitFor(seq);
+            } while (lastKnownSequenceR1 < seq);
+        } catch (AlertException ex) {
+            log.warn("Ignoring disruptor alert signalling");
+
+        } catch (InterruptedException | TimeoutException ex) {
             throw new RuntimeException(ex);
         }
     }

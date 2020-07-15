@@ -22,6 +22,7 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.LoggingConfiguration;
+import exchange.core2.core.processors.MatchingEngineRouter;
 import lombok.*;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -65,10 +66,15 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
     private final boolean logDebug;
 
+    // TODO define interface
+    private final MatchingEngineRouter router;
+
+
     public OrderBookDirectImpl(final CoreSymbolSpecification symbolSpec,
                                final ObjectsPool objectsPool,
                                final OrderBookEventsHelper eventsHelper,
-                               final LoggingConfiguration loggingCfg) {
+                               final LoggingConfiguration loggingCfg,
+                               final MatchingEngineRouter router) {
 
         this.symbolSpec = symbolSpec;
         this.objectsPool = objectsPool;
@@ -77,6 +83,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
         this.eventsHelper = eventsHelper;
         this.orderIdIndex = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
+
+        this.router = router;
     }
 
     public OrderBookDirectImpl(final BytesIn bytes,
@@ -98,6 +106,9 @@ public final class OrderBookDirectImpl implements IOrderBook {
             insertOrder(order, null);
             orderIdIndex.put(order.orderId, order);
         }
+
+        // TODO fix
+        this.router = null;
     }
 
     @Override
@@ -105,13 +116,13 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         switch (cmd.orderType) {
             case GTC:
-                newOrderPlaceGtc(cmd);
+                newOrderPlaceGtc(cmd, -1);
                 break;
             case IOC:
-                newOrderMatchIoc(cmd);
+                newOrderMatchIoc(cmd, -1);
                 break;
             case FOK_BUDGET:
-                newOrderMatchFokBudget(cmd);
+                newOrderMatchFokBudget(cmd, -1);
                 break;
             // TODO IOC_BUDGET and FOK support
             default:
@@ -120,67 +131,131 @@ public final class OrderBookDirectImpl implements IOrderBook {
         }
     }
 
+    @Override
+    public CommandResultCode newOrder2(OrderCommand cmd, long seq) {
+        switch (cmd.orderType) {
+            case GTC:
+                return newOrderPlaceGtc(cmd, seq);
+            case IOC:
+                return newOrderMatchIoc(cmd, seq);
+            case FOK_BUDGET:
+                return newOrderMatchFokBudget(cmd, seq);
+            // TODO IOC_BUDGET and FOK support
+            default:
+                log.warn("Unsupported order type: {}", cmd);
+                eventsHelper.attachRejectEvent(cmd, cmd.size);
+                return CommandResultCode.SUCCESS;
+        }
+    }
 
-    private void newOrderPlaceGtc(final OrderCommand cmd) {
+    private CommandResultCode newOrderPlaceGtc(final OrderCommand cmd, long seq) {
         final long size = cmd.size;
 
         // check if order is marketable there are matching orders
-        final long filledSize = tryMatchInstantly(cmd, cmd);
-        if (filledSize == size) {
+        final long filledSize = tryMatchInstantly(cmd, cmd, seq);
+
+        if (filledSize == -1) {
+            // rejected by risk engine
+            return cmd.resultCode;
+
+        } else if (filledSize == size) {
             // completed before being placed - can just return
-            return;
+            // no need to check validation
+            return CommandResultCode.SUCCESS;
         }
 
         final long orderId = cmd.orderId;
-        // TODO eliminate double hashtable lookup?
-        if (orderIdIndex.get(orderId) != null) { // containsKey for hashtable
-            // duplicate order id - can match, but can not place
-            eventsHelper.attachRejectEvent(cmd, size - filledSize);
-            log.warn("duplicate order id: {}", cmd);
-            return;
-        }
 
         final long price = cmd.price;
 
         // normally placing regular GTC order
-        final DirectOrder orderRecord = objectsPool.get(ObjectsPool.DIRECT_ORDER, (Supplier<DirectOrder>) DirectOrder::new);
 
-        orderRecord.orderId = orderId;
-        orderRecord.price = price;
-        orderRecord.size = size;
-        orderRecord.reserveBidPrice = cmd.reserveBidPrice;
-        orderRecord.action = cmd.action;
-        orderRecord.uid = cmd.uid;
-        orderRecord.timestamp = cmd.timestamp;
-        orderRecord.filled = filledSize;
+        final DirectOrder orderRecord;
 
-        orderIdIndex.put(orderId, orderRecord);
-        insertOrder(orderRecord, null);
+        if (orderIdIndex.get(orderId) != null) { // containsKey for hashtable
+
+            // duplicate order id - can match, but can not place
+            log.warn("duplicate order id: {}", cmd);
+
+            orderRecord = null;
+        } else {
+            // speculative creation of the order
+            orderRecord = objectsPool.get(ObjectsPool.DIRECT_ORDER, (Supplier<DirectOrder>) DirectOrder::new);
+
+            orderRecord.orderId = orderId;
+            orderRecord.price = price;
+            orderRecord.size = size;
+            orderRecord.reserveBidPrice = cmd.reserveBidPrice;
+            orderRecord.action = cmd.action;
+            orderRecord.uid = cmd.uid;
+            orderRecord.timestamp = cmd.timestamp;
+            orderRecord.filled = filledSize;
+
+            // TODO putIfAbsent (return prev object) to avoid get
+            orderIdIndex.put(orderId, orderRecord);
+            insertOrder(orderRecord, null);
+        }
+
+        if (waitForRiskReject(cmd, seq)) {
+            if (orderRecord != null) {
+                // rolling back adding order
+                removeOrder(orderRecord);
+                orderIdIndex.remove(orderId);
+                objectsPool.put(ObjectsPool.DIRECT_ORDER, orderRecord);
+            }
+            return cmd.resultCode;
+        }
+
+        if (orderRecord == null) {
+            eventsHelper.attachRejectEvent(cmd, size - filledSize);
+        }
+
+        return CommandResultCode.SUCCESS;
     }
 
-    private void newOrderMatchIoc(final OrderCommand cmd) {
+    private CommandResultCode newOrderMatchIoc(final OrderCommand cmd, long seq) {
 
-        final long filledSize = tryMatchInstantly(cmd, cmd);
+        final long filledSize = tryMatchInstantly(cmd, cmd, seq);
+
+        if (filledSize == -1) {
+            // rejected by risk engine
+            return cmd.resultCode;
+        }
 
         final long rejectedSize = cmd.size - filledSize;
 
         if (rejectedSize != 0) {
+
+            if (waitForRiskReject(cmd, seq)) {
+                return cmd.resultCode;
+            }
+
             // was not matched completely - send reject for not-completed IoC order
             eventsHelper.attachRejectEvent(cmd, rejectedSize);
         }
+
+        return CommandResultCode.SUCCESS;
     }
 
-    private void newOrderMatchFokBudget(final OrderCommand cmd) {
+    private CommandResultCode newOrderMatchFokBudget(final OrderCommand cmd, long seq) {
 
         final long budget = checkBudgetToFill(cmd.action, cmd.size);
 
         if (logDebug) log.debug("Budget calc: {} requested: {}", budget, cmd.price);
 
-        if (isBudgetLimitSatisfied(cmd.action, budget, cmd.price)) {
-            tryMatchInstantly(cmd, cmd);
+        boolean budgetLimitSatisfied = isBudgetLimitSatisfied(cmd.action, budget, cmd.price);
+
+        if (waitForRiskReject(cmd, seq)) {
+            return cmd.resultCode;
+        }
+
+        if (budgetLimitSatisfied) {
+            tryMatchInstantly(cmd, cmd, seq);
         } else {
             eventsHelper.attachRejectEvent(cmd, cmd.size);
         }
+
+        return CommandResultCode.SUCCESS;
     }
 
     private boolean isBudgetLimitSatisfied(final OrderAction orderAction, final long calculated, final long limit) {
@@ -220,7 +295,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
 
     private long tryMatchInstantly(final IOrder takerOrder,
-                                   final OrderCommand triggerCmd) {
+                                   final OrderCommand triggerCmd,
+                                   final long seq) {
 
         final boolean isBidAction = takerOrder.getAction() == OrderAction.BID;
 
@@ -255,6 +331,11 @@ public final class OrderBookDirectImpl implements IOrderBook {
 //        log.debug("MATCHING taker: {} remainingSize={}", takerOrder, remainingSize);
 
         MatcherTradeEvent eventsTail = null;
+
+        // TODO ? can speculatively do limited amount of matches before checking the Risk
+        if (waitForRiskReject(triggerCmd, seq)) {
+            return -1;
+        }
 
         // iterate through all orders
         do {
@@ -333,6 +414,14 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         // return filled amount
         return takerOrder.getSize() - remainingSize;
+    }
+
+    private boolean waitForRiskReject(OrderCommand triggerCmd, long seq) {
+        if (seq == -1) {
+            return false;
+        }
+        router.waitForRiskBarrier(seq);
+        return triggerCmd.resultCode != CommandResultCode.VALID_FOR_MATCHING_ENGINE;
     }
 
     @Override
@@ -424,7 +513,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         cmd.action = orderToMove.getAction();
 
         // try match with new price as a taker order
-        final long filled = tryMatchInstantly(orderToMove, cmd);
+        final long filled = tryMatchInstantly(orderToMove, cmd, -1);
         if (filled == orderToMove.size) {
             // order was fully matched - removing
             orderIdIndex.remove(cmd.orderId);
