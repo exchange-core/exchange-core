@@ -15,7 +15,7 @@ and [Adaptive Radix Trees](https://db.in.tum.de/~leis/papers/ART.pdf).
 Exchange-core includes:
 - orders matching engine
 - risk control and accounting module
-- disk jouraling and snapshots module
+- disk journaling and snapshots module
 - trading, admin and reports API
 
 Designed for high scalability and pauseless 24/7 operation under high-load conditions and providing low-latency responses:
