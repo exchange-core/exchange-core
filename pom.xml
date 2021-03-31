@@ -49,7 +49,7 @@
         <maven.compiler.target>1.8</maven.compiler.target>
         <maven.compiler.source>1.8</maven.compiler.source>
 
-        <guava.version>28.2-jre</guava.version>
+        <guava.version>29.0-jre</guava.version>
         <commons-math3.version>3.6.1</commons-math3.version>
         <commons-lang3.version>3.10</commons-lang3.version>
         <lmax.com.lmax.disruptor.version>3.4.2</lmax.com.lmax.disruptor.version>
