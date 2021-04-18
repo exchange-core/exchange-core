@@ -30,6 +30,8 @@ import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.orderbook.OrderBookEventsHelper;
+import exchange.core2.core.processors.journaling.DiskSerializationProcessor;
+import exchange.core2.core.processors.journaling.DiskSerializationProcessorConfiguration;
 import exchange.core2.core.processors.journaling.ISerializationProcessor;
 import exchange.core2.core.utils.SerializationUtils;
 import exchange.core2.core.utils.UnsafeUtils;
@@ -41,6 +43,9 @@ import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Optional;
 
@@ -65,6 +70,9 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
     private final int shardId;
     private final long shardMask;
 
+    private final String exchangeId; // TODO validate
+    private final Path folder;
+
     private final boolean cfgMarginTradingEnabled;
 
     private final ISerializationProcessor serializationProcessor;
@@ -82,6 +90,10 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
         if (Long.bitCount(numShards) != 1) {
             throw new IllegalArgumentException("Invalid number of shards " + numShards + " - must be power of 2");
         }
+
+        this.exchangeId = exchangeCfg.getInitStateCfg().getExchangeId();
+        this.folder = Paths.get(DiskSerializationProcessorConfiguration.DEFAULT_FOLDER);
+
         this.shardId = shardId;
         this.shardMask = numShards - 1;
         this.serializationProcessor = serializationProcessor;
@@ -100,7 +112,11 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
         objectsPoolConfig.put(ObjectsPool.ART_NODE_48, 1024 * 8);
         objectsPoolConfig.put(ObjectsPool.ART_NODE_256, 1024 * 4);
         this.objectsPool = new ObjectsPool(objectsPoolConfig);
-        if (exchangeCfg.getInitStateCfg().fromSnapshot()) {
+
+        final Path SnapshotPath = resolveSnapshotPath(exchangeId, folder, exchangeCfg.getInitStateCfg().getSnapshotId(), ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER, shardId);
+
+        if (exchangeCfg.getInitStateCfg().fromSnapshot() && Files.exists(SnapshotPath)) {
+
             final DeserializedData deserialized = serializationProcessor.loadData(
                     exchangeCfg.getInitStateCfg().getSnapshotId(),
                     ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER,
@@ -243,6 +259,10 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
                 cmd.marketData = orderBook.getL2MarketDataSnapshot(8);
             }
         }
+    }
+
+    private Path resolveSnapshotPath(String exchangeId, Path folder, long snapshotId, ISerializationProcessor.SerializedModuleType type, int instanceId) {
+        return folder.resolve(String.format("%s_snapshot_%d_%s%d.ecs", exchangeId, snapshotId, type, instanceId));
     }
 
     @Override
