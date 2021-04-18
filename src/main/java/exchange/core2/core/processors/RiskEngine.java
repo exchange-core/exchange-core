@@ -28,6 +28,7 @@ import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.ExchangeConfiguration;
 import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.core.common.config.OrdersProcessingConfiguration;
+import exchange.core2.core.processors.journaling.DiskSerializationProcessorConfiguration;
 import exchange.core2.core.processors.journaling.ISerializationProcessor;
 import exchange.core2.core.utils.CoreArithmeticUtils;
 import exchange.core2.core.utils.SerializationUtils;
@@ -43,6 +44,9 @@ import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Objects;
 import java.util.Optional;
@@ -68,6 +72,9 @@ public final class RiskEngine implements WriteBytesMarshallable {
     private final int shardId;
     private final long shardMask;
 
+    private final String exchangeId; // TODO validate
+    private final Path folder;
+
     private final boolean cfgIgnoreRiskProcessing;
     private final boolean cfgMarginTradingEnabled;
 
@@ -83,6 +90,10 @@ public final class RiskEngine implements WriteBytesMarshallable {
         if (Long.bitCount(numShards) != 1) {
             throw new IllegalArgumentException("Invalid number of shards " + numShards + " - must be power of 2");
         }
+
+        this.exchangeId = exchangeConfiguration.getInitStateCfg().getExchangeId();
+        this.folder = Paths.get(DiskSerializationProcessorConfiguration.DEFAULT_FOLDER);
+
         this.shardId = shardId;
         this.shardMask = numShards - 1;
         this.serializationProcessor = serializationProcessor;
@@ -94,7 +105,9 @@ public final class RiskEngine implements WriteBytesMarshallable {
 
         this.logDebug = exchangeConfiguration.getLoggingCfg().getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_RISK_DEBUG);
 
-        if (exchangeConfiguration.getInitStateCfg().fromSnapshot()) {
+        final Path SnapshotPath = resolveSnapshotPath(exchangeId, folder, exchangeConfiguration.getInitStateCfg().getSnapshotId(), ISerializationProcessor.SerializedModuleType.RISK_ENGINE, shardId);
+
+        if (exchangeConfiguration.getInitStateCfg().fromSnapshot() && Files.exists(SnapshotPath)) {
 
             // TODO refactor, change to creator (simpler init)`
             final State state = serializationProcessor.loadData(
@@ -791,6 +804,11 @@ public final class RiskEngine implements WriteBytesMarshallable {
         SerializationUtils.marshallIntLongHashMap(fees, bytes);
         SerializationUtils.marshallIntLongHashMap(adjustments, bytes);
         SerializationUtils.marshallIntLongHashMap(suspends, bytes);
+    }
+
+    private Path resolveSnapshotPath(String exchangeId, Path folder, long snapshotId, ISerializationProcessor.SerializedModuleType type, int instanceId) {
+
+        return folder.resolve(String.format("%s_snapshot_%d_%s%d.ecs", exchangeId, snapshotId, type, instanceId));
     }
 
     public void reset() {
