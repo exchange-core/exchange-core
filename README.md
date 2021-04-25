@@ -275,5 +275,9 @@ System.out.println("LTC fees collected: " + totalsReport.get().getFees().get(cur
 ### Contributing
 Exchange-core is an open-source project and contributions are welcome!
 
+### Support
+- [Discussion group in Telegram (t.me/exchangecoretalks)](https://t.me/exchangecoretalks)
+- [News channel in Telegram (t.me/exchangecore)](https://t.me/exchangecore)
+
 [license]:LICENSE.txt
 [license img]:https://img.shields.io/badge/License-Apache%202-blue.svg
