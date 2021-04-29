@@ -19,26 +19,49 @@ import exchange.core2.collections.objpool.ObjectsPool;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
+import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.core.utils.SerializationUtils;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
+import sun.plugin.ClassLoaderInfo;
 
+import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.StampedLock;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @Slf4j
 public final class OrderBookNaiveImpl implements IOrderBook {
 
+    private final Long roundVal = 50L;
     private final NavigableMap<Long, OrdersBucketNaive> askBuckets;
     private final NavigableMap<Long, OrdersBucketNaive> bidBuckets;
 
     private final CoreSymbolSpecification symbolSpec;
 
     private final LongObjectHashMap<Order> idMap = new LongObjectHashMap<>();
+
+    //private final NavigableMap<Long, List<Order>> bidMapSL = new TreeMap<>(Collections.reverseOrder());;
+    //private final NavigableMap<Long, List<Order>> askMapSL = new TreeMap<>();
+
+    private final ConcurrentHashMap<Long, List<Order>> bidMapSL = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, List<Order>> askMapSL = new ConcurrentHashMap<>();
+
+    private final ReentrantLock lock = new ReentrantLock();
+
+    //private final List<Long> bidRangeList = new ArrayList<Long>();
+    //private final List<Long> askRangeList = new ArrayList<Long>();
+
+    private final List<Long> bidRangeList = Collections.synchronizedList(new ArrayList<Long>());
+    private final List<Long> askRangeList = Collections.synchronizedList(new ArrayList<Long>());
 
     private final OrderBookEventsHelper eventsHelper;
 
@@ -52,6 +75,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         this.symbolSpec = symbolSpec;
         this.askBuckets = new TreeMap<>();
         this.bidBuckets = new TreeMap<>(Collections.reverseOrder());
+
         this.eventsHelper = eventsHelper;
         this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
     }
@@ -62,6 +86,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         this.symbolSpec = symbolSpec;
         this.askBuckets = new TreeMap<>();
         this.bidBuckets = new TreeMap<>(Collections.reverseOrder());
+
         this.eventsHelper = OrderBookEventsHelper.NON_POOLED_EVENTS_HELPER;
         this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
     }
@@ -94,10 +119,61 @@ public final class OrderBookNaiveImpl implements IOrderBook {
             case FOK_BUDGET:
                 newOrderMatchFokBudget(cmd);
                 break;
+            case STOP_LOSS:
+                newOrderPlaceSL(cmd);
+                break;
             // TODO IOC_BUDGET and FOK support
             default:
                 log.warn("Unsupported order type: {}", cmd);
                 eventsHelper.attachRejectEvent(cmd, cmd.size);
+        }
+    }
+
+    private void newOrderPlaceSL(final OrderCommand cmd) {
+        final OrderAction action = cmd.action;
+        final long price = cmd.price;
+        final long size = cmd.size;
+        long newOrderId = cmd.orderId;
+        final long stopPrice = cmd.stopPrice;
+        long filledSize = 0;
+
+        // normally placing regular GTC limit order
+        final Order orderRecord = new Order(
+                newOrderId,
+                price,
+                size,
+                filledSize,
+                cmd.reserveBidPrice,
+                stopPrice,
+                action,
+                cmd.uid,
+                cmd.timestamp);
+
+        getBucketsByAction(action)
+                .computeIfAbsent(price, OrdersBucketNaive::new)
+                .put(orderRecord);
+
+        long roundedStopPrice = roundUp(stopPrice, roundVal);
+
+        final List<Long> rangeList = (action == OrderAction.ASK) ? askRangeList : bidRangeList;
+        //final NavigableMap<Long, List<Order>> slMap = (action == OrderAction.ASK) ? askMapSL : bidMapSL;
+        final ConcurrentHashMap<Long, List<Order>> slMap = (action == OrderAction.ASK) ? askMapSL : bidMapSL;
+
+        synchronized (this) {
+            if (rangeList.contains(roundedStopPrice)) {
+                //Get existing value and add new entry
+                final List<Order> orderList = slMap.get(roundedStopPrice);
+                orderList.add(orderRecord);
+
+                slMap.put(roundedStopPrice, orderList);
+            } else {
+                //create new list of orders
+                final List<Order> newOrderList = new ArrayList<Order>();
+                newOrderList.add(orderRecord);
+
+                slMap.put(roundedStopPrice, newOrderList);
+                rangeList.add(roundedStopPrice);
+            }
         }
     }
 
@@ -106,6 +182,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         final OrderAction action = cmd.action;
         final long price = cmd.price;
         final long size = cmd.size;
+        final long stopPrice = 0;
 
         // check if order is marketable (if there are opposite matching orders)
         final long filledSize = tryMatchInstantly(cmd, subtreeForMatching(action, price), 0, cmd);
@@ -129,6 +206,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
                 size,
                 filledSize,
                 cmd.reserveBidPrice,
+                stopPrice,
                 action,
                 cmd.uid,
                 cmd.timestamp);
@@ -259,6 +337,14 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
             long price = bucket.getPrice();
 
+            //Processing Stop-Loss Orders
+            long roundedPrice = roundUp(price, roundVal);
+
+            synchronized (this) {
+                processStopLoss(OrderAction.ASK, price, roundedPrice);
+                processStopLoss(OrderAction.BID, price, roundedPrice);
+            }
+
             // remove empty buckets
             if (bucket.getTotalVolume() == 0) {
                 emptyBuckets.add(price);
@@ -280,6 +366,66 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         return filled;
     }
 
+    private void processStopLoss(OrderAction Action, Long price, Long roundedPrice) {
+        final List<Long> rangeList = (Action == OrderAction.ASK) ? askRangeList : bidRangeList;
+        //final NavigableMap<Long, List<Order>> slMap = (Action == OrderAction.ASK) ? askMapSL : bidMapSL;
+        final ConcurrentHashMap<Long, List<Order>> slMap = (Action == OrderAction.ASK) ? askMapSL : bidMapSL;
+
+        if(rangeList.isEmpty() == false) {
+            List listResult = (Action == OrderAction.ASK)
+                    ? rangeList.stream()
+                    .filter(s -> s <= roundedPrice)
+                    .collect(Collectors.toList())
+                    : rangeList.stream()
+                    .filter(s -> s >= roundedPrice)
+                    .collect(Collectors.toList());
+
+            listResult.stream().forEach((roundedPriceElem) -> {
+
+                for (Map.Entry<Long, List<Order>> entry : slMap.entrySet()) {
+                    final Long roundedPriceKey = entry.getKey();
+
+                    final Boolean firstCondition = (Action == OrderAction.ASK) ? roundedPriceKey <= roundedPrice : roundedPriceKey >= roundedPrice;
+                    if(firstCondition) {
+                        //Get orders and iterate
+                        final List<Order> currentList = entry.getValue();
+                        currentList.forEach((order) -> {
+                            final Boolean secondCondition = (Action == OrderAction.ASK) ? price <= order.stopPrice : price >= order.stopPrice;
+                            if(secondCondition) {
+                                //Add it to the orderbook
+                                long slOrderId = order.orderId;
+                                if (idMap.containsKey(slOrderId)) {
+                                    log.warn("duplicate order id: {}", order);
+                                    return;
+                                }
+
+                                final OrderAction oAction = (Action == OrderAction.ASK) ? OrderAction.ASK : OrderAction.BID;
+                                getBucketsByAction(oAction)
+                                        .computeIfAbsent(price, OrdersBucketNaive::new)
+                                        .put(order);
+
+                                idMap.put(slOrderId, order);
+
+                                //remove it from previous map
+                                currentList.remove(order);
+                            }
+                        });
+                        // save new list to map
+                        slMap.put(roundedPriceKey, currentList);
+
+                    }
+                }
+            });
+        }
+    }
+
+    public static long roundUp(long actualValue, long nextRoundedValue) {
+        long roundedUpValue = actualValue;
+
+        if(actualValue%nextRoundedValue != 0)
+            roundedUpValue = (((actualValue/nextRoundedValue)) * nextRoundedValue) + nextRoundedValue;
+        return roundedUpValue;
+    }
     /**
      * Remove an order.<p>
      *

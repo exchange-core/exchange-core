@@ -53,6 +53,9 @@ public final class Order implements WriteBytesMarshallable, IOrder {
     @Getter
     public long reserveBidPrice;
 
+    @Getter
+    public long stopPrice;
+
     // required for PLACE_ORDER only;
     @Getter
     public OrderAction action;
@@ -73,6 +76,7 @@ public final class Order implements WriteBytesMarshallable, IOrder {
         this.size = bytes.readLong(); // size
         this.filled = bytes.readLong(); // filled
         this.reserveBidPrice = bytes.readLong(); // price2
+        this.stopPrice = bytes.readLong(); // price2
         this.action = OrderAction.of(bytes.readByte());
         this.uid = bytes.readLong(); // uid
         this.timestamp = bytes.readLong(); // timestamp
@@ -87,6 +91,7 @@ public final class Order implements WriteBytesMarshallable, IOrder {
         bytes.writeLong(size);
         bytes.writeLong(filled);
         bytes.writeLong(reserveBidPrice);
+        bytes.writeLong(stopPrice);
         bytes.writeByte(action.getCode());
         bytes.writeLong(uid);
         bytes.writeLong(timestamp);
@@ -103,7 +108,7 @@ public final class Order implements WriteBytesMarshallable, IOrder {
 
     @Override
     public int hashCode() {
-        return Objects.hash(orderId, action, price, size, reserveBidPrice, filled,
+        return Objects.hash(orderId, action, price, size, reserveBidPrice, stopPrice, filled,
                 //userCookie, timestamp
                 uid);
     }
@@ -126,6 +131,7 @@ public final class Order implements WriteBytesMarshallable, IOrder {
                 && price == other.price
                 && size == other.size
                 && reserveBidPrice == other.reserveBidPrice
+                && stopPrice == other.stopPrice
                 && filled == other.filled
                 && uid == other.uid;
     }

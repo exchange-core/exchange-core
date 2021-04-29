@@ -71,23 +71,23 @@ public abstract class OrderBookBaseTest {
         orderBook = createNewOrderBook();
         orderBook.validateInternalState();
 
-        processAndValidate(OrderCommand.newOrder(GTC, 0L, UID_2, INITIAL_PRICE, 0L, 13L, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 0L, UID_2, INITIAL_PRICE, 0L, 0L, 13L, ASK), SUCCESS);
         processAndValidate(OrderCommand.cancel(0L, UID_2), SUCCESS);
 
-        processAndValidate(OrderCommand.newOrder(GTC, 1L, UID_1, 81600L, 0L, 100L, ASK), SUCCESS);
-        processAndValidate(OrderCommand.newOrder(GTC, 2L, UID_1, 81599L, 0L, 50L, ASK), SUCCESS);
-        processAndValidate(OrderCommand.newOrder(GTC, 3L, UID_1, 81599L, 0L, 25L, ASK), SUCCESS);
-        processAndValidate(OrderCommand.newOrder(GTC, 8L, UID_1, 201000L, 0L, 28L, ASK), SUCCESS);
-        processAndValidate(OrderCommand.newOrder(GTC, 9L, UID_1, 201000L, 0L, 32L, ASK), SUCCESS);
-        processAndValidate(OrderCommand.newOrder(GTC, 10L, UID_1, 200954L, 0L, 10L, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 1L, UID_1, 81600L, 0L, 0L, 100L, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 2L, UID_1, 81599L, 0L, 0L,50L, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 3L, UID_1, 81599L, 0L, 0L,25L, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 8L, UID_1, 201000L, 0L, 0L,28L, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 9L, UID_1, 201000L, 0L, 0L,32L, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 10L, UID_1, 200954L, 0L, 0L,10L, ASK), SUCCESS);
 
-        processAndValidate(OrderCommand.newOrder(GTC, 4L, UID_1, 81593L, 82000L, 40L, BID), SUCCESS);
-        processAndValidate(OrderCommand.newOrder(GTC, 5L, UID_1, 81590L, 82000L, 20L, BID), SUCCESS);
-        processAndValidate(OrderCommand.newOrder(GTC, 6L, UID_1, 81590L, 82000L, 1L, BID), SUCCESS);
-        processAndValidate(OrderCommand.newOrder(GTC, 7L, UID_1, 81200L, 82000L, 20L, BID), SUCCESS);
-        processAndValidate(OrderCommand.newOrder(GTC, 11L, UID_1, 10000L, 12000L, 12L, BID), SUCCESS);
-        processAndValidate(OrderCommand.newOrder(GTC, 12L, UID_1, 10000L, 12000L, 1L, BID), SUCCESS);
-        processAndValidate(OrderCommand.newOrder(GTC, 13L, UID_1, 9136L, 12000L, 2L, BID), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 4L, UID_1, 81593L, 82000L, 0L,40L, BID), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 5L, UID_1, 81590L, 82000L, 0L,20L, BID), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 6L, UID_1, 81590L, 82000L, 0L,1L, BID), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 7L, UID_1, 81200L, 82000L, 0L,20L, BID), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 11L, UID_1, 10000L, 12000L, 0L,12L, BID), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 12L, UID_1, 10000L, 12000L, 0L,1L, BID), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 13L, UID_1, 9136L, 12000L, 0L,2L, BID), SUCCESS);
 
         expectedState = new L2MarketDataHelper(
                 new L2MarketData(
@@ -119,7 +119,7 @@ public abstract class OrderBookBaseTest {
 
         // match all asks
         long askSum = Arrays.stream(snapshot.askVolumes).sum();
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(IOC, 100000000000L, -1, MAX_PRICE, MAX_PRICE, askSum, BID));
+        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(IOC, 100000000000L, -1, MAX_PRICE, MAX_PRICE, 0L,askSum, BID));
 
 //        log.debug("{}", orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE).dumpOrderBook());
 
@@ -127,7 +127,7 @@ public abstract class OrderBookBaseTest {
 
         // match all bids
         long bidSum = Arrays.stream(snapshot.bidVolumes).sum();
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(IOC, 100000000001L, -2, 1, 0, bidSum, ASK));
+        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(IOC, 100000000001L, -2, 1, 0, 0L,bidSum, ASK));
 
 //        log.debug("{}", orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE).dumpOrderBook());
 
@@ -151,20 +151,20 @@ public abstract class OrderBookBaseTest {
     @Test
     public void shouldAddGtcOrders() {
 
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 93, UID_1, 81598, 0, 1, ASK));
+        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 93, UID_1, 81598, 0, 0L,1, ASK));
         expectedState.insertAsk(0, 81598, 1);
 
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 94, UID_1, 81594, MAX_PRICE, 9_000_000_000L, BID));
+        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 94, UID_1, 81594, MAX_PRICE, 0L,9_000_000_000L, BID));
         expectedState.insertBid(0, 81594, 9_000_000_000L);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(25);
         assertEquals(expectedState.build(), snapshot);
         orderBook.validateInternalState();
 
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 95, UID_1, 130000, 0, 13_000_000_000L, ASK));
+        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 95, UID_1, 130000, 0, 0L,13_000_000_000L, ASK));
         expectedState.insertAsk(3, 130000, 13_000_000_000L);
 
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 96, UID_1, 1000, MAX_PRICE, 4, BID));
+        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(GTC, 96, UID_1, 1000, MAX_PRICE, 0L,4, BID));
         expectedState.insertBid(6, 1000, 4);
 
         snapshot = orderBook.getL2MarketDataSnapshot(25);
@@ -179,7 +179,7 @@ public abstract class OrderBookBaseTest {
      */
     @Test
     public void shouldIgnoredDuplicateOrder() {
-        OrderCommand orderCommand = OrderCommand.newOrder(GTC, 1, UID_1, 81600, 0, 100, ASK);
+        OrderCommand orderCommand = OrderCommand.newOrder(GTC, 1, UID_1, 81600, 0, 0L,100, ASK);
         processAndValidate(orderCommand, SUCCESS);
         List<MatcherTradeEvent> events = orderCommand.extractEvents();
         assertThat(events.size(), is(1));
@@ -405,7 +405,7 @@ public abstract class OrderBookBaseTest {
     public void shouldMatchIocOrderPartialBBO() {
 
         // size=10
-        OrderCommand cmd = OrderCommand.newOrder(IOC, 123, UID_2, 1, 0, 10, ASK);
+        OrderCommand cmd = OrderCommand.newOrder(IOC, 123, UID_2, 1, 0, 0L,10, ASK);
         processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
@@ -423,7 +423,7 @@ public abstract class OrderBookBaseTest {
     public void shouldMatchIocOrderFullBBO() {
 
         // size=40
-        OrderCommand cmd = OrderCommand.newOrder(IOC, 123, UID_2, 1, 0, 40, ASK);
+        OrderCommand cmd = OrderCommand.newOrder(IOC, 123, UID_2, 1, 0, 0L,40, ASK);
         processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
@@ -440,7 +440,7 @@ public abstract class OrderBookBaseTest {
     public void shouldMatchIocOrderWithTwoLimitOrdersPartial() {
 
         // size=41
-        OrderCommand cmd = OrderCommand.newOrder(IOC, 123, UID_2, 1, 0, 41, ASK);
+        OrderCommand cmd = OrderCommand.newOrder(IOC, 123, UID_2, 1, 0, 0L,41, ASK);
         processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
@@ -463,7 +463,7 @@ public abstract class OrderBookBaseTest {
     public void shouldMatchIocOrderFullLiquidity() {
 
         // size=175
-        OrderCommand cmd = OrderCommand.newOrder(IOC, 123, UID_2, MAX_PRICE, MAX_PRICE, 175, BID);
+        OrderCommand cmd = OrderCommand.newOrder(IOC, 123, UID_2, MAX_PRICE, MAX_PRICE, 0L,175, BID);
         processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
@@ -487,7 +487,7 @@ public abstract class OrderBookBaseTest {
     public void shouldMatchIocOrderWithRejection() {
 
         // size=270
-        OrderCommand cmd = OrderCommand.newOrder(IOC, 123, UID_2, MAX_PRICE, MAX_PRICE + 1, 270, BID);
+        OrderCommand cmd = OrderCommand.newOrder(IOC, 123, UID_2, MAX_PRICE, MAX_PRICE + 1, 0L,270, BID);
         processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
@@ -511,7 +511,7 @@ public abstract class OrderBookBaseTest {
         long buyBudget = expectedState.aggregateBuyBudget(size) - 1;
         assertThat(buyBudget, Is.is(81599L * 75L + 81600L * 100L + 200954L * 5L - 1));
 
-        OrderCommand cmd = OrderCommand.newOrder(FOK_BUDGET, 123L, UID_2, buyBudget, buyBudget, size, BID);
+        OrderCommand cmd = OrderCommand.newOrder(FOK_BUDGET, 123L, UID_2, buyBudget, buyBudget, 0L,size, BID);
         processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
@@ -531,7 +531,7 @@ public abstract class OrderBookBaseTest {
         long buyBudget = expectedState.aggregateBuyBudget(size);
         assertThat(buyBudget, Is.is(81599L * 75L + 81600L * 100L + 200954L * 5L));
 
-        OrderCommand cmd = OrderCommand.newOrder(FOK_BUDGET, 123L, UID_2, buyBudget, buyBudget, size, BID);
+        OrderCommand cmd = OrderCommand.newOrder(FOK_BUDGET, 123L, UID_2, buyBudget, buyBudget, 0L,size, BID);
         processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
@@ -552,7 +552,7 @@ public abstract class OrderBookBaseTest {
         long buyBudget = expectedState.aggregateBuyBudget(size) + 1;
         assertThat(buyBudget, Is.is(81599L * 75L + 81600L * 100L + 200954L + 1L));
 
-        OrderCommand cmd = OrderCommand.newOrder(FOK_BUDGET, 123L, UID_2, buyBudget, buyBudget, size, BID);
+        OrderCommand cmd = OrderCommand.newOrder(FOK_BUDGET, 123L, UID_2, buyBudget, buyBudget, 0L,size, BID);
         processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
@@ -573,7 +573,7 @@ public abstract class OrderBookBaseTest {
         long sellExpectation = expectedState.aggregateSellExpectation(size) + 1;
         assertThat(sellExpectation, Is.is(81593L * 40L + 81590L * 20L + 1));
 
-        OrderCommand cmd = OrderCommand.newOrder(FOK_BUDGET, 123L, UID_2, sellExpectation, sellExpectation, size, ASK);
+        OrderCommand cmd = OrderCommand.newOrder(FOK_BUDGET, 123L, UID_2, sellExpectation, sellExpectation, 0L,size, ASK);
         processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
@@ -592,7 +592,7 @@ public abstract class OrderBookBaseTest {
         long sellExpectation = expectedState.aggregateSellExpectation(size);
         assertThat(sellExpectation, Is.is(81593L * 40L + 81590L * 20L));
 
-        OrderCommand cmd = OrderCommand.newOrder(FOK_BUDGET, 123L, UID_2, sellExpectation, sellExpectation, size, ASK);
+        OrderCommand cmd = OrderCommand.newOrder(FOK_BUDGET, 123L, UID_2, sellExpectation, sellExpectation, 0L,size, ASK);
         processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
@@ -611,7 +611,7 @@ public abstract class OrderBookBaseTest {
         long sellExpectation = expectedState.aggregateSellExpectation(size) - 1;
         assertThat(sellExpectation, Is.is(81593L * 40L + 81590L * 21L - 1));
 
-        OrderCommand cmd = OrderCommand.newOrder(FOK_BUDGET, 123L, UID_2, sellExpectation, sellExpectation, size, ASK);
+        OrderCommand cmd = OrderCommand.newOrder(FOK_BUDGET, 123L, UID_2, sellExpectation, sellExpectation, 0L,size, ASK);
         processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
@@ -631,7 +631,7 @@ public abstract class OrderBookBaseTest {
     public void shouldFullyMatchMarketableGtcOrder() {
 
         // size=1
-        OrderCommand cmd = OrderCommand.newOrder(GTC, 123, UID_2, 81599, MAX_PRICE, 1, BID);
+        OrderCommand cmd = OrderCommand.newOrder(GTC, 123, UID_2, 81599, MAX_PRICE, 0L,1, BID);
         processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
@@ -649,7 +649,7 @@ public abstract class OrderBookBaseTest {
     public void shouldPartiallyMatchMarketableGtcOrderAndPlace() {
 
         // size=77
-        OrderCommand cmd = OrderCommand.newOrder(GTC, 123, UID_2, 81599, MAX_PRICE, 77, BID);
+        OrderCommand cmd = OrderCommand.newOrder(GTC, 123, UID_2, 81599, MAX_PRICE, 0L,77, BID);
         processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
@@ -668,7 +668,7 @@ public abstract class OrderBookBaseTest {
     public void shouldFullyMatchMarketableGtcOrder2Prices() {
 
         // size=77
-        OrderCommand cmd = OrderCommand.newOrder(GTC, 123, UID_2, 81600, MAX_PRICE, 77, BID);
+        OrderCommand cmd = OrderCommand.newOrder(GTC, 123, UID_2, 81600, MAX_PRICE, 0L,77, BID);
         processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
@@ -689,7 +689,7 @@ public abstract class OrderBookBaseTest {
     public void shouldFullyMatchMarketableGtcOrderWithAllLiquidity() {
 
         // size=1000
-        OrderCommand cmd = OrderCommand.newOrder(GTC, 123, UID_2, 220000, MAX_PRICE, 1000, BID);
+        OrderCommand cmd = OrderCommand.newOrder(GTC, 123, UID_2, 220000, MAX_PRICE, 0L,1000, BID);
         processAndValidate(cmd, SUCCESS);
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
@@ -716,7 +716,7 @@ public abstract class OrderBookBaseTest {
     public void shouldMoveOrderFullyMatchAsMarketable() {
 
         // add new order and check it is there
-        OrderCommand cmd = OrderCommand.newOrder(GTC, 83, UID_2, 81200, MAX_PRICE, 20, BID);
+        OrderCommand cmd = OrderCommand.newOrder(GTC, 83, UID_2, 81200, MAX_PRICE, 0L,20, BID);
         processAndValidate(cmd, SUCCESS);
 
         List<MatcherTradeEvent> events = cmd.extractEvents();
@@ -742,7 +742,7 @@ public abstract class OrderBookBaseTest {
     @Test
     public void shouldMoveOrderFullyMatchAsMarketable2Prices() {
 
-        OrderCommand cmd = OrderCommand.newOrder(GTC, 83, UID_2, 81594, MAX_PRICE, 100, BID);
+        OrderCommand cmd = OrderCommand.newOrder(GTC, 83, UID_2, 81594, MAX_PRICE, 0L,100, BID);
         processAndValidate(cmd, SUCCESS);
 
         List<MatcherTradeEvent> events = cmd.extractEvents();
@@ -769,7 +769,7 @@ public abstract class OrderBookBaseTest {
     @Test
     public void shouldMoveOrderMatchesAllLiquidity() {
 
-        OrderCommand cmd = OrderCommand.newOrder(GTC, 83, UID_2, 81594, MAX_PRICE, 246, BID);
+        OrderCommand cmd = OrderCommand.newOrder(GTC, 83, UID_2, 81594, MAX_PRICE, 0L,246, BID);
         processAndValidate(cmd, SUCCESS);
 
         // move to marketable zone
