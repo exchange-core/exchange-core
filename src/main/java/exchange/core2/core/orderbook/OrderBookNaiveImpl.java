@@ -19,21 +19,14 @@ import exchange.core2.collections.objpool.ObjectsPool;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
-import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.core.utils.SerializationUtils;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
-import sun.plugin.ClassLoaderInfo;
-
-import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantLock;
-import java.util.concurrent.locks.StampedLock;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -54,8 +47,6 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
     private final ConcurrentHashMap<Long, List<Order>> bidMapSL = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, List<Order>> askMapSL = new ConcurrentHashMap<>();
-
-    private final ReentrantLock lock = new ReentrantLock();
 
     //private final List<Long> bidRangeList = new ArrayList<Long>();
     //private final List<Long> askRangeList = new ArrayList<Long>();
