@@ -17,6 +17,7 @@ package exchange.core2.core;
 
 import com.lmax.disruptor.EventHandler;
 import com.lmax.disruptor.EventTranslator;
+import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.TimeoutException;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.EventHandlerGroup;
@@ -52,6 +53,8 @@ public final class ExchangeCore {
 
     private final Disruptor<OrderCommand> disruptor;
 
+    private final RingBuffer<OrderCommand> ringBuffer;
+
     private final ExchangeApi api;
 
     private final ISerializationProcessor serializationProcessor;
@@ -67,8 +70,7 @@ public final class ExchangeCore {
 
     /**
      * Exchange core constructor.
-     *
-     * @param resultsConsumer       - custom consumer of processed commands
+     *  @param resultsConsumer       - custom consumer of processed commands
      * @param exchangeConfiguration - exchange configuration
      */
     @Builder
@@ -83,18 +85,22 @@ public final class ExchangeCore {
 
         final int ringBufferSize = perfCfg.getRingBufferSize();
 
+        final ThreadFactory threadFactory = perfCfg.getThreadFactory();
+
+        final CoreWaitStrategy coreWaitStrategy = perfCfg.getWaitStrategy();
+
         this.disruptor = new Disruptor<>(
                 OrderCommand::new,
                 ringBufferSize,
-                perfCfg.getThreadFactory(),
+                threadFactory,
                 ProducerType.MULTI, // multiple gateway threads are writing
-                perfCfg.getWaitStrategy().getDisruptorWaitStrategyFactory().get());
+                coreWaitStrategy.getDisruptorWaitStrategyFactory().get());
 
-        this.api = new ExchangeApi(disruptor.getRingBuffer(), perfCfg.getBinaryCommandsLz4CompressorFactory().get());
+        this.ringBuffer = disruptor.getRingBuffer();
 
-        final ThreadFactory threadFactory = perfCfg.getThreadFactory();
+        this.api = new ExchangeApi(ringBuffer, perfCfg.getBinaryCommandsLz4CompressorFactory().get());
+
         final IOrderBook.OrderBookFactory orderBookFactory = perfCfg.getOrderBookFactory();
-        final CoreWaitStrategy coreWaitStrategy = perfCfg.getWaitStrategy();
 
         final int matchingEnginesNum = perfCfg.getMatchingEnginesNum();
         final int riskEnginesNum = perfCfg.getRiskEnginesNum();
@@ -113,7 +119,7 @@ public final class ExchangeCore {
         final DisruptorExceptionHandler<OrderCommand> exceptionHandler = new DisruptorExceptionHandler<>("main", (ex, seq) -> {
             log.error("Exception thrown on sequence={}", seq, ex);
             // TODO re-throw exception on publishing
-            disruptor.getRingBuffer().publishEvent(SHUTDOWN_SIGNAL_TRANSLATOR);
+            ringBuffer.publishEvent(SHUTDOWN_SIGNAL_TRANSLATOR);
             disruptor.shutdown();
         });
 
@@ -255,7 +261,7 @@ public final class ExchangeCore {
             // TODO stop accepting new events first
             try {
                 log.info("Shutdown disruptor...");
-                disruptor.getRingBuffer().publishEvent(SHUTDOWN_SIGNAL_TRANSLATOR);
+                ringBuffer.publishEvent(SHUTDOWN_SIGNAL_TRANSLATOR);
                 disruptor.shutdown(timeout, timeUnit);
                 log.info("Disruptor stopped");
             } catch (TimeoutException e) {
