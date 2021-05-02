@@ -34,7 +34,10 @@ import java.util.stream.Stream;
 @Slf4j
 public final class OrderBookNaiveImpl implements IOrderBook {
 
+    // Enable STOP LOSS
+    private final Boolean EnableSL = true;
     private final Long roundVal = 50L;
+
     private final NavigableMap<Long, OrdersBucketNaive> askBuckets;
     private final NavigableMap<Long, OrdersBucketNaive> bidBuckets;
 
@@ -42,14 +45,8 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
     private final LongObjectHashMap<Order> idMap = new LongObjectHashMap<>();
 
-    //private final NavigableMap<Long, List<Order>> bidMapSL = new TreeMap<>(Collections.reverseOrder());;
-    //private final NavigableMap<Long, List<Order>> askMapSL = new TreeMap<>();
-
     private final ConcurrentHashMap<Long, List<Order>> bidMapSL = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, List<Order>> askMapSL = new ConcurrentHashMap<>();
-
-    //private final List<Long> bidRangeList = new ArrayList<Long>();
-    //private final List<Long> askRangeList = new ArrayList<Long>();
 
     private final List<Long> bidRangeList = Collections.synchronizedList(new ArrayList<Long>());
     private final List<Long> askRangeList = Collections.synchronizedList(new ArrayList<Long>());
@@ -85,6 +82,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     public OrderBookNaiveImpl(final BytesIn bytes, final LoggingConfiguration loggingCfg) {
         this.symbolSpec = new CoreSymbolSpecification(bytes);
         this.askBuckets = SerializationUtils.readLongMap(bytes, TreeMap::new, OrdersBucketNaive::new);
+
         this.bidBuckets = SerializationUtils.readLongMap(bytes, () -> new TreeMap<>(Collections.reverseOrder()), OrdersBucketNaive::new);
 
         this.eventsHelper = OrderBookEventsHelper.NON_POOLED_EVENTS_HELPER;
@@ -121,6 +119,11 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     }
 
     private void newOrderPlaceSL(final OrderCommand cmd) {
+        if(!EnableSL) {
+            log.warn("Stop Loss orders disabled !");
+            return;
+        }
+
         final OrderAction action = cmd.action;
         final long price = cmd.price;
         final long size = cmd.size;
@@ -140,14 +143,9 @@ public final class OrderBookNaiveImpl implements IOrderBook {
                 cmd.uid,
                 cmd.timestamp);
 
-        getBucketsByAction(action)
-                .computeIfAbsent(price, OrdersBucketNaive::new)
-                .put(orderRecord);
-
         long roundedStopPrice = roundUp(stopPrice, roundVal);
 
         final List<Long> rangeList = (action == OrderAction.ASK) ? askRangeList : bidRangeList;
-        //final NavigableMap<Long, List<Order>> slMap = (action == OrderAction.ASK) ? askMapSL : bidMapSL;
         final ConcurrentHashMap<Long, List<Order>> slMap = (action == OrderAction.ASK) ? askMapSL : bidMapSL;
 
         synchronized (this) {
@@ -331,9 +329,11 @@ public final class OrderBookNaiveImpl implements IOrderBook {
             //Processing Stop-Loss Orders
             long roundedPrice = roundUp(price, roundVal);
 
-            synchronized (this) {
-                processStopLoss(OrderAction.ASK, price, roundedPrice);
-                processStopLoss(OrderAction.BID, price, roundedPrice);
+            if(EnableSL) {
+                synchronized (this) {
+                    processStopLoss(OrderAction.ASK, price, roundedPrice);
+                    processStopLoss(OrderAction.BID, price, roundedPrice);
+                }
             }
 
             // remove empty buckets
@@ -359,7 +359,6 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
     private void processStopLoss(OrderAction Action, Long price, Long roundedPrice) {
         final List<Long> rangeList = (Action == OrderAction.ASK) ? askRangeList : bidRangeList;
-        //final NavigableMap<Long, List<Order>> slMap = (Action == OrderAction.ASK) ? askMapSL : bidMapSL;
         final ConcurrentHashMap<Long, List<Order>> slMap = (Action == OrderAction.ASK) ? askMapSL : bidMapSL;
 
         if(rangeList.size() > 0) {
@@ -398,10 +397,9 @@ public final class OrderBookNaiveImpl implements IOrderBook {
                                 idMap.put(slOrderId, order);
 
                                 //remove it from previous map
-                                currentList.remove(slOrderId);
+                                currentList.remove(order);
                             }
                         });
-
                         // save new list to map or remove it if empty
                         if(currentList.size() > 0) {
                             slMap.put(roundedPriceKey, currentList);
