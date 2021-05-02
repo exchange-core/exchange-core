@@ -362,7 +362,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         //final NavigableMap<Long, List<Order>> slMap = (Action == OrderAction.ASK) ? askMapSL : bidMapSL;
         final ConcurrentHashMap<Long, List<Order>> slMap = (Action == OrderAction.ASK) ? askMapSL : bidMapSL;
 
-        if(rangeList.isEmpty() == false) {
+        if(rangeList.size() > 0) {
             List listResult = (Action == OrderAction.ASK)
                     ? rangeList.stream()
                     .filter(s -> s <= roundedPrice)
@@ -392,17 +392,22 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
                                 final OrderAction oAction = (Action == OrderAction.ASK) ? OrderAction.ASK : OrderAction.BID;
                                 getBucketsByAction(oAction)
-                                        .computeIfAbsent(price, OrdersBucketNaive::new)
+                                        .computeIfAbsent(order.price, OrdersBucketNaive::new)
                                         .put(order);
 
                                 idMap.put(slOrderId, order);
 
                                 //remove it from previous map
-                                currentList.remove(order);
+                                currentList.remove(slOrderId);
                             }
                         });
-                        // save new list to map
-                        slMap.put(roundedPriceKey, currentList);
+
+                        // save new list to map or remove it if empty
+                        if(currentList.size() > 0) {
+                            slMap.put(roundedPriceKey, currentList);
+                        } else {
+                            slMap.remove(roundedPriceKey);
+                        }
 
                     }
                 }

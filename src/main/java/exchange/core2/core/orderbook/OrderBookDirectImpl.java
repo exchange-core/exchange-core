@@ -34,17 +34,26 @@ import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 @Slf4j
 public final class OrderBookDirectImpl implements IOrderBook {
 
+    // Enable STOP LOSS
+    private final Boolean EnableSL = true;
+
     // buckets
     private final LongAdaptiveRadixTreeMap<Bucket> askPriceBuckets;
     private final LongAdaptiveRadixTreeMap<Bucket> bidPriceBuckets;
+
+    private final LongAdaptiveRadixTreeMap<Order> bidMapSL;
+    private final LongAdaptiveRadixTreeMap<Order> askMapSL;
 
     // symbol specification
     private final CoreSymbolSpecification symbolSpec;
@@ -76,6 +85,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
         this.bidPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.eventsHelper = eventsHelper;
         this.orderIdIndex = new LongAdaptiveRadixTreeMap<>(objectsPool);
+        this.bidMapSL = new LongAdaptiveRadixTreeMap<>(objectsPool);
+        this.askMapSL = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
     }
 
@@ -90,6 +101,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
         this.bidPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.eventsHelper = eventsHelper;
         this.orderIdIndex = new LongAdaptiveRadixTreeMap<>(objectsPool);
+        this.bidMapSL = new LongAdaptiveRadixTreeMap<>(objectsPool);
+        this.askMapSL = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
 
         final int size = bytes.readInt();
@@ -112,6 +125,9 @@ public final class OrderBookDirectImpl implements IOrderBook {
                 break;
             case FOK_BUDGET:
                 newOrderMatchFokBudget(cmd);
+                break;
+            case STOP_LOSS:
+                newOrderPlaceSL(cmd);
                 break;
             // TODO IOC_BUDGET and FOK support
             default:
@@ -156,6 +172,34 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         orderIdIndex.put(orderId, orderRecord);
         insertOrder(orderRecord, null);
+    }
+
+    private void newOrderPlaceSL(final OrderCommand cmd) {
+        if(!EnableSL) {
+            log.warn("Stop Loss orders disabled !");
+            return;
+        }
+        final OrderAction action = cmd.action;
+        final long price = cmd.price;
+        final long size = cmd.size;
+        long newOrderId = cmd.orderId;
+        final long stopPrice = cmd.stopPrice;
+        long filledSize = 0;
+
+        final Order orderRecord = new Order(
+                newOrderId,
+                price,
+                size,
+                filledSize,
+                cmd.reserveBidPrice,
+                stopPrice,
+                action,
+                cmd.uid,
+                cmd.timestamp);
+
+        final LongAdaptiveRadixTreeMap<Order> slMap = (action == OrderAction.ASK) ? askMapSL : bidMapSL;
+
+        slMap.put(newOrderId, orderRecord);
     }
 
     private void newOrderMatchIoc(final OrderCommand cmd) {
@@ -331,8 +375,51 @@ public final class OrderBookDirectImpl implements IOrderBook {
             bestBidOrder = makerOrder;
         }
 
+        //Process stop loss orders
+        if(EnableSL) {
+            processStopLoss(OrderAction.ASK, makerOrder.price);
+            processStopLoss(OrderAction.BID, makerOrder.price);
+        }
+
         // return filled amount
         return takerOrder.getSize() - remainingSize;
+    }
+
+    private void processStopLoss(OrderAction Action, Long price) {
+
+        final LongAdaptiveRadixTreeMap<Order> slMap = (Action == OrderAction.ASK) ? askMapSL : bidMapSL;
+        slMap.forEach((orderId, order) -> {
+            final Boolean oCondition = (Action == OrderAction.ASK) ? order.price <= price : order.price >= price;
+            if(oCondition) {
+                // TODO eliminate double hashtable lookup?
+                if (orderIdIndex.get(orderId) != null) { // containsKey for hashtable
+                    // duplicate order id - can match, but can not place
+                    log.warn("duplicate order id: {}", order);
+                    return;
+                }
+
+                final long oPrice = order.price;
+
+                // normally placing regular GTC order
+                final DirectOrder orderRecord = objectsPool.get(ObjectsPool.DIRECT_ORDER, (Supplier<DirectOrder>) DirectOrder::new);
+
+                orderRecord.orderId = orderId;
+                orderRecord.price = oPrice;
+                orderRecord.size = order.size;
+                orderRecord.reserveBidPrice = order.reserveBidPrice;
+                orderRecord.action = order.action;
+                orderRecord.uid = order.uid;
+                orderRecord.timestamp = order.timestamp;
+                orderRecord.filled = order.filled;
+
+                orderIdIndex.put(orderId, orderRecord);
+                insertOrder(orderRecord, null);
+
+                //Remove it from SL MAP
+                slMap.remove(orderId);
+
+            }
+        }, Integer.MAX_VALUE);
     }
 
     @Override
