@@ -30,6 +30,9 @@ public enum MatcherEventType {
     // After cancel/reduce order - risk engine should unlock deposit accordingly
     REDUCE,
 
+    // cancel orders of suspended users
+    SUSPEND,
+
     // Custom binary data attached
     BINARY_EVENT
 }

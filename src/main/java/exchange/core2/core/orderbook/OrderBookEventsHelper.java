@@ -90,6 +90,21 @@ public final class OrderBookEventsHelper {
         return event;
     }
 
+    // TODO return clear details
+    public MatcherTradeEvent sendSuspendEvent(final long uid, final long sizeOrders, final boolean completed) {
+        final MatcherTradeEvent event = newMatcherEvent();
+        event.eventType = MatcherEventType.SUSPEND;
+        event.section = 0;
+        event.activeOrderCompleted = completed;
+        event.matchedOrderId = 0;
+        event.matchedOrderCompleted = false;
+        event.price = 0;
+        event.size = sizeOrders;
+        event.matchedOrderUid = uid;
+
+        return event;
+    }
+
 
     public void attachRejectEvent(final OrderCommand cmd, final long rejectedSize) {
 

@@ -174,6 +174,9 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
             if (symbolForThisHandler(cmd.symbol)) {
                 processMatchingCommand(cmd);
             }
+        } else if (command == OrderCommandType.SUSPEND_USER){
+            //Refund must be on all symbols
+            processMatchingCommand(cmd);
         } else if (command == OrderCommandType.BINARY_DATA_QUERY || command == OrderCommandType.BINARY_DATA_COMMAND) {
 
             final CommandResultCode resultCode = binaryCommandsProcessor.acceptBinaryFrame(cmd);

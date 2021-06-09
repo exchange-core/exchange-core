@@ -148,8 +148,9 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
             return CommandResultCode.USER_MGMT_USER_NOT_SUSPENDABLE_NON_EMPTY_ACCOUNTS;
 
         } else {
+            //Cancel actives orders and fill balance
+            userProfile.userStatus = UserStatus.SUSPENDED;
             log.debug("Suspended user profile: {}", userProfile);
-            userProfiles.remove(uid);
             // TODO pool UserProfile objects
             return CommandResultCode.SUCCESS;
         }
@@ -169,6 +170,29 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
             // resume existing suspended profile (can contain non empty positions or accounts)
             userProfile.userStatus = UserStatus.ACTIVE;
             log.debug("Resumed user profile: {}", userProfile);
+            return CommandResultCode.SUCCESS;
+        }
+    }
+
+     /**
+     * @param uid client id
+     * @return result code
+     */
+    public CommandResultCode removeUserProfile(long uid) {
+        final UserProfile userProfile = userProfiles.get(uid);
+        if (userProfile == null) {
+            return CommandResultCode.USER_MGMT_USER_NOT_FOUND;
+
+        } else if (userProfile.positions.anySatisfy(pos -> !pos.isEmpty())) {
+            return CommandResultCode.USER_MGMT_USER_NOT_REMOVABLE_HAS_POSITIONS;
+
+        } else if (userProfile.accounts.anySatisfy(acc -> acc != 0)) {
+            return CommandResultCode.USER_MGMT_USER_NOT_REMOVABLE_NON_EMPTY_ACCOUNTS;
+
+        } else {
+            userProfiles.remove(uid);
+            log.debug("Suspended user profile: {}", userProfile);
+            // TODO pool UserProfile objects
             return CommandResultCode.SUCCESS;
         }
     }
