@@ -211,7 +211,7 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
             cmd.marketData = orderBook.getL2MarketDataSnapshot(size >= 0 ? size : Integer.MAX_VALUE);
             return CommandResultCode.SUCCESS;
 
-        } else if (commandType == OrderCommandType.SUSPEND_USER) {
+        } else if (commandType == OrderCommandType.SUSPEND_USER && cmd.orderId == -2) {
 
             return orderBook.cancelOrdersByUid(cmd);
 

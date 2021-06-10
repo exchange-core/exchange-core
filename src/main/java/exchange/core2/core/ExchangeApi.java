@@ -566,10 +566,10 @@ public final class ExchangeApi {
         }));
     }
 
-    public void suspendUser(long userId, Consumer<OrderCommand> callback) {
+    public void suspendUser(long userId, long orderId, Consumer<OrderCommand> callback) {
         ringBuffer.publishEvent(((cmd, seq) -> {
             cmd.command = OrderCommandType.SUSPEND_USER;
-            cmd.orderId = -1;
+            cmd.orderId = -((orderId == 1) ? orderId : 0);
             cmd.symbol = -1;
             cmd.uid = userId;
             cmd.timestamp = System.currentTimeMillis();
@@ -621,14 +621,14 @@ public final class ExchangeApi {
         }));
     }
 
-    public void suspendUser(int serviceFlags, long eventsGroup, long timestampNs, long userId) {
+    public void suspendUser(int serviceFlags, long eventsGroup, long timestampNs, long userId, long orderId) {
         ringBuffer.publishEvent(((cmd, seq) -> {
 
             cmd.serviceFlags = serviceFlags;
             cmd.eventsGroup = eventsGroup;
 
             cmd.command = OrderCommandType.SUSPEND_USER;
-            cmd.orderId = -1;
+            cmd.orderId = -((orderId == 1) ? orderId : 0);
             cmd.symbol = -1;
             cmd.uid = userId;
             cmd.timestamp = timestampNs;

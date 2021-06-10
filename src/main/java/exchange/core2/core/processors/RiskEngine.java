@@ -353,9 +353,9 @@ public final class RiskEngine implements WriteBytesMarshallable {
         }
 
         if (userProfile.userStatus == UserStatus.SUSPENDED) {
-            cmd.resultCode = CommandResultCode.USER_SUSPENDED;
+            cmd.resultCode = CommandResultCode.RISK_USER_SUSPENDED;
             log.warn("User profile {} suspended", cmd.uid);
-            return CommandResultCode.USER_SUSPENDED;
+            return CommandResultCode.RISK_USER_SUSPENDED;
         }
 
         final CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(cmd.symbol);

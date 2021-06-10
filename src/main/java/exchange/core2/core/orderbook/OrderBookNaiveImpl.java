@@ -20,10 +20,12 @@ import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.config.LoggingConfiguration;
+import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.utils.SerializationUtils;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
+import org.agrona.collections.MutableInteger;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 
 import java.util.*;
@@ -363,8 +365,13 @@ public final class OrderBookNaiveImpl implements IOrderBook {
      * @return true if order removed, false if not found (can be removed/matched earlier)
      */
     public CommandResultCode cancelOrdersByUid(OrderCommand cmd) {
+
+        if(symbolSpec.type != SymbolType.CURRENCY_EXCHANGE_PAIR) {
+            return CommandResultCode.UNSUPPORTED_SYMBOL_TYPE;
+        }
+
         final long userId = cmd.uid;
-        AtomicInteger sizeOrders = new AtomicInteger(0);
+        MutableInteger sizeOrders = new MutableInteger();
 
         List<Order> userOrders = findUserOrders(userId);
         if (!userOrders.isEmpty()) {
@@ -375,7 +382,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
             });
         }
 
-        // send reduce event
+        // send suspend event
         cmd.matcherEvent = eventsHelper.sendSuspendEvent(userId, sizeOrders.get(), true);
 
         return CommandResultCode.SUCCESS;

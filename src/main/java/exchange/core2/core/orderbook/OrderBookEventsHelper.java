@@ -91,14 +91,15 @@ public final class OrderBookEventsHelper {
     }
 
     // TODO return clear details
-    public MatcherTradeEvent sendSuspendEvent(final long uid, final long sizeOrders, final boolean completed) {
+    public MatcherTradeEvent sendSuspendEvent(final long uid, final int sizeOrders, final boolean completed) {
         final MatcherTradeEvent event = newMatcherEvent();
-        event.eventType = MatcherEventType.SUSPEND;
+        event.eventType = MatcherEventType.REDUCE;
         event.section = 0;
         event.activeOrderCompleted = completed;
         event.matchedOrderId = 0;
         event.matchedOrderCompleted = false;
         event.price = 0;
+        // Suspend operation can be identified by this 2 variables
         event.size = sizeOrders;
         event.matchedOrderUid = uid;
 

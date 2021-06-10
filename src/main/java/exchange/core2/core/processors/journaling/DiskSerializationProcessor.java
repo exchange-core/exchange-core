@@ -583,10 +583,11 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
                 } else if (cmdType == OrderCommandType.SUSPEND_USER) {
 
                     final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                    final long orderId = jr.readLong(); // 8 bytes
 
-                    if (debug) log.debug("suspend user seq={}  {} uid:{} ", lastSeq, timestampNs, uid);
+                    if (debug) log.debug("suspend user seq={}  {} uid:{} orderId={} ", lastSeq, timestampNs, uid, orderId);
 
-                    api.suspendUser(serviceFlags, eventsGroup, timestampNs, uid);
+                    api.suspendUser(serviceFlags, eventsGroup, timestampNs, uid, orderId);
 
                 } else if (cmdType == OrderCommandType.RESUME_USER) {
 
