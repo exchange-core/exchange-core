@@ -100,6 +100,7 @@ public final class OrderBookEventsHelper {
         event.matchedOrderCompleted = false;
         event.price = 0;
         // Suspend operation can be identified by this 2 variables
+        // TODO return orders ID as list
         event.size = sizeOrders;
         event.matchedOrderUid = uid;
 
