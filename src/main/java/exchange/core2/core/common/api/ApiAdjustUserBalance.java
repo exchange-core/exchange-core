@@ -32,7 +32,7 @@ public final class ApiAdjustUserBalance extends ApiCommand {
     public final long amount;
     public final long transactionId;
 
-    public final BalanceAdjustmentType adjustmentType = BalanceAdjustmentType.ADJUSTMENT; // TODO support suspend
+    public final BalanceAdjustmentType adjustmentType;
 
     @Override
     public String toString() {
