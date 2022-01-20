@@ -726,7 +726,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
         lastSnapshotDescriptor = lastSnapshotDescriptor.createNext(snapshotId, seq, timestampNs);
     }
 
-    private Path resolveSnapshotPath(long snapshotId, SerializedModuleType type, int instanceId) {
+    public Path resolveSnapshotPath(long snapshotId, SerializedModuleType type, int instanceId) {
 
         return folder.resolve(String.format("%s_snapshot_%d_%s%d.ecs", exchangeId, snapshotId, type.code, instanceId));
     }

@@ -23,6 +23,7 @@ import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.NavigableMap;
 import java.util.function.Function;
 
@@ -104,6 +105,16 @@ public interface ISerializationProcessor {
     long replayJournalFull(InitialStateConfiguration initialStateConfiguration, ExchangeApi api);
 
     void replayJournalFullAndThenEnableJouraling(InitialStateConfiguration initialStateConfiguration, ExchangeApi exchangeApi);
+
+    /**
+     * Resolve the snapshot path
+     *
+     * @param snapshotId  - unique snapshot id
+     * @param type        - module (risk engine or matching engine)
+     * @param instanceId  - module instance number (starting from 0 for each module type)
+     * @return Path the resolved snapshot path
+     */
+    Path resolveSnapshotPath(long snapshotId, SerializedModuleType type, int instanceId);
 
     @AllArgsConstructor
     enum SerializedModuleType {

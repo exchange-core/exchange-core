@@ -105,7 +105,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
 
         this.logDebug = exchangeConfiguration.getLoggingCfg().getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_RISK_DEBUG);
 
-        final Path SnapshotPath = resolveSnapshotPath(exchangeConfiguration.getInitStateCfg().getSnapshotId(), ISerializationProcessor.SerializedModuleType.RISK_ENGINE, shardId);
+        final Path SnapshotPath = serializationProcessor.resolveSnapshotPath(exchangeConfiguration.getInitStateCfg().getSnapshotId(), ISerializationProcessor.SerializedModuleType.RISK_ENGINE, shardId);
 
         if (exchangeConfiguration.getInitStateCfg().fromSnapshot() && Files.exists(SnapshotPath)) {
 
@@ -804,10 +804,6 @@ public final class RiskEngine implements WriteBytesMarshallable {
         SerializationUtils.marshallIntLongHashMap(fees, bytes);
         SerializationUtils.marshallIntLongHashMap(adjustments, bytes);
         SerializationUtils.marshallIntLongHashMap(suspends, bytes);
-    }
-
-    private Path resolveSnapshotPath(long snapshotId, ISerializationProcessor.SerializedModuleType type, int instanceId) {
-        return folder.resolve(String.format("%s_snapshot_%d_%s%d.ecs", exchangeId, snapshotId, type, instanceId));
     }
 
     public void reset() {

@@ -112,7 +112,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
         objectsPoolConfig.put(ObjectsPool.ART_NODE_256, 1024 * 4);
         this.objectsPool = new ObjectsPool(objectsPoolConfig);
 
-        final Path SnapshotPath = resolveSnapshotPath(exchangeCfg.getInitStateCfg().getSnapshotId(), ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER, shardId);
+        final Path SnapshotPath = serializationProcessor.resolveSnapshotPath(exchangeCfg.getInitStateCfg().getSnapshotId(), ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER, shardId);
 
         if (exchangeCfg.getInitStateCfg().fromSnapshot() && Files.exists(SnapshotPath)) {
 
@@ -258,10 +258,6 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
                 cmd.marketData = orderBook.getL2MarketDataSnapshot(8);
             }
         }
-    }
-
-    private Path resolveSnapshotPath(long snapshotId, ISerializationProcessor.SerializedModuleType type, int instanceId) {
-        return folder.resolve(String.format("%s_snapshot_%d_%s%d.ecs", exchangeId, snapshotId, type, instanceId));
     }
 
     @Override
