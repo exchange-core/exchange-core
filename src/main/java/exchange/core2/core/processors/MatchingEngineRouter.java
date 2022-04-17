@@ -112,7 +112,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
         objectsPoolConfig.put(ObjectsPool.ART_NODE_256, 1024 * 4);
         this.objectsPool = new ObjectsPool(objectsPoolConfig);
 
-        final Path SnapshotPath = resolveSnapshotPath(exchangeCfg.getInitStateCfg().getSnapshotId(), ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER, shardId);
+        final Path SnapshotPath = serializationProcessor.resolveSnapshotPath(exchangeCfg.getInitStateCfg().getSnapshotId(), ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER, shardId);
 
         if (exchangeCfg.getInitStateCfg().fromSnapshot() && Files.exists(SnapshotPath)) {
 
@@ -254,14 +254,10 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
             // posting market data for risk processor makes sense only if command execution is successful, otherwise it will be ignored (possible garbage from previous cycle)
             // TODO don't need for EXCHANGE mode order books?
             // TODO doing this for many order books simultaneously can introduce hiccups
-            if ((cmd.serviceFlags & 1) != 0 && cmd.command != OrderCommandType.ORDER_BOOK_REQUEST && cmd.resultCode == CommandResultCode.SUCCESS) {
-                cmd.marketData = orderBook.getL2MarketDataSnapshot(8);
+            if (cmd.command != OrderCommandType.ORDER_BOOK_REQUEST && cmd.resultCode == CommandResultCode.SUCCESS) {
+                cmd.marketData = orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE);
             }
         }
-    }
-
-    private Path resolveSnapshotPath(long snapshotId, ISerializationProcessor.SerializedModuleType type, int instanceId) {
-        return folder.resolve(String.format("%s_snapshot_%d_%s%d.ecs", exchangeId, snapshotId, type, instanceId));
     }
 
     @Override
