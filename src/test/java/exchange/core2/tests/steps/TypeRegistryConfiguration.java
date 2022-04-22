@@ -1,4 +1,5 @@
 package exchange.core2.tests.steps;
+/*
 
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.tests.util.L2MarketDataHelper;
@@ -76,3 +77,4 @@ public class TypeRegistryConfiguration implements TypeRegistryConfigurer {
         return Locale.getDefault();
     }
 }
+*/

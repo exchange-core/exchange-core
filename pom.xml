@@ -57,7 +57,7 @@
         <openhft.chronicle.wire.version>2.19.1</openhft.chronicle.wire.version>
         <eclipse.collections.version>10.2.0</eclipse.collections.version>
         <hdr.histogram.version>2.1.12</hdr.histogram.version>
-        <cucumber.version>5.4.2</cucumber.version>
+        <cucumber.version>7.2.3</cucumber.version>
         <lz4.java>1.7.1</lz4.java>
         <agrona.version>1.4.1</agrona.version>
         <lombok.version>1.18.12</lombok.version>
@@ -72,6 +72,17 @@
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna-platform</artifactId>
+            <version>5.11.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.11.0</version>
+        </dependency>
 
         <dependency>
             <groupId>exchange.core2</groupId>
@@ -245,14 +256,20 @@
 
         <dependency>
             <groupId>io.cucumber</groupId>
-            <artifactId>cucumber-java</artifactId>
+            <artifactId>cucumber-java8</artifactId>
             <version>${cucumber.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>io.cucumber</groupId>
-            <artifactId>cucumber-junit</artifactId>
+            <artifactId>cucumber-junit-platform-engine</artifactId>
             <version>${cucumber.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-suite</artifactId>
+            <version>1.8.2</version>
             <scope>test</scope>
         </dependency>
         <dependency>
