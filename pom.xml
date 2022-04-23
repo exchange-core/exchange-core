@@ -155,20 +155,14 @@
         <dependency>
             <groupId>com.paritytrading.juncture</groupId>
             <artifactId>juncture-nasdaq</artifactId>
-            <version>0.6.0</version>
+            <version>1.0.0</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>com.paritytrading.nassau</groupId>
             <artifactId>nassau-util</artifactId>
-            <version>0.13.0</version>
+            <version>1.0.0</version>
             <scope>test</scope>
-            <exclusions>
-                <exclusion>
-                    <artifactId>junit</artifactId>
-                    <groupId>junit</groupId>
-                </exclusion>
-            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.mockito</groupId>
