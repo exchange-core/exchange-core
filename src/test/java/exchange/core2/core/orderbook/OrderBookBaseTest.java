@@ -25,9 +25,9 @@ import exchange.core2.tests.util.L2MarketDataHelper;
 import exchange.core2.tests.util.TestOrdersGenerator;
 import lombok.extern.slf4j.Slf4j;
 import org.hamcrest.core.Is;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.List;
@@ -38,7 +38,7 @@ import static exchange.core2.core.common.OrderType.*;
 import static exchange.core2.core.common.cmd.CommandResultCode.*;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 
 /**
@@ -66,7 +66,7 @@ public abstract class OrderBookBaseTest {
     protected abstract CoreSymbolSpecification getCoreSymbolSpec();
 
 
-    @Before
+    @BeforeEach
     public void before() {
         orderBook = createNewOrderBook();
         orderBook.validateInternalState();
@@ -108,7 +108,7 @@ public abstract class OrderBookBaseTest {
      * In the end of each test remove all orders by sending market orders wit proper size.
      * Check order book is empty.
      */
-    @After
+    @AfterEach
     public void after() {
         clearOrderBook();
     }

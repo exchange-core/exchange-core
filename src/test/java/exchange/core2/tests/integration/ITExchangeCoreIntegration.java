@@ -26,9 +26,10 @@ import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.L2MarketDataHelper;
 import lombok.extern.slf4j.Slf4j;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import org.junit.jupiter.api.Timeout;
 
 import static exchange.core2.core.common.OrderAction.ASK;
 import static exchange.core2.core.common.OrderType.GTC;
@@ -36,7 +37,7 @@ import static exchange.core2.tests.util.ExchangeTestContainer.CHECK_SUCCESS;
 import static exchange.core2.tests.util.TestConstants.*;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.core.Is.is;
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 @Slf4j
 //TODO test cases are moved to cucumber scenarios, remove this class
@@ -45,25 +46,29 @@ public abstract class ITExchangeCoreIntegration {
     // configuration provided by child class
     public abstract PerformanceConfiguration getPerformanceConfiguration();
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5_000)
     public void basicFullCycleTestMargin() {
         basicFullCycleTest(SYMBOLSPEC_EUR_USD);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5_000)
     public void basicFullCycleTestExchange() {
 
         basicFullCycleTest(SYMBOLSPEC_ETH_XBT);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5_000)
     public void shouldInitSymbols() {
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
             container.initBasicSymbols();
         }
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5_000)
     public void shouldInitUsers() {
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
             container.initBasicUsers();
@@ -182,7 +187,8 @@ public abstract class ITExchangeCoreIntegration {
     }
 
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5_000)
     public void exchangeRiskBasicTest() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
@@ -273,7 +279,8 @@ public abstract class ITExchangeCoreIntegration {
         }
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5_000)
     public void exchangeRiskMoveTest() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
@@ -518,7 +525,8 @@ public abstract class ITExchangeCoreIntegration {
         }
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5_000)
     public void exchangeCancelBid() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {

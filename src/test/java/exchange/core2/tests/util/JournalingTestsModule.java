@@ -25,9 +25,9 @@ import org.hamcrest.core.Is;
 
 import java.util.concurrent.ExecutionException;
 
-import static junit.framework.TestCase.assertTrue;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Slf4j
 public class JournalingTestsModule {

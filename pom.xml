@@ -152,7 +152,6 @@
         </dependency>
 
         <!-- test scope -->
-
         <dependency>
             <groupId>com.paritytrading.juncture</groupId>
             <artifactId>juncture-nasdaq</artifactId>
@@ -163,6 +162,18 @@
             <groupId>com.paritytrading.nassau</groupId>
             <artifactId>nassau-util</artifactId>
             <version>0.13.0</version>
+            <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <artifactId>junit</artifactId>
+                    <groupId>junit</groupId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-junit-jupiter</artifactId>
+            <version>4.5.1</version>
             <scope>test</scope>
         </dependency>
 
@@ -236,11 +247,17 @@
 
         <!-- unit tests -->
         <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <version>5.8.2</version>
+            <scope>test</scope>
+        </dependency>
+<!--        <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
             <version>${junit.version}</version>
             <scope>test</scope>
-        </dependency>
+        </dependency>-->
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>

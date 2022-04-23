@@ -5,8 +5,8 @@ import static exchange.core2.tests.util.TestConstants.SYMBOLSPEC_ETH_XBT;
 import static exchange.core2.tests.util.TestConstants.SYMBOLSPEC_EUR_USD;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.core.Is.is;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.MatcherEventType;
@@ -34,6 +34,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 
 @Slf4j
 public class OrderStepdefs implements En {
@@ -47,6 +49,19 @@ public class OrderStepdefs implements En {
 
     final Map<String, CoreSymbolSpecification> symbolSpecificationMap = new HashMap<>();
     final Map<String, Long> users = new HashMap<>();
+
+    @BeforeEach
+    public void before() {
+        container = ExchangeTestContainer.create(testPerformanceConfiguration);
+        container.initBasicSymbols();
+    }
+
+    @AfterEach
+    public void after() {
+        if (container != null) {
+            container.close();
+        }
+    }
 
     public OrderStepdefs() {
         symbolSpecificationMap.put("EUR_USD", SYMBOLSPEC_EUR_USD);
@@ -90,11 +105,11 @@ public class OrderStepdefs implements En {
             container = ExchangeTestContainer.create(testPerformanceConfiguration);
             container.initBasicSymbols();
         });
-        After((HookNoArgsBody) -> {
-            if (container != null) {
-                container.close();
-            }
-        });
+        //        After((HookNoArgsBody) -> {
+        //            if (container != null) {
+        //                container.close();
+        //            }
+        //        });
 
         Given("New client {user} has a balance:",
             (Long clientId, DataTable table) -> {
@@ -213,7 +228,7 @@ public class OrderStepdefs implements En {
 
                 if (fieldNameByIndex.containsKey("side")) {
                     OrderAction action = OrderAction.valueOf(record.get(fieldNameByIndex.get("side")));
-                    assertEquals("Unexpected action", action, order.getAction());
+                    assertEquals(action, order.getAction(), "Unexpected action");
                 }
 
             }
@@ -323,7 +338,7 @@ public class OrderStepdefs implements En {
     private void checkField(Map<String, Integer> fieldNameByIndex, List<String> record, String field, long expected) {
         if (fieldNameByIndex.containsKey(field)) {
             long actual = Long.parseLong(record.get(fieldNameByIndex.get(field)));
-            assertEquals("Unexpected value for " + field, actual, expected);
+            assertEquals(actual, expected, "Unexpected value for " + field);
         }
     }
 

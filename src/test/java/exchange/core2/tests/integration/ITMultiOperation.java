@@ -19,12 +19,14 @@ import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.core.common.config.SerializationConfiguration;
 import exchange.core2.tests.util.*;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 
 public final class ITMultiOperation {
 
-    @Test(timeout = 60000L)
+    @Test
+    @Timeout(60_000L)
     public void shouldPerformMarginOperations() {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
@@ -46,7 +48,8 @@ public final class ITMultiOperation {
         );
     }
 
-    @Test(timeout = 60000L)
+    @Test
+    @Timeout(60_000L)
     public void shouldPerformExchangeOperations() {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
@@ -67,7 +70,8 @@ public final class ITMultiOperation {
                 2);
     }
 
-    @Test(timeout = 60000L)
+    @Test
+    @Timeout(60_000L)
     public void shouldPerformSharded() {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()

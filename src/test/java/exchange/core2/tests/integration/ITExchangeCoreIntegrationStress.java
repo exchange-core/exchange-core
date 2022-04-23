@@ -24,7 +24,7 @@ import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.TestOrdersGenerator;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Set;
@@ -32,13 +32,14 @@ import java.util.concurrent.CountDownLatch;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Timeout;
 
 import static exchange.core2.tests.util.TestConstants.SYMBOLSPEC_ETH_XBT;
 import static exchange.core2.tests.util.TestConstants.SYMBOLSPEC_EUR_USD;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.core.Is.is;
 import static org.hamcrest.number.OrderingComparison.greaterThan;
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 @Slf4j
 public abstract class ITExchangeCoreIntegrationStress {
@@ -46,13 +47,15 @@ public abstract class ITExchangeCoreIntegrationStress {
     // configuration provided by child class
     public abstract PerformanceConfiguration getPerformanceConfiguration();
 
-    @Test(timeout = 60_000)
+    @Test
+    @Timeout(60_000)
     public void manyOperationsMargin() throws Exception {
 
         manyOperations(SYMBOLSPEC_EUR_USD);
     }
 
-    @Test(timeout = 60_000)
+    @Test
+    @Timeout(60_000)
     public void manyOperationsExchange() throws Exception {
 
         manyOperations(SYMBOLSPEC_ETH_XBT);

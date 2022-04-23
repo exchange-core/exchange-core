@@ -21,7 +21,7 @@ import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.tests.util.TestOrdersGenerator;
 import lombok.extern.slf4j.Slf4j;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -33,7 +33,7 @@ import static exchange.core2.core.common.cmd.CommandResultCode.SUCCESS;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 @Slf4j
 public abstract class OrderBookDirectImplTest extends OrderBookBaseTest {
