@@ -57,24 +57,23 @@ public class OrderStepdefs implements En {
 
         ParameterType(
             "symbol",
-            "(EUR_USD)?(ETH_XBT)?",
+            "EUR_USD|ETH_XBT",
             symbolSpecificationMap::get
         );
         ParameterType("user",
-            "(Alice)?(Bob)?(Charlie)?",
+            "Alice|Bob|Charlie",
             users::get);
 
-        DataTableType((DataTable entry) -> {
-            List<List<String>> list = entry.asLists();
-
+        DataTableType((DataTable table) -> {
+            DataTable subTable = table.rows(0);
             //skip a header if it presents
-            if (list.get(0).get(0) != null && list.get(0).get(0).trim().equals("bid")) {
-                list = list.subList(1, list.size());
+            if (table.row(0).get(0) != null && table.row(0).get(0).trim().equals("bid")) {
+                subTable = table.rows(1);
             }
-
             //format | bid | price | ask |
             final L2MarketDataHelper l2helper = new L2MarketDataHelper();
-            for (List<String> row : list) {
+            for (int i = 0; i < subTable.height(); i++) {
+                List<String> row = subTable.row(i);
                 int price = Integer.parseInt(row.get(1));
 
                 String bid = row.get(0);
@@ -98,7 +97,8 @@ public class OrderStepdefs implements En {
         });
 
         Given("New client {user} has a balance:",
-            (Long clientId, List<List<String>> balance) -> {
+            (Long clientId, DataTable table) -> {
+                List<List<String>> balance = table.asLists();
 
                 final List<ApiCommand> cmds = new ArrayList<>();
 
@@ -162,8 +162,6 @@ public class OrderStepdefs implements En {
                 assertEquals(orderBook.build(), container.requestCurrentOrderBook(symbol.symbolId));
             });
 
-
-
         When(
             "A client {user} could not place an {word} order {long} at {long}@{long} \\(type: {word}, symbol: {symbol}, reservePrice: {long}) due to {word}",
             (Long clientId, String side, Long orderId, Long price, Long size,
@@ -173,7 +171,8 @@ public class OrderStepdefs implements En {
             });
 
         And("A balance of a client {user}:",
-            (Long clientId, List<List<String>> balance) -> {
+            (Long clientId, DataTable table) -> {
+                List<List<String>> balance = table.asLists();
                 SingleUserReportResult profile = container.getUserProfile(clientId);
                 for (List<String> record : balance) {
                     assertThat("Unexpected balance of: " + record.get(0),
@@ -182,7 +181,8 @@ public class OrderStepdefs implements En {
                 }
             });
 
-        And("A client {user} orders:", (Long clientId, List<List<String>> table) -> {
+        And("A client {user} orders:", (Long clientId, DataTable table) -> {
+            List<List<String>> lists = table.asLists();
             //| id | price | size | filled | reservePrice | side |
 
             SingleUserReportResult profile = container.getUserProfile(clientId);
@@ -192,16 +192,16 @@ public class OrderStepdefs implements En {
 
             //read a header
             int i = 0;
-            for (String field : table.get(0)) {
+            for (String field : lists.get(0)) {
                 fieldNameByIndex.put(field, i++);
             }
 
             //remove header
-            table = table.subList(1, table.size());
+            lists = lists.subList(1, lists.size());
 
             Map<Long, Order> orders = profile.fetchIndexedOrders();
 
-            for (List<String> record : table) {
+            for (List<String> record : lists) {
                 long orderId = Long.parseLong(record.get(fieldNameByIndex.get("id")));
                 Order order = orders.get(orderId);
                 assertNotNull(order);
