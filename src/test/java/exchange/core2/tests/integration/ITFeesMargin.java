@@ -50,7 +50,7 @@ public abstract class ITFeesMargin {
     public abstract PerformanceConfiguration getPerformanceConfiguration();
 
     @Test
-    @Timeout(10_000)
+    @Timeout(10)
     public void shouldProcessFees_AskGtcMakerPartial_BidIocTaker() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
@@ -136,7 +136,7 @@ public abstract class ITFeesMargin {
     }
 
     @Test
-    @Timeout(10_000)
+    @Timeout(10)
     public void shouldProcessFees_BidGtcMakerPartial_AskIocTaker() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
@@ -223,7 +223,7 @@ public abstract class ITFeesMargin {
 
 
     @Test
-    @Timeout(10_000)
+    @Timeout(10)
     public void shouldNotTakeFeesForCancelAsk() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {

@@ -48,14 +48,14 @@ public abstract class ITExchangeCoreIntegrationStress {
     public abstract PerformanceConfiguration getPerformanceConfiguration();
 
     @Test
-    @Timeout(60_000)
+    @Timeout(60)
     public void manyOperationsMargin() throws Exception {
 
         manyOperations(SYMBOLSPEC_EUR_USD);
     }
 
     @Test
-    @Timeout(60_000)
+    @Timeout(60)
     public void manyOperationsExchange() throws Exception {
 
         manyOperations(SYMBOLSPEC_ETH_XBT);

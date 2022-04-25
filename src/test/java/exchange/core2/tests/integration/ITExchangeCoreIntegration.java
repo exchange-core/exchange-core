@@ -47,20 +47,20 @@ public abstract class ITExchangeCoreIntegration {
     public abstract PerformanceConfiguration getPerformanceConfiguration();
 
     @Test
-    @Timeout(5_000)
+    @Timeout(5)
     public void basicFullCycleTestMargin() {
         basicFullCycleTest(SYMBOLSPEC_EUR_USD);
     }
 
     @Test
-    @Timeout(5_000)
+    @Timeout(5)
     public void basicFullCycleTestExchange() {
 
         basicFullCycleTest(SYMBOLSPEC_ETH_XBT);
     }
 
     @Test
-    @Timeout(5_000)
+    @Timeout(5)
     public void shouldInitSymbols() {
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
             container.initBasicSymbols();
@@ -68,7 +68,7 @@ public abstract class ITExchangeCoreIntegration {
     }
 
     @Test
-    @Timeout(5_000)
+    @Timeout(5)
     public void shouldInitUsers() {
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
             container.initBasicUsers();
@@ -188,7 +188,7 @@ public abstract class ITExchangeCoreIntegration {
 
 
     @Test
-    @Timeout(5_000)
+    @Timeout(5)
     public void exchangeRiskBasicTest() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
@@ -280,7 +280,7 @@ public abstract class ITExchangeCoreIntegration {
     }
 
     @Test
-    @Timeout(5_000)
+    @Timeout(5)
     public void exchangeRiskMoveTest() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
@@ -526,7 +526,7 @@ public abstract class ITExchangeCoreIntegration {
     }
 
     @Test
-    @Timeout(5_000)
+    @Timeout(5)
     public void exchangeCancelBid() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {

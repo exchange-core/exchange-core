@@ -26,7 +26,7 @@ import org.junit.jupiter.api.Timeout;
 public final class ITMultiOperation {
 
     @Test
-    @Timeout(60_000L)
+    @Timeout(60)
     public void shouldPerformMarginOperations() {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
@@ -49,7 +49,7 @@ public final class ITMultiOperation {
     }
 
     @Test
-    @Timeout(60_000L)
+    @Timeout(60)
     public void shouldPerformExchangeOperations() {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
@@ -71,7 +71,7 @@ public final class ITMultiOperation {
     }
 
     @Test
-    @Timeout(60_000L)
+    @Timeout(60)
     public void shouldPerformSharded() {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()

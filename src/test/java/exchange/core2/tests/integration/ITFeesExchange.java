@@ -52,7 +52,7 @@ public abstract class ITFeesExchange {
 
 
     @Test
-    @Timeout(10_000)
+    @Timeout(10)
     public void shouldRequireTakerFees_GtcCancel() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
@@ -123,7 +123,7 @@ public abstract class ITFeesExchange {
 
 
     @Test
-    @Timeout(10_000)
+    @Timeout(10)
     public void shouldProcessFees_BidGtcMaker_AskIocTakerPartial() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
@@ -203,7 +203,7 @@ public abstract class ITFeesExchange {
 
 
     @Test
-    @Timeout(10_000)
+    @Timeout(10)
     public void shouldProcessFees_BidGtcMakerPartial_AskIocTaker() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
@@ -283,7 +283,7 @@ public abstract class ITFeesExchange {
     }
 
     @Test
-    @Timeout(10_000)
+    @Timeout(10)
     public void shouldProcessFees_AskGtcMaker_BidIocTakerPartial() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
@@ -362,7 +362,7 @@ public abstract class ITFeesExchange {
     }
 
     @Test
-    @Timeout(10_000)
+    @Timeout(10)
     public void shouldProcessFees_AskGtcMakerPartial_BidIocTaker() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
