@@ -42,6 +42,12 @@ public final class OrderCommand implements IOrder {
     public long size;
 
     @Getter
+    public int firstX;
+
+    @Getter
+    public int firstY;
+
+    @Getter
     // new orders INPUT - reserved price for fast moves of GTC bid orders in exchange mode
     public long reserveBidPrice;
 

@@ -153,7 +153,9 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
                                 cmd.uid,
                                 cmd.symbol,
                                 cmd.userCookie,
-                                cmd.reserveBidPrice),
+                                cmd.reserveBidPrice,
+                                cmd.firstX,
+                                cmd.firstY),
                         cmd.resultCode,
                         cmd.timestamp,
                         seq);

@@ -436,6 +436,8 @@ public final class ExchangeApi {
         cmd.symbol = api.symbol;
         cmd.uid = api.uid;
         cmd.userCookie = api.userCookie;
+        cmd.firstX = api.firstX;
+        cmd.firstY = api.firstY;
         cmd.resultCode = CommandResultCode.NEW;
     };
 
@@ -719,6 +721,8 @@ public final class ExchangeApi {
             OrderType orderType,
             int symbol,
             long uid,
+            int firstX,
+            int firstY,
             Consumer<OrderCommand> callback) {
 
         final long seq = ringBuffer.next();
@@ -736,6 +740,8 @@ public final class ExchangeApi {
             cmd.orderType = orderType;
             cmd.symbol = symbol;
             cmd.uid = uid;
+            cmd.firstX = firstX;
+            cmd.firstY = firstY;
             cmd.userCookie = userCookie;
             promises.put(seq, callback);
 
@@ -757,7 +763,9 @@ public final class ExchangeApi {
                               OrderAction action,
                               OrderType orderType,
                               int symbol,
-                              long uid) {
+                              long uid,
+                              int firstX,
+                              int firstY) {
 
         ringBuffer.publishEvent((cmd, seq) -> {
             cmd.serviceFlags = serviceFlags;
@@ -775,6 +783,8 @@ public final class ExchangeApi {
             cmd.orderType = orderType;
             cmd.symbol = symbol;
             cmd.uid = uid;
+            cmd.firstX = firstX;
+            cmd.firstY = firstY;
             cmd.userCookie = userCookie;
         });
     }

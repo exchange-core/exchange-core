@@ -157,6 +157,8 @@ public class ITCoreExample {
                 .action(OrderAction.ASK)
                 .orderType(OrderType.IOC) // Immediate-or-Cancel
                 .symbol(symbolXbtLtc)
+                .firstX(123)
+                .firstY(435)
                 .build());
 
         System.out.println("ApiPlaceOrder 2 result: " + future.get());

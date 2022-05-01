@@ -289,7 +289,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
             buffer.putLong(cmd.orderId); // 8 bytes - can be compressed as delta
             buffer.putLong(cmd.price); // 8 bytes - can be compressed as delta
 
-            if (debug) log.debug("move order seq={} t={} orderId={} symbol={} uid={} price={}", baseSeq + dSeq, cmd.timestamp, cmd.orderId, cmd.symbol, cmd.uid, cmd.price);
+            if (debug)
+                log.debug("move order seq={} t={} orderId={} symbol={} uid={} price={}", baseSeq + dSeq, cmd.timestamp, cmd.orderId, cmd.symbol, cmd.uid, cmd.price);
 
         } else if (cmdType == OrderCommandType.CANCEL_ORDER) {
 
@@ -297,7 +298,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
             buffer.putInt(cmd.symbol); // 4 bytes can be compressed as dictionary
             buffer.putLong(cmd.orderId); // 8 bytes - can be compressed as delta
 
-            if (debug) log.debug("cancel order seq={} t={} orderId={} symbol={} uid={}", baseSeq + dSeq, cmd.timestamp, cmd.orderId, cmd.symbol, cmd.uid);
+            if (debug)
+                log.debug("cancel order seq={} t={} orderId={} symbol={} uid={}", baseSeq + dSeq, cmd.timestamp, cmd.orderId, cmd.symbol, cmd.uid);
 
         } else if (cmdType == OrderCommandType.REDUCE_ORDER) {
 
@@ -306,7 +308,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
             buffer.putLong(cmd.orderId); // 8 bytes - can be compressed as delta
             buffer.putLong(cmd.size); // 8 bytes - can be compressed as low value
 
-            if (debug) log.debug("reduce order seq={} t={} orderId={} symbol={} uid={} size={}", baseSeq + dSeq, cmd.timestamp, cmd.orderId, cmd.symbol, cmd.uid, cmd.size);
+            if (debug)
+                log.debug("reduce order seq={} t={} orderId={} symbol={} uid={} size={}", baseSeq + dSeq, cmd.timestamp, cmd.orderId, cmd.symbol, cmd.uid, cmd.size);
 
         } else if (cmdType == OrderCommandType.PLACE_ORDER) {
 
@@ -316,14 +319,17 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
             buffer.putLong(cmd.price); // 8 bytes - can be compressed as delta
             buffer.putLong(cmd.reserveBidPrice); // 8 bytes - can be compressed (diff to price or 0)
             buffer.putLong(cmd.size); // 8 bytes - can be compressed
+            buffer.putInt(cmd.firstX); // 4 bytes
+            buffer.putInt(cmd.firstY); // 4 bytes
             buffer.putInt(cmd.userCookie); // 4 bytes can be log-compressed
 
             final int actionAndType = (cmd.orderType.getCode() << 1) | cmd.action.getCode();
             byte actionAndType1 = (byte) actionAndType;
             buffer.put(actionAndType1); // 1 byte
 
-            if (debug) log.debug("place order seq={} t={} orderId={} symbol={} uid={} price={} reserveBidPrice={} size={} userCookie={} {}/{} actionAndType={}",
-                    baseSeq + dSeq, cmd.timestamp, cmd.orderId, cmd.symbol, cmd.uid, cmd.price, cmd.reserveBidPrice, cmd.size, cmd.userCookie, cmd.action, cmd.orderType, actionAndType1);
+            if (debug)
+                log.debug("place order seq={} t={} orderId={} symbol={} uid={} price={} reserveBidPrice={} size={} userCookie={} {}/{} actionAndType={}",
+                        baseSeq + dSeq, cmd.timestamp, cmd.orderId, cmd.symbol, cmd.uid, cmd.price, cmd.reserveBidPrice, cmd.size, cmd.userCookie, cmd.action, cmd.orderType, actionAndType1);
 
         } else if (cmdType == OrderCommandType.BALANCE_ADJUSTMENT) {
 
@@ -462,15 +468,18 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
             if (cmd == OrderCommandType.RESERVED_COMPRESSED.getCode()) {
 
-                if (insideCompressedBlock) throw new IllegalStateException("Recursive compression block (data corrupted)");
+                if (insideCompressedBlock)
+                    throw new IllegalStateException("Recursive compression block (data corrupted)");
 
                 int size = jr.readInt();
                 int origSize = jr.readInt();
 
 //                log.debug("{}->{}", size, origSize);
 
-                if (size > 1000000) throw new IllegalStateException("Bad compressed block size = " + size + "(data corrupted)");
-                if (origSize > 1000000) throw new IllegalStateException("Bad original block size = " + size + "(data corrupted)");
+                if (size > 1000000)
+                    throw new IllegalStateException("Bad compressed block size = " + size + "(data corrupted)");
+                if (origSize > 1000000)
+                    throw new IllegalStateException("Bad original block size = " + size + "(data corrupted)");
 
                 byte[] compressedArray = new byte[size];
                 int read = jr.read(compressedArray);
@@ -515,7 +524,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
                     final long orderId = jr.readLong(); // 8 bytes - can be compressed as delta
                     final long price = jr.readLong(); // 8 bytes - can be compressed as delta
 
-                    if (debug) log.debug("move order seq={} t={} orderId={} symbol={} uid={} price={}", lastSeq, timestampNs, orderId, symbol, uid, price);
+                    if (debug)
+                        log.debug("move order seq={} t={} orderId={} symbol={} uid={} price={}", lastSeq, timestampNs, orderId, symbol, uid, price);
 
                     api.moveOrder(serviceFlags, eventsGroup, timestampNs, price, orderId, symbol, uid);
 
@@ -525,7 +535,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
                     final int symbol = jr.readInt();// 4 bytes can be compressed as dictionary
                     final long orderId = jr.readLong(); // 8 bytes - can be compressed as delta
 
-                    if (debug) log.debug("cancel order seq={} t={} orderId={} symbol={} uid={}", lastSeq, timestampNs, orderId, symbol, uid);
+                    if (debug)
+                        log.debug("cancel order seq={} t={} orderId={} symbol={} uid={}", lastSeq, timestampNs, orderId, symbol, uid);
 
                     api.cancelOrder(serviceFlags, eventsGroup, timestampNs, orderId, symbol, uid);
 
@@ -536,7 +547,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
                     final long orderId = jr.readLong(); // 8 bytes - can be compressed as delta
                     final long reduceSize = jr.readLong(); // 8 bytes - can be compressed as low value
 
-                    if (debug) log.debug("reduce order seq={} t={} orderId={} symbol={} uid={} reduceSize={}", lastSeq, timestampNs, orderId, symbol, uid, reduceSize);
+                    if (debug)
+                        log.debug("reduce order seq={} t={} orderId={} symbol={} uid={} reduceSize={}", lastSeq, timestampNs, orderId, symbol, uid, reduceSize);
 
                     api.reduceOrder(serviceFlags, eventsGroup, timestampNs, reduceSize, orderId, symbol, uid);
 
@@ -548,6 +560,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
                     final long price = jr.readLong(); // 8 bytes - can be compressed as delta
                     final long reservedBidPrice = jr.readLong(); // 8 bytes - can be compressed (diff to price or 0)
                     final long size = jr.readLong(); // 8 bytes - can be compressed
+                    final int firstX = jr.readInt();
+                    final int firstY = jr.readInt();
                     final int userCookie = jr.readInt(); // 4 bytes can be compressed as a optional low value
 
                     final byte actionAndType = jr.readByte(); // 1 byte
@@ -557,7 +571,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
                     if (debug)
                         log.debug("place order seq={} t={} orderId={} symbol={} uid={} price={} reserveBidPrice={} size={} userCookie={} {}/{} actionAndType={}", lastSeq, timestampNs, orderId, symbol, uid, price, reservedBidPrice, size, userCookie, orderAction, orderType, actionAndType);
 
-                    api.placeNewOrder(serviceFlags, eventsGroup, timestampNs, orderId, userCookie, price, reservedBidPrice, size, orderAction, orderType, symbol, uid);
+                    api.placeNewOrder(serviceFlags, eventsGroup, timestampNs, orderId, userCookie, price,
+                            reservedBidPrice, size, orderAction, orderType, symbol, uid, firstX, firstY);
 
                 } else if (cmdType == OrderCommandType.BALANCE_ADJUSTMENT) {
 

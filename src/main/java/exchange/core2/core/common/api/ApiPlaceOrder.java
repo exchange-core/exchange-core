@@ -36,12 +36,14 @@ public final class ApiPlaceOrder extends ApiCommand {
     public final int symbol;
     public final int userCookie;
     public final long reservePrice;
+    public final int firstX;
+    public final int firstY;
 
     @Override
     public String toString() {
         return "[ADD o" + orderId + " s" + symbol + " u" + uid + " " + (action == OrderAction.ASK ? 'A' : 'B')
                 + ":" + (orderType == OrderType.IOC ? "IOC" : "GTC")
-                + ":" + price + ":" + size + "]";
+                + ":" + price + ":" + size + ":XXX:" + firstX + "]";
         //(reservePrice != 0 ? ("(R" + reservePrice + ")") : "") +
     }
 }
