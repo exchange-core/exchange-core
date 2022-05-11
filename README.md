@@ -79,7 +79,7 @@ Benchmark configuration:
 <dependency>
     <groupId>exchange.core2</groupId>
     <artifactId>exchange-core</artifactId>
-    <version>0.5.0</version>
+    <version>0.5.3</version>
 </dependency>
 ```
 
