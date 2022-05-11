@@ -43,6 +43,8 @@ public class PersistenceTestsModule {
 
         for (int iteration = 0; iteration < iterations; iteration++) {
 
+            log.debug(" ----------- persistence test --- iteration {} of {} ----", iteration, iterations);
+
             final long stateId;
 
 //            long t = System.currentTimeMillis();

@@ -6,7 +6,6 @@ import exchange.core2.core.common.config.InitialStateConfiguration;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 
-import java.nio.file.Path;
 import java.util.NavigableMap;
 import java.util.function.Function;
 
@@ -55,7 +54,7 @@ public class DummySerializationProcessor implements ISerializationProcessor {
     }
 
     @Override
-    public Path resolveSnapshotPath(long snapshotId, SerializedModuleType type, int instanceId) {
-        return null;
+    public boolean checkSnapshotExists(long snapshotId, SerializedModuleType type, int instanceId) {
+        return false;
     }
 }

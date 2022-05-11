@@ -26,6 +26,7 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.ExchangeConfiguration;
+import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.orderbook.IOrderBook;
@@ -42,7 +43,6 @@ import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
@@ -51,6 +51,9 @@ import java.util.Optional;
 @Slf4j
 @Getter
 public final class MatchingEngineRouter implements WriteBytesMarshallable {
+
+    public static final ISerializationProcessor.SerializedModuleType MODULE_ME =
+            ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER;
 
     // state
     private final BinaryCommandsProcessor binaryCommandsProcessor;
@@ -90,7 +93,9 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
             throw new IllegalArgumentException("Invalid number of shards " + numShards + " - must be power of 2");
         }
 
-        this.exchangeId = exchangeCfg.getInitStateCfg().getExchangeId();
+        final InitialStateConfiguration initStateCfg = exchangeCfg.getInitStateCfg();
+
+        this.exchangeId = initStateCfg.getExchangeId();
         this.folder = Paths.get(DiskSerializationProcessorConfiguration.DEFAULT_FOLDER);
 
         this.shardId = shardId;
@@ -112,12 +117,10 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
         objectsPoolConfig.put(ObjectsPool.ART_NODE_256, 1024 * 4);
         this.objectsPool = new ObjectsPool(objectsPoolConfig);
 
-        final Path SnapshotPath = serializationProcessor.resolveSnapshotPath(exchangeCfg.getInitStateCfg().getSnapshotId(), ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER, shardId);
-
-        if (exchangeCfg.getInitStateCfg().fromSnapshot() && Files.exists(SnapshotPath)) {
+        if (ISerializationProcessor.canLoadFromSnapshot(serializationProcessor, initStateCfg, shardId, MODULE_ME)) {
 
             final DeserializedData deserialized = serializationProcessor.loadData(
-                    exchangeCfg.getInitStateCfg().getSnapshotId(),
+                    initStateCfg.getSnapshotId(),
                     ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER,
                     shardId,
                     bytesIn -> {
