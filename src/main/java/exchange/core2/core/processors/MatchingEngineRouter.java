@@ -25,10 +25,7 @@ import exchange.core2.core.common.api.reports.ReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
-import exchange.core2.core.common.config.ExchangeConfiguration;
-import exchange.core2.core.common.config.InitialStateConfiguration;
-import exchange.core2.core.common.config.LoggingConfiguration;
-import exchange.core2.core.common.config.OrdersProcessingConfiguration;
+import exchange.core2.core.common.config.*;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.orderbook.OrderBookEventsHelper;
 import exchange.core2.core.processors.journaling.DiskSerializationProcessorConfiguration;
@@ -76,6 +73,9 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
     private final Path folder;
 
     private final boolean cfgMarginTradingEnabled;
+
+    private final boolean cfgSendL2ForEveryCmd;
+    private final int cfgL2RefreshDepth;
 
     private final ISerializationProcessor serializationProcessor;
 
@@ -162,6 +162,10 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
 
         final OrdersProcessingConfiguration ordersProcCfg = exchangeCfg.getOrdersProcessingCfg();
         this.cfgMarginTradingEnabled = ordersProcCfg.getMarginTradingMode() == OrdersProcessingConfiguration.MarginTradingMode.MARGIN_TRADING_ENABLED;
+
+        final PerformanceConfiguration perfCfg = exchangeCfg.getPerformanceCfg();
+        this.cfgSendL2ForEveryCmd = perfCfg.isSendL2ForEveryCmd();
+        this.cfgL2RefreshDepth = perfCfg.getL2RefreshDepth();
     }
 
     public void processOrder(long seq, OrderCommand cmd) {
@@ -257,8 +261,11 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
             // posting market data for risk processor makes sense only if command execution is successful, otherwise it will be ignored (possible garbage from previous cycle)
             // TODO don't need for EXCHANGE mode order books?
             // TODO doing this for many order books simultaneously can introduce hiccups
-            if (cmd.command != OrderCommandType.ORDER_BOOK_REQUEST && cmd.resultCode == CommandResultCode.SUCCESS) {
-                cmd.marketData = orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE);
+            if ((cfgSendL2ForEveryCmd || (cmd.serviceFlags & 1) != 0)
+                    && cmd.command != OrderCommandType.ORDER_BOOK_REQUEST
+                    && cmd.resultCode == CommandResultCode.SUCCESS) {
+
+                cmd.marketData = orderBook.getL2MarketDataSnapshot(cfgL2RefreshDepth);
             }
         }
     }
