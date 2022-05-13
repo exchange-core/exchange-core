@@ -105,11 +105,11 @@ public class OrderStepdefs implements En {
             container = ExchangeTestContainer.create(testPerformanceConfiguration);
             container.initBasicSymbols();
         });
-        //        After((HookNoArgsBody) -> {
-        //            if (container != null) {
-        //                container.close();
-        //            }
-        //        });
+        After((HookNoArgsBody) -> {
+            if (container != null) {
+                container.close();
+            }
+        });
 
         Given("New client {user} has a balance:",
             (Long clientId, DataTable table) -> {

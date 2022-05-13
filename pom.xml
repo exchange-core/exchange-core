@@ -64,9 +64,14 @@
         <slf4j.version>1.7.30</slf4j.version>
         <logback.version>1.2.3</logback.version>
         <jmh.version>1.23</jmh.version>
-        <junit.version>4.13.1</junit.version>
         <mockito.version>4.5.1</mockito.version>
         <hamcrest.version>1.3</hamcrest.version>
+        <jna.version>5.11.0</jna.version>
+        <nassau-util.version>1.0.0</nassau-util.version>
+        <juncture-nasdaq.version>1.0.0</juncture-nasdaq.version>
+        <junit-jupiter-engine.version>5.8.2</junit-jupiter-engine.version>
+        <junit-platform-suite.version>1.8.2</junit-platform-suite.version>
+        <core2.collections.version>0.5.1</core2.collections.version>
 
         <delombok.output>target/delombok</delombok.output>
     </properties>
@@ -75,19 +80,19 @@
         <dependency>
             <groupId>net.java.dev.jna</groupId>
             <artifactId>jna-platform</artifactId>
-            <version>5.11.0</version>
+            <version>${jna.version}</version>
         </dependency>
 
         <dependency>
             <groupId>net.java.dev.jna</groupId>
             <artifactId>jna</artifactId>
-            <version>5.11.0</version>
+            <version>${jna.version}</version>
         </dependency>
 
         <dependency>
             <groupId>exchange.core2</groupId>
             <artifactId>collections</artifactId>
-            <version>0.5.1</version>
+            <version>${core2.collections.version}</version>
         </dependency>
 
         <!-- LMAX Disruptor -->
@@ -167,19 +172,19 @@
         <dependency>
             <groupId>com.paritytrading.juncture</groupId>
             <artifactId>juncture-nasdaq</artifactId>
-            <version>1.0.0</version>
+            <version>${juncture-nasdaq.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>com.paritytrading.nassau</groupId>
             <artifactId>nassau-util</artifactId>
-            <version>1.0.0</version>
+            <version>${nassau-util.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-junit-jupiter</artifactId>
-            <version>4.5.1</version>
+            <version>${mockito.version}</version>
             <scope>test</scope>
         </dependency>
 
@@ -261,7 +266,7 @@
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-engine</artifactId>
-            <version>5.8.2</version>
+            <version>${junit-jupiter-engine.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -291,7 +296,7 @@
         <dependency>
             <groupId>org.junit.platform</groupId>
             <artifactId>junit-platform-suite</artifactId>
-            <version>1.8.2</version>
+            <version>${junit-platform-suite.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
