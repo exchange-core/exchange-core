@@ -268,6 +268,11 @@ public final class RiskEngine implements WriteBytesMarshallable {
                     cmd.resultCode = userProfileService.resumeUserProfile(cmd.uid);
                 }
                 return false;
+            case REMOVE_USER:
+                if (uidForThisHandler(cmd.uid)) {
+                    cmd.resultCode = userProfileService.removeUserProfile(cmd.uid);
+                }
+                return false;
 
             case BINARY_DATA_COMMAND:
             case BINARY_DATA_QUERY:
@@ -362,6 +367,12 @@ public final class RiskEngine implements WriteBytesMarshallable {
             cmd.resultCode = CommandResultCode.AUTH_INVALID_USER;
             log.warn("User profile {} not found", cmd.uid);
             return CommandResultCode.AUTH_INVALID_USER;
+        }
+
+        if (userProfile.userStatus == UserStatus.SUSPENDED) {
+            cmd.resultCode = CommandResultCode.RISK_USER_SUSPENDED;
+            log.warn("User profile {} suspended", cmd.uid);
+            return CommandResultCode.RISK_USER_SUSPENDED;
         }
 
         final CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(cmd.symbol);

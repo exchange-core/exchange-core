@@ -24,6 +24,7 @@ import exchange.core2.core.utils.SerializationUtils;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
+import org.agrona.collections.MutableInteger;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 
 import java.util.*;
@@ -317,6 +318,70 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
         // fill action fields (for events handling)
         cmd.action = order.getAction();
+
+        return CommandResultCode.SUCCESS;
+    }
+
+    /**
+     * Remove an order.<p>
+     *
+     * @param order cancel (order to remove)
+     * @return true if order removed, false if not found (can be removed/matched earlier)
+     */
+    public boolean cancelOrder(Order order) {
+        final long orderId = order.orderId;
+
+        if (order == null) {
+            // order already matched and removed from order book previously
+            return false;
+        }
+
+        // now can remove it
+        idMap.remove(orderId);
+
+        final NavigableMap<Long, OrdersBucketNaive> buckets = getBucketsByAction(order.action);
+        final long price = order.price;
+        final OrdersBucketNaive ordersBucket = buckets.get(price);
+        if (ordersBucket == null) {
+            // not possible state
+            throw new IllegalStateException("Can not find bucket for order price=" + price + " for order " + order);
+        }
+
+        // remove order and whole bucket if its empty
+        ordersBucket.remove(orderId, order.uid);
+        if (ordersBucket.getTotalVolume() == 0) {
+            buckets.remove(price);
+        }
+
+        return true;
+    }
+
+    /**
+     * Remove User orders.<p>
+     *
+     * @param cmd cancel orders (by UID)
+     * @return true if order removed, false if not found (can be removed/matched earlier)
+     */
+    public CommandResultCode cancelOrdersByUid(OrderCommand cmd) {
+
+        if(symbolSpec.type != SymbolType.CURRENCY_EXCHANGE_PAIR) {
+            return CommandResultCode.UNSUPPORTED_SYMBOL_TYPE;
+        }
+
+        final long userId = cmd.uid;
+        MutableInteger sizeOrders = new MutableInteger();
+
+        List<Order> userOrders = findUserOrders(userId);
+        if (!userOrders.isEmpty()) {
+            userOrders.stream().forEach(order -> {
+                if(cancelOrder(order)) {
+                    sizeOrders.getAndIncrement();
+                }
+            });
+        }
+
+        // send suspend event
+        cmd.matcherEvent = eventsHelper.sendSuspendEvent(userId, sizeOrders.get(), true);
 
         return CommandResultCode.SUCCESS;
     }

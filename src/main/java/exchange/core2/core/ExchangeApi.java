@@ -93,6 +93,8 @@ public final class ExchangeApi {
             ringBuffer.publishEvent(RESUME_USER_TRANSLATOR, (ApiResumeUser) cmd);
         } else if (cmd instanceof ApiSuspendUser) {
             ringBuffer.publishEvent(SUSPEND_USER_TRANSLATOR, (ApiSuspendUser) cmd);
+        } else if (cmd instanceof ApiRemoveUser) {
+            ringBuffer.publishEvent(REMOVE_USER_TRANSLATOR, (ApiRemoveUser) cmd);
         } else if (cmd instanceof ApiBinaryDataCommand) {
             publishBinaryData((ApiBinaryDataCommand) cmd, seq -> {
             });
@@ -129,6 +131,8 @@ public final class ExchangeApi {
             return submitCommandAsync(RESUME_USER_TRANSLATOR, (ApiResumeUser) cmd);
         } else if (cmd instanceof ApiSuspendUser) {
             return submitCommandAsync(SUSPEND_USER_TRANSLATOR, (ApiSuspendUser) cmd);
+        } else if (cmd instanceof ApiRemoveUser) {
+            return submitCommandAsync(REMOVE_USER_TRANSLATOR, (ApiRemoveUser) cmd);
         } else if (cmd instanceof ApiBinaryDataCommand) {
             return submitBinaryDataAsync(((ApiBinaryDataCommand) cmd).data);
         } else if (cmd instanceof ApiPersistState) {
@@ -162,6 +166,8 @@ public final class ExchangeApi {
             return submitCommandAsyncFullResponse(RESUME_USER_TRANSLATOR, (ApiResumeUser) cmd);
         } else if (cmd instanceof ApiSuspendUser) {
             return submitCommandAsyncFullResponse(SUSPEND_USER_TRANSLATOR, (ApiSuspendUser) cmd);
+        } else if (cmd instanceof ApiRemoveUser) {
+            return submitCommandAsyncFullResponse(REMOVE_USER_TRANSLATOR, (ApiRemoveUser) cmd);
         } else if (cmd instanceof ApiReset) {
             return submitCommandAsyncFullResponse(RESET_TRANSLATOR, (ApiReset) cmd);
         } else if (cmd instanceof ApiNop) {
@@ -490,6 +496,13 @@ public final class ExchangeApi {
         cmd.resultCode = CommandResultCode.NEW;
     };
 
+    private static final EventTranslatorOneArg<OrderCommand, ApiRemoveUser> REMOVE_USER_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.REMOVE_USER;
+        cmd.uid = api.uid;
+        cmd.timestamp = api.timestamp;
+        cmd.resultCode = CommandResultCode.NEW;
+    };
+
     private static final EventTranslatorOneArg<OrderCommand, ApiResumeUser> RESUME_USER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.RESUME_USER;
         cmd.uid = api.uid;
@@ -553,9 +566,22 @@ public final class ExchangeApi {
         }));
     }
 
-    public void suspendUser(long userId, Consumer<OrderCommand> callback) {
+    public void suspendUser(long userId, long orderId, Consumer<OrderCommand> callback) {
         ringBuffer.publishEvent(((cmd, seq) -> {
             cmd.command = OrderCommandType.SUSPEND_USER;
+            cmd.orderId = -((orderId == 1) ? orderId : 0);
+            cmd.symbol = -1;
+            cmd.uid = userId;
+            cmd.timestamp = System.currentTimeMillis();
+            cmd.resultCode = CommandResultCode.NEW;
+
+            promises.put(seq, callback);
+        }));
+    }
+
+    public void removeUser(long userId, Consumer<OrderCommand> callback) {
+        ringBuffer.publishEvent(((cmd, seq) -> {
+            cmd.command = OrderCommandType.REMOVE_USER;
             cmd.orderId = -1;
             cmd.symbol = -1;
             cmd.uid = userId;
@@ -595,13 +621,29 @@ public final class ExchangeApi {
         }));
     }
 
-    public void suspendUser(int serviceFlags, long eventsGroup, long timestampNs, long userId) {
+    public void suspendUser(int serviceFlags, long eventsGroup, long timestampNs, long userId, long orderId) {
         ringBuffer.publishEvent(((cmd, seq) -> {
 
             cmd.serviceFlags = serviceFlags;
             cmd.eventsGroup = eventsGroup;
 
             cmd.command = OrderCommandType.SUSPEND_USER;
+            cmd.orderId = -((orderId == 1) ? orderId : 0);
+            cmd.symbol = -1;
+            cmd.uid = userId;
+            cmd.timestamp = timestampNs;
+            cmd.resultCode = CommandResultCode.NEW;
+
+        }));
+    }
+
+    public void removeUser(int serviceFlags, long eventsGroup, long timestampNs, long userId) {
+        ringBuffer.publishEvent(((cmd, seq) -> {
+
+            cmd.serviceFlags = serviceFlags;
+            cmd.eventsGroup = eventsGroup;
+
+            cmd.command = OrderCommandType.REMOVE_USER;
             cmd.orderId = -1;
             cmd.symbol = -1;
             cmd.uid = userId;
