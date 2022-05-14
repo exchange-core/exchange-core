@@ -15,6 +15,8 @@
  */
 package exchange.core2.tests.util;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import exchange.core2.core.ExchangeApi;
 import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.OrderType;
@@ -47,7 +49,6 @@ import java.util.function.Function;
 import java.util.function.IntFunction;
 import java.util.stream.IntStream;
 
-import static org.junit.Assert.assertEquals;
 
 @Slf4j
 public class LatencyTestsModule {

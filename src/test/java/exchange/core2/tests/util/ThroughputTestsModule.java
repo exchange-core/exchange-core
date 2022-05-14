@@ -15,6 +15,9 @@
  */
 package exchange.core2.tests.util;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.core.common.config.SerializationConfiguration;
@@ -22,8 +25,6 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.stream.IntStream;
 
-import static junit.framework.TestCase.assertTrue;
-import static org.junit.Assert.assertEquals;
 
 @Slf4j
 public class ThroughputTestsModule {

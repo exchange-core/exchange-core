@@ -21,7 +21,7 @@ import exchange.core2.core.common.config.SerializationConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.TestDataParameters;
 import lombok.extern.slf4j.Slf4j;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import static exchange.core2.tests.util.LatencyTestsModule.latencyTestImpl;
 
