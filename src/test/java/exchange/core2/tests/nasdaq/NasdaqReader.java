@@ -11,7 +11,7 @@ import exchange.core2.tests.util.ExecutionTime;
 import exchange.core2.tests.util.TestConstants;
 import lombok.extern.slf4j.Slf4j;
 import org.agrona.BitUtil;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.util.ArrayList;

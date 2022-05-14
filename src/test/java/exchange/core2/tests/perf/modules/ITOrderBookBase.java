@@ -20,11 +20,11 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.tests.util.TestOrdersGenerator;
+import jdk.nashorn.internal.ir.annotations.Ignore;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
-import org.junit.After;
-import org.junit.Ignore;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -47,7 +47,7 @@ public abstract class ITOrderBookBase {
 
     protected abstract IOrderBook createNewOrderBook();
 
-    @After
+    @AfterEach
     public void after() {
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10000);

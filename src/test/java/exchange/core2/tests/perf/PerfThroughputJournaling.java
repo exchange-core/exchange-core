@@ -22,7 +22,7 @@ import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.TestDataParameters;
 import exchange.core2.tests.util.ThroughputTestsModule;
 import lombok.extern.slf4j.Slf4j;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 @Slf4j
 public final class PerfThroughputJournaling {

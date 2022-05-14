@@ -24,14 +24,15 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import lombok.extern.slf4j.Slf4j;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 import static exchange.core2.core.common.OrderType.GTC;
 import static exchange.core2.tests.util.TestConstants.*;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.core.Is.is;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * TODO IOC reject tests
@@ -50,7 +51,8 @@ public abstract class ITFeesExchange {
     public abstract PerformanceConfiguration getPerformanceConfiguration();
 
 
-    @Test(timeout = 10_000)
+    @Test
+    @Timeout(10)
     public void shouldRequireTakerFees_GtcCancel() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
@@ -120,7 +122,8 @@ public abstract class ITFeesExchange {
     }
 
 
-    @Test(timeout = 10_000)
+    @Test
+    @Timeout(10)
     public void shouldProcessFees_BidGtcMaker_AskIocTakerPartial() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
@@ -199,7 +202,8 @@ public abstract class ITFeesExchange {
     }
 
 
-    @Test(timeout = 10_000)
+    @Test
+    @Timeout(10)
     public void shouldProcessFees_BidGtcMakerPartial_AskIocTaker() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
@@ -278,7 +282,8 @@ public abstract class ITFeesExchange {
 
     }
 
-    @Test(timeout = 10_000)
+    @Test
+    @Timeout(10)
     public void shouldProcessFees_AskGtcMaker_BidIocTakerPartial() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
@@ -356,7 +361,8 @@ public abstract class ITFeesExchange {
 
     }
 
-    @Test(timeout = 10_000)
+    @Test
+    @Timeout(10)
     public void shouldProcessFees_AskGtcMakerPartial_BidIocTaker() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {

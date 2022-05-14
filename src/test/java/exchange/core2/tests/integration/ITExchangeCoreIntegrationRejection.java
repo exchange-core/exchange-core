@@ -24,18 +24,18 @@ import exchange.core2.core.common.api.ApiPlaceOrder;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
-import junit.framework.TestCase;
 import lombok.extern.slf4j.Slf4j;
 import org.hamcrest.core.Is;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
-import org.mockito.junit.MockitoJUnitRunner;
 
 import java.util.List;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import static exchange.core2.core.common.OrderAction.ASK;
 import static exchange.core2.core.common.OrderAction.BID;
@@ -43,12 +43,12 @@ import static exchange.core2.core.common.OrderType.*;
 import static exchange.core2.tests.integration.ITExchangeCoreIntegrationRejection.RejectionCause.*;
 import static exchange.core2.tests.util.TestConstants.*;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @Slf4j
-@RunWith(MockitoJUnitRunner.class)
+@ExtendWith(MockitoExtension.class)
 public abstract class ITExchangeCoreIntegrationRejection {
 
     private SimpleEventsProcessor processor;
@@ -65,7 +65,7 @@ public abstract class ITExchangeCoreIntegrationRejection {
     @Captor
     private ArgumentCaptor<IEventsHandler.RejectEvent> rejectEventCaptor;
 
-    @Before
+    @BeforeEach
     public void before() {
         processor = new SimpleEventsProcessor(handler);
     }
@@ -73,148 +73,176 @@ public abstract class ITExchangeCoreIntegrationRejection {
 
     // -------------------------- buy no rejection tests -----------------------------
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiBuyNoRejectionMarginGtc() {
         testMultiBuy(SYMBOLSPECFEE_USD_JPY, GTC, NO_REJECTION);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiBuyNoRejectionExchangeGtc() {
         testMultiBuy(SYMBOLSPECFEE_XBT_LTC, GTC, NO_REJECTION);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiBuyNoRejectionExchangeIoc() {
         testMultiBuy(SYMBOLSPECFEE_XBT_LTC, IOC, NO_REJECTION);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiBuyNoRejectionMarginIoc() {
         testMultiBuy(SYMBOLSPECFEE_USD_JPY, IOC, NO_REJECTION);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiBuyNoRejectionExchangeFokB() {
         testMultiBuy(SYMBOLSPECFEE_XBT_LTC, FOK_BUDGET, NO_REJECTION);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiBuyNoRejectionMarginFokB() {
         testMultiBuy(SYMBOLSPECFEE_USD_JPY, FOK_BUDGET, NO_REJECTION);
     }
 
     // -------------------------- buy with rejection tests -----------------------------
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiBuyWithRejectionMarginGtc() {
         testMultiBuy(SYMBOLSPECFEE_USD_JPY, GTC, REJECTION_BY_SIZE);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiBuyWithRejectionExchangeGtc() {
         testMultiBuy(SYMBOLSPECFEE_XBT_LTC, GTC, REJECTION_BY_SIZE);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiBuyWithRejectionExchangeIoc() {
         testMultiBuy(SYMBOLSPECFEE_XBT_LTC, IOC, REJECTION_BY_SIZE);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiBuyWithRejectionMarginIoc() {
         testMultiBuy(SYMBOLSPECFEE_USD_JPY, IOC, REJECTION_BY_SIZE);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiBuyWithSizeRejectionExchangeFokB() {
         testMultiBuy(SYMBOLSPECFEE_XBT_LTC, FOK_BUDGET, REJECTION_BY_SIZE);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiBuyWithSizeRejectionMarginFokB() {
         testMultiBuy(SYMBOLSPECFEE_USD_JPY, FOK_BUDGET, REJECTION_BY_SIZE);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiBuyWithBudgetRejectionExchangeFokB() {
         testMultiBuy(SYMBOLSPECFEE_XBT_LTC, FOK_BUDGET, REJECTION_BY_BUDGET);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiBuyWithBudgetRejectionMarginFokB() {
         testMultiBuy(SYMBOLSPECFEE_USD_JPY, FOK_BUDGET, REJECTION_BY_BUDGET);
     }
 
     // -------------------------- sell no rejection tests -----------------------------
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiSellNoRejectionMarginGtc() {
         testMultiSell(SYMBOLSPECFEE_USD_JPY, GTC, NO_REJECTION);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiSellNoRejectionExchangeGtc() {
         testMultiSell(SYMBOLSPECFEE_XBT_LTC, GTC, NO_REJECTION);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiSellNoRejectionMarginIoc() {
         testMultiSell(SYMBOLSPECFEE_USD_JPY, IOC, NO_REJECTION);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiSellNoRejectionExchangeIoc() {
         testMultiSell(SYMBOLSPECFEE_XBT_LTC, IOC, NO_REJECTION);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiSellNoRejectionMarginFokB() {
         testMultiSell(SYMBOLSPECFEE_USD_JPY, FOK_BUDGET, NO_REJECTION);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiSellNoRejectionExchangeFokB() {
         testMultiSell(SYMBOLSPECFEE_XBT_LTC, FOK_BUDGET, NO_REJECTION);
     }
 
     // -------------------------- sell with rejection tests -----------------------------
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiSellWithRejectionMarginGtc() {
         testMultiSell(SYMBOLSPECFEE_USD_JPY, GTC, REJECTION_BY_SIZE);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiSellWithRejectionExchangeGtc() {
         testMultiSell(SYMBOLSPECFEE_XBT_LTC, GTC, REJECTION_BY_SIZE);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiSellWithRejectionMarginIoc() {
         testMultiSell(SYMBOLSPECFEE_USD_JPY, IOC, REJECTION_BY_SIZE);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiSellWithRejectionExchangeIoc() {
         testMultiSell(SYMBOLSPECFEE_XBT_LTC, IOC, REJECTION_BY_SIZE);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiSellWithSizeRejectionMarginFokB() {
         testMultiSell(SYMBOLSPECFEE_USD_JPY, FOK_BUDGET, REJECTION_BY_SIZE);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiSellWithSizeRejectionExchangeFokB() {
         testMultiSell(SYMBOLSPECFEE_XBT_LTC, FOK_BUDGET, REJECTION_BY_SIZE);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiSellWithExpectationRejectionMarginFokB() {
         testMultiSell(SYMBOLSPECFEE_USD_JPY, FOK_BUDGET, REJECTION_BY_BUDGET);
     }
 
-    @Test(timeout = 5_000)
+    @Test
+    @Timeout(5)
     public void testMultiSellWithExpectationRejectionExchangeFokB() {
         testMultiSell(SYMBOLSPECFEE_XBT_LTC, FOK_BUDGET, REJECTION_BY_BUDGET);
     }
@@ -254,7 +282,7 @@ public abstract class ITExchangeCoreIntegrationRejection {
 
             container.submitCommandSync(builderPlace(symbolId, UID_4, BID, orderType).orderId(405L).price(price).reservePrice(price).size(size).build(), CommandResultCode.SUCCESS);
 
-            TestCase.assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
+            assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
         }
 
         verify(handler, times(5)).commandResult(commandResultCaptor.capture());
@@ -341,7 +369,7 @@ public abstract class ITExchangeCoreIntegrationRejection {
 
             container.submitCommandSync(builderPlace(symbolId, UID_4, ASK, orderType).orderId(405L).price(price).size(size).build(), CommandResultCode.SUCCESS);
 
-            TestCase.assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
+            assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
         }
 
         verify(handler, times(5)).commandResult(commandResultCaptor.capture());

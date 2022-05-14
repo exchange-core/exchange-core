@@ -20,8 +20,8 @@ import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.Order;
 import exchange.core2.core.common.cmd.OrderCommand;
 import lombok.extern.slf4j.Slf4j;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -30,8 +30,8 @@ import java.util.Random;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 @Slf4j
 public final class OrdersBucketNaiveTest {
@@ -45,7 +45,7 @@ public final class OrdersBucketNaiveTest {
 
     private OrdersBucketNaive bucket;
 
-    @Before
+    @BeforeEach
     public void beforeGlobal() {
 
         bucket = new OrdersBucketNaive(PRICE);
