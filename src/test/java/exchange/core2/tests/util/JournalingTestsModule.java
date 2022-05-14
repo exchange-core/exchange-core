@@ -39,6 +39,8 @@ public class JournalingTestsModule {
 
         for (int iteration = 0; iteration < iterations; iteration++) {
 
+            log.debug(" ----------- journaling test --- iteration {} of {} ----", iteration, iterations);
+
             //long t = System.currentTimeMillis();
 
             final ExchangeTestContainer.TestDataFutures testDataFutures = ExchangeTestContainer.prepareTestDataAsync(testDataParameters, iteration);

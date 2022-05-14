@@ -48,8 +48,8 @@ public enum OrderCommandType {
 
     RESERVED_COMPRESSED((byte) -1, false);
 
-    private byte code;
-    private boolean mutate;
+    private final byte code;
+    private final boolean mutate;
 
     public static OrderCommandType fromCode(byte code) {
         // TODO try if-else

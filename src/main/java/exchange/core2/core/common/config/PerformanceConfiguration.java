@@ -57,6 +57,24 @@ public final class PerformanceConfiguration {
     private final int maxGroupDurationNs;
 
     /*
+     * send L2 for every successfully executed command
+     *
+     * Regular L2 updates is important for Risk Processor, to evaluate PnL for margin trading.
+     * By default (false), Matching Engine sends L2 only when requested by Grouping Processor (every 10ms).
+     * When true - L2 data will be sent for every successfully executed command.
+     * Enabling this will impact the performance.
+     *
+     */
+    private final boolean sendL2ForEveryCmd;
+
+    /*
+     * Depth of Regular L2 updates.
+     * Default is 8 (sufficient for Risk Processor because it does not check order book depth)
+     * If set Integer.MAX_VALUE - full order book will be sent.
+     */
+    private final int l2RefreshDepth;
+
+    /*
      * Disruptor threads factory
      */
     private final ThreadFactory threadFactory;
@@ -84,6 +102,8 @@ public final class PerformanceConfiguration {
                 ", riskEnginesNum=" + riskEnginesNum +
                 ", msgsInGroupLimit=" + msgsInGroupLimit +
                 ", maxGroupDurationNs=" + maxGroupDurationNs +
+                ", sendL2ForEveryCmd=" + sendL2ForEveryCmd +
+                ", l2RefreshDepth=" + l2RefreshDepth +
                 ", threadFactory=" + (threadFactory == null ? null : threadFactory.getClass().getSimpleName()) +
                 ", waitStrategy=" + waitStrategy +
                 ", orderBookFactory=" + (orderBookFactory == null ? null : orderBookFactory.getClass().getSimpleName()) +
@@ -101,6 +121,8 @@ public final class PerformanceConfiguration {
                 .riskEnginesNum(1)
                 .msgsInGroupLimit(256)
                 .maxGroupDurationNs(10_000)
+                .sendL2ForEveryCmd(false)
+                .l2RefreshDepth(8)
                 .threadFactory(Thread::new)
                 .waitStrategy(CoreWaitStrategy.BLOCKING)
                 .binaryCommandsLz4CompressorFactory(() -> LZ4Factory.fastestInstance().highCompressor())
@@ -115,6 +137,8 @@ public final class PerformanceConfiguration {
                 .riskEnginesNum(1)
                 .msgsInGroupLimit(256)
                 .maxGroupDurationNs(10_000)
+                .sendL2ForEveryCmd(false)
+                .l2RefreshDepth(8)
                 .threadFactory(new AffinityThreadFactory(AffinityThreadFactory.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE))
                 .waitStrategy(CoreWaitStrategy.BUSY_SPIN)
                 .binaryCommandsLz4CompressorFactory(() -> LZ4Factory.fastestInstance().highCompressor())
@@ -129,6 +153,8 @@ public final class PerformanceConfiguration {
                 .riskEnginesNum(2)
                 .msgsInGroupLimit(4_096)
                 .maxGroupDurationNs(4_000_000)
+                .sendL2ForEveryCmd(false)
+                .l2RefreshDepth(8)
                 .threadFactory(new AffinityThreadFactory(AffinityThreadFactory.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE))
                 .waitStrategy(CoreWaitStrategy.BUSY_SPIN)
                 .binaryCommandsLz4CompressorFactory(() -> LZ4Factory.fastestInstance().highCompressor())

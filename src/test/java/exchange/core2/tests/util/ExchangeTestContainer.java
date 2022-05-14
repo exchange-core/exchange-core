@@ -363,7 +363,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
                         .baseScaleK(100)
                         .quoteScaleK(10)
                         .takerFee(takerFee)
-                        .makerFee(makerFee)
+                        .makerFee(makerFee) // TODO margins for futures?
                         .build();
 
                 result.add(symbol);
