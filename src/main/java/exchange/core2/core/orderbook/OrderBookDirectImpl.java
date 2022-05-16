@@ -420,6 +420,9 @@ public final class OrderBookDirectImpl implements IOrderBook {
         // update price
         orderToMove.price = cmd.price;
 
+        // update timestamp
+        orderToMove.timestamp = cmd.timestamp;
+            
         // fill action fields (for events handling)
         cmd.action = orderToMove.getAction();
 
