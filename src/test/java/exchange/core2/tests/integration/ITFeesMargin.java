@@ -25,14 +25,15 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import lombok.extern.slf4j.Slf4j;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 import static exchange.core2.core.common.OrderType.GTC;
 import static exchange.core2.tests.util.TestConstants.*;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.core.Is.is;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * TODO more place scenarios, IOC reject tests, GTC move matching, Cancel tests
@@ -48,7 +49,8 @@ public abstract class ITFeesMargin {
     // configuration provided by child class
     public abstract PerformanceConfiguration getPerformanceConfiguration();
 
-    @Test(timeout = 10_000)
+    @Test
+    @Timeout(10)
     public void shouldProcessFees_AskGtcMakerPartial_BidIocTaker() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
@@ -133,7 +135,8 @@ public abstract class ITFeesMargin {
         }
     }
 
-    @Test(timeout = 10_000)
+    @Test
+    @Timeout(10)
     public void shouldProcessFees_BidGtcMakerPartial_AskIocTaker() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
@@ -219,7 +222,8 @@ public abstract class ITFeesMargin {
     }
 
 
-    @Test(timeout = 10_000)
+    @Test
+    @Timeout(10)
     public void shouldNotTakeFeesForCancelAsk() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {

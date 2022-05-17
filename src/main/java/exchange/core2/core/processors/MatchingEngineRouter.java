@@ -25,9 +25,7 @@ import exchange.core2.core.common.api.reports.ReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
-import exchange.core2.core.common.config.ExchangeConfiguration;
-import exchange.core2.core.common.config.LoggingConfiguration;
-import exchange.core2.core.common.config.OrdersProcessingConfiguration;
+import exchange.core2.core.common.config.*;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.orderbook.OrderBookEventsHelper;
 import exchange.core2.core.processors.journaling.DiskSerializationProcessorConfiguration;
@@ -42,7 +40,6 @@ import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
@@ -51,6 +48,9 @@ import java.util.Optional;
 @Slf4j
 @Getter
 public final class MatchingEngineRouter implements WriteBytesMarshallable {
+
+    public static final ISerializationProcessor.SerializedModuleType MODULE_ME =
+            ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER;
 
     // state
     private final BinaryCommandsProcessor binaryCommandsProcessor;
@@ -74,6 +74,9 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
 
     private final boolean cfgMarginTradingEnabled;
 
+    private final boolean cfgSendL2ForEveryCmd;
+    private final int cfgL2RefreshDepth;
+
     private final ISerializationProcessor serializationProcessor;
 
     private final LoggingConfiguration loggingCfg;
@@ -90,7 +93,9 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
             throw new IllegalArgumentException("Invalid number of shards " + numShards + " - must be power of 2");
         }
 
-        this.exchangeId = exchangeCfg.getInitStateCfg().getExchangeId();
+        final InitialStateConfiguration initStateCfg = exchangeCfg.getInitStateCfg();
+
+        this.exchangeId = initStateCfg.getExchangeId();
         this.folder = Paths.get(DiskSerializationProcessorConfiguration.DEFAULT_FOLDER);
 
         this.shardId = shardId;
@@ -112,12 +117,10 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
         objectsPoolConfig.put(ObjectsPool.ART_NODE_256, 1024 * 4);
         this.objectsPool = new ObjectsPool(objectsPoolConfig);
 
-        final Path SnapshotPath = serializationProcessor.resolveSnapshotPath(exchangeCfg.getInitStateCfg().getSnapshotId(), ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER, shardId);
-
-        if (exchangeCfg.getInitStateCfg().fromSnapshot() && Files.exists(SnapshotPath)) {
+        if (ISerializationProcessor.canLoadFromSnapshot(serializationProcessor, initStateCfg, shardId, MODULE_ME)) {
 
             final DeserializedData deserialized = serializationProcessor.loadData(
-                    exchangeCfg.getInitStateCfg().getSnapshotId(),
+                    initStateCfg.getSnapshotId(),
                     ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER,
                     shardId,
                     bytesIn -> {
@@ -159,6 +162,10 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
 
         final OrdersProcessingConfiguration ordersProcCfg = exchangeCfg.getOrdersProcessingCfg();
         this.cfgMarginTradingEnabled = ordersProcCfg.getMarginTradingMode() == OrdersProcessingConfiguration.MarginTradingMode.MARGIN_TRADING_ENABLED;
+
+        final PerformanceConfiguration perfCfg = exchangeCfg.getPerformanceCfg();
+        this.cfgSendL2ForEveryCmd = perfCfg.isSendL2ForEveryCmd();
+        this.cfgL2RefreshDepth = perfCfg.getL2RefreshDepth();
     }
 
     public void processOrder(long seq, OrderCommand cmd) {
@@ -254,8 +261,11 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
             // posting market data for risk processor makes sense only if command execution is successful, otherwise it will be ignored (possible garbage from previous cycle)
             // TODO don't need for EXCHANGE mode order books?
             // TODO doing this for many order books simultaneously can introduce hiccups
-            if (cmd.command != OrderCommandType.ORDER_BOOK_REQUEST && cmd.resultCode == CommandResultCode.SUCCESS) {
-                cmd.marketData = orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE);
+            if ((cfgSendL2ForEveryCmd || (cmd.serviceFlags & 1) != 0)
+                    && cmd.command != OrderCommandType.ORDER_BOOK_REQUEST
+                    && cmd.resultCode == CommandResultCode.SUCCESS) {
+
+                cmd.marketData = orderBook.getL2MarketDataSnapshot(cfgL2RefreshDepth);
             }
         }
     }

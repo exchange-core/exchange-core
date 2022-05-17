@@ -28,9 +28,9 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 
-import static junit.framework.TestCase.assertTrue;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Slf4j
 public class PersistenceTestsModule {
@@ -42,6 +42,8 @@ public class PersistenceTestsModule {
                                            final int iterations) throws InterruptedException, ExecutionException {
 
         for (int iteration = 0; iteration < iterations; iteration++) {
+
+            log.debug(" ----------- persistence test --- iteration {} of {} ----", iteration, iterations);
 
             final long stateId;
 

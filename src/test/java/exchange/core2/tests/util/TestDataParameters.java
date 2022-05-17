@@ -54,7 +54,7 @@ public class TestDataParameters {
                 .currenciesAllowed(TestConstants.ALL_CURRENCIES)
                 .numSymbols(10_000)
                 .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
-                .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER_PLUS_QUARTER);
+                .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER);
     }
 
     /**

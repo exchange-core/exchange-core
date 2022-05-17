@@ -468,18 +468,22 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
             if (cmd == OrderCommandType.RESERVED_COMPRESSED.getCode()) {
 
-                if (insideCompressedBlock)
+                if (insideCompressedBlock) {
                     throw new IllegalStateException("Recursive compression block (data corrupted)");
+                }
 
                 int size = jr.readInt();
                 int origSize = jr.readInt();
 
 //                log.debug("{}->{}", size, origSize);
 
-                if (size > 1000000)
+                if (size > 1000000) {
                     throw new IllegalStateException("Bad compressed block size = " + size + "(data corrupted)");
-                if (origSize > 1000000)
+                }
+
+                if (origSize > 1000000) {
                     throw new IllegalStateException("Bad original block size = " + size + "(data corrupted)");
+                }
 
                 byte[] compressedArray = new byte[size];
                 int read = jr.read(compressedArray);
@@ -582,7 +586,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
                     final long amount = jr.readLong(); // 8 bytes - can be compressed as low value (amount)
                     final BalanceAdjustmentType adjustmentType = BalanceAdjustmentType.of(jr.readByte()); // 1 byte (adjustment or suspend)
 
-                    if (debug) log.debug("balanceAdjustment seq={}  {} uid:{} curre:{}", lastSeq, timestampNs, uid, currency);
+                    if (debug)
+                        log.debug("balanceAdjustment seq={}  {} uid:{} curre:{}", lastSeq, timestampNs, uid, currency);
 
                     api.balanceAdjustment(serviceFlags, eventsGroup, timestampNs, uid, transactionId, currency, amount, adjustmentType);
 
@@ -644,6 +649,14 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
     public void replayJournalFullAndThenEnableJouraling(InitialStateConfiguration initialStateConfiguration, ExchangeApi exchangeApi) {
         long seq = replayJournalFull(initialStateConfiguration, exchangeApi);
         enableJournaling(seq, exchangeApi);
+    }
+
+    @Override
+    public boolean checkSnapshotExists(long snapshotId, SerializedModuleType type, int instanceId) {
+        final Path path = resolveSnapshotPath(snapshotId, type, instanceId);
+        final boolean exists = Files.exists(path);
+        log.info("Checking snapshot file {} exists:{}", path, exists);
+        return exists;
     }
 
     private void flushBufferSync(final boolean forceStartNextFile, final long timestampNs) throws IOException {
@@ -741,7 +754,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
         lastSnapshotDescriptor = lastSnapshotDescriptor.createNext(snapshotId, seq, timestampNs);
     }
 
-    public Path resolveSnapshotPath(long snapshotId, SerializedModuleType type, int instanceId) {
+    private Path resolveSnapshotPath(long snapshotId, SerializedModuleType type, int instanceId) {
 
         return folder.resolve(String.format("%s_snapshot_%d_%s%d.ecs", exchangeId, snapshotId, type.code, instanceId));
     }

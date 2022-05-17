@@ -7,6 +7,8 @@ import lombok.ToString;
 
 /**
  * Exchange initialization configuration
+ * <p>
+ * TODO use interface with different implementations for Clean, Snapshot, Journal
  */
 @AllArgsConstructor
 @Getter
@@ -36,6 +38,12 @@ public final class InitialStateConfiguration {
      * Set to 0 to ignore the journal, or Long.MAX_VALUE to read full available journal (or until reading error).
      */
     private final long journalTimestampNs;
+
+    /*
+     * When requested loading from snapshot, and snapshot was not found - throw an exception,
+     * if throwIfSnapshotNotFound true. Otherwise, will initialize empty exchange.
+     */
+    private final boolean throwIfSnapshotNotFound;
 
     // TODO ignore journal
 
@@ -69,6 +77,7 @@ public final class InitialStateConfiguration {
                 .exchangeId(exchangeId)
                 .snapshotId(0)
                 .snapshotBaseSeq(0)
+                .throwIfSnapshotNotFound(true)
                 .build();
     }
 
@@ -86,6 +95,7 @@ public final class InitialStateConfiguration {
                 .exchangeId(exchangeId)
                 .snapshotId(snapshotId)
                 .snapshotBaseSeq(baseSeq)
+                .throwIfSnapshotNotFound(true)
                 .build();
     }
 
@@ -105,6 +115,7 @@ public final class InitialStateConfiguration {
                 .exchangeId(exchangeId)
                 .snapshotId(snapshotId)
                 .snapshotBaseSeq(baseSeq)
+                .throwIfSnapshotNotFound(true)
                 .journalTimestampNs(Long.MAX_VALUE)
                 .build();
     }

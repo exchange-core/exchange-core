@@ -14,10 +14,10 @@ import exchange.core2.core.common.api.reports.TotalCurrencyBalanceReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.config.ExchangeConfiguration;
 import lombok.extern.slf4j.Slf4j;
-import org.junit.Test;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
+import org.junit.jupiter.api.Test;
 
 @Slf4j
 public class ITCoreExample {

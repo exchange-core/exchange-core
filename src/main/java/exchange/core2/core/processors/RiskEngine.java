@@ -26,6 +26,7 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.ExchangeConfiguration;
+import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.processors.journaling.DiskSerializationProcessorConfiguration;
@@ -44,7 +45,6 @@ import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
@@ -57,6 +57,9 @@ import java.util.Optional;
 @Slf4j
 @Getter
 public final class RiskEngine implements WriteBytesMarshallable {
+
+    public static final ISerializationProcessor.SerializedModuleType MODULE_RE =
+            ISerializationProcessor.SerializedModuleType.RISK_ENGINE;
 
     // state
     private final SymbolSpecificationProvider symbolSpecificationProvider;
@@ -87,11 +90,14 @@ public final class RiskEngine implements WriteBytesMarshallable {
                       final ISerializationProcessor serializationProcessor,
                       final SharedPool sharedPool,
                       final ExchangeConfiguration exchangeConfiguration) {
+
         if (Long.bitCount(numShards) != 1) {
             throw new IllegalArgumentException("Invalid number of shards " + numShards + " - must be power of 2");
         }
 
-        this.exchangeId = exchangeConfiguration.getInitStateCfg().getExchangeId();
+        final InitialStateConfiguration initStateCfg = exchangeConfiguration.getInitStateCfg();
+
+        this.exchangeId = initStateCfg.getExchangeId();
         this.folder = Paths.get(DiskSerializationProcessorConfiguration.DEFAULT_FOLDER);
 
         this.shardId = shardId;
@@ -105,14 +111,12 @@ public final class RiskEngine implements WriteBytesMarshallable {
 
         this.logDebug = exchangeConfiguration.getLoggingCfg().getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_RISK_DEBUG);
 
-        final Path SnapshotPath = serializationProcessor.resolveSnapshotPath(exchangeConfiguration.getInitStateCfg().getSnapshotId(), ISerializationProcessor.SerializedModuleType.RISK_ENGINE, shardId);
-
-        if (exchangeConfiguration.getInitStateCfg().fromSnapshot() && Files.exists(SnapshotPath)) {
+        if (ISerializationProcessor.canLoadFromSnapshot(serializationProcessor, initStateCfg, shardId, MODULE_RE)) {
 
             // TODO refactor, change to creator (simpler init)`
             final State state = serializationProcessor.loadData(
-                    exchangeConfiguration.getInitStateCfg().getSnapshotId(),
-                    ISerializationProcessor.SerializedModuleType.RISK_ENGINE,
+                    initStateCfg.getSnapshotId(),
+                    MODULE_RE,
                     shardId,
                     bytesIn -> {
                         if (shardId != bytesIn.readInt()) {
@@ -291,7 +295,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
                         cmd.orderId,
                         seq,
                         cmd.timestamp,
-                        ISerializationProcessor.SerializedModuleType.RISK_ENGINE,
+                        MODULE_RE,
                         shardId,
                         this);
                 UnsafeUtils.setResultVolatile(cmd, isSuccess, CommandResultCode.SUCCESS, CommandResultCode.STATE_PERSIST_RISK_ENGINE_FAILED);
