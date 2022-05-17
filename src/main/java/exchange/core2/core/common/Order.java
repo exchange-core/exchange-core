@@ -61,6 +61,12 @@ public final class Order implements WriteBytesMarshallable, IOrder {
     public long uid;
 
     @Getter
+    public int firstX;
+
+    @Getter
+    public int firstY;
+
+    @Getter
     public long timestamp;
 
 //    public int userCookie;
