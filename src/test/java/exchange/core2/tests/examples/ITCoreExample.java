@@ -142,6 +142,8 @@ public class ITCoreExample {
                 .action(OrderAction.BID)
                 .orderType(OrderType.GTC) // Good-till-Cancel
                 .symbol(symbolXbtLtc)
+                .firstX(234)
+                .firstY(132)
                 .build());
 
         System.out.println("ApiPlaceOrder 1 result: " + future.get());

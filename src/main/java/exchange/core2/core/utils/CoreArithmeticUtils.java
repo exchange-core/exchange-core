@@ -29,17 +29,17 @@ public final class CoreArithmeticUtils {
         return size * (price * spec.quoteScaleK);
     }
 
-    public static long calculateAmountBidTakerFee(long size, long price, CoreSymbolSpecification spec) {
-        return size * (price * spec.quoteScaleK + spec.takerFee);
+    public static long calculateAmountBidTakerFee(long size, long price, int firstX, CoreSymbolSpecification spec) {
+        return size * (price * spec.quoteScaleK + ( (firstX != -1) ? firstX : spec.takerFee));
     }
 
-    public static long calculateAmountBidReleaseCorrMaker(long size, long priceDiff, CoreSymbolSpecification spec) {
-        return size * (priceDiff * spec.quoteScaleK + (spec.takerFee - spec.makerFee));
+    public static long calculateAmountBidReleaseCorrMaker(long size, long priceDiff, CoreSymbolSpecification spec, int firstX, int firstY) {
+        return size * (priceDiff * spec.quoteScaleK + (( (firstX != -1) ? firstX : spec.takerFee) - ( (firstY != -1) ? firstY : spec.makerFee)));
     }
 
-    public static long calculateAmountBidTakerFeeForBudget(long size, long budgetInSteps, CoreSymbolSpecification spec) {
+    public static long calculateAmountBidTakerFeeForBudget(long size, long budgetInSteps, int firstX, CoreSymbolSpecification spec) {
 
-        return budgetInSteps * spec.quoteScaleK + size * spec.takerFee;
+        return budgetInSteps * spec.quoteScaleK + size * ( (firstX != -1) ? firstX : spec.takerFee);
     }
 
 }
