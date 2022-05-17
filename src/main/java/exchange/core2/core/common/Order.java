@@ -61,10 +61,10 @@ public final class Order implements WriteBytesMarshallable, IOrder {
     public long uid;
 
     @Getter
-    public int firstX;
+    public long orderTakerFee;
 
     @Getter
-    public int firstY;
+    public long orderMakerFee;
 
     @Getter
     public long timestamp;

@@ -151,8 +151,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
         orderRecord.reserveBidPrice = cmd.reserveBidPrice;
         orderRecord.action = cmd.action;
         orderRecord.uid = cmd.uid;
-        orderRecord.firstX = cmd.firstX;
-        orderRecord.firstY = cmd.firstY;
+        orderRecord.orderTakerFee = cmd.orderTakerFee;
+        orderRecord.orderMakerFee = cmd.orderMakerFee;
         orderRecord.timestamp = cmd.timestamp;
         orderRecord.filled = filledSize;
 
@@ -828,10 +828,10 @@ public final class OrderBookDirectImpl implements IOrderBook {
         public long uid;
 
         @Getter
-        public int firstX;
+        public long orderTakerFee;
 
         @Getter
-        public int firstY;
+        public long orderMakerFee;
 
         @Getter
         public long timestamp;
@@ -859,8 +859,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
             this.reserveBidPrice = bytes.readLong(); // price2
             this.action = OrderAction.of(bytes.readByte());
             this.uid = bytes.readLong(); // uid
-            this.firstX = bytes.readInt(); // firstX
-            this.firstY = bytes.readInt(); // firstY
+            this.orderTakerFee = bytes.readInt(); // orderTakerFee
+            this.orderMakerFee = bytes.readInt(); // orderMakerFee
             this.timestamp = bytes.readLong(); // timestamp
             // this.userCookie = bytes.readInt();  // userCookie
 
@@ -876,8 +876,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
             bytes.writeLong(reserveBidPrice);
             bytes.writeByte(action.getCode());
             bytes.writeLong(uid);
-            bytes.writeInt(firstX);
-            bytes.writeInt(firstY);
+            bytes.writeLong(orderTakerFee);
+            bytes.writeLong(orderMakerFee);
             bytes.writeLong(timestamp);
             // bytes.writeInt(userCookie);
             // TODO
@@ -888,7 +888,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
             return "[" + orderId + " " + (action == OrderAction.ASK ? 'A' : 'B')
                     + price + ":" + size + "F" + filled
                     // + " C" + userCookie
-                    + " U" + uid + " fX" + firstY + " fY" + firstY + "]";
+                    + " U" + uid + " fX" + orderMakerFee + " fY" + orderMakerFee + "]";
         }
 
         @Override
@@ -896,8 +896,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
             return Objects.hash(orderId, action, price, size, reserveBidPrice, filled,
                     //userCookie,
                     uid,
-                    firstX,
-                    firstY);
+                    orderTakerFee,
+                    orderMakerFee);
         }
 
 
@@ -920,8 +920,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
                     && reserveBidPrice == other.reserveBidPrice
                     && filled == other.filled
                     && uid == other.uid
-                    && firstX == other.firstX
-                    && firstY == other.firstY;
+                    && orderTakerFee == other.orderTakerFee
+                    && orderMakerFee == other.orderMakerFee;
         }
 
         @Override
@@ -929,8 +929,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
             return Objects.hash(orderId, action, price, size, reserveBidPrice, filled,
                     //userCookie,
                     uid,
-                    firstX,
-                    firstY);
+                    orderTakerFee,
+                    orderMakerFee);
         }
     }
 

@@ -436,8 +436,8 @@ public final class ExchangeApi {
         cmd.symbol = api.symbol;
         cmd.uid = api.uid;
         cmd.userCookie = api.userCookie;
-        cmd.firstX = api.firstX;
-        cmd.firstY = api.firstY;
+        cmd.orderTakerFee = api.orderTakerFee;
+        cmd.orderMakerFee = api.orderMakerFee;
         cmd.resultCode = CommandResultCode.NEW;
     };
 
@@ -721,8 +721,8 @@ public final class ExchangeApi {
             OrderType orderType,
             int symbol,
             long uid,
-            int firstX,
-            int firstY,
+            long orderTakerFee,
+            int orderMakerFee,
             Consumer<OrderCommand> callback) {
 
         final long seq = ringBuffer.next();
@@ -740,8 +740,8 @@ public final class ExchangeApi {
             cmd.orderType = orderType;
             cmd.symbol = symbol;
             cmd.uid = uid;
-            cmd.firstX = firstX;
-            cmd.firstY = firstY;
+            cmd.orderTakerFee = orderTakerFee;
+            cmd.orderMakerFee = orderMakerFee;
             cmd.userCookie = userCookie;
             promises.put(seq, callback);
 
@@ -764,8 +764,8 @@ public final class ExchangeApi {
                               OrderType orderType,
                               int symbol,
                               long uid,
-                              int firstX,
-                              int firstY) {
+                              long orderTakerFee,
+                              int orderMakerFee) {
 
         ringBuffer.publishEvent((cmd, seq) -> {
             cmd.serviceFlags = serviceFlags;
@@ -783,8 +783,8 @@ public final class ExchangeApi {
             cmd.orderType = orderType;
             cmd.symbol = symbol;
             cmd.uid = uid;
-            cmd.firstX = firstX;
-            cmd.firstY = firstY;
+            cmd.orderTakerFee = orderTakerFee;
+            cmd.orderMakerFee = orderMakerFee;
             cmd.userCookie = userCookie;
         });
     }

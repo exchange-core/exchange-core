@@ -319,8 +319,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
             buffer.putLong(cmd.price); // 8 bytes - can be compressed as delta
             buffer.putLong(cmd.reserveBidPrice); // 8 bytes - can be compressed (diff to price or 0)
             buffer.putLong(cmd.size); // 8 bytes - can be compressed
-            buffer.putInt(cmd.firstX); // 4 bytes
-            buffer.putInt(cmd.firstY); // 4 bytes
+            buffer.putLong(cmd.orderTakerFee); // 4 bytes
+            buffer.putLong(cmd.orderMakerFee); // 4 bytes
             buffer.putInt(cmd.userCookie); // 4 bytes can be log-compressed
 
             final int actionAndType = (cmd.orderType.getCode() << 1) | cmd.action.getCode();
@@ -560,8 +560,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
                     final long price = jr.readLong(); // 8 bytes - can be compressed as delta
                     final long reservedBidPrice = jr.readLong(); // 8 bytes - can be compressed (diff to price or 0)
                     final long size = jr.readLong(); // 8 bytes - can be compressed
-                    final int firstX = jr.readInt();
-                    final int firstY = jr.readInt();
+                    final long orderTakerFee = jr.readInt();
+                    final int orderMakerFee = jr.readInt();
                     final int userCookie = jr.readInt(); // 4 bytes can be compressed as a optional low value
 
                     final byte actionAndType = jr.readByte(); // 1 byte
@@ -572,7 +572,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
                         log.debug("place order seq={} t={} orderId={} symbol={} uid={} price={} reserveBidPrice={} size={} userCookie={} {}/{} actionAndType={}", lastSeq, timestampNs, orderId, symbol, uid, price, reservedBidPrice, size, userCookie, orderAction, orderType, actionAndType);
 
                     api.placeNewOrder(serviceFlags, eventsGroup, timestampNs, orderId, userCookie, price,
-                            reservedBidPrice, size, orderAction, orderType, symbol, uid, firstX, firstY);
+                            reservedBidPrice, size, orderAction, orderType, symbol, uid, orderTakerFee, orderMakerFee);
 
                 } else if (cmdType == OrderCommandType.BALANCE_ADJUSTMENT) {
 

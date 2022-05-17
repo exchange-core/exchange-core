@@ -131,8 +131,8 @@ public final class OrderBookNaiveImpl implements IOrderBook {
                 cmd.reserveBidPrice,
                 action,
                 cmd.uid,
-                cmd.firstX,
-                cmd.firstY,
+                cmd.orderTakerFee,
+                cmd.orderMakerFee,
                 cmd.timestamp);
 
         getBucketsByAction(action)

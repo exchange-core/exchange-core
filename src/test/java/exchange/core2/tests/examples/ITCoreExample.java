@@ -142,8 +142,8 @@ public class ITCoreExample {
                 .action(OrderAction.BID)
                 .orderType(OrderType.GTC) // Good-till-Cancel
                 .symbol(symbolXbtLtc)
-                .firstX(1900)
-                .firstY(700)
+                .orderTakerFee(0L)
+                .orderMakerFee(0L)
                 .build());
 
         System.out.println("ApiPlaceOrder 1 result: " + future.get());
@@ -159,8 +159,8 @@ public class ITCoreExample {
                 .action(OrderAction.ASK)
                 .orderType(OrderType.IOC) // Immediate-or-Cancel
                 .symbol(symbolXbtLtc)
-                .firstX(1900)
-                .firstY(700)
+                .orderTakerFee(0L)
+                .orderMakerFee(0L)
                 .build());
 
         System.out.println("ApiPlaceOrder 2 result: " + future.get());

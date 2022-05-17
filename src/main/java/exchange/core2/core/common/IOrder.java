@@ -33,8 +33,8 @@ public interface IOrder extends StateHash {
 
     long getReserveBidPrice();
 
-    int getFirstX();
+    long getOrderTakerFee();
 
-    int getFirstY();
+    long getOrderMakerFee();
 
 }
