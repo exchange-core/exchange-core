@@ -765,7 +765,7 @@ public final class ExchangeApi {
                               int symbol,
                               long uid,
                               long orderTakerFee,
-                              int orderMakerFee) {
+                              long orderMakerFee) {
 
         ringBuffer.publishEvent((cmd, seq) -> {
             cmd.serviceFlags = serviceFlags;

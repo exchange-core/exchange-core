@@ -319,8 +319,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
             buffer.putLong(cmd.price); // 8 bytes - can be compressed as delta
             buffer.putLong(cmd.reserveBidPrice); // 8 bytes - can be compressed (diff to price or 0)
             buffer.putLong(cmd.size); // 8 bytes - can be compressed
-            buffer.putLong(cmd.orderTakerFee); // 4 bytes
-            buffer.putLong(cmd.orderMakerFee); // 4 bytes
+            buffer.putLong(cmd.orderTakerFee); // 8 bytes
+            buffer.putLong(cmd.orderMakerFee); // 8 bytes
             buffer.putInt(cmd.userCookie); // 4 bytes can be log-compressed
 
             final int actionAndType = (cmd.orderType.getCode() << 1) | cmd.action.getCode();
@@ -564,8 +564,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
                     final long price = jr.readLong(); // 8 bytes - can be compressed as delta
                     final long reservedBidPrice = jr.readLong(); // 8 bytes - can be compressed (diff to price or 0)
                     final long size = jr.readLong(); // 8 bytes - can be compressed
-                    final long orderTakerFee = jr.readInt();
-                    final int orderMakerFee = jr.readInt();
+                    final long orderTakerFee = jr.readLong();
+                    final long orderMakerFee = jr.readLong();
                     final int userCookie = jr.readInt(); // 4 bytes can be compressed as a optional low value
 
                     final byte actionAndType = jr.readByte(); // 1 byte
