@@ -142,8 +142,8 @@ public class ITCoreExample {
                 .action(OrderAction.BID)
                 .orderType(OrderType.GTC) // Good-till-Cancel
                 .symbol(symbolXbtLtc)
-                .orderTakerFee(0L)
-                .orderMakerFee(0L)
+                .orderTakerFee(10L)
+                .orderMakerFee(5L)
                 .build());
 
         System.out.println("ApiPlaceOrder 1 result: " + future.get());
@@ -159,8 +159,8 @@ public class ITCoreExample {
                 .action(OrderAction.ASK)
                 .orderType(OrderType.IOC) // Immediate-or-Cancel
                 .symbol(symbolXbtLtc)
-                .orderTakerFee(0L)
-                .orderMakerFee(0L)
+                .orderTakerFee(2L)
+                .orderMakerFee(1L)
                 .build());
 
         System.out.println("ApiPlaceOrder 2 result: " + future.get());
@@ -181,6 +181,14 @@ public class ITCoreExample {
 
         System.out.println("ApiMoveOrder 2 result: " + future.get());
 
+
+        // check balances
+        Future<SingleUserReportResult> report1 = api.processReport(new SingleUserReportQuery(301), 0);
+        System.out.println("SingleUserReportQuery 1 accounts: " + report1.get().getAccounts());
+
+        Future<SingleUserReportResult> report2 = api.processReport(new SingleUserReportQuery(302), 0);
+        System.out.println("SingleUserReportQuery 2 accounts: " + report2.get().getAccounts());
+
         // first user cancel remaining order
         future = api.submitCommandAsync(ApiCancelOrder.builder()
                 .uid(301L)
@@ -191,10 +199,10 @@ public class ITCoreExample {
         System.out.println("ApiCancelOrder 2 result: " + future.get());
 
         // check balances
-        Future<SingleUserReportResult> report1 = api.processReport(new SingleUserReportQuery(301), 0);
+        report1 = api.processReport(new SingleUserReportQuery(301), 0);
         System.out.println("SingleUserReportQuery 1 accounts: " + report1.get().getAccounts());
 
-        Future<SingleUserReportResult> report2 = api.processReport(new SingleUserReportQuery(302), 0);
+        report2 = api.processReport(new SingleUserReportQuery(302), 0);
         System.out.println("SingleUserReportQuery 2 accounts: " + report2.get().getAccounts());
 
         // first user withdraws 0.10 BTC

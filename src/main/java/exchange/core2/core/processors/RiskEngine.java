@@ -459,7 +459,8 @@ public final class RiskEngine implements WriteBytesMarshallable {
                 }
 
                 orderHoldAmount = CoreArithmeticUtils.calculateAmountBidTakerFeeForBudget(size, cmd.price, cmd.orderTakerFee, spec);
-                if (logDebug) log.debug("hold amount budget buy {} = {} * {} + {} * {}", cmd.price, size, spec.quoteScaleK, size, (cmd.orderTakerFee != -1) ? cmd.orderTakerFee : spec.takerFee);
+                if (logDebug)
+                    log.debug("hold amount budget buy {} = {} * {} + {} * {}", cmd.price, size, spec.quoteScaleK, size, (cmd.orderTakerFee != -1) ? cmd.orderTakerFee : spec.takerFee);
 
             } else {
 
@@ -468,7 +469,8 @@ public final class RiskEngine implements WriteBytesMarshallable {
                     return CommandResultCode.RISK_INVALID_RESERVE_BID_PRICE;
                 }
                 orderHoldAmount = CoreArithmeticUtils.calculateAmountBidTakerFee(size, cmd.reserveBidPrice, cmd.orderTakerFee, spec);
-                if (logDebug) log.debug("hold amount buy {} = {} * ( {} * {} + {} )", orderHoldAmount, size, cmd.reserveBidPrice, spec.quoteScaleK, (cmd.orderTakerFee != -1) ? cmd.orderTakerFee : spec.takerFee);
+                if (logDebug)
+                    log.debug("hold amount buy {} = {} * ( {} * {} + {} )", orderHoldAmount, size, cmd.reserveBidPrice, spec.quoteScaleK, (cmd.orderTakerFee != -1) ? cmd.orderTakerFee : spec.takerFee);
             }
 
         } else {
@@ -593,7 +595,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
 
                 if (mte != null) {
                     if (takerSell) {
-                        handleMatcherEventsExchangeSell(mte, spec, takerUp, cmd.orderTakerFee, cmd.orderMakerFee);
+                        handleMatcherEventsExchangeSell(mte, spec, takerUp, cmd.orderTakerFee);
                     } else {
                         handleMatcherEventsExchangeBuy(mte, spec, takerUp, cmd);
                     }
@@ -689,8 +691,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
     private void handleMatcherEventsExchangeSell(MatcherTradeEvent ev,
                                                  final CoreSymbolSpecification spec,
                                                  final UserProfile taker,
-                                                 final long orderTakerFee,
-                                                 final long orderMakerFee) {
+                                                 final long orderTakerFee) {
 
         //log.debug("TRADE EXCH SELL {}", ev);
 
@@ -700,7 +701,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
         long takerSizePriceForThisHandler = 0L;
 
         final int quoteCurrency = spec.quoteCurrency;
-
+        long allMakerFee = 0;
         while (ev != null) {
             assert ev.eventType == MatcherEventType.TRADE;
 
@@ -715,9 +716,10 @@ public final class RiskEngine implements WriteBytesMarshallable {
                 final long size = ev.size;
                 final UserProfile maker = userProfileService.getUserProfileOrAddSuspended(ev.matchedOrderUid);
 
+
                 // buying, use bidderHoldPrice to calculate released amount based on price difference
                 final long priceDiff = ev.bidderHoldPrice - ev.price;
-                final long amountDiffToReleaseInQuoteCurrency = CoreArithmeticUtils.calculateAmountBidReleaseCorrMaker(size, priceDiff, spec, orderTakerFee, orderMakerFee);
+                final long amountDiffToReleaseInQuoteCurrency = CoreArithmeticUtils.calculateAmountBidReleaseCorrMaker(size, priceDiff, spec, ev.matchedOrderTakerFee, ev.matchedOrderMakerFee);
                 maker.accounts.addToValue(quoteCurrency, amountDiffToReleaseInQuoteCurrency);
 
                 final long gainedAmountInBaseCurrency = CoreArithmeticUtils.calculateAmountAsk(size, spec);
@@ -725,17 +727,17 @@ public final class RiskEngine implements WriteBytesMarshallable {
 
                 makerSizeForThisHandler += size;
             }
-
+            allMakerFee += (ev.matchedOrderMakerFee != -1 ? ev.matchedOrderMakerFee : spec.makerFee);
             ev = ev.nextEvent;
         }
 
         if (taker != null) {
-            taker.accounts.addToValue(quoteCurrency, takerSizePriceForThisHandler * spec.quoteScaleK - ((orderTakerFee != -1 ) ? orderTakerFee : spec.takerFee) * takerSizeForThisHandler);
+            taker.accounts.addToValue(quoteCurrency, takerSizePriceForThisHandler * spec.quoteScaleK - ((orderTakerFee != -1) ? orderTakerFee : spec.takerFee) * takerSizeForThisHandler);
         }
 
         if (takerSizeForThisHandler != 0 || makerSizeForThisHandler != 0) {
 
-            fees.addToValue(quoteCurrency, ((orderTakerFee != -1 ) ? orderTakerFee : spec.takerFee) * takerSizeForThisHandler + ((orderMakerFee != -1 ) ? orderMakerFee : spec.makerFee) * makerSizeForThisHandler);
+            fees.addToValue(quoteCurrency, ((orderTakerFee != -1) ? orderTakerFee : spec.takerFee) * takerSizeForThisHandler + (allMakerFee) * makerSizeForThisHandler);
         }
     }
 
@@ -753,6 +755,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
 
         final int quoteCurrency = spec.quoteCurrency;
 
+        long allMakerFee = 0;
         while (ev != null) {
             assert ev.eventType == MatcherEventType.TRADE;
 
@@ -770,10 +773,10 @@ public final class RiskEngine implements WriteBytesMarshallable {
                 final long size = ev.size;
                 final UserProfile maker = userProfileService.getUserProfileOrAddSuspended(ev.matchedOrderUid);
                 final long gainedAmountInQuoteCurrency = CoreArithmeticUtils.calculateAmountBid(size, ev.price, spec);
-                maker.accounts.addToValue(quoteCurrency, gainedAmountInQuoteCurrency - ((cmd.orderMakerFee != -1) ? cmd.orderMakerFee : spec.makerFee) * size);
+                maker.accounts.addToValue(quoteCurrency, gainedAmountInQuoteCurrency - ((ev.matchedOrderMakerFee != -1) ? ev.matchedOrderMakerFee : spec.makerFee) * size);
                 makerSizeForThisHandler += size;
             }
-
+            allMakerFee += (ev.matchedOrderMakerFee != -1 ? ev.matchedOrderMakerFee : spec.makerFee);
             ev = ev.nextEvent;
         }
 
@@ -790,7 +793,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
         }
 
         if (takerSizeForThisHandler != 0 || makerSizeForThisHandler != 0) {
-            fees.addToValue(quoteCurrency, ((cmd.orderTakerFee != -1 ) ? cmd.orderTakerFee : spec.takerFee) * takerSizeForThisHandler + ((cmd.orderMakerFee != -1 ) ? cmd.orderMakerFee : spec.makerFee) * makerSizeForThisHandler);
+            fees.addToValue(quoteCurrency, ((cmd.orderTakerFee != -1) ? cmd.orderTakerFee : spec.takerFee) * takerSizeForThisHandler + allMakerFee * makerSizeForThisHandler);
         }
     }
 

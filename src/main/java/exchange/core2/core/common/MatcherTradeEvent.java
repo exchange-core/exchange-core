@@ -61,6 +61,8 @@ public final class MatcherTradeEvent {
 
     // frozen price from BID order owner (depends on activeOrderAction)
     public long bidderHoldPrice;
+    public long matchedOrderTakerFee = -1;
+    public long matchedOrderMakerFee = -1;
 
     // reference to next event in chain
     public MatcherTradeEvent nextEvent;
@@ -79,6 +81,8 @@ public final class MatcherTradeEvent {
         evt.size = this.size;
 //        evt.timestamp = this.timestamp;
         evt.bidderHoldPrice = this.bidderHoldPrice;
+        evt.matchedOrderTakerFee = this.matchedOrderTakerFee;
+        evt.matchedOrderMakerFee = this.matchedOrderMakerFee;
         return evt;
     }
 

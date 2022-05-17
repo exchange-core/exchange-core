@@ -859,8 +859,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
             this.reserveBidPrice = bytes.readLong(); // price2
             this.action = OrderAction.of(bytes.readByte());
             this.uid = bytes.readLong(); // uid
-            this.orderTakerFee = bytes.readInt(); // orderTakerFee
-            this.orderMakerFee = bytes.readInt(); // orderMakerFee
+            this.orderTakerFee = bytes.readLong(); // orderTakerFee
+            this.orderMakerFee = bytes.readLong(); // orderMakerFee
             this.timestamp = bytes.readLong(); // timestamp
             // this.userCookie = bytes.readInt();  // userCookie
 

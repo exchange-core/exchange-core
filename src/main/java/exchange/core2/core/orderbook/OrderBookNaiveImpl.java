@@ -296,6 +296,8 @@ public final class OrderBookNaiveImpl implements IOrderBook {
             // order already matched and removed from order book previously
             return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
+        cmd.orderTakerFee = order.orderTakerFee;
+        cmd.orderMakerFee = order.orderMakerFee;
 
         // now can remove it
         idMap.remove(orderId);
