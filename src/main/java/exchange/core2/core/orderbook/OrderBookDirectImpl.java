@@ -928,9 +928,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         public int stateHash() {
             return Objects.hash(orderId, action, price, size, reserveBidPrice, filled,
                     //userCookie,
-                    uid,
-                    orderTakerFee,
-                    orderMakerFee);
+                    uid);
         }
     }
 
