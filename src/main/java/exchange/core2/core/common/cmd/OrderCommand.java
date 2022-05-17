@@ -42,10 +42,10 @@ public final class OrderCommand implements IOrder {
     public long size;
 
     @Getter
-    public long orderTakerFee;
+    public long orderTakerFee = -1;
 
     @Getter
-    public long orderMakerFee;
+    public long orderMakerFee = -1;
 
     @Getter
     // new orders INPUT - reserved price for fast moves of GTC bid orders in exchange mode
