@@ -81,7 +81,8 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
                         evt.matchedOrderUid,
                         evt.matchedOrderCompleted,
                         evt.price,
-                        evt.size);
+                        evt.size,
+                        evt.matchedOrderMakerFee);
 
                 trades.add(trade);
                 mutableLong.value += evt.size;
@@ -112,6 +113,7 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
                     cmd.action,
                     takerOrderCompleted.value,
                     cmd.timestamp,
+                    cmd.orderTakerFee,
                     trades);
 
             eventsHandler.tradeEvent(evt);
