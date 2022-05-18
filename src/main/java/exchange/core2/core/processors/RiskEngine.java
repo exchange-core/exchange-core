@@ -607,7 +607,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
                 // for margin-mode symbols also resolve position record
                 final SymbolPositionRecord takerSpr = (takerUp != null) ? takerUp.getPositionRecordOrThrowEx(symbol) : null;
                 do {
-                    handleMatcherEventMargin(mte, spec, cmd.action, cmd.orderTakerFee, cmd.orderMakerFee, takerUp, takerSpr);
+                    handleMatcherEventMargin(mte, spec, cmd.action, cmd.orderTakerFee, mte.matchedOrderMakerFee, takerUp, takerSpr);
                     mte = mte.nextEvent;
                 } while (mte != null);
             }
@@ -626,15 +626,15 @@ public final class RiskEngine implements WriteBytesMarshallable {
     private void handleMatcherEventMargin(final MatcherTradeEvent ev,
                                           final CoreSymbolSpecification spec,
                                           final OrderAction takerAction,
-                                          final long orderTakerFee,
-                                          final long orderMakerFee,
+                                          final long takerFee,
+                                          final long makerFee,
                                           final UserProfile takerUp,
                                           final SymbolPositionRecord takerSpr) {
         if (takerUp != null) {
             if (ev.eventType == MatcherEventType.TRADE) {
                 // update taker's position
                 final long sizeOpen = takerSpr.updatePositionForMarginTrade(takerAction, ev.size, ev.price);
-                final long fee = ((orderTakerFee != -1) ? orderTakerFee : spec.takerFee) * sizeOpen;
+                final long fee = ((takerFee != -1) ? takerFee : spec.takerFee) * sizeOpen;
                 takerUp.accounts.addToValue(spec.quoteCurrency, -fee);
                 fees.addToValue(spec.quoteCurrency, fee);
             } else if (ev.eventType == MatcherEventType.REJECT || ev.eventType == MatcherEventType.REDUCE) {
@@ -652,7 +652,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
             final UserProfile maker = userProfileService.getUserProfileOrAddSuspended(ev.matchedOrderUid);
             final SymbolPositionRecord makerSpr = maker.getPositionRecordOrThrowEx(spec.symbolId);
             long sizeOpen = makerSpr.updatePositionForMarginTrade(takerAction.opposite(), ev.size, ev.price);
-            final long fee = ((orderMakerFee != -1) ? orderMakerFee : spec.makerFee) * sizeOpen;
+            final long fee = ((makerFee != -1) ? makerFee : spec.makerFee) * sizeOpen;
             maker.accounts.addToValue(spec.quoteCurrency, -fee);
             fees.addToValue(spec.quoteCurrency, fee);
             if (makerSpr.isEmpty()) {
