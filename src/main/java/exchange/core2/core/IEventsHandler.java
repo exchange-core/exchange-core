@@ -85,6 +85,7 @@ public interface IEventsHandler {
         public final long price;
         public final long volume;
         public final long makerFee;
+        public final long takerFee;
     }
 
     @Data
