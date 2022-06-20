@@ -60,6 +60,9 @@ public final class OrderBookEventsHelper {
 
         event.matchedOrderId = matchingOrder.getOrderId();
         event.matchedOrderUid = matchingOrder.getUid();
+
+        event.matchedOrderTakerFee = matchingOrder.getOrderTakerFee();
+        event.matchedOrderMakerFee = matchingOrder.getOrderMakerFee();
         event.matchedOrderCompleted = makerCompleted;
 
         event.price = matchingOrder.getPrice();

@@ -17,7 +17,10 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
+
+import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
 
 @Slf4j
 public class ITCoreExample {
@@ -206,6 +209,263 @@ public class ITCoreExample {
         // check fees collected
         Future<TotalCurrencyBalanceReportResult> totalsReport = api.processReport(new TotalCurrencyBalanceReportQuery(), 0);
         System.out.println("LTC fees collected: " + totalsReport.get().getFees().get(currencyCodeLtc));
+
+    }
+
+    @Test
+    public void sampleTestFeeSpecificOrder() throws Exception {
+
+        // simple async events handler
+        SimpleEventsProcessor eventsProcessor = new SimpleEventsProcessor(new IEventsHandler() {
+            @Override
+            public void tradeEvent(TradeEvent tradeEvent) {
+                System.out.println("Trade event: " + tradeEvent);
+            }
+
+            @Override
+            public void reduceEvent(ReduceEvent reduceEvent) {
+                System.out.println("Reduce event: " + reduceEvent);
+            }
+
+            @Override
+            public void rejectEvent(RejectEvent rejectEvent) {
+                System.out.println("Reject event: " + rejectEvent);
+            }
+
+            @Override
+            public void commandResult(ApiCommandResult commandResult) {
+                System.out.println("Command result: " + commandResult);
+            }
+
+            @Override
+            public void orderBook(OrderBook orderBook) {
+                System.out.println("OrderBook event: " + orderBook);
+            }
+        });
+
+        // default exchange configuration
+        ExchangeConfiguration conf = ExchangeConfiguration.defaultBuilder().build();
+
+        // build exchange core
+        ExchangeCore exchangeCore = ExchangeCore.builder()
+                .resultsConsumer(eventsProcessor)
+                .exchangeConfiguration(conf)
+                .build();
+
+        // start up disruptor threads
+        exchangeCore.startup();
+
+        // get exchange API for publishing commands
+        ExchangeApi api = exchangeCore.getApi();
+
+        // currency code constants
+        final int currencyCodeXbt = 11;
+        final int currencyCodeLtc = 15;
+
+        // symbol constants
+        final int symbolXbtLtc = 241;
+
+        Future<CommandResultCode> future;
+
+        // create symbol specification and publish it
+        CoreSymbolSpecification symbolSpecXbtLtc = CoreSymbolSpecification.builder()
+                .symbolId(symbolXbtLtc)         // symbol id
+                .type(SymbolType.CURRENCY_EXCHANGE_PAIR)
+                .baseCurrency(currencyCodeXbt)    // base = satoshi (1E-8)
+                .quoteCurrency(currencyCodeLtc)   // quote = litoshi (1E-8)
+                .baseScaleK(1_000_000L) // 1 lot = 1M satoshi (0.01 BTC)
+                .quoteScaleK(10_000L)   // 1 price step = 10K litoshi
+                .takerFee(0L)        // taker fee 1900 litoshi per 1 lot
+                .makerFee(0L)         // maker fee 700 litoshi per 1 lot
+                .build();
+
+        future = api.submitBinaryDataAsync(new BatchAddSymbolsCommand(symbolSpecXbtLtc));
+        System.out.println("BatchAddSymbolsCommand result: " + future.get());
+
+
+        // create user uid=301
+        future = api.submitCommandAsync(ApiAddUser.builder()
+                .uid(301L)
+                .build());
+
+        System.out.println("ApiAddUser 1 result: " + future.get());
+
+
+        // create user uid=302
+        future = api.submitCommandAsync(ApiAddUser.builder()
+                .uid(302L)
+                .build());
+
+        System.out.println("ApiAddUser 2 result: " + future.get());
+
+        // first user deposits 60 LTC
+        future = api.submitCommandAsync(ApiAdjustUserBalance.builder()
+                .uid(301L)
+                .currency(currencyCodeLtc)
+                .amount(6_000_000_000L)
+                .transactionId(1L)
+                .build());
+
+        System.out.println("ApiAdjustUserBalance 1 result: " + future.get());
+
+
+        // second user deposits 0.30 BTC
+        future = api.submitCommandAsync(ApiAdjustUserBalance.builder()
+                .uid(302L)
+                .currency(currencyCodeXbt)
+                .amount(30_000_000L)
+                .transactionId(2L)
+                .build());
+
+        System.out.println("ApiAdjustUserBalance 2 result: " + future.get());
+
+        // request order book
+        CompletableFuture<L2MarketData> orderBookFuture = api.requestOrderBookAsync(symbolXbtLtc, 10);
+        System.out.println("ApiOrderBookRequest result: " + orderBookFuture.get());
+
+        // first user places Good-till-Cancel Bid order
+        // he assumes BTCLTC exchange rate 154 LTC for 1 BTC
+        // bid price for 1 lot (0.01BTC) is 1.54 LTC => 1_5400_0000 litoshi => 10K * 15_400 (in price steps)
+        future = api.submitCommandAsync(ApiPlaceOrder.builder()
+                .uid(301L)
+                .orderId(5001L)
+                .price(15_400L)
+                .reservePrice(15_400L) // can move bid order up to the 1.56 LTC, without replacing it
+                .size(12L) // order size is 12 lots
+                .action(OrderAction.BID)
+                .orderType(OrderType.GTC) // Good-till-Cancel
+                .symbol(symbolXbtLtc)
+                .orderTakerFee(10L)
+                .orderMakerFee(5L)
+                .build());
+
+        System.out.println("ApiPlaceOrder 1 result: " + future.get());
+
+        // check balances
+        Future<SingleUserReportResult> report1 = api.processReport(new SingleUserReportQuery(301), 0);
+        IntLongHashMap report1Accounts = report1.get().getAccounts();
+        System.out.println("SingleUserReportQuery 1 accounts: " + report1Accounts);
+        assertEquals(report1Accounts.get(15),4151999880L);
+
+        Future<SingleUserReportResult> report2 = api.processReport(new SingleUserReportQuery(302), 0);
+        IntLongHashMap report2Accounts = report2.get().getAccounts();
+        System.out.println("SingleUserReportQuery 2 accounts: " + report2Accounts);
+        assertEquals(report2Accounts.get(11),30000000L);
+
+        // second user places Good-till-Cancel Ask (Sell) order
+        // he assumes wost rate to sell 152.5 LTC for 1 BTC
+        future = api.submitCommandAsync(ApiPlaceOrder.builder()
+                .uid(302L)
+                .orderId(5002L)
+                .price(15_250L)
+                .size(20L)
+                .action(OrderAction.ASK)
+                .orderType(OrderType.GTC)
+                .symbol(symbolXbtLtc)
+                .orderTakerFee(8L)
+                .orderMakerFee(3L)
+                .build());
+
+        System.out.println("ApiPlaceOrder 2 result: " + future.get());
+
+        // check balances
+        report1 = api.processReport(new SingleUserReportQuery(301), 0);
+        report1Accounts = report1.get().getAccounts();
+        System.out.println("SingleUserReportQuery 1 accounts: " + report1Accounts);
+        assertEquals(report1Accounts.get(15), 4151999940L);
+        assertEquals(report1Accounts.get(11), 12000000L);
+
+        report2 = api.processReport(new SingleUserReportQuery(302), 0);
+        report2Accounts = report2.get().getAccounts();
+        System.out.println("SingleUserReportQuery 2 accounts: " + report2Accounts);
+        assertEquals(report2Accounts.get(15), 1847999904L);
+        assertEquals(report2Accounts.get(11), 10000000L);
+
+        // first user places another Good-till-Cancel Bid order
+        future = api.submitCommandAsync(ApiPlaceOrder.builder()
+                .uid(301L)
+                .orderId(5003L)
+                .price(15_400L)
+                .reservePrice(15_400L) // can move bid order up to the 1.56 LTC, without replacing it
+                .size(10L) // order size is 12 lots
+                .action(OrderAction.BID)
+                .orderType(OrderType.GTC) // Good-till-Cancel
+                .symbol(symbolXbtLtc)
+                .orderTakerFee(9L)
+                .orderMakerFee(7L)
+                .build());
+
+        System.out.println("ApiPlaceOrder 3 result: " + future.get());
+
+        // check balances
+        report1 = api.processReport(new SingleUserReportQuery(301), 0);
+        report1Accounts = report1.get().getAccounts();
+        System.out.println("SingleUserReportQuery 1 accounts: " + report1Accounts);
+        assertEquals(report1Accounts.get(15), 2623999850L);
+        assertEquals(report1Accounts.get(11), 20000000L);
+
+        report2 = api.processReport(new SingleUserReportQuery(302), 0);
+        report2Accounts = report2.get().getAccounts();
+        System.out.println("SingleUserReportQuery 2 accounts: " + report2Accounts);
+        assertEquals(report2Accounts.get(15), 3067999880L);
+        assertEquals(report2Accounts.get(11), 10000000L);
+
+        // second user places another Good-till-Cancel Ask (Sell) order
+        future = api.submitCommandAsync(ApiPlaceOrder.builder()
+                .uid(302L)
+                .orderId(5004L)
+                .price(15_250L)
+                .size(5L)
+                .action(OrderAction.ASK)
+                .orderType(OrderType.GTC)
+                .symbol(symbolXbtLtc)
+                .orderTakerFee(7L)
+                .orderMakerFee(4L)
+                .build());
+
+        System.out.println("ApiPlaceOrder 3 result: " + future.get());
+
+        // check balances
+        report1 = api.processReport(new SingleUserReportQuery(301), 0);
+        report1Accounts = report1.get().getAccounts();
+        System.out.println("SingleUserReportQuery 1 accounts: " + report1Accounts);
+        assertEquals(report1Accounts.get(15), 2623999854L);
+        assertEquals(report1Accounts.get(11), 22000000L);
+
+        report2 = api.processReport(new SingleUserReportQuery(302), 0);
+        report2Accounts = report2.get().getAccounts();
+        System.out.println("SingleUserReportQuery 2 accounts: " + report2Accounts);
+        assertEquals(report2Accounts.get(15), 3375999866L);
+        assertEquals(report2Accounts.get(11), 5000000L);
+
+        // second user cancel remaining order
+        future = api.submitCommandAsync(ApiCancelOrder.builder()
+                .uid(302L)
+                .orderId(5004L)
+                .symbol(symbolXbtLtc)
+                .build());
+
+        System.out.println("ApiCancelOrder 3 result: " + future.get());
+
+        // check balances
+        report1 = api.processReport(new SingleUserReportQuery(301), 0);
+        report1Accounts = report1.get().getAccounts();
+        System.out.println("SingleUserReportQuery 1 accounts: " + report1Accounts);
+        assertEquals(report1Accounts.get(15), 2623999854L);
+        assertEquals(report1Accounts.get(11), 22000000L);
+
+        report2 = api.processReport(new SingleUserReportQuery(302), 0);
+        report2Accounts = report2.get().getAccounts();
+        System.out.println("SingleUserReportQuery 2 accounts: " + report2Accounts);
+        assertEquals(report2Accounts.get(15), 3375999866L);
+        assertEquals(report2Accounts.get(11), 8000000L);
+
+
+        // check fees collected
+        Future<TotalCurrencyBalanceReportResult> totalsReport = api.processReport(new TotalCurrencyBalanceReportQuery(), 0);
+        long collectedFeeInLTC = totalsReport.get().getFees().get(currencyCodeLtc);
+        System.out.println("LTC fees collected: " + collectedFeeInLTC);
+        assertEquals(collectedFeeInLTC, 280);
 
     }
 }

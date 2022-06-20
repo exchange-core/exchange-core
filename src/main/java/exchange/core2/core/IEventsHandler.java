@@ -73,6 +73,7 @@ public interface IEventsHandler {
         public final OrderAction takerAction;
         public final boolean takeOrderCompleted;
         public final long timestamp;
+        public final long takerFee;
         public final List<Trade> trades;
     }
 
@@ -83,6 +84,8 @@ public interface IEventsHandler {
         public final boolean makerOrderCompleted;
         public final long price;
         public final long volume;
+        public final long makerFee;
+        public final long takerFee;
     }
 
     @Data

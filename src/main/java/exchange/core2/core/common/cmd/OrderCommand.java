@@ -42,6 +42,12 @@ public final class OrderCommand implements IOrder {
     public long size;
 
     @Getter
+    public long orderTakerFee = -1;
+
+    @Getter
+    public long orderMakerFee = -1;
+
+    @Getter
     // new orders INPUT - reserved price for fast moves of GTC bid orders in exchange mode
     public long reserveBidPrice;
 
@@ -176,6 +182,8 @@ public final class OrderCommand implements IOrder {
         cmd2.size = this.size;
         cmd2.action = this.action;
         cmd2.orderType = this.orderType;
+        cmd2.orderTakerFee = this.orderTakerFee;
+        cmd2.orderMakerFee = this.orderMakerFee;
     }
 
     // slow - testing only
