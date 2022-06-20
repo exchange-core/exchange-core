@@ -36,8 +36,10 @@ public final class ApiPlaceOrder extends ApiCommand {
     public final int symbol;
     public final int userCookie;
     public final long reservePrice;
-    public final long orderTakerFee;
-    public final long orderMakerFee;
+    @Builder.Default
+    public final long orderTakerFee = -1L;
+    @Builder.Default
+    public final long orderMakerFee = -1L;
 
     @Override
     public String toString() {

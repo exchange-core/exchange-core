@@ -147,7 +147,9 @@ public final class MatcherTradeEvent {
                 && price == other.price
                 && size == other.size
                 && bidderHoldPrice == other.bidderHoldPrice
-                && ((nextEvent == null && other.nextEvent == null) || (nextEvent != null && nextEvent.equals(other.nextEvent)));
+                && ((nextEvent == null && other.nextEvent == null) || (nextEvent != null && nextEvent.equals(other.nextEvent)))
+                && matchedOrderMakerFee == other.matchedOrderMakerFee
+                && matchedOrderTakerFee == other.matchedOrderTakerFee;
     }
 
     /**
@@ -164,7 +166,9 @@ public final class MatcherTradeEvent {
                 price,
                 size,
                 bidderHoldPrice,
-                nextEvent);
+                nextEvent,
+                matchedOrderMakerFee,
+                matchedOrderTakerFee);
     }
 
 
