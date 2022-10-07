@@ -8,6 +8,7 @@ import static org.hamcrest.core.Is.is;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+import com.google.common.collect.Maps;
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.MatcherEventType;
 import exchange.core2.core.common.MatcherTradeEvent;
@@ -33,9 +34,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import lombok.extern.slf4j.Slf4j;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 
 @Slf4j
 public class OrderStepdefs implements En {
@@ -45,23 +45,10 @@ public class OrderStepdefs implements En {
     private ExchangeTestContainer container = null;
 
     private List<MatcherTradeEvent> matcherEvents;
-    private Map<Long, ApiPlaceOrder> orders = new HashMap<>();
+    private final Map<Long, ApiPlaceOrder> orders = new HashMap<>();
 
     final Map<String, CoreSymbolSpecification> symbolSpecificationMap = new HashMap<>();
     final Map<String, Long> users = new HashMap<>();
-
-    @BeforeEach
-    public void before() {
-        container = ExchangeTestContainer.create(testPerformanceConfiguration);
-        container.initBasicSymbols();
-    }
-
-    @AfterEach
-    public void after() {
-        if (container != null) {
-            container.close();
-        }
-    }
 
     public OrderStepdefs() {
         symbolSpecificationMap.put("EUR_USD", SYMBOLSPEC_EUR_USD);
@@ -111,27 +98,28 @@ public class OrderStepdefs implements En {
             }
         });
 
-        Given("New client {user} has a balance:",
-            (Long clientId, DataTable table) -> {
-                List<List<String>> balance = table.asLists();
-
-                final List<ApiCommand> cmds = new ArrayList<>();
-
-                cmds.add(ApiAddUser.builder().uid(clientId).build());
-
-                int transactionId = 0;
-
-                for (List<String> entry : balance) {
-                    transactionId++;
-                    cmds.add(ApiAdjustUserBalance.builder().uid(clientId).transactionId(transactionId)
-                        .amount(Long.parseLong(entry.get(1)))
-                        .currency(TestConstants.getCurrency(entry.get(0)))
-                        .build());
-                }
-
-                container.getApi().submitCommandsSync(cmds);
-
+        Given("^Users and their balances:$", (DataTable datatable) -> {
+            Map<Long, Map<Integer, Long>> userBalances = Maps.newHashMap();
+            datatable.cells().stream().skip(1)
+                .forEach(row -> {
+                    Long uid = users.get(row.get(0));
+                    Map<Integer, Long> balances = userBalances.computeIfAbsent(uid, aLong -> Maps.newHashMap());
+                    balances.put(TestConstants.getCurrency(row.get(1)), Long.parseLong(row.get(2)));
+                    userBalances.putIfAbsent(uid, balances);
+                });
+            final List<ApiCommand> cmds = new ArrayList<>();
+            userBalances.forEach((uid, value1) -> {
+                cmds.add(ApiAddUser.builder().uid(uid).build());
+                AtomicInteger transactionId = new AtomicInteger();
+                value1.forEach((key, value) -> cmds.add(
+                    ApiAdjustUserBalance.builder()
+                        .uid(uid)
+                        .transactionId(transactionId.incrementAndGet())
+                        .currency(key)
+                        .amount(value).build()));
             });
+            container.getApi().submitCommandsSync(cmds);
+        });
 
         When("A client {user} places an {word} order {long} at {long}@{long} \\(type: {word}, symbol: {symbol})",
             (Long clientId, String side, Long orderId, Long price, Long size, String orderType, CoreSymbolSpecification symbol) -> {
@@ -341,5 +329,4 @@ public class OrderStepdefs implements En {
             assertEquals(actual, expected, "Unexpected value for " + field);
         }
     }
-
 }
