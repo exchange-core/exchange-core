@@ -7,6 +7,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.core.Is.is;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 import com.google.common.collect.Maps;
 import exchange.core2.core.common.CoreSymbolSpecification;
@@ -15,6 +16,7 @@ import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.Order;
 import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.OrderType;
+import exchange.core2.core.common.UserStatus;
 import exchange.core2.core.common.api.ApiAddUser;
 import exchange.core2.core.common.api.ApiAdjustUserBalance;
 import exchange.core2.core.common.api.ApiCancelOrder;
@@ -22,7 +24,9 @@ import exchange.core2.core.common.api.ApiCommand;
 import exchange.core2.core.common.api.ApiMoveOrder;
 import exchange.core2.core.common.api.ApiPlaceOrder;
 import exchange.core2.core.common.api.reports.SingleUserReportResult;
+import exchange.core2.core.common.api.reports.SingleUserReportResult.QueryExecutionStatus;
 import exchange.core2.core.common.cmd.CommandResultCode;
+import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
@@ -34,7 +38,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -49,6 +54,8 @@ public class OrderStepdefs implements En {
 
     final Map<String, CoreSymbolSpecification> symbolSpecificationMap = new HashMap<>();
     final Map<String, Long> users = new HashMap<>();
+
+    private AtomicLong uniqueIdCounterLong = new AtomicLong();
 
     public OrderStepdefs() {
         symbolSpecificationMap.put("EUR_USD", SYMBOLSPEC_EUR_USD);
@@ -110,11 +117,10 @@ public class OrderStepdefs implements En {
             final List<ApiCommand> cmds = new ArrayList<>();
             userBalances.forEach((uid, value1) -> {
                 cmds.add(ApiAddUser.builder().uid(uid).build());
-                AtomicInteger transactionId = new AtomicInteger();
                 value1.forEach((key, value) -> cmds.add(
                     ApiAdjustUserBalance.builder()
                         .uid(uid)
-                        .transactionId(transactionId.incrementAndGet())
+                        .transactionId(uniqueIdCounterLong.incrementAndGet())
                         .currency(key)
                         .amount(value).build()));
             });
@@ -234,7 +240,7 @@ public class OrderStepdefs implements En {
                 container.submitCommandSync(ApiAdjustUserBalance.builder()
                     .uid(clientId)
                     .currency(TestConstants.getCurrency(currency))
-                    .amount(ammount).transactionId(2193842938742L).build(), CHECK_SUCCESS);
+                    .amount(ammount).transactionId(uniqueIdCounterLong.incrementAndGet()).build(), CHECK_SUCCESS);
             });
 
         When("A client {user} cancels the remaining size {long} of the order {long}",
@@ -260,6 +266,25 @@ public class OrderStepdefs implements En {
                         assertThat(evt.size, is(size));
                     }).join();
             });
+
+        When("Suspend {user} who has balances will return {string}", (Long clientId, String resultCode) -> {
+            CompletableFuture<OrderCommand> future = new CompletableFuture<>();
+            container.getApi().suspendUser(clientId, future::complete);
+            log.debug("Suspend user result: {}", future.get());
+            assertSame(future.get().resultCode, CommandResultCode.valueOf(resultCode));
+        });
+        When("Suspend {user} who has no balances", (Long clientId) -> {
+            container.getApi().suspendUser(clientId, CHECK_SUCCESS);
+        });
+        Then(
+                "Status of {user} is {string}",
+                (Long clientId, String status) ->
+                        assertSame(container.getUserProfile(clientId).getUserStatus(), UserStatus.valueOf(status)));
+        Then(
+                "Query {user} will return {string}",
+                (Long clientId, String status) -> assertSame(
+                        container.getUserProfile(clientId).getQueryExecutionStatus(),
+                        QueryExecutionStatus.valueOf(status)));
     }
 
     private void aClientPassAnOrder(long clientId, String side, long orderId, long price, long size, String orderType,
