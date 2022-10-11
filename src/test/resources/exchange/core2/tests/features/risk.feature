@@ -2,11 +2,10 @@ Feature: An exchange should not allow to users to submit orders which break thei
 
   @BasicRiskCheck
   Scenario: basic scenario
-
-    Given New client Alice has a balance:
-      | XBT | 2000000 |
-    And New client Bob has a balance:
-      | ETH | 699999 |
+    Given Users and their balances:
+      | user  | asset | balance |
+      | Alice | XBT   | 2000000 |
+      | Bob   | ETH   | 699999  |
 
     When A client Alice could not place an BID order 101 at 30000@7 (type: GTC, symbol: ETH_XBT, reservePrice: 30000) due to RISK_NSF
     And A balance of a client Alice:
@@ -44,9 +43,9 @@ Feature: An exchange should not allow to users to submit orders which break thei
 
   @MoveOrdersUpAndDown
   Scenario: move orders UP and DOWN
-
-    Given New client Alice has a balance:
-      | ETH | 100000000 |
+    Given Users and their balances:
+      | user  | asset | balance   |
+      | Alice | ETH   | 100000000 |
 
     When A client Alice could not place an ASK order 202 at 30000@1001 (type: GTC, symbol: ETH_XBT, reservePrice: 30000) due to RISK_NSF
     Then A balance of a client Alice:
@@ -74,9 +73,9 @@ Feature: An exchange should not allow to users to submit orders which break thei
       | id  | price | size | filled | reservePrice | side |
       | 202 | 20000 | 1000 | 0      | 30000        | ASK  |
 
-
-    Given New client Bob has a balance:
-      | XBT | 94000000 |
+    Given Users and their balances:
+      | user | asset | balance  |
+      | Bob  | XBT   | 94000000 |
 
     When A client Bob could not place an BID order 203 at 18000@500 (type: GTC, symbol: ETH_XBT, reservePrice: 19000) due to RISK_NSF
     Then A balance of a client Bob:
