@@ -35,6 +35,8 @@ public enum OrderCommandType {
     SUSPEND_USER((byte) 12, true),
     RESUME_USER((byte) 13, true),
 
+    FORCE_LIQUIDATION((byte) 20, true),
+
     BINARY_DATA_QUERY((byte) 90, false),
     BINARY_DATA_COMMAND((byte) 91, true),
 

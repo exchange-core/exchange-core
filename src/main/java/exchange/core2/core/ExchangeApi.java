@@ -93,6 +93,8 @@ public final class ExchangeApi {
             ringBuffer.publishEvent(RESUME_USER_TRANSLATOR, (ApiResumeUser) cmd);
         } else if (cmd instanceof ApiSuspendUser) {
             ringBuffer.publishEvent(SUSPEND_USER_TRANSLATOR, (ApiSuspendUser) cmd);
+        } else if (cmd instanceof ApiLiquidationOrder) {
+            ringBuffer.publishEvent(LIQUIDATION_ORDER_TRANSLATOR, (ApiLiquidationOrder) cmd);
         } else if (cmd instanceof ApiBinaryDataCommand) {
             publishBinaryData((ApiBinaryDataCommand) cmd, seq -> {
             });
@@ -129,6 +131,8 @@ public final class ExchangeApi {
             return submitCommandAsync(RESUME_USER_TRANSLATOR, (ApiResumeUser) cmd);
         } else if (cmd instanceof ApiSuspendUser) {
             return submitCommandAsync(SUSPEND_USER_TRANSLATOR, (ApiSuspendUser) cmd);
+        } else if (cmd instanceof ApiLiquidationOrder) {
+            return submitCommandAsync(LIQUIDATION_ORDER_TRANSLATOR, (ApiLiquidationOrder) cmd);
         } else if (cmd instanceof ApiBinaryDataCommand) {
             return submitBinaryDataAsync(((ApiBinaryDataCommand) cmd).data);
         } else if (cmd instanceof ApiPersistState) {
@@ -162,6 +166,8 @@ public final class ExchangeApi {
             return submitCommandAsyncFullResponse(RESUME_USER_TRANSLATOR, (ApiResumeUser) cmd);
         } else if (cmd instanceof ApiSuspendUser) {
             return submitCommandAsyncFullResponse(SUSPEND_USER_TRANSLATOR, (ApiSuspendUser) cmd);
+        } else if (cmd instanceof ApiLiquidationOrder) {
+            return submitCommandAsyncFullResponse(LIQUIDATION_ORDER_TRANSLATOR, (ApiLiquidationOrder) cmd);
         } else if (cmd instanceof ApiReset) {
             return submitCommandAsyncFullResponse(RESET_TRANSLATOR, (ApiReset) cmd);
         } else if (cmd instanceof ApiNop) {
@@ -436,6 +442,19 @@ public final class ExchangeApi {
         cmd.symbol = api.symbol;
         cmd.uid = api.uid;
         cmd.userCookie = api.userCookie;
+        cmd.resultCode = CommandResultCode.NEW;
+    };
+
+    private static final EventTranslatorOneArg<OrderCommand, ApiLiquidationOrder> LIQUIDATION_ORDER_TRANSLATOR = (cmd, seq, api) -> {
+        cmd.command = OrderCommandType.FORCE_LIQUIDATION;
+        cmd.price = api.price;
+        cmd.size = api.size;
+        cmd.orderId = api.orderId;
+        cmd.timestamp = api.timestamp;
+        cmd.action = api.action;
+        cmd.orderType = api.orderType;
+        cmd.symbol = api.symbol;
+        cmd.uid = api.uid;
         cmd.resultCode = CommandResultCode.NEW;
     };
 

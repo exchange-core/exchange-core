@@ -125,6 +125,26 @@ public final class SymbolPositionRecord implements WriteBytesMarshallable, State
         }
     }
 
+    public long liquidateEstimateProfit(final CoreSymbolSpecification spec, final RiskEngine.LastPriceCacheRecord lastPriceCacheRecord) {
+        switch (direction) {
+            case EMPTY:
+                return profit;
+            case LONG:
+                return profit + ((lastPriceCacheRecord != null && lastPriceCacheRecord.markPrice != 0)
+                        ? (openVolume * lastPriceCacheRecord.markPrice - openPriceSum) : spec.marginBuy * openVolume);
+            case SHORT:
+                return profit + ((lastPriceCacheRecord != null && lastPriceCacheRecord.markPrice != 0)
+                        ? (openPriceSum - openVolume * lastPriceCacheRecord.markPrice) : spec.marginSell * openVolume);
+            default:
+                throw new IllegalStateException();
+        }
+    }
+
+    public long calculateMaintenanceMargin(CoreSymbolSpecification spec) {
+        return direction == PositionDirection.EMPTY ? 0 : openVolume * spec.maintenanceMargin;
+    }
+
+
     /**
      * Calculate required margin based on specification and current position/orders
      *
@@ -204,6 +224,19 @@ public final class SymbolPositionRecord implements WriteBytesMarshallable, State
             openPositionMargin(action, sizeToOpen, price);
         }
         return sizeToOpen;
+    }
+
+    public long closeOppositePosition(OrderAction action, long size, long price) {
+        // 1. Un-hold pending size
+        pendingRelease(action, size);
+
+        // 2. Reduce opposite position accordingly (if exists)
+        return closeCurrentPositionFutures(action, size, price);
+    }
+
+
+    public void openRemainingPosition(OrderAction action, long sizeToOpen, long price) {
+        openPositionMargin(action, sizeToOpen, price);
     }
 
     private long closeCurrentPositionFutures(final OrderAction action, final long tradeSize, final long tradePrice) {

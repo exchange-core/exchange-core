@@ -47,6 +47,7 @@ public final class CoreSymbolSpecification implements WriteBytesMarshallable, St
     // margin settings (for type=FUTURES_CONTRACT only)
     public final long marginBuy;   // buy margin (quote currency)
     public final long marginSell;  // sell margin (quote currency)
+    public final long maintenanceMargin; //
 
     public CoreSymbolSpecification(BytesIn bytes) {
         this.symbolId = bytes.readInt();
@@ -59,6 +60,7 @@ public final class CoreSymbolSpecification implements WriteBytesMarshallable, St
         this.makerFee = bytes.readLong();
         this.marginBuy = bytes.readLong();
         this.marginSell = bytes.readLong();
+        this.maintenanceMargin = bytes.readLong();
     }
 
 /* NOT SUPPORTED YET:
@@ -87,6 +89,7 @@ public final class CoreSymbolSpecification implements WriteBytesMarshallable, St
         bytes.writeLong(makerFee);
         bytes.writeLong(marginBuy);
         bytes.writeLong(marginSell);
+        bytes.writeLong(maintenanceMargin);
     }
 
     @Override
@@ -101,7 +104,8 @@ public final class CoreSymbolSpecification implements WriteBytesMarshallable, St
                 takerFee,
                 makerFee,
                 marginBuy,
-                marginSell);
+                marginSell,
+                maintenanceMargin);
     }
 
     @Override
@@ -118,6 +122,7 @@ public final class CoreSymbolSpecification implements WriteBytesMarshallable, St
                 makerFee == that.makerFee &&
                 marginBuy == that.marginBuy &&
                 marginSell == that.marginSell &&
+                maintenanceMargin == that.maintenanceMargin &&
                 type == that.type;
     }
 }
