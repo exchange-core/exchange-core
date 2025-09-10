@@ -30,6 +30,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Stream;
 
+// WriteBytesMarshallable（Chronicle-Wire）：支援狀態序列化到快照（參考 DiskSerializationProcessor.storeData）
+// OrderBook 模板,交由　OrderBookDirectImpl (performance oriented implementation) / OrderBookNativeImpl(simple implementation) 實現訂單相關方法
 public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
     /**
@@ -172,7 +174,7 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
     int getTotalBidBuckets(int limit);
 
-
+    // 作用：處理訂單命令，分發到對應的 IOrderBook 方法
     static CommandResultCode processCommand(final IOrderBook orderBook, final OrderCommand cmd) {
 
         final OrderCommandType commandType = cmd.command;
@@ -199,6 +201,7 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
             }
 
         } else if (commandType == OrderCommandType.ORDER_BOOK_REQUEST) {
+            // 生成 L2 市場資料快照，設置到 cmd.marketData
             int size = (int) cmd.size;
             cmd.marketData = orderBook.getL2MarketDataSnapshot(size >= 0 ? size : Integer.MAX_VALUE);
             return CommandResultCode.SUCCESS;
@@ -209,6 +212,7 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
     }
 
+    // 作用：工廠方法，根據序列化數據（bytes）創建訂單簿實例
     static IOrderBook create(BytesIn bytes, ObjectsPool objectsPool, OrderBookEventsHelper eventsHelper, LoggingConfiguration loggingCfg) {
         switch (OrderBookImplType.of(bytes.readByte())) {
             case NAIVE:
