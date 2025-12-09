@@ -271,7 +271,7 @@ public final class ExchangeApi {
                 query,
                 transferId,
                 cmd -> query.createResult(
-                        OrderBookEventsHelper.deserializeEvents(cmd).values().parallelStream().map(Wire::bytes)));
+                        OrderBookEventsHelper.deserializeEvents(cmd).values().stream().map(Wire::bytes)));
     }
 
     public void publishBinaryData(final ApiBinaryDataCommand apiCmd, final LongConsumer endSeqConsumer) {
