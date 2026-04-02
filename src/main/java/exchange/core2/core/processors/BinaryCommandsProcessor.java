@@ -31,6 +31,7 @@ import exchange.core2.core.utils.SerializationUtils;
 import exchange.core2.core.utils.UnsafeUtils;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.*;
+import net.openhft.chronicle.wire.Wire;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 
 import java.lang.reflect.Constructor;
@@ -116,30 +117,43 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
 
             incomingData.removeKey(transferId);
 
-            final BytesIn bytesIn = SerializationUtils.longsLz4ToWire(record.dataArray, record.wordsTransfered).bytes();
+            // Wire and its backing Bytes<ByteBuffer> are both reference-counted Chronicle objects.
+            // Must be closed explicitly; otherwise the ref-count never reaches 0,
+            // leaking Chronicle's internal tracking structures (and native peers in some versions).
+            final Wire wire = SerializationUtils.longsLz4ToWire(record.dataArray, record.wordsTransfered);
+            try {
+                final BytesIn bytesIn = wire.bytes();
 
-            if (cmd.command == OrderCommandType.BINARY_DATA_QUERY) {
+                if (cmd.command == OrderCommandType.BINARY_DATA_QUERY) {
 
-                deserializeQuery(bytesIn)
-                        .flatMap(reportQueriesHandler::handleReport)
-                        .ifPresent(res -> {
-                            final NativeBytes<Void> bytes = Bytes.allocateElasticDirect(128);
-                            res.writeMarshallable(bytes);
-                            final MatcherTradeEvent binaryEventsChain = eventsHelper.createBinaryEventsChain(cmd.timestamp, section, bytes);
-                            UnsafeUtils.appendEventsVolatile(cmd, binaryEventsChain);
-                        });
+                    deserializeQuery(bytesIn)
+                            .flatMap(reportQueriesHandler::handleReport)
+                            .ifPresent(res -> {
+                                // allocateElasticDirect uses Chronicle's off-heap allocator (not bounded by
+                                // -XX:MaxDirectMemorySize), so it MUST be explicitly released after use.
+                                final NativeBytes<Void> bytes = Bytes.allocateElasticDirect(128);
+                                try {
+                                    res.writeMarshallable(bytes);
+                                    final MatcherTradeEvent binaryEventsChain = eventsHelper.createBinaryEventsChain(cmd.timestamp, section, bytes);
+                                    UnsafeUtils.appendEventsVolatile(cmd, binaryEventsChain);
+                                } finally {
+                                    bytes.release();
+                                }
+                            });
 
-            } else if (cmd.command == OrderCommandType.BINARY_DATA_COMMAND) {
+                } else if (cmd.command == OrderCommandType.BINARY_DATA_COMMAND) {
 
 //                log.debug("Unpack {} words", record.wordsTransfered);
-                final BinaryDataCommand binaryDataCommand = deserializeBinaryCommand(bytesIn);
+                    final BinaryDataCommand binaryDataCommand = deserializeBinaryCommand(bytesIn);
 //                log.debug("Succeed");
-                completeMessagesHandler.accept(binaryDataCommand);
+                    completeMessagesHandler.accept(binaryDataCommand);
 
-            } else {
-                throw new IllegalStateException();
+                } else {
+                    throw new IllegalStateException();
+                }
+            } finally {
+                wire.close();
             }
-
 
             return CommandResultCode.SUCCESS;
         } else {
