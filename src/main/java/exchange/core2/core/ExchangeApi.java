@@ -302,10 +302,18 @@ public final class ExchangeApi {
                                    final long timestamp,
                                    final LongConsumer endSeqConsumer) {
 
-        final long[] longsArrayData = SerializationUtils.bytesToLongArrayLz4(
-                lz4Compressor,
-                BinaryCommandsProcessor.serializeObject(data, dataTypeCode),
-                LONGS_PER_MESSAGE);
+        // FIX: NativeBytes uses a Chronicle off-heap allocator (not limited by -XX:MaxDirectMemorySize)
+        // You must call release() after use to avoid off-heap memory leaks.
+        // Previously: bytes were created inline and NEVER released → accumulating millions of bytes after hours of operation.
+        final net.openhft.chronicle.bytes.NativeBytes<Void> serializedBytes =
+                BinaryCommandsProcessor.serializeObject(data, dataTypeCode);
+
+        final long[] longsArrayData;
+        try {
+            longsArrayData = SerializationUtils.bytesToLongArrayLz4(lz4Compressor, serializedBytes, LONGS_PER_MESSAGE);
+        } finally {
+            serializedBytes.release(); // Release off-heap memory after convertor to long[]
+        }
 
         final int totalNumMessagesToClaim = longsArrayData.length / LONGS_PER_MESSAGE;
 
