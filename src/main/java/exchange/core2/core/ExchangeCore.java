@@ -60,6 +60,8 @@ public final class ExchangeCore {
     private final ISerializationProcessor serializationProcessor;
 
     private final ExchangeConfiguration exchangeConfiguration;
+    private final Map<Integer, MatchingEngineRouter> matchingEngines;
+    private final Map<Integer, RiskEngine> riskEngines;
 
     // core can be started and stopped only once
     private boolean started = false;
@@ -148,12 +150,16 @@ public final class ExchangeCore {
                                 () -> new RiskEngine(shardId, riskEnginesNum, serializationProcessor, sharedPool, exchangeConfiguration),
                                 loaderExecutor)));
 
-        final EventHandler<OrderCommand>[] matchingEngineHandlers = matchingEngineFutures.values().stream()
-                .map(CompletableFuture::join)
+        this.matchingEngines = matchingEngineFutures.entrySet().stream()
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        entry -> entry.getValue().join()));
+
+        final EventHandler<OrderCommand>[] matchingEngineHandlers = this.matchingEngines.values().stream()
                 .map(mer -> (EventHandler<OrderCommand>) (cmd, seq, eob) -> mer.processOrder(seq, cmd))
                 .toArray(ExchangeCore::newEventHandlersArray);
 
-        final Map<Integer, RiskEngine> riskEngines = riskEngineFutures.entrySet().stream()
+        this.riskEngines = riskEngineFutures.entrySet().stream()
                 .collect(Collectors.toMap(
                         Map.Entry::getKey,
                         entry -> entry.getValue().join()));
@@ -175,7 +181,7 @@ public final class ExchangeCore {
             afterGrouping.handleEventsWith(jh);
         }
 
-        riskEngines.forEach((idx, riskEngine) -> afterGrouping.handleEventsWith(
+        this.riskEngines.forEach((idx, riskEngine) -> afterGrouping.handleEventsWith(
                 (rb, bs) -> {
                     final TwoStepMasterProcessor r1 = new TwoStepMasterProcessor(rb, rb.newBarrier(bs), riskEngine::preProcessCommand, exceptionHandler, coreWaitStrategy, "R1_" + idx);
                     procR1.add(r1);
@@ -187,7 +193,7 @@ public final class ExchangeCore {
         // 3. risk release (R2) after matching engine (ME)
         final EventHandlerGroup<OrderCommand> afterMatchingEngine = disruptor.after(matchingEngineHandlers);
 
-        riskEngines.forEach((idx, riskEngine) -> afterMatchingEngine.handleEventsWith(
+        this.riskEngines.forEach((idx, riskEngine) -> afterMatchingEngine.handleEventsWith(
                 (rb, bs) -> {
                     final TwoStepSlaveProcessor r2 = new TwoStepSlaveProcessor(rb, rb.newBarrier(bs), riskEngine::handlerRiskRelease, exceptionHandler, "R2_" + idx);
                     procR2.add(r2);
@@ -235,6 +241,14 @@ public final class ExchangeCore {
      */
     public ExchangeApi getApi() {
         return api;
+    }
+
+    public Map<Integer, MatchingEngineRouter> getMatchingEngines() {
+        return matchingEngines;
+    }
+
+    public Map<Integer, RiskEngine> getRiskEngines() {
+        return riskEngines;
     }
 
     private static final EventTranslator<OrderCommand> SHUTDOWN_SIGNAL_TRANSLATOR = (cmd, seq) -> {

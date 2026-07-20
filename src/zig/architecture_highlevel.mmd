@@ -1,0 +1,37 @@
+flowchart LR
+    Client["Client / tests / tools"] --> API["ExchangeApi"]
+    API --> Core["ExchangeCore"]
+
+    Core -->|"sync submit"| Kernel["ExchangeKernel"]
+    Core -->|"async queue + grouped drain"| Runtime["ExchangeRuntime"]
+    Runtime -->|"executeBatch"| Kernel
+
+    Kernel -->|"pre-check + post-settlement"| Risk["RiskEngine"]
+    Risk --> User["UserProfileService"]
+
+    Kernel -->|"matching commands"| Router["OrderBook Router (by symbol)"]
+    Router --> Naive["NaiveOrderBook"]
+    Router --> Direct["DirectOrderBook"]
+
+    Kernel -->|"matcher events"| Ev["EventChain"]
+    Ev --> Risk
+
+    Kernel -->|"binary frame commands"| Frames["BinaryFrameAssembler"]
+    Frames --> Codec["BinaryPayload Codec"]
+    Codec --> Apply["BinaryCommands Apply"]
+    Apply --> Kernel
+    Codec -->|"report query decode"| Kernel
+
+    Core --> Journal["CommandJournal"]
+    Core --> Snapshot["KernelSnapshot"]
+    Core --> Desc["DescriptorStore"]
+    Core --> Paths["PersistencePaths"]
+
+    Kernel --> Resp["CommandResponse / ReportResponse"]
+    Resp --> API
+    API --> CB["Async handles + callbacks"]
+    CB --> SEP["SimpleEventsProcessor (optional adapter)"]
+
+    Config["ExchangeCoreConfig / JavaExchangeConfig"] --> Core
+    Config --> Runtime
+    Config --> Kernel

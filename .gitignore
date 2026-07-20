@@ -10,3 +10,13 @@ delombok/
 
 # dumps #
 dumps/*.ec*
+zig-cache/
+.zig-cache/
+zig-out/
+.zig-cache-local/
+.zig-cache-global/
+
+.m2
+
+# Finder (MacOS) folder config
+.DS_Store

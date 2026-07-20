@@ -54,6 +54,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @Slf4j
 public final class ExchangeTestContainer implements AutoCloseable {
 
+    @Getter
     private final ExchangeCore exchangeCore;
 
     @Getter

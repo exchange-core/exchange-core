@@ -20,10 +20,10 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.tests.util.TestOrdersGenerator;
-import jdk.nashorn.internal.ir.annotations.Ignore;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -168,7 +168,7 @@ public abstract class ITOrderBookBase {
 //        // TODO add more checks for MatcherTradeEvent
 //    }
 
-    @Ignore
+    @Disabled
     @Test
     public void testNano() throws InterruptedException {
         long baseTime = System.currentTimeMillis() * 1_000_000 - System.nanoTime();
@@ -192,7 +192,7 @@ public abstract class ITOrderBookBase {
     }
 
 
-    @Ignore
+    @Disabled
     @Test
     public void testNano2() throws InterruptedException {
         long baseTime = System.currentTimeMillis() * 1_000_000 - System.nanoTime();

@@ -49,6 +49,10 @@
         <maven.compiler.target>1.8</maven.compiler.target>
         <maven.compiler.source>1.8</maven.compiler.source>
 
+        <lombok.version>1.18.42</lombok.version>
+        <lombok.delombok.skip>false</lombok.delombok.skip>
+        <test.jvm.addExports></test.jvm.addExports>
+        <maven.javadoc.skip>false</maven.javadoc.skip>
         <delombok.output>target/delombok</delombok.output>
     </properties>
 
@@ -81,7 +85,7 @@
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
-            <version>1.18.24</version>
+            <version>${lombok.version}</version>
             <scope>provided</scope>
         </dependency>
 
@@ -270,16 +274,64 @@
 
     <profiles>
         <profile>
-            <id>default</id>
+            <id>modern-jdk-compat</id>
             <activation>
-                <activeByDefault>true</activeByDefault>
+                <jdk>[9,)</jdk>
             </activation>
+            <properties>
+                <lombok.delombok.skip>true</lombok.delombok.skip>
+                <delombok.output>${project.basedir}/src/main/java</delombok.output>
+                <test.jvm.addExports>--add-exports java.base/sun.nio.ch=ALL-UNNAMED</test.jvm.addExports>
+                <maven.javadoc.skip>true</maven.javadoc.skip>
+            </properties>
             <build>
                 <plugins>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration combine.self="override">
+                            <argLine>${test.jvm.addExports}</argLine>
+                            <excludes>
+                                <exclude>**/RunCukeNaiveTests.java</exclude>
+                                <exclude>**/RunCukesDirectLatencyTests.java</exclude>
+                                <exclude>**/RunCukesDirectThroughputTests.java</exclude>
+                            </excludes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <profile>
+            <id>default</id>
+            <activation>
+                <jdk>[1,)</jdk>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <version>3.13.0</version>
+                        <configuration>
+                            <proc>full</proc>
+                            <annotationProcessorPaths>
+                                <path>
+                                    <groupId>org.projectlombok</groupId>
+                                    <artifactId>lombok</artifactId>
+                                    <version>${lombok.version}</version>
+                                </path>
+                            </annotationProcessorPaths>
+                        </configuration>
+                    </plugin>
+
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
                         <version>3.0.0-M3</version>
+                        <configuration>
+                            <argLine>${test.jvm.addExports}</argLine>
+                        </configuration>
                     </plugin>
 
                     <plugin>

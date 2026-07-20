@@ -1,0 +1,12 @@
+.{
+    .name = .exchange_core_zig,
+    .version = "0.0.0",
+    .fingerprint = 0x6699bfcdc3bdfb49, // Changing this has security and trust implications.
+    .minimum_zig_version = "0.15.2",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src/zig",
+    },
+}

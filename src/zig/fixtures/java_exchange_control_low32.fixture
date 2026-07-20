@@ -1,0 +1,15 @@
+version=1
+scenario=exchange_control
+orderbook_mode=na
+symbol=0
+command_results=SUCCESS,USER_MGMT_USER_NOT_FOUND,SUCCESS,USER_MGMT_USER_NOT_FOUND,SUCCESS,USER_MGMT_USER_NOT_SUSPENDED,SUCCESS,SUCCESS,SUCCESS,SUCCESS,SUCCESS,SUCCESS,SUCCESS
+settlement_mode=full
+state_hash_kind=zig_risk_low32
+state_hash=1822592909
+fee_15=0
+maker_balance_15=0
+maker_balance_11=0
+taker_balance_15=0
+taker_balance_11=55
+orderbook_ask_size=0
+orderbook_bid_size=0
