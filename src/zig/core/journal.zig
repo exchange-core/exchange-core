@@ -1,4 +1,5 @@
 const std = @import("std");
+const io_context = @import("io_context.zig");
 const common = @import("common.zig");
 const cmd = @import("cmd.zig");
 const kernel_mod = @import("exchange_kernel.zig");
@@ -21,7 +22,7 @@ pub const ReplayWindow = struct {
 };
 
 pub const JournalIoError = std.mem.Allocator.Error ||
-    std.fs.File.OpenError ||
+    std.Io.File.OpenError ||
     std.Io.Reader.Error ||
     std.Io.Writer.Error ||
     cmd.OrderCommandType.FromCodeError ||
@@ -147,14 +148,14 @@ pub const CommandJournal = struct {
 
     pub fn writeToFile(
         self: *const CommandJournal,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
     ) JournalIoError!void {
-        const file = try dir.createFile(path, .{ .truncate = true });
-        defer file.close();
+        const file = try dir.createFile(io_context.current(), path, .{ .truncate = true });
+        defer file.close(io_context.current());
 
         var buffer: [4096]u8 = undefined;
-        var file_writer = file.writer(&buffer);
+        var file_writer = file.writer(io_context.current(), &buffer);
         const writer = &file_writer.interface;
 
         try writer.writeAll("XCJ1");
@@ -167,14 +168,14 @@ pub const CommandJournal = struct {
 
     pub fn readFromFile(
         allocator: std.mem.Allocator,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
     ) JournalIoError!CommandJournal {
-        const file = try dir.openFile(path, .{});
-        defer file.close();
+        const file = try dir.openFile(io_context.current(), path, .{});
+        defer file.close(io_context.current());
 
         var buffer: [4096]u8 = undefined;
-        var file_reader = file.reader(&buffer);
+        var file_reader = file.reader(io_context.current(), &buffer);
         const reader = &file_reader.interface;
 
         const magic = try reader.takeArray(4);
@@ -515,9 +516,9 @@ test "journal readFromFile reports unsupported legacy lz4 frame explicitly" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const file = try tmp.dir.createFile("legacy_lz4.journal", .{ .truncate = true });
-    defer file.close();
-    try file.writeAll(&.{ 0x04, 0x22, 0x4D, 0x18 });
+    const file = try tmp.dir.createFile(io_context.current(), "legacy_lz4.journal", .{ .truncate = true });
+    defer file.close(io_context.current());
+    try file.writeStreamingAll(io_context.current(), &.{ 0x04, 0x22, 0x4D, 0x18 });
 
     try std.testing.expectError(
         error.UnsupportedLegacyLz4Format,
@@ -801,7 +802,7 @@ test "journal, snapshot, and report queries stay deterministic under large seede
                 else => unreachable,
             }
             switch (total_balance_report) {
-                .total_currency_balance => |_| {},
+                .total_currency_balance => {},
                 else => unreachable,
             }
             try std.testing.expectEqual(primary.risk_engine.getFeeCollected(15), fee_report.fee_collected);
@@ -1129,7 +1130,7 @@ test "journal, snapshot, and report queries stay deterministic under multi-symbo
                 else => unreachable,
             }
             switch (total_balance_report) {
-                .total_currency_balance => |_| {},
+                .total_currency_balance => {},
                 else => unreachable,
             }
             try std.testing.expectEqual(primary.risk_engine.getFeeCollected(15), fee_report.fee_collected);
@@ -1179,7 +1180,7 @@ test "journal, snapshot, and report queries stay deterministic under multi-symbo
                 });
                 defer order_book_report.deinit(allocator);
                 switch (order_book_report) {
-                    .order_book => |_| {},
+                    .order_book => {},
                     else => unreachable,
                 }
             }

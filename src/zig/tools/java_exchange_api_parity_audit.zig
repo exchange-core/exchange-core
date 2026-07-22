@@ -22,23 +22,25 @@ const CoverageRow = struct {
     zig_same_name_count: usize,
 };
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+pub fn main(init: std.process.Init) !void {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(gpa.allocator());
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    const java_source = try std.fs.cwd().readFileAlloc(
-        arena,
+    const java_source = try std.Io.Dir.cwd().readFileAlloc(
+        init.io,
         JavaSourcePath,
-        std.math.maxInt(usize),
-    );
-    const zig_source = try std.fs.cwd().readFileAlloc(
         arena,
+        .unlimited,
+    );
+    const zig_source = try std.Io.Dir.cwd().readFileAlloc(
+        init.io,
         ZigSourcePath,
-        std.math.maxInt(usize),
+        arena,
+        .unlimited,
     );
 
     var java_decls: std.ArrayListUnmanaged(MethodDecl) = .empty;
@@ -65,6 +67,7 @@ pub fn main() !void {
     );
 
     try writeJsonReport(
+        init.io,
         java_decls.items,
         zig_decls.items,
         java_names,
@@ -73,6 +76,7 @@ pub fn main() !void {
         java_without_same_name,
     );
     try writeMarkdownReport(
+        init.io,
         java_decls.items,
         zig_decls.items,
         java_names,
@@ -82,9 +86,9 @@ pub fn main() !void {
     );
 
     if (java_without_same_name.len != 0) {
-        const stderr = std.fs.File.stderr();
+        const stderr = std.Io.File.stderr();
         var err_buffer: [2048]u8 = undefined;
-        var err_writer = stderr.writer(&err_buffer);
+        var err_writer = stderr.writer(init.io, &err_buffer);
         const err = &err_writer.interface;
         try err.print(
             "ExchangeApi parity audit failed: {d} Java method family(ies) lack same-name Zig coverage.\n",
@@ -137,7 +141,7 @@ fn collectZigPublicMethodDecls(
         const tail = trimmed["pub fn ".len..];
         const open_paren = std.mem.indexOfScalar(u8, tail, '(') orelse
             return AuditError.MissingMethodName;
-        const method_name = std.mem.trimRight(u8, tail[0..open_paren], " \t");
+        const method_name = std.mem.trimEnd(u8, tail[0..open_paren], " \t");
         if (method_name.len == 0) return AuditError.MissingMethodName;
 
         try out.append(allocator, .{
@@ -223,6 +227,7 @@ fn buildJavaWithoutSameName(
 }
 
 fn writeJsonReport(
+    io: std.Io,
     java_decls: []const MethodDecl,
     zig_decls: []const MethodDecl,
     java_names: []const []const u8,
@@ -230,11 +235,11 @@ fn writeJsonReport(
     coverage_rows: []const CoverageRow,
     java_without_same_name: []const []const u8,
 ) !void {
-    const file = try std.fs.cwd().createFile(JsonOutputPath, .{ .truncate = true });
-    defer file.close();
+    const file = try std.Io.Dir.cwd().createFile(io, JsonOutputPath, .{ .truncate = true });
+    defer file.close(io);
 
     var buffer: [8192]u8 = undefined;
-    var fw = file.writer(&buffer);
+    var fw = file.writer(io, &buffer);
     const writer = &fw.interface;
 
     var covered_count: usize = 0;
@@ -316,6 +321,7 @@ fn writeDeclJson(writer: *std.Io.Writer, decl: MethodDecl, is_last: bool) !void 
 }
 
 fn writeMarkdownReport(
+    io: std.Io,
     java_decls: []const MethodDecl,
     zig_decls: []const MethodDecl,
     java_names: []const []const u8,
@@ -323,11 +329,11 @@ fn writeMarkdownReport(
     coverage_rows: []const CoverageRow,
     java_without_same_name: []const []const u8,
 ) !void {
-    const file = try std.fs.cwd().createFile(MarkdownOutputPath, .{ .truncate = true });
-    defer file.close();
+    const file = try std.Io.Dir.cwd().createFile(io, MarkdownOutputPath, .{ .truncate = true });
+    defer file.close(io);
 
     var buffer: [8192]u8 = undefined;
-    var fw = file.writer(&buffer);
+    var fw = file.writer(io, &buffer);
     const writer = &fw.interface;
 
     var covered_count: usize = 0;

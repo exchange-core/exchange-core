@@ -5,22 +5,24 @@ const SurfaceCheckError = error{
     ApiSurfaceMismatch,
 };
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+pub fn main(init: std.process.Init) !void {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const core_source = try std.fs.cwd().readFileAlloc(
-        allocator,
+    const core_source = try std.Io.Dir.cwd().readFileAlloc(
+        init.io,
         "src/zig/core/exchange_core.zig",
-        std.math.maxInt(usize),
+        allocator,
+        .unlimited,
     );
     defer allocator.free(core_source);
 
-    const api_source = try std.fs.cwd().readFileAlloc(
-        allocator,
+    const api_source = try std.Io.Dir.cwd().readFileAlloc(
+        init.io,
         "src/zig/core/exchange_api.zig",
-        std.math.maxInt(usize),
+        allocator,
+        .unlimited,
     );
     defer allocator.free(api_source);
 
@@ -48,9 +50,9 @@ pub fn main() !void {
     }
 
     std.sort.heap([]const u8, missing.items, {}, lessThanName);
-    const stderr = std.fs.File.stderr();
+    const stderr = std.Io.File.stderr();
     var err_buffer: [2048]u8 = undefined;
-    var err_writer = stderr.writer(&err_buffer);
+    var err_writer = stderr.writer(init.io, &err_buffer);
     const err = &err_writer.interface;
     try err.print(
         "ExchangeApi is missing {d} public ExchangeCore methods:\n",
@@ -70,7 +72,7 @@ fn collectPublicFunctionNames(
 ) (std.mem.Allocator.Error || SurfaceCheckError)!void {
     var lines = std.mem.splitScalar(u8, source, '\n');
     while (lines.next()) |line| {
-        const trimmed = std.mem.trimLeft(u8, line, " \t");
+        const trimmed = std.mem.trimStart(u8, line, " \t");
         if (!std.mem.startsWith(u8, trimmed, "pub fn ")) continue;
         const tail = trimmed["pub fn ".len..];
         const end = std.mem.indexOfAny(u8, tail, " (\t") orelse return SurfaceCheckError.MissingFunctionName;

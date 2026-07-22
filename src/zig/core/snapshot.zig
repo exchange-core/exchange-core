@@ -1,4 +1,5 @@
 const std = @import("std");
+const io_context = @import("io_context.zig");
 const kernel_mod = @import("exchange_kernel.zig");
 const naive = @import("orderbook_naive.zig");
 const cmd = @import("cmd.zig");
@@ -46,7 +47,7 @@ pub const SnapshotRestoreError = SnapshotValidationError ||
     };
 
 pub const SnapshotIoError = std.mem.Allocator.Error ||
-    std.fs.File.OpenError ||
+    std.Io.File.OpenError ||
     std.Io.Reader.Error ||
     std.Io.Writer.Error ||
     error{
@@ -268,14 +269,14 @@ pub const KernelSnapshot = struct {
 
     pub fn writeToFile(
         self: *const KernelSnapshot,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
     ) SnapshotIoError!void {
-        const file = try dir.createFile(path, .{ .truncate = true });
-        defer file.close();
+        const file = try dir.createFile(io_context.current(), path, .{ .truncate = true });
+        defer file.close(io_context.current());
 
         var buffer: [4096]u8 = undefined;
-        var file_writer = file.writer(&buffer);
+        var file_writer = file.writer(io_context.current(), &buffer);
         const writer = &file_writer.interface;
 
         try writer.writeAll(MAGIC_V2);
@@ -340,14 +341,14 @@ pub const KernelSnapshot = struct {
 
     pub fn readFromFile(
         allocator: std.mem.Allocator,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
     ) SnapshotIoError!KernelSnapshot {
-        const file = try dir.openFile(path, .{});
-        defer file.close();
+        const file = try dir.openFile(io_context.current(), path, .{});
+        defer file.close(io_context.current());
 
         var buffer: [4096]u8 = undefined;
-        var file_reader = file.reader(&buffer);
+        var file_reader = file.reader(io_context.current(), &buffer);
         const reader = &file_reader.interface;
 
         const magic = try reader.takeArray(4);
@@ -1087,9 +1088,9 @@ test "snapshot readFromFile reports unsupported legacy lz4 frame explicitly" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const file = try tmp.dir.createFile("legacy_lz4.snapshot", .{ .truncate = true });
-    defer file.close();
-    try file.writeAll(&.{ 0x04, 0x22, 0x4D, 0x18 });
+    const file = try tmp.dir.createFile(io_context.current(), "legacy_lz4.snapshot", .{ .truncate = true });
+    defer file.close(io_context.current());
+    try file.writeStreamingAll(io_context.current(), &.{ 0x04, 0x22, 0x4D, 0x18 });
 
     try std.testing.expectError(
         error.UnsupportedLegacyLz4Format,

@@ -1,7 +1,7 @@
 # Zig Port Usage Examples
 
 This guide is the practical companion for the Java -> Zig migration under `src/zig`.
-All snippets target Zig `0.15.2`.
+All snippets target Zig `0.16.0`.
 
 ## 1. Day-to-day commands
 
@@ -37,10 +37,8 @@ const std = @import("std");
 const exchange_core = @import("exchange_core");
 const core = exchange_core.core;
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
 
     var engine = try core.exchange_core.ExchangeCore.init(allocator, .{});
     defer engine.deinit();
@@ -75,8 +73,8 @@ const std = @import("std");
 const exchange_core = @import("exchange_core");
 const core = exchange_core.core;
 
-fn run(api: *core.exchange_api.ExchangeApi, allocator: std.mem.Allocator) !void {
-    const now_ns: i64 = @intCast(std.time.nanoTimestamp());
+fn run(api: *core.exchange_api.ExchangeApi, allocator: std.mem.Allocator, io: std.Io) !void {
+    const now_ns: i64 = std.math.lossyCast(i64, std.Io.Clock.real.now(io).nanoseconds);
 
     const spec = try core.common.CoreSymbolSpecification.init(.{
         .symbol_id = 241,
@@ -145,7 +143,7 @@ const std = @import("std");
 const exchange_core = @import("exchange_core");
 const core = exchange_core.core;
 
-pub fn persistenceRoundTrip(allocator: std.mem.Allocator) !void {
+pub fn persistenceRoundTrip(allocator: std.mem.Allocator, io: std.Io) !void {
     var cfg = core.config.ExchangeCoreConfig{
         .initial_state = core.config.InitialStateConfig.cleanStart("DEMO_EXCHANGE"),
         .serialization = core.config.SerializationConfig.diskJournaling(),
@@ -161,9 +159,9 @@ pub fn persistenceRoundTrip(allocator: std.mem.Allocator) !void {
     defer api.shutdown() catch {};
 
     try api.submitCommand(.{ .add_user = 3001 });
-    const timestamp_ns: i64 = @intCast(std.time.nanoTimestamp());
+    const timestamp_ns: i64 = std.math.lossyCast(i64, std.Io.Clock.real.now(io).nanoseconds);
     const persist_result = try api.persistStateWithDefaultMainLog(
-        std.fs.cwd(),
+        std.Io.Dir.cwd(),
         77,
         timestamp_ns,
         .risk_engine,
@@ -187,7 +185,7 @@ pub fn persistenceRoundTrip(allocator: std.mem.Allocator) !void {
     defer restored_api.deinit();
 
     const outcome = try restored_api.startupFromDiscoveredConfiguredPersistence(
-        std.fs.cwd(),
+        std.Io.Dir.cwd(),
         .risk_engine,
         0,
         0,

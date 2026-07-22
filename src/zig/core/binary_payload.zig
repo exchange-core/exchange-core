@@ -1,7 +1,7 @@
 const std = @import("std");
 const common = @import("common.zig");
 const binary_commands = @import("binary_commands.zig");
-const ByteReader = std.io.FixedBufferStream([]const u8).Reader;
+const ByteReader = std.Io.Reader;
 
 pub const CurrencyBalance = binary_commands.CurrencyBalance;
 pub const UserAccountsBatch = binary_commands.UserAccountsBatch;
@@ -91,8 +91,7 @@ pub fn decodeFromBytes(
     errdefer arena.deinit();
     const arena_allocator = arena.allocator();
 
-    var stream = std.io.fixedBufferStream(bytes);
-    var reader = stream.reader();
+    var reader = std.Io.Reader.fixed(bytes);
 
     const raw_code = try readInt(i32, &reader);
     const code = try BinaryCommandTypeCode.fromCode(raw_code);
@@ -126,8 +125,7 @@ pub fn decodeFromWordsBigEndian(
 }
 
 pub fn decodeQueryFromBytes(bytes: []const u8) DecodeQueryError!DecodedReportQuery {
-    var stream = std.io.fixedBufferStream(bytes);
-    var reader = stream.reader();
+    var reader = std.Io.Reader.fixed(bytes);
 
     const raw_code = try readQueryInt(i32, &reader);
     const query = try ReportQueryTypeCode.fromCode(raw_code);
@@ -161,75 +159,72 @@ pub fn encodeAddSymbolsToBytes(
     allocator: std.mem.Allocator,
     symbols: []const common.CoreSymbolSpecification,
 ) EncodeError![]u8 {
-    var bytes: std.ArrayList(u8) = .empty;
-    errdefer bytes.deinit(allocator);
-
-    var writer = bytes.writer(allocator);
-    try writer.writeInt(i32, @intFromEnum(BinaryCommandTypeCode.add_symbols), .big);
-    try writer.writeInt(i32, try castLenI32(symbols.len), .big);
+    var bytes: std.Io.Writer.Allocating = .init(allocator);
+    errdefer bytes.deinit();
+    const writer = &bytes.writer;
+    writer.writeInt(i32, @intFromEnum(BinaryCommandTypeCode.add_symbols), .big) catch return error.OutOfMemory;
+    writer.writeInt(i32, try castLenI32(symbols.len), .big) catch return error.OutOfMemory;
 
     for (symbols) |spec| {
-        try writer.writeInt(i32, spec.symbol_id, .big);
-        try writer.writeInt(i32, spec.symbol_id, .big);
-        try writer.writeInt(i8, spec.symbol_type.code(), .big);
-        try writer.writeInt(i32, spec.base_currency, .big);
-        try writer.writeInt(i32, spec.quote_currency, .big);
-        try writer.writeInt(i64, spec.base_scale_k, .big);
-        try writer.writeInt(i64, spec.quote_scale_k, .big);
-        try writer.writeInt(i64, spec.taker_fee, .big);
-        try writer.writeInt(i64, spec.maker_fee, .big);
-        try writer.writeInt(i64, spec.margin_buy, .big);
-        try writer.writeInt(i64, spec.margin_sell, .big);
+        writer.writeInt(i32, spec.symbol_id, .big) catch return error.OutOfMemory;
+        writer.writeInt(i32, spec.symbol_id, .big) catch return error.OutOfMemory;
+        writer.writeInt(i8, spec.symbol_type.code(), .big) catch return error.OutOfMemory;
+        writer.writeInt(i32, spec.base_currency, .big) catch return error.OutOfMemory;
+        writer.writeInt(i32, spec.quote_currency, .big) catch return error.OutOfMemory;
+        writer.writeInt(i64, spec.base_scale_k, .big) catch return error.OutOfMemory;
+        writer.writeInt(i64, spec.quote_scale_k, .big) catch return error.OutOfMemory;
+        writer.writeInt(i64, spec.taker_fee, .big) catch return error.OutOfMemory;
+        writer.writeInt(i64, spec.maker_fee, .big) catch return error.OutOfMemory;
+        writer.writeInt(i64, spec.margin_buy, .big) catch return error.OutOfMemory;
+        writer.writeInt(i64, spec.margin_sell, .big) catch return error.OutOfMemory;
     }
 
-    return bytes.toOwnedSlice(allocator);
+    return bytes.toOwnedSlice();
 }
 
 pub fn encodeAddAccountsToBytes(
     allocator: std.mem.Allocator,
     users: []const UserAccountsBatch,
 ) EncodeError![]u8 {
-    var bytes: std.ArrayList(u8) = .empty;
-    errdefer bytes.deinit(allocator);
-
-    var writer = bytes.writer(allocator);
-    try writer.writeInt(i32, @intFromEnum(BinaryCommandTypeCode.add_accounts), .big);
-    try writer.writeInt(i32, try castLenI32(users.len), .big);
+    var bytes: std.Io.Writer.Allocating = .init(allocator);
+    errdefer bytes.deinit();
+    const writer = &bytes.writer;
+    writer.writeInt(i32, @intFromEnum(BinaryCommandTypeCode.add_accounts), .big) catch return error.OutOfMemory;
+    writer.writeInt(i32, try castLenI32(users.len), .big) catch return error.OutOfMemory;
 
     for (users) |user| {
-        try writer.writeInt(i64, user.uid, .big);
-        try writer.writeInt(i32, try castLenI32(user.accounts.len), .big);
+        writer.writeInt(i64, user.uid, .big) catch return error.OutOfMemory;
+        writer.writeInt(i32, try castLenI32(user.accounts.len), .big) catch return error.OutOfMemory;
         for (user.accounts) |account| {
-            try writer.writeInt(i32, account.currency, .big);
-            try writer.writeInt(i64, account.balance, .big);
+            writer.writeInt(i32, account.currency, .big) catch return error.OutOfMemory;
+            writer.writeInt(i64, account.balance, .big) catch return error.OutOfMemory;
         }
     }
 
-    return bytes.toOwnedSlice(allocator);
+    return bytes.toOwnedSlice();
 }
 
 pub fn encodeReportQueryToBytes(
     allocator: std.mem.Allocator,
     query: DecodedReportQuery,
 ) std.mem.Allocator.Error![]u8 {
-    var bytes: std.ArrayList(u8) = .empty;
-    errdefer bytes.deinit(allocator);
-
-    var writer = bytes.writer(allocator);
+    var bytes: std.Io.Writer.Allocating = .init(allocator);
+    errdefer bytes.deinit();
+    const writer = &bytes.writer;
     switch (query) {
         .state_hash => {
-            try writer.writeInt(i32, @intFromEnum(ReportQueryTypeCode.state_hash), .big);
+            writer.writeInt(i32, @intFromEnum(ReportQueryTypeCode.state_hash), .big) catch return error.OutOfMemory;
         },
         .single_user => |uid| {
-            try writer.writeInt(i32, @intFromEnum(ReportQueryTypeCode.single_user), .big);
-            try writer.writeInt(i64, uid, .big);
+            writer.writeInt(i32, @intFromEnum(ReportQueryTypeCode.single_user), .big) catch return error.OutOfMemory;
+            writer.writeInt(i64, uid, .big) catch return error.OutOfMemory;
         },
         .total_currency_balance => {
-            try writer.writeInt(i32, @intFromEnum(ReportQueryTypeCode.total_currency_balance), .big);
+            writer.writeInt(i32, @intFromEnum(ReportQueryTypeCode.total_currency_balance), .big) catch return error.OutOfMemory;
         },
     }
 
-    return bytes.toOwnedSlice(allocator);
+    return bytes.toOwnedSlice();
 }
 
 fn decodeAddSymbols(
@@ -294,11 +289,11 @@ fn decodeAddAccounts(
 }
 
 fn readInt(comptime T: type, reader: *ByteReader) DecodeError!T {
-    return reader.readInt(T, .big) catch return error.TruncatedPayload;
+    return reader.takeInt(T, .big) catch return error.TruncatedPayload;
 }
 
 fn readQueryInt(comptime T: type, reader: *ByteReader) DecodeQueryError!T {
-    return reader.readInt(T, .big) catch return error.TruncatedPayload;
+    return reader.takeInt(T, .big) catch return error.TruncatedPayload;
 }
 
 fn castLenI32(len: usize) error{CollectionTooLarge}!i32 {
@@ -406,12 +401,12 @@ test "encode report query payload roundtrips through decode query" {
 }
 
 test "decode add symbols payload from bytes" {
-    var bytes: std.ArrayList(u8) = .empty;
-    defer bytes.deinit(std.testing.allocator);
-    var writer = bytes.writer(std.testing.allocator);
+    var bytes: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer bytes.deinit();
+    const writer = &bytes.writer;
 
-    try writer.writeInt(i32, 1003, .big);
-    try writer.writeInt(i32, 2, .big);
+    writer.writeInt(i32, 1003, .big) catch return error.OutOfMemory;
+    writer.writeInt(i32, 2, .big) catch return error.OutOfMemory;
 
     const specs = [_]common.CoreSymbolSpecification{
         try common.CoreSymbolSpecification.init(.{
@@ -439,20 +434,20 @@ test "decode add symbols payload from bytes" {
     };
 
     for (specs) |spec| {
-        try writer.writeInt(i32, spec.symbol_id, .big);
-        try writer.writeInt(i32, spec.symbol_id, .big);
-        try writer.writeInt(i8, spec.symbol_type.code(), .big);
-        try writer.writeInt(i32, spec.base_currency, .big);
-        try writer.writeInt(i32, spec.quote_currency, .big);
-        try writer.writeInt(i64, spec.base_scale_k, .big);
-        try writer.writeInt(i64, spec.quote_scale_k, .big);
-        try writer.writeInt(i64, spec.taker_fee, .big);
-        try writer.writeInt(i64, spec.maker_fee, .big);
-        try writer.writeInt(i64, spec.margin_buy, .big);
-        try writer.writeInt(i64, spec.margin_sell, .big);
+        writer.writeInt(i32, spec.symbol_id, .big) catch return error.OutOfMemory;
+        writer.writeInt(i32, spec.symbol_id, .big) catch return error.OutOfMemory;
+        writer.writeInt(i8, spec.symbol_type.code(), .big) catch return error.OutOfMemory;
+        writer.writeInt(i32, spec.base_currency, .big) catch return error.OutOfMemory;
+        writer.writeInt(i32, spec.quote_currency, .big) catch return error.OutOfMemory;
+        writer.writeInt(i64, spec.base_scale_k, .big) catch return error.OutOfMemory;
+        writer.writeInt(i64, spec.quote_scale_k, .big) catch return error.OutOfMemory;
+        writer.writeInt(i64, spec.taker_fee, .big) catch return error.OutOfMemory;
+        writer.writeInt(i64, spec.maker_fee, .big) catch return error.OutOfMemory;
+        writer.writeInt(i64, spec.margin_buy, .big) catch return error.OutOfMemory;
+        writer.writeInt(i64, spec.margin_sell, .big) catch return error.OutOfMemory;
     }
 
-    var decoded = try decodeFromBytes(std.testing.allocator, bytes.items);
+    var decoded = try decodeFromBytes(std.testing.allocator, bytes.written());
     defer decoded.deinit();
     switch (decoded.payload) {
         .add_symbols => |decoded_specs| {
@@ -465,26 +460,26 @@ test "decode add symbols payload from bytes" {
 }
 
 test "decode add accounts payload from bytes and from big-endian words" {
-    var bytes: std.ArrayList(u8) = .empty;
-    defer bytes.deinit(std.testing.allocator);
-    var writer = bytes.writer(std.testing.allocator);
+    var bytes: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer bytes.deinit();
+    const writer = &bytes.writer;
 
-    try writer.writeInt(i32, 1002, .big);
-    try writer.writeInt(i32, 2, .big);
+    writer.writeInt(i32, 1002, .big) catch return error.OutOfMemory;
+    writer.writeInt(i32, 2, .big) catch return error.OutOfMemory;
 
-    try writer.writeInt(i64, 1001, .big);
-    try writer.writeInt(i32, 2, .big);
-    try writer.writeInt(i32, 11, .big);
-    try writer.writeInt(i64, 500, .big);
-    try writer.writeInt(i32, 15, .big);
-    try writer.writeInt(i64, 900, .big);
+    writer.writeInt(i64, 1001, .big) catch return error.OutOfMemory;
+    writer.writeInt(i32, 2, .big) catch return error.OutOfMemory;
+    writer.writeInt(i32, 11, .big) catch return error.OutOfMemory;
+    writer.writeInt(i64, 500, .big) catch return error.OutOfMemory;
+    writer.writeInt(i32, 15, .big) catch return error.OutOfMemory;
+    writer.writeInt(i64, 900, .big) catch return error.OutOfMemory;
 
-    try writer.writeInt(i64, 1002, .big);
-    try writer.writeInt(i32, 1, .big);
-    try writer.writeInt(i32, 15, .big);
-    try writer.writeInt(i64, 1200, .big);
+    writer.writeInt(i64, 1002, .big) catch return error.OutOfMemory;
+    writer.writeInt(i32, 1, .big) catch return error.OutOfMemory;
+    writer.writeInt(i32, 15, .big) catch return error.OutOfMemory;
+    writer.writeInt(i64, 1200, .big) catch return error.OutOfMemory;
 
-    var decoded = try decodeFromBytes(std.testing.allocator, bytes.items);
+    var decoded = try decodeFromBytes(std.testing.allocator, bytes.written());
     defer decoded.deinit();
     switch (decoded.payload) {
         .add_accounts => |users| {
@@ -501,7 +496,7 @@ test "decode add accounts payload from bytes and from big-endian words" {
     }
 
     // Convert to big-endian words with zero padding and decode through word path.
-    const word_count_no_padding = (bytes.items.len + 7) / 8;
+    const word_count_no_padding = (bytes.written().len + 7) / 8;
     const padded_word_count = if (word_count_no_padding % 5 == 0)
         word_count_no_padding
     else
@@ -514,8 +509,8 @@ test "decode add accounts payload from bytes and from big-endian words" {
     for (0..word_count_no_padding) |idx| {
         var raw: [8]u8 = [_]u8{0} ** 8;
         const start = idx * 8;
-        const end = @min(start + 8, bytes.items.len);
-        @memcpy(raw[0 .. end - start], bytes.items[start..end]);
+        const end = @min(start + 8, bytes.written().len);
+        @memcpy(raw[0 .. end - start], bytes.written()[start..end]);
         words[idx] = std.mem.readInt(i64, &raw, .big);
     }
 
@@ -532,27 +527,27 @@ test "decode add accounts payload from bytes and from big-endian words" {
 }
 
 test "unsupported binary command code returns error" {
-    var bytes: std.ArrayList(u8) = .empty;
-    defer bytes.deinit(std.testing.allocator);
-    var writer = bytes.writer(std.testing.allocator);
-    try writer.writeInt(i32, 9999, .big);
+    var bytes: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer bytes.deinit();
+    const writer = &bytes.writer;
+    writer.writeInt(i32, 9999, .big) catch return error.OutOfMemory;
 
     try std.testing.expectError(
         error.UnsupportedBinaryCommandType,
-        decodeFromBytes(std.testing.allocator, bytes.items),
+        decodeFromBytes(std.testing.allocator, bytes.written()),
     );
 }
 
 test "decode query payload from bytes and words" {
-    var bytes: std.ArrayList(u8) = .empty;
-    defer bytes.deinit(std.testing.allocator);
-    var writer = bytes.writer(std.testing.allocator);
-    try writer.writeInt(i32, 10001, .big);
+    var bytes: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer bytes.deinit();
+    const writer = &bytes.writer;
+    writer.writeInt(i32, 10001, .big) catch return error.OutOfMemory;
 
-    const decoded = try decodeQueryFromBytes(bytes.items);
+    const decoded = try decodeQueryFromBytes(bytes.written());
     try std.testing.expectEqual(DecodedReportQuery.state_hash, decoded);
 
-    const word_count_no_padding = (bytes.items.len + 7) / 8;
+    const word_count_no_padding = (bytes.written().len + 7) / 8;
     const padded_word_count = if (word_count_no_padding % 5 == 0)
         word_count_no_padding
     else
@@ -565,8 +560,8 @@ test "decode query payload from bytes and words" {
     for (0..word_count_no_padding) |idx| {
         var raw: [8]u8 = [_]u8{0} ** 8;
         const start = idx * 8;
-        const end = @min(start + 8, bytes.items.len);
-        @memcpy(raw[0 .. end - start], bytes.items[start..end]);
+        const end = @min(start + 8, bytes.written().len);
+        @memcpy(raw[0 .. end - start], bytes.written()[start..end]);
         words[idx] = std.mem.readInt(i64, &raw, .big);
     }
 
@@ -575,25 +570,25 @@ test "decode query payload from bytes and words" {
 }
 
 test "unsupported query type code returns error" {
-    var bytes: std.ArrayList(u8) = .empty;
-    defer bytes.deinit(std.testing.allocator);
-    var writer = bytes.writer(std.testing.allocator);
-    try writer.writeInt(i32, 9999, .big);
+    var bytes: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer bytes.deinit();
+    const writer = &bytes.writer;
+    writer.writeInt(i32, 9999, .big) catch return error.OutOfMemory;
 
     try std.testing.expectError(
         error.UnsupportedReportQueryType,
-        decodeQueryFromBytes(bytes.items),
+        decodeQueryFromBytes(bytes.written()),
     );
 }
 
 test "decode single user query payload" {
-    var bytes: std.ArrayList(u8) = .empty;
-    defer bytes.deinit(std.testing.allocator);
-    var writer = bytes.writer(std.testing.allocator);
-    try writer.writeInt(i32, 10002, .big);
-    try writer.writeInt(i64, 4242, .big);
+    var bytes: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer bytes.deinit();
+    const writer = &bytes.writer;
+    writer.writeInt(i32, 10002, .big) catch return error.OutOfMemory;
+    writer.writeInt(i64, 4242, .big) catch return error.OutOfMemory;
 
-    const decoded = try decodeQueryFromBytes(bytes.items);
+    const decoded = try decodeQueryFromBytes(bytes.written());
     switch (decoded) {
         .single_user => |uid| try std.testing.expectEqual(@as(i64, 4242), uid),
         else => unreachable,

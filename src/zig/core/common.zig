@@ -121,7 +121,7 @@ pub const UserStatus = enum(i8) {
 };
 
 pub const PositionDirection = enum(i8) {
-    @"long" = 1,
+    long = 1,
     short = -1,
     empty = 0,
 
@@ -131,14 +131,14 @@ pub const PositionDirection = enum(i8) {
 
     pub fn fromAction(action: OrderAction) PositionDirection {
         return switch (action) {
-            .bid => .@"long",
+            .bid => .long,
             .ask => .short,
         };
     }
 
     pub fn fromCode(raw_code: i8) FromCodeError!PositionDirection {
         return switch (raw_code) {
-            1 => .@"long",
+            1 => .long,
             -1 => .short,
             0 => .empty,
             else => error.UnknownPositionDirectionCode,
@@ -150,11 +150,11 @@ pub const PositionDirection = enum(i8) {
     }
 
     pub fn isOppositeToAction(self: PositionDirection, action: OrderAction) bool {
-        return (self == .@"long" and action == .ask) or (self == .short and action == .bid);
+        return (self == .long and action == .ask) or (self == .short and action == .bid);
     }
 
     pub fn isSameAsAction(self: PositionDirection, action: OrderAction) bool {
-        return (self == .@"long" and action == .bid) or (self == .short and action == .ask);
+        return (self == .long and action == .bid) or (self == .short and action == .ask);
     }
 };
 
@@ -259,11 +259,11 @@ test "user status decode and unknown handling" {
 }
 
 test "position direction conversions" {
-    try std.testing.expectEqual(PositionDirection.@"long", PositionDirection.fromAction(.bid));
+    try std.testing.expectEqual(PositionDirection.long, PositionDirection.fromAction(.bid));
     try std.testing.expectEqual(PositionDirection.short, PositionDirection.fromAction(.ask));
     try std.testing.expectEqual(PositionDirection.empty, try PositionDirection.fromCode(0));
     try std.testing.expectError(error.UnknownPositionDirectionCode, PositionDirection.fromCode(2));
-    try std.testing.expect(PositionDirection.@"long".isOppositeToAction(.ask));
+    try std.testing.expect(PositionDirection.long.isOppositeToAction(.ask));
     try std.testing.expect(PositionDirection.short.isSameAsAction(.ask));
 }
 

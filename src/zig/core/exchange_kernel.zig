@@ -1670,70 +1670,70 @@ fn encodeAddSymbolsPayload(
     allocator: std.mem.Allocator,
     specs: []const common.CoreSymbolSpecification,
 ) std.mem.Allocator.Error![]u8 {
-    var bytes: std.ArrayList(u8) = .empty;
-    defer bytes.deinit(allocator);
-    var writer = bytes.writer(allocator);
+    var bytes: std.Io.Writer.Allocating = .init(allocator);
+    errdefer bytes.deinit();
+    const writer = &bytes.writer;
 
-    try writer.writeInt(i32, 1003, .big);
-    try writer.writeInt(i32, @as(i32, @intCast(specs.len)), .big);
+    writer.writeInt(i32, 1003, .big) catch return error.OutOfMemory;
+    writer.writeInt(i32, @as(i32, @intCast(specs.len)), .big) catch return error.OutOfMemory;
     for (specs) |spec| {
-        try writer.writeInt(i32, spec.symbol_id, .big);
-        try writer.writeInt(i32, spec.symbol_id, .big);
-        try writer.writeInt(i8, spec.symbol_type.code(), .big);
-        try writer.writeInt(i32, spec.base_currency, .big);
-        try writer.writeInt(i32, spec.quote_currency, .big);
-        try writer.writeInt(i64, spec.base_scale_k, .big);
-        try writer.writeInt(i64, spec.quote_scale_k, .big);
-        try writer.writeInt(i64, spec.taker_fee, .big);
-        try writer.writeInt(i64, spec.maker_fee, .big);
-        try writer.writeInt(i64, spec.margin_buy, .big);
-        try writer.writeInt(i64, spec.margin_sell, .big);
+        writer.writeInt(i32, spec.symbol_id, .big) catch return error.OutOfMemory;
+        writer.writeInt(i32, spec.symbol_id, .big) catch return error.OutOfMemory;
+        writer.writeInt(i8, spec.symbol_type.code(), .big) catch return error.OutOfMemory;
+        writer.writeInt(i32, spec.base_currency, .big) catch return error.OutOfMemory;
+        writer.writeInt(i32, spec.quote_currency, .big) catch return error.OutOfMemory;
+        writer.writeInt(i64, spec.base_scale_k, .big) catch return error.OutOfMemory;
+        writer.writeInt(i64, spec.quote_scale_k, .big) catch return error.OutOfMemory;
+        writer.writeInt(i64, spec.taker_fee, .big) catch return error.OutOfMemory;
+        writer.writeInt(i64, spec.maker_fee, .big) catch return error.OutOfMemory;
+        writer.writeInt(i64, spec.margin_buy, .big) catch return error.OutOfMemory;
+        writer.writeInt(i64, spec.margin_sell, .big) catch return error.OutOfMemory;
     }
-    return bytes.toOwnedSlice(allocator);
+    return bytes.toOwnedSlice();
 }
 
 fn encodeAddAccountsPayload(
     allocator: std.mem.Allocator,
     users: []const binary_payload.UserAccountsBatch,
 ) std.mem.Allocator.Error![]u8 {
-    var bytes: std.ArrayList(u8) = .empty;
-    defer bytes.deinit(allocator);
-    var writer = bytes.writer(allocator);
+    var bytes: std.Io.Writer.Allocating = .init(allocator);
+    errdefer bytes.deinit();
+    const writer = &bytes.writer;
 
-    try writer.writeInt(i32, 1002, .big);
-    try writer.writeInt(i32, @as(i32, @intCast(users.len)), .big);
+    writer.writeInt(i32, 1002, .big) catch return error.OutOfMemory;
+    writer.writeInt(i32, @as(i32, @intCast(users.len)), .big) catch return error.OutOfMemory;
     for (users) |user_batch| {
-        try writer.writeInt(i64, user_batch.uid, .big);
-        try writer.writeInt(i32, @as(i32, @intCast(user_batch.accounts.len)), .big);
+        writer.writeInt(i64, user_batch.uid, .big) catch return error.OutOfMemory;
+        writer.writeInt(i32, @as(i32, @intCast(user_batch.accounts.len)), .big) catch return error.OutOfMemory;
         for (user_batch.accounts) |account| {
-            try writer.writeInt(i32, account.currency, .big);
-            try writer.writeInt(i64, account.balance, .big);
+            writer.writeInt(i32, account.currency, .big) catch return error.OutOfMemory;
+            writer.writeInt(i64, account.balance, .big) catch return error.OutOfMemory;
         }
     }
-    return bytes.toOwnedSlice(allocator);
+    return bytes.toOwnedSlice();
 }
 
 fn encodeReportQueryPayload(
     allocator: std.mem.Allocator,
     report_type_code: i32,
 ) std.mem.Allocator.Error![]u8 {
-    var bytes: std.ArrayList(u8) = .empty;
-    defer bytes.deinit(allocator);
-    var writer = bytes.writer(allocator);
-    try writer.writeInt(i32, report_type_code, .big);
-    return bytes.toOwnedSlice(allocator);
+    var bytes: std.Io.Writer.Allocating = .init(allocator);
+    errdefer bytes.deinit();
+    const writer = &bytes.writer;
+    writer.writeInt(i32, report_type_code, .big) catch return error.OutOfMemory;
+    return bytes.toOwnedSlice();
 }
 
 fn encodeSingleUserReportQueryPayload(
     allocator: std.mem.Allocator,
     uid: i64,
 ) std.mem.Allocator.Error![]u8 {
-    var bytes: std.ArrayList(u8) = .empty;
-    defer bytes.deinit(allocator);
-    var writer = bytes.writer(allocator);
-    try writer.writeInt(i32, 10002, .big);
-    try writer.writeInt(i64, uid, .big);
-    return bytes.toOwnedSlice(allocator);
+    var bytes: std.Io.Writer.Allocating = .init(allocator);
+    errdefer bytes.deinit();
+    const writer = &bytes.writer;
+    writer.writeInt(i32, 10002, .big) catch return error.OutOfMemory;
+    writer.writeInt(i64, uid, .big) catch return error.OutOfMemory;
+    return bytes.toOwnedSlice();
 }
 
 fn appendBinaryPayloadFrames(
@@ -3260,11 +3260,11 @@ test "kernel binary data command malformed payload returns binary command failed
     var kernel = try ExchangeKernel.init(allocator, .{});
     defer kernel.deinit();
 
-    var payload: std.ArrayList(u8) = .empty;
-    defer payload.deinit(allocator);
-    var writer = payload.writer(allocator);
-    try writer.writeInt(i32, 1002, .big);
-    try writer.writeInt(i32, -1, .big);
+    var payload: std.Io.Writer.Allocating = .init(allocator);
+    defer payload.deinit();
+    const writer = &payload.writer;
+    writer.writeInt(i32, 1002, .big) catch return error.OutOfMemory;
+    writer.writeInt(i32, -1, .big) catch return error.OutOfMemory;
 
     var frames: std.ArrayListUnmanaged(cmd.OrderCommand) = .empty;
     defer frames.deinit(allocator);
@@ -3273,7 +3273,7 @@ test "kernel binary data command malformed payload returns binary command failed
         &frames,
         .binary_data_command,
         703,
-        payload.items,
+        payload.written(),
     );
 
     for (frames.items, 0..) |*frame, idx| {

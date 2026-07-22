@@ -1143,7 +1143,7 @@ test "risk engine seeded user lifecycle campaign is deterministic and seed-sensi
                     command = .{
                         .command = .add_user,
                         .uid = uid,
-                        .result_code = .@"new",
+                        .result_code = .new,
                     };
                 } else if (op_roll < 48) {
                     operation = .balance_adjustment;
@@ -1157,7 +1157,7 @@ test "risk engine seeded user lifecycle campaign is deterministic and seed-sensi
                         .price = amount,
                         .order_id = next_funding_tx_id,
                         .order_type = .gtc,
-                        .result_code = .@"new",
+                        .result_code = .new,
                     };
                     next_funding_tx_id += 1;
                 } else if (op_roll < 62) {
@@ -1165,14 +1165,14 @@ test "risk engine seeded user lifecycle campaign is deterministic and seed-sensi
                     command = .{
                         .command = .suspend_user,
                         .uid = uid,
-                        .result_code = .@"new",
+                        .result_code = .new,
                     };
                 } else if (op_roll < 76) {
                     operation = .resume_user;
                     command = .{
                         .command = .resume_user,
                         .uid = uid,
-                        .result_code = .@"new",
+                        .result_code = .new,
                     };
                 } else {
                     operation = .place_order;

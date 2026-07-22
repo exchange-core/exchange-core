@@ -9,22 +9,24 @@ const SurfaceDiffError = error{
     MissingMethodName,
 };
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+pub fn main(init: std.process.Init) !void {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const java_source = try std.fs.cwd().readFileAlloc(
-        allocator,
+    const java_source = try std.Io.Dir.cwd().readFileAlloc(
+        init.io,
         JavaSourcePath,
-        std.math.maxInt(usize),
+        allocator,
+        .unlimited,
     );
     defer allocator.free(java_source);
 
-    const zig_source = try std.fs.cwd().readFileAlloc(
-        allocator,
+    const zig_source = try std.Io.Dir.cwd().readFileAlloc(
+        init.io,
         ZigSourcePath,
-        std.math.maxInt(usize),
+        allocator,
+        .unlimited,
     );
     defer allocator.free(zig_source);
 
@@ -65,6 +67,7 @@ pub fn main() !void {
     std.sort.heap([]const u8, shared.items, {}, lessThanName);
 
     try writeJsonReport(
+        init.io,
         java_methods.count(),
         zig_methods.count(),
         shared.items,
@@ -72,6 +75,7 @@ pub fn main() !void {
         zig_only.items,
     );
     try writeMarkdownReport(
+        init.io,
         java_methods.count(),
         zig_methods.count(),
         shared.items,
@@ -87,7 +91,7 @@ fn collectJavaPublicMethodNames(
 ) (std.mem.Allocator.Error || SurfaceDiffError)!void {
     var lines = std.mem.splitScalar(u8, source, '\n');
     while (lines.next()) |line| {
-        const trimmed = std.mem.trimLeft(u8, line, " \t");
+        const trimmed = std.mem.trimStart(u8, line, " \t");
         if (!std.mem.startsWith(u8, trimmed, "public ")) continue;
         if (std.mem.startsWith(u8, trimmed, "public final class ")) continue;
         if (std.mem.indexOfScalar(u8, trimmed, '(') == null) continue;
@@ -106,14 +110,14 @@ fn collectZigPublicMethodNames(
 ) (std.mem.Allocator.Error || SurfaceDiffError)!void {
     var lines = std.mem.splitScalar(u8, source, '\n');
     while (lines.next()) |line| {
-        const trimmed = std.mem.trimLeft(u8, line, " \t");
+        const trimmed = std.mem.trimStart(u8, line, " \t");
         if (!std.mem.startsWith(u8, trimmed, "pub fn ")) continue;
 
         const tail = trimmed["pub fn ".len..];
         const open_paren = std.mem.indexOfScalar(u8, tail, '(') orelse
             return SurfaceDiffError.MissingMethodName;
         const signature = tail[0..open_paren];
-        const method_name = std.mem.trimRight(u8, signature, " \t");
+        const method_name = std.mem.trimEnd(u8, signature, " \t");
         if (method_name.len == 0) return SurfaceDiffError.MissingMethodName;
         try out.put(allocator, method_name, {});
     }
@@ -139,17 +143,18 @@ fn isIdentifierChar(ch: u8) bool {
 }
 
 fn writeJsonReport(
+    io: std.Io,
     java_count: usize,
     zig_count: usize,
     shared: []const []const u8,
     java_only: []const []const u8,
     zig_only: []const []const u8,
 ) !void {
-    const file = try std.fs.cwd().createFile(JsonOutputPath, .{ .truncate = true });
-    defer file.close();
+    const file = try std.Io.Dir.cwd().createFile(io, JsonOutputPath, .{ .truncate = true });
+    defer file.close(io);
 
     var buffer: [8192]u8 = undefined;
-    var file_writer = file.writer(&buffer);
+    var file_writer = file.writer(io, &buffer);
     const writer = &file_writer.interface;
 
     try writer.writeAll("{\n");
@@ -198,17 +203,18 @@ fn writeJsonStringArray(
 }
 
 fn writeMarkdownReport(
+    io: std.Io,
     java_count: usize,
     zig_count: usize,
     shared: []const []const u8,
     java_only: []const []const u8,
     zig_only: []const []const u8,
 ) !void {
-    const file = try std.fs.cwd().createFile(MarkdownOutputPath, .{ .truncate = true });
-    defer file.close();
+    const file = try std.Io.Dir.cwd().createFile(io, MarkdownOutputPath, .{ .truncate = true });
+    defer file.close(io);
 
     var buffer: [8192]u8 = undefined;
-    var file_writer = file.writer(&buffer);
+    var file_writer = file.writer(io, &buffer);
     const writer = &file_writer.interface;
 
     try writer.writeAll("# ExchangeApi Surface Diff (Java vs Zig)\n\n");

@@ -1,4 +1,5 @@
 const std = @import("std");
+const io_context = @import("io_context.zig");
 const cmd = @import("cmd.zig");
 const common = @import("common.zig");
 const api_command_mod = @import("api_command.zig");
@@ -144,7 +145,7 @@ pub const ExchangeOrchestrator = struct {
 
     pub fn startupFromPersistence(
         self: *ExchangeOrchestrator,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_path: ?[]const u8,
         journal_path: ?[]const u8,
     ) StartupError!BootstrapOutcome {
@@ -156,7 +157,7 @@ pub const ExchangeOrchestrator = struct {
 
     pub fn startupFromConfiguredPersistence(
         self: *ExchangeOrchestrator,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_module_type: PersistenceModuleType,
         snapshot_instance_id: u32,
         journal_partition_id: u16,
@@ -179,7 +180,7 @@ pub const ExchangeOrchestrator = struct {
 
     pub fn startupFromDiscoveredConfiguredPersistence(
         self: *ExchangeOrchestrator,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_module_type: PersistenceModuleType,
         snapshot_instance_id: u32,
         journal_partition_id: u16,
@@ -202,7 +203,7 @@ pub const ExchangeOrchestrator = struct {
 
     pub fn startupFromDiscoveredConfiguredPersistenceStrictMainLog(
         self: *ExchangeOrchestrator,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_module_type: PersistenceModuleType,
         snapshot_instance_id: u32,
         journal_partition_id: u16,
@@ -225,7 +226,7 @@ pub const ExchangeOrchestrator = struct {
 
     pub fn persistStateWithDefaultMainLog(
         self: *ExchangeOrchestrator,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: i64,
         timestamp_ns: i64,
         module_type: PersistenceModuleType,
@@ -893,10 +894,9 @@ test "exchange orchestrator sharded strict startup propagates malformed main-log
 
     const main_log_path = try source.defaultPersistenceMainLogPath(allocator);
     defer allocator.free(main_log_path);
-    var main_log_file = try tmp.dir.createFile(main_log_path, .{ .truncate = false });
-    defer main_log_file.close();
-    try main_log_file.seekFromEnd(0);
-    try main_log_file.writeAll("seeded-malformed-main-log-entry\n");
+    var main_log_file = try tmp.dir.createFile(io_context.current(), main_log_path, .{ .truncate = false });
+    defer main_log_file.close(io_context.current());
+    try io_context.appendAll(main_log_file, "seeded-malformed-main-log-entry\n");
 
     var target = try ExchangeOrchestrator.initFromJavaConfig(
         allocator,
@@ -1026,9 +1026,9 @@ test "exchange orchestrator sharded persistStateWithDefaultMainLog writes defaul
         exchange_id,
     );
     defer allocator.free(main_log_path);
-    var file = try tmp.dir.openFile(main_log_path, .{});
-    defer file.close();
-    const contents = try file.readToEndAlloc(allocator, 4096);
+    var file = try tmp.dir.openFile(io_context.current(), main_log_path, .{});
+    defer file.close(io_context.current());
+    const contents = try io_context.readToEndAlloc(file, allocator, 4096);
     defer allocator.free(contents);
     try std.testing.expect(std.mem.indexOf(u8, contents, "snapshotId=7001") != null);
     try std.testing.expect(std.mem.indexOf(u8, contents, "type=ME") != null);
@@ -1108,7 +1108,7 @@ test "exchange orchestrator seeded persistence perturbation simulation is determ
 
         fn captureSnapshotToDefaultPath(
             source: *ExchangeOrchestrator,
-            dir: std.fs.Dir,
+            dir: std.Io.Dir,
             snapshot_id: u64,
             module_type: PersistenceModuleType,
         ) !void {
@@ -1136,7 +1136,7 @@ test "exchange orchestrator seeded persistence perturbation simulation is determ
         fn appendMalformedMainLog(
             alloc: std.mem.Allocator,
             source: *ExchangeOrchestrator,
-            dir: std.fs.Dir,
+            dir: std.Io.Dir,
         ) !void {
             const path = switch (source.backend) {
                 .single => |*single| try single.defaultPersistenceMainLogPath(alloc),
@@ -1144,10 +1144,9 @@ test "exchange orchestrator seeded persistence perturbation simulation is determ
             };
             defer alloc.free(path);
 
-            var file = try dir.createFile(path, .{ .truncate = false });
-            defer file.close();
-            try file.seekFromEnd(0);
-            try file.writeAll("seeded-malformed-main-log-entry\n");
+            var file = try dir.createFile(io_context.current(), path, .{ .truncate = false });
+            defer file.close(io_context.current());
+            try io_context.appendAll(file, "seeded-malformed-main-log-entry\n");
         }
 
         fn runScenario(alloc: std.mem.Allocator, scenario: Scenario) !Outcome {
@@ -1421,7 +1420,7 @@ test "exchange orchestrator seeded journal replay perturbations are deterministi
 
         fn captureSnapshotToDefaultPath(
             source: *ExchangeOrchestrator,
-            dir: std.fs.Dir,
+            dir: std.Io.Dir,
             snapshot_id: u64,
             module_type: PersistenceModuleType,
         ) !void {
@@ -1448,7 +1447,7 @@ test "exchange orchestrator seeded journal replay perturbations are deterministi
 
         fn writeJournalPartitionZero(
             source: *ExchangeOrchestrator,
-            dir: std.fs.Dir,
+            dir: std.Io.Dir,
             snapshot_id: u64,
         ) !void {
             switch (source.backend) {
@@ -1497,7 +1496,7 @@ test "exchange orchestrator seeded journal replay perturbations are deterministi
         fn isolateTailJournalPartition(
             alloc: std.mem.Allocator,
             source: *ExchangeOrchestrator,
-            dir: std.fs.Dir,
+            dir: std.Io.Dir,
             snapshot_id: u64,
         ) !u64 {
             const partition_zero_path = try defaultJournalPath(alloc, source, snapshot_id);
@@ -1526,7 +1525,7 @@ test "exchange orchestrator seeded journal replay perturbations are deterministi
         fn rewriteMainLogSequenceForSnapshot(
             alloc: std.mem.Allocator,
             source: *ExchangeOrchestrator,
-            dir: std.fs.Dir,
+            dir: std.Io.Dir,
             snapshot_id: u64,
             module_type: PersistenceModuleType,
             instance_id: u32,
@@ -1535,8 +1534,8 @@ test "exchange orchestrator seeded journal replay perturbations are deterministi
             const main_log_path = try defaultMainLogPath(alloc, source);
             defer alloc.free(main_log_path);
 
-            var file = try dir.createFile(main_log_path, .{ .truncate = true });
-            defer file.close();
+            var file = try dir.createFile(io_context.current(), main_log_path, .{ .truncate = true });
+            defer file.close(io_context.current());
 
             var line_buf: [256]u8 = undefined;
             const line = try std.fmt.bufPrint(
@@ -1549,13 +1548,13 @@ test "exchange orchestrator seeded journal replay perturbations are deterministi
                     instance_id,
                 },
             );
-            try file.writeAll(line);
+            try file.writeStreamingAll(io_context.current(), line);
         }
 
         fn applyPerturbation(
             alloc: std.mem.Allocator,
             source: *ExchangeOrchestrator,
-            dir: std.fs.Dir,
+            dir: std.Io.Dir,
             snapshot_id: u64,
             perturbation: Perturbation,
         ) !void {
@@ -1789,20 +1788,19 @@ test "exchange orchestrator long-horizon seeded restart simulation is determinis
         fn appendMalformedMainLog(
             alloc: std.mem.Allocator,
             source: *ExchangeOrchestrator,
-            dir: std.fs.Dir,
+            dir: std.Io.Dir,
         ) !void {
             const path = try defaultMainLogPath(alloc, source);
             defer alloc.free(path);
 
-            var file = try dir.createFile(path, .{ .truncate = false });
-            defer file.close();
-            try file.seekFromEnd(0);
-            try file.writeAll("seeded-malformed-main-log-entry\n");
+            var file = try dir.createFile(io_context.current(), path, .{ .truncate = false });
+            defer file.close(io_context.current());
+            try io_context.appendAll(file, "seeded-malformed-main-log-entry\n");
         }
 
         fn captureSnapshotToDefaultPath(
             source: *ExchangeOrchestrator,
-            dir: std.fs.Dir,
+            dir: std.Io.Dir,
             snapshot_id: u64,
             module_type: PersistenceModuleType,
         ) !void {

@@ -236,4 +236,4 @@ Default parity-diff coverage includes:
 
 Current migration-gate status is tracked in `src/zig/PARITY_BENCHMARK_REPORT.md`.
 
-For this repository and toolchain, Zig `0.15.2` is the baseline.
+For this repository and toolchain, Zig `0.16.0` is the baseline.

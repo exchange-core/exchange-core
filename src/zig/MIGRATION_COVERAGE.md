@@ -5,7 +5,7 @@ Scope: `src/main/java/exchange/core2/core` -> `src/zig/core`
 
 ## Baseline
 
-Current migration gate is green on Zig 0.15.2:
+Current migration gate is green on Zig 0.16.0:
 
 - `zig build test`: PASS
 - `zig build gate`: PASS

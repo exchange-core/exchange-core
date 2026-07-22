@@ -1,4 +1,5 @@
 const std = @import("std");
+const io_context = @import("io_context.zig");
 const cmd = @import("cmd.zig");
 const common = @import("common.zig");
 const config_mod = @import("config.zig");
@@ -71,7 +72,7 @@ pub const StartupFromConfiguredPersistenceError = StartupError || PersistencePat
 const MainLogSequenceParseError = error{
     MalformedMainLogEntry,
 };
-pub const StartupFromDiscoveredConfiguredPersistenceError = StartupFromConfiguredPersistenceError || std.fs.Dir.OpenError || std.fs.Dir.Iterator.Error;
+pub const StartupFromDiscoveredConfiguredPersistenceError = StartupFromConfiguredPersistenceError || std.Io.Dir.OpenError || std.Io.Dir.Iterator.Error;
 pub const StartupFromDiscoveredConfiguredPersistenceStrictError = StartupFromDiscoveredConfiguredPersistenceError || MainLogSequenceParseError;
 pub const JournalApiError = error{
     JournalingDisabled,
@@ -82,8 +83,8 @@ pub const JournalReplayError = JournalApiError || ExecuteError || error{
 };
 pub const SnapshotWriteError = snapshot_mod.SnapshotCaptureError || snapshot_mod.SnapshotIoError;
 pub const SnapshotValidateError = snapshot_mod.SnapshotValidationError || snapshot_mod.SnapshotIoError;
-const StorageFolderEnsureError = std.fs.Dir.MakeError || std.fs.Dir.StatFileError;
-const MainLogWriteError = std.fs.File.OpenError || std.fs.File.SeekError || std.fs.File.WriteError || std.fmt.BufPrintError;
+const StorageFolderEnsureError = std.Io.Dir.CreateDirPathError;
+const MainLogWriteError = std.Io.File.OpenError || io_context.AppendAllError || std.fmt.BufPrintError;
 pub const DefaultJournalApiError = JournalApiError || PersistencePathError || StorageFolderEnsureError;
 pub const DefaultJournalReplayError = JournalReplayError || PersistencePathError;
 pub const DefaultJournalReplayRangeError = DefaultJournalReplayError || error{
@@ -97,7 +98,7 @@ pub const PersistStateWithMainLogError = PersistStateError || PersistencePathErr
     PersistStateSnapshotIdOverflow,
     PersistStateTimestampOverflow,
 };
-pub const SnapshotExistsError = std.fs.Dir.StatFileError;
+pub const SnapshotExistsError = std.Io.Dir.StatFileError;
 pub const DefaultSnapshotExistsError = SnapshotExistsError || PersistencePathError;
 pub const QueryTypedReportError = QueryReportError || error{
     UnexpectedReportResponseType,
@@ -487,7 +488,7 @@ pub const ExchangeApiSharded = struct {
 
     pub fn bootstrapFromPersistence(
         self: *ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_path: ?[]const u8,
         journal_path: ?[]const u8,
     ) BootstrapError!BootstrapOutcome {
@@ -505,7 +506,7 @@ pub const ExchangeApiSharded = struct {
 
     pub fn startupFromPersistence(
         self: *ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_path: ?[]const u8,
         journal_path: ?[]const u8,
     ) StartupError!BootstrapOutcome {
@@ -515,7 +516,7 @@ pub const ExchangeApiSharded = struct {
 
     pub fn startupFromConfiguredPersistence(
         self: *ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_module_type: PersistenceModuleType,
         snapshot_instance_id: u32,
         journal_partition_id: u16,
@@ -578,7 +579,7 @@ pub const ExchangeApiSharded = struct {
 
     pub fn startupFromDiscoveredConfiguredPersistence(
         self: *ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_module_type: PersistenceModuleType,
         snapshot_instance_id: u32,
         journal_partition_id: u16,
@@ -612,7 +613,7 @@ pub const ExchangeApiSharded = struct {
 
     pub fn startupFromDiscoveredConfiguredPersistenceStrictMainLog(
         self: *ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_module_type: PersistenceModuleType,
         snapshot_instance_id: u32,
         journal_partition_id: u16,
@@ -646,7 +647,7 @@ pub const ExchangeApiSharded = struct {
 
     pub fn writeJournalToFile(
         self: *ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
     ) JournalApiError!void {
         if (self.journal) |*journal| {
@@ -658,7 +659,7 @@ pub const ExchangeApiSharded = struct {
 
     pub fn loadJournalFromFile(
         self: *ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
     ) JournalApiError!void {
         if (self.journal) |*journal| {
@@ -672,7 +673,7 @@ pub const ExchangeApiSharded = struct {
 
     pub fn replayJournalFromFile(
         self: *ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
     ) JournalReplayError!usize {
         if (self.journal) |*journal| {
@@ -725,7 +726,7 @@ pub const ExchangeApiSharded = struct {
 
     pub fn captureSnapshotToFile(
         self: *ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
         symbols: []const i32,
         depth: usize,
@@ -742,7 +743,7 @@ pub const ExchangeApiSharded = struct {
 
     pub fn validateSnapshotFile(
         self: *ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
     ) SnapshotValidateError!void {
         var snapshot = try snapshot_mod.KernelSnapshot.readFromFile(self.allocator, dir, path);
@@ -752,7 +753,7 @@ pub const ExchangeApiSharded = struct {
 
     pub fn writeJournalToDefaultPath(
         self: *ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         partition_id: u16,
     ) DefaultJournalApiError!void {
@@ -768,7 +769,7 @@ pub const ExchangeApiSharded = struct {
 
     pub fn loadJournalFromDefaultPath(
         self: *ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         partition_id: u16,
     ) DefaultJournalApiError!void {
@@ -783,7 +784,7 @@ pub const ExchangeApiSharded = struct {
 
     pub fn replayJournalFromDefaultPath(
         self: *ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         partition_id: u16,
     ) DefaultJournalReplayError!usize {
@@ -798,7 +799,7 @@ pub const ExchangeApiSharded = struct {
 
     pub fn replayJournalFromDefaultPathRange(
         self: *ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         partition_id: u16,
     ) DefaultJournalReplayRangeError!usize {
@@ -823,7 +824,7 @@ pub const ExchangeApiSharded = struct {
 
     pub fn captureSnapshotToDefaultPath(
         self: *ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         module_type: PersistenceModuleType,
         instance_id: u32,
@@ -856,7 +857,7 @@ pub const ExchangeApiSharded = struct {
 
     pub fn validateSnapshotDefaultPath(
         self: *ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         module_type: PersistenceModuleType,
         instance_id: u32,
@@ -873,7 +874,7 @@ pub const ExchangeApiSharded = struct {
 
     pub fn persistStateWithDefaultMainLog(
         self: *ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: i64,
         timestamp_ns: i64,
         module_type: PersistenceModuleType,
@@ -904,7 +905,7 @@ pub const ExchangeApiSharded = struct {
 
     pub fn snapshotExistsDefaultPath(
         self: *const ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         module_type: PersistenceModuleType,
         instance_id: u32,
@@ -921,11 +922,11 @@ pub const ExchangeApiSharded = struct {
 
     pub fn snapshotExistsFile(
         self: *const ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
     ) SnapshotExistsError!bool {
         _ = self;
-        _ = dir.statFile(path) catch |err| switch (err) {
+        _ = dir.statFile(io_context.current(), path, .{}) catch |err| switch (err) {
             error.FileNotFound => return false,
             else => return err,
         };
@@ -3060,7 +3061,7 @@ pub const ExchangeApiSharded = struct {
 
     fn bootstrapSnapshotPhase(
         self: *ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_path: ?[]const u8,
         outcome: *BootstrapOutcome,
     ) BootstrapError!void {
@@ -3082,7 +3083,7 @@ pub const ExchangeApiSharded = struct {
 
     fn bootstrapSnapshotPhaseWithId(
         self: *ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_path: []const u8,
         snapshot_id: u64,
         snapshot_base_seq: u64,
@@ -3108,7 +3109,7 @@ pub const ExchangeApiSharded = struct {
 
     fn startupFromConfiguredPersistenceWithSnapshotId(
         self: *ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_module_type: PersistenceModuleType,
         snapshot_instance_id: u32,
         journal_partition_id: u16,
@@ -3180,7 +3181,7 @@ pub const ExchangeApiSharded = struct {
 
     fn startupFromConfiguredPersistenceWithSnapshotIdStrictMainLog(
         self: *ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_module_type: PersistenceModuleType,
         snapshot_instance_id: u32,
         journal_partition_id: u16,
@@ -3253,20 +3254,20 @@ pub const ExchangeApiSharded = struct {
 
     fn discoverLatestDefaultSnapshotId(
         self: *const ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         module_type: PersistenceModuleType,
         instance_id: u32,
-    ) (std.fs.Dir.OpenError || std.fs.Dir.Iterator.Error)!?u64 {
+    ) (std.Io.Dir.OpenError || std.Io.Dir.Iterator.Error)!?u64 {
         const storage_folder = self.config.serialization.storage_folder;
-        var storage_dir = dir.openDir(storage_folder, .{ .iterate = true }) catch |err| switch (err) {
+        var storage_dir = dir.openDir(io_context.current(), storage_folder, .{ .iterate = true }) catch |err| switch (err) {
             error.FileNotFound => return null,
             else => return err,
         };
-        defer storage_dir.close();
+        defer storage_dir.close(io_context.current());
 
         var it = storage_dir.iterate();
         var latest_snapshot_id: ?u64 = null;
-        while (try it.next()) |entry| {
+        while (try it.next(io_context.current())) |entry| {
             const snapshot_id = parseSnapshotIdFromDefaultFileName(
                 entry.name,
                 self.config.initial_state.exchange_id,
@@ -3282,7 +3283,7 @@ pub const ExchangeApiSharded = struct {
 
     fn discoverSnapshotBaseSeqFromMainLog(
         self: *const ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         module_type: PersistenceModuleType,
         instance_id: u32,
@@ -3290,9 +3291,9 @@ pub const ExchangeApiSharded = struct {
         const main_log_path = self.defaultPersistenceMainLogPath(self.allocator) catch return null;
         defer self.allocator.free(main_log_path);
 
-        var main_log_file = dir.openFile(main_log_path, .{}) catch return null;
-        defer main_log_file.close();
-        const main_log_contents = main_log_file.readToEndAlloc(self.allocator, 8 * 1024 * 1024) catch return null;
+        var main_log_file = dir.openFile(io_context.current(), main_log_path, .{}) catch return null;
+        defer main_log_file.close(io_context.current());
+        const main_log_contents = io_context.readToEndAlloc(main_log_file, self.allocator, 8 * 1024 * 1024) catch return null;
         defer self.allocator.free(main_log_contents);
 
         var best_seq: ?u64 = null;
@@ -3313,7 +3314,7 @@ pub const ExchangeApiSharded = struct {
 
     fn discoverSnapshotBaseSeqFromMainLogStrict(
         self: *const ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         module_type: PersistenceModuleType,
         instance_id: u32,
@@ -3321,9 +3322,9 @@ pub const ExchangeApiSharded = struct {
         const main_log_path = self.defaultPersistenceMainLogPath(self.allocator) catch return null;
         defer self.allocator.free(main_log_path);
 
-        var main_log_file = dir.openFile(main_log_path, .{}) catch return null;
-        defer main_log_file.close();
-        const main_log_contents = main_log_file.readToEndAlloc(self.allocator, 8 * 1024 * 1024) catch return null;
+        var main_log_file = dir.openFile(io_context.current(), main_log_path, .{}) catch return null;
+        defer main_log_file.close(io_context.current());
+        const main_log_contents = io_context.readToEndAlloc(main_log_file, self.allocator, 8 * 1024 * 1024) catch return null;
         defer self.allocator.free(main_log_contents);
 
         var best_seq: ?u64 = null;
@@ -3342,7 +3343,7 @@ pub const ExchangeApiSharded = struct {
 
     fn appendDefaultPersistenceMainLogEntry(
         self: *const ExchangeApiSharded,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         seq: u64,
         timestamp_ns: u64,
         snapshot_id: u64,
@@ -3363,9 +3364,9 @@ pub const ExchangeApiSharded = struct {
         );
     }
 
-    fn ensureConfiguredStorageFolderExists(self: *const ExchangeApiSharded, dir: std.fs.Dir) StorageFolderEnsureError!void {
+    fn ensureConfiguredStorageFolderExists(self: *const ExchangeApiSharded, dir: std.Io.Dir) StorageFolderEnsureError!void {
         const storage_folder = self.config.serialization.storage_folder;
-        try dir.makePath(storage_folder);
+        try dir.createDirPath(io_context.current(), storage_folder);
     }
 
     fn publishSimpleEvents(
@@ -3509,7 +3510,7 @@ fn parsePrefixedU32Token(token: []const u8, prefix: []const u8) ?u32 {
 }
 
 fn appendMainLogEntryToFile(
-    dir: std.fs.Dir,
+    dir: std.Io.Dir,
     path: []const u8,
     seq: u64,
     timestamp_ns: u64,
@@ -3517,17 +3518,11 @@ fn appendMainLogEntryToFile(
     module_type: PersistenceModuleType,
     instance_id: u32,
 ) MainLogWriteError!void {
-    var file = try dir.createFile(path, .{
+    var file = try dir.createFile(io_context.current(), path, .{
         .truncate = false,
     });
-    defer file.close();
-    try file.seekFromEnd(0);
-
-    const wall_clock_ms_i64 = std.time.milliTimestamp();
-    const wall_clock_ms: u64 = if (wall_clock_ms_i64 < 0)
-        0
-    else
-        @as(u64, @intCast(wall_clock_ms_i64));
+    defer file.close(io_context.current());
+    const wall_clock_ms = io_context.realTimestampMs();
 
     var line_buf: [256]u8 = undefined;
     const line = try std.fmt.bufPrint(
@@ -3542,12 +3537,11 @@ fn appendMainLogEntryToFile(
             instance_id,
         },
     );
-    try file.writeAll(line);
+    try io_context.appendAll(file, line);
 }
 
 fn currentWallClockTimestampNs() u64 {
-    const now = std.time.nanoTimestamp();
-    return if (now < 0) 0 else @as(u64, @intCast(now));
+    return io_context.realTimestampNs();
 }
 
 fn requestIdFromHandle(handle: ApiCommandAsyncHandle) error{UnsupportedPersistStateHandle}!u64 {
@@ -4130,7 +4124,7 @@ fn mapSeededStartupError(err: anyerror) SeededStartupErrorKind {
 
 fn runSeededStartupCall(
     target: *ExchangeApiSharded,
-    dir: std.fs.Dir,
+    dir: std.Io.Dir,
     scenario: SeededStartupScenario,
 ) !BootstrapOutcome {
     return switch (scenario.mode) {
@@ -4152,7 +4146,7 @@ fn runSeededStartupCall(
 fn applySeededStartupPerturbation(
     allocator: std.mem.Allocator,
     source: *ExchangeApiSharded,
-    dir: std.fs.Dir,
+    dir: std.Io.Dir,
     snapshot_id: u64,
     snapshot_base_seq: u64,
     perturbation: SeededStartupPerturbation,
@@ -4191,7 +4185,7 @@ fn applySeededStartupPerturbation(
             }
             if (tail.entries.items.len == 0) return error.NoReplayableTailEntries;
             try tail.writeToFile(dir, partition_one_path);
-            try dir.deleteFile(partition_zero_path);
+            try dir.deleteFile(io_context.current(), partition_zero_path);
         },
         .corrupted_replay_sequence => {
             var journal = try journal_mod.CommandJournal.readFromFile(
@@ -4216,10 +4210,9 @@ fn applySeededStartupPerturbation(
             const main_log_path = try source.defaultPersistenceMainLogPath(allocator);
             defer allocator.free(main_log_path);
 
-            var file = try dir.createFile(main_log_path, .{ .truncate = false });
-            defer file.close();
-            try file.seekFromEnd(0);
-            try file.writeAll("seeded-malformed-main-log-entry\n");
+            var file = try dir.createFile(io_context.current(), main_log_path, .{ .truncate = false });
+            defer file.close(io_context.current());
+            try io_context.appendAll(file, "seeded-malformed-main-log-entry\n");
         },
     }
 }
@@ -6134,10 +6127,9 @@ test "sharded exchange api strict discovered startup rejects malformed main log 
 
     const main_log_path = try source.defaultPersistenceMainLogPath(allocator);
     defer allocator.free(main_log_path);
-    var main_log_file = try tmp.dir.createFile(main_log_path, .{ .truncate = false });
-    defer main_log_file.close();
-    try main_log_file.seekFromEnd(0);
-    try main_log_file.writeAll("malformed-entry\n");
+    var main_log_file = try tmp.dir.createFile(io_context.current(), main_log_path, .{ .truncate = false });
+    defer main_log_file.close(io_context.current());
+    try io_context.appendAll(main_log_file, "malformed-entry\n");
 
     const target_cfg = config_mod.JavaExchangeConfig{
         .init_state_cfg = config_mod.InitialStateConfig.fromSnapshotOnly("ECSTRICT", 1, 0),
@@ -6255,9 +6247,9 @@ test "sharded exchange api persistStateWithDefaultMainLog updates descriptor and
 
     const main_log_path = try api.defaultPersistenceMainLogPath(allocator);
     defer allocator.free(main_log_path);
-    var main_log_file = try tmp.dir.openFile(main_log_path, .{});
-    defer main_log_file.close();
-    const contents = try main_log_file.readToEndAlloc(allocator, 4096);
+    var main_log_file = try tmp.dir.openFile(io_context.current(), main_log_path, .{});
+    defer main_log_file.close(io_context.current());
+    const contents = try io_context.readToEndAlloc(main_log_file, allocator, 4096);
     defer allocator.free(contents);
     try std.testing.expect(std.mem.indexOf(u8, contents, "snapshotId=7001") != null);
 }

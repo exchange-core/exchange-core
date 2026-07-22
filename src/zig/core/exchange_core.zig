@@ -1,4 +1,5 @@
 const std = @import("std");
+const io_context = @import("io_context.zig");
 const common = @import("common.zig");
 const cmd = @import("cmd.zig");
 const config_mod = @import("config.zig");
@@ -78,8 +79,8 @@ pub const JournalApiError = error{
 pub const JournalReplayError = JournalApiError || journal_mod.ReplayError;
 pub const SnapshotWriteError = snapshot_mod.SnapshotCaptureError || snapshot_mod.SnapshotIoError;
 pub const SnapshotValidateError = snapshot_mod.SnapshotValidationError || snapshot_mod.SnapshotIoError;
-const StorageFolderEnsureError = std.fs.Dir.MakeError || std.fs.Dir.StatFileError;
-const MainLogWriteError = std.fs.File.OpenError || std.fs.File.SeekError || std.fs.File.WriteError || std.fmt.BufPrintError;
+const StorageFolderEnsureError = std.Io.Dir.CreateDirPathError;
+const MainLogWriteError = std.Io.File.OpenError || io_context.AppendAllError || std.fmt.BufPrintError;
 pub const DefaultJournalApiError = JournalApiError || PersistencePathError || StorageFolderEnsureError;
 pub const DefaultJournalReplayError = JournalReplayError || PersistencePathError;
 pub const DefaultJournalReplayRangeError = DefaultJournalReplayError || error{
@@ -87,7 +88,7 @@ pub const DefaultJournalReplayRangeError = DefaultJournalReplayError || error{
 };
 pub const DefaultSnapshotWriteError = SnapshotWriteError || PersistencePathError || StorageFolderEnsureError || MainLogWriteError;
 pub const DefaultSnapshotValidateError = SnapshotValidateError || PersistencePathError;
-pub const SnapshotExistsError = std.fs.Dir.StatFileError;
+pub const SnapshotExistsError = std.Io.Dir.StatFileError;
 pub const DefaultSnapshotExistsError = SnapshotExistsError || PersistencePathError;
 pub const PersistStateWithMainLogError = ExecuteError || PersistencePathError || StorageFolderEnsureError || MainLogWriteError || error{
     PersistStateRejected,
@@ -115,7 +116,7 @@ pub const StartupFromConfiguredPersistenceError = StartupError || PersistencePat
 const MainLogSequenceParseError = error{
     MalformedMainLogEntry,
 };
-pub const StartupFromDiscoveredConfiguredPersistenceError = StartupFromConfiguredPersistenceError || std.fs.Dir.OpenError || std.fs.Dir.Iterator.Error;
+pub const StartupFromDiscoveredConfiguredPersistenceError = StartupFromConfiguredPersistenceError || std.Io.Dir.OpenError || std.Io.Dir.Iterator.Error;
 pub const StartupFromDiscoveredConfiguredPersistenceStrictError = StartupFromDiscoveredConfiguredPersistenceError || MainLogSequenceParseError;
 const ParityHelperError = error{
     UnexpectedReportVariant,
@@ -231,7 +232,7 @@ pub const ExchangeCore = struct {
 
     pub fn startupFromPersistence(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_path: ?[]const u8,
         journal_path: ?[]const u8,
     ) StartupError!BootstrapOutcome {
@@ -241,7 +242,7 @@ pub const ExchangeCore = struct {
 
     pub fn startupFromConfiguredPersistence(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_module_type: PersistenceModuleType,
         snapshot_instance_id: u32,
         journal_partition_id: u16,
@@ -304,7 +305,7 @@ pub const ExchangeCore = struct {
 
     pub fn startupFromDiscoveredConfiguredPersistence(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_module_type: PersistenceModuleType,
         snapshot_instance_id: u32,
         journal_partition_id: u16,
@@ -338,7 +339,7 @@ pub const ExchangeCore = struct {
 
     pub fn startupFromDiscoveredConfiguredPersistenceStrictMainLog(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_module_type: PersistenceModuleType,
         snapshot_instance_id: u32,
         journal_partition_id: u16,
@@ -372,7 +373,7 @@ pub const ExchangeCore = struct {
 
     fn startupFromConfiguredPersistenceWithSnapshotId(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_module_type: PersistenceModuleType,
         snapshot_instance_id: u32,
         journal_partition_id: u16,
@@ -444,7 +445,7 @@ pub const ExchangeCore = struct {
 
     fn startupFromConfiguredPersistenceWithSnapshotIdStrictMainLog(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_module_type: PersistenceModuleType,
         snapshot_instance_id: u32,
         journal_partition_id: u16,
@@ -517,7 +518,7 @@ pub const ExchangeCore = struct {
 
     fn bootstrapSnapshotPhaseWithId(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_path: []const u8,
         snapshot_id: u64,
         snapshot_base_seq: u64,
@@ -546,20 +547,20 @@ pub const ExchangeCore = struct {
 
     fn discoverLatestDefaultSnapshotId(
         self: *const ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         module_type: PersistenceModuleType,
         instance_id: u32,
-    ) (std.fs.Dir.OpenError || std.fs.Dir.Iterator.Error)!?u64 {
+    ) (std.Io.Dir.OpenError || std.Io.Dir.Iterator.Error)!?u64 {
         const storage_folder = self.config.serialization.storage_folder;
-        var storage_dir = dir.openDir(storage_folder, .{ .iterate = true }) catch |err| switch (err) {
+        var storage_dir = dir.openDir(io_context.current(), storage_folder, .{ .iterate = true }) catch |err| switch (err) {
             error.FileNotFound => return null,
             else => return err,
         };
-        defer storage_dir.close();
+        defer storage_dir.close(io_context.current());
 
         var it = storage_dir.iterate();
         var latest_snapshot_id: ?u64 = null;
-        while (try it.next()) |entry| {
+        while (try it.next(io_context.current())) |entry| {
             const snapshot_id = parseSnapshotIdFromDefaultFileName(
                 entry.name,
                 self.config.initial_state.exchange_id,
@@ -608,7 +609,7 @@ pub const ExchangeCore = struct {
 
     fn discoverSnapshotBaseSeqFromMainLog(
         self: *const ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         module_type: PersistenceModuleType,
         instance_id: u32,
@@ -616,9 +617,9 @@ pub const ExchangeCore = struct {
         const main_log_path = self.defaultPersistenceMainLogPath(self.allocator) catch return null;
         defer self.allocator.free(main_log_path);
 
-        var main_log_file = dir.openFile(main_log_path, .{}) catch return null;
-        defer main_log_file.close();
-        const main_log_contents = main_log_file.readToEndAlloc(self.allocator, 8 * 1024 * 1024) catch return null;
+        var main_log_file = dir.openFile(io_context.current(), main_log_path, .{}) catch return null;
+        defer main_log_file.close(io_context.current());
+        const main_log_contents = io_context.readToEndAlloc(main_log_file, self.allocator, 8 * 1024 * 1024) catch return null;
         defer self.allocator.free(main_log_contents);
 
         var best_seq: ?u64 = null;
@@ -639,7 +640,7 @@ pub const ExchangeCore = struct {
 
     fn discoverSnapshotBaseSeqFromMainLogStrict(
         self: *const ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         module_type: PersistenceModuleType,
         instance_id: u32,
@@ -647,9 +648,9 @@ pub const ExchangeCore = struct {
         const main_log_path = self.defaultPersistenceMainLogPath(self.allocator) catch return null;
         defer self.allocator.free(main_log_path);
 
-        var main_log_file = dir.openFile(main_log_path, .{}) catch return null;
-        defer main_log_file.close();
-        const main_log_contents = main_log_file.readToEndAlloc(self.allocator, 8 * 1024 * 1024) catch return null;
+        var main_log_file = dir.openFile(io_context.current(), main_log_path, .{}) catch return null;
+        defer main_log_file.close(io_context.current());
+        const main_log_contents = io_context.readToEndAlloc(main_log_file, self.allocator, 8 * 1024 * 1024) catch return null;
         defer self.allocator.free(main_log_contents);
 
         var best_seq: ?u64 = null;
@@ -753,7 +754,7 @@ pub const ExchangeCore = struct {
 
     fn bootstrapSnapshotPhase(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_path: ?[]const u8,
         outcome: *BootstrapOutcome,
     ) BootstrapError!void {
@@ -790,7 +791,7 @@ pub const ExchangeCore = struct {
 
     fn bootstrapFromPersistenceStrict(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_path: ?[]const u8,
         journal_path: ?[]const u8,
     ) BootstrapError!BootstrapOutcome {
@@ -808,7 +809,7 @@ pub const ExchangeCore = struct {
 
     pub fn bootstrapFromPersistence(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_path: ?[]const u8,
         journal_path: ?[]const u8,
     ) BootstrapError!BootstrapOutcome {
@@ -970,7 +971,7 @@ pub const ExchangeCore = struct {
 
     pub fn writeJournalToDefaultPath(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         partition_id: u16,
     ) DefaultJournalApiError!void {
@@ -986,7 +987,7 @@ pub const ExchangeCore = struct {
 
     pub fn loadJournalFromDefaultPath(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         partition_id: u16,
     ) DefaultJournalApiError!void {
@@ -1001,7 +1002,7 @@ pub const ExchangeCore = struct {
 
     pub fn replayJournalFromDefaultPath(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         partition_id: u16,
     ) DefaultJournalReplayError!usize {
@@ -1016,7 +1017,7 @@ pub const ExchangeCore = struct {
 
     pub fn replayJournalFromDefaultPathRange(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         starting_partition_id: u16,
     ) DefaultJournalReplayRangeError!usize {
@@ -1044,7 +1045,7 @@ pub const ExchangeCore = struct {
 
     pub fn captureSnapshotToDefaultPath(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         module_type: PersistenceModuleType,
         instance_id: u32,
@@ -1077,7 +1078,7 @@ pub const ExchangeCore = struct {
 
     pub fn validateSnapshotDefaultPath(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         module_type: PersistenceModuleType,
         instance_id: u32,
@@ -1097,7 +1098,7 @@ pub const ExchangeCore = struct {
 
     pub fn snapshotExistsDefaultPath(
         self: *const ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         module_type: PersistenceModuleType,
         instance_id: u32,
@@ -1114,15 +1115,15 @@ pub const ExchangeCore = struct {
 
     fn ensureConfiguredStorageFolderExists(
         self: *const ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
     ) StorageFolderEnsureError!void {
         self.assertWiringConst();
-        try dir.makePath(self.config.serialization.storage_folder);
+        try dir.createDirPath(io_context.current(), self.config.serialization.storage_folder);
     }
 
     fn appendDefaultPersistenceMainLogEntry(
         self: *const ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         seq: u64,
         timestamp_ns: u64,
         snapshot_id: u64,
@@ -1146,7 +1147,7 @@ pub const ExchangeCore = struct {
 
     pub fn writeJournalToFile(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
     ) JournalApiError!void {
         self.assertWiring();
@@ -1160,7 +1161,7 @@ pub const ExchangeCore = struct {
 
     pub fn captureSnapshotToFile(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
         symbols: []const i32,
         depth: usize,
@@ -1178,7 +1179,7 @@ pub const ExchangeCore = struct {
 
     pub fn validateSnapshotFile(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
     ) SnapshotValidateError!void {
         self.assertWiring();
@@ -1189,11 +1190,11 @@ pub const ExchangeCore = struct {
 
     pub fn snapshotExistsFile(
         self: *const ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
     ) SnapshotExistsError!bool {
         self.assertWiringConst();
-        _ = dir.statFile(path) catch |err| switch (err) {
+        _ = dir.statFile(io_context.current(), path, .{}) catch |err| switch (err) {
             error.FileNotFound => return false,
             else => return err,
         };
@@ -1201,7 +1202,7 @@ pub const ExchangeCore = struct {
     }
 
     fn appendMainLogEntryToFile(
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
         seq: u64,
         timestamp_ns: u64,
@@ -1209,17 +1210,11 @@ pub const ExchangeCore = struct {
         module_type: PersistenceModuleType,
         instance_id: u32,
     ) MainLogWriteError!void {
-        var file = try dir.createFile(path, .{
+        var file = try dir.createFile(io_context.current(), path, .{
             .truncate = false,
         });
-        defer file.close();
-        try file.seekFromEnd(0);
-
-        const wall_clock_ms_i64 = std.time.milliTimestamp();
-        const wall_clock_ms: u64 = if (wall_clock_ms_i64 < 0)
-            0
-        else
-            @as(u64, @intCast(wall_clock_ms_i64));
+        defer file.close(io_context.current());
+        const wall_clock_ms = io_context.realTimestampMs();
 
         var line_buf: [256]u8 = undefined;
         const line = try std.fmt.bufPrint(
@@ -1234,12 +1229,12 @@ pub const ExchangeCore = struct {
                 instance_id,
             },
         );
-        try file.writeAll(line);
+        try io_context.appendAll(file, line);
     }
 
     pub fn loadJournalFromFile(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
     ) JournalApiError!void {
         self.assertWiring();
@@ -1255,7 +1250,7 @@ pub const ExchangeCore = struct {
 
     pub fn replayJournalFromFile(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
     ) JournalReplayError!usize {
         self.assertWiring();
@@ -1618,7 +1613,7 @@ pub const ExchangeCore = struct {
 
     pub fn persistStateWithDefaultMainLog(
         self: *ExchangeCore,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: i64,
         timestamp_ns: i64,
         module_type: PersistenceModuleType,
@@ -2610,9 +2605,7 @@ fn makePersistStateRiskCommand(snapshot_id: i64, timestamp_ns: i64) cmd.OrderCom
 }
 
 fn currentWallClockTimestampNs() u64 {
-    const wall_clock_ns_i128 = std.time.nanoTimestamp();
-    if (wall_clock_ns_i128 < 0) return 0;
-    return std.math.cast(u64, wall_clock_ns_i128) orelse std.math.maxInt(u64);
+    return io_context.realTimestampNs();
 }
 
 fn makeExchangeSpecForSymbol(symbol_id: i32) !common.CoreSymbolSpecification {
@@ -4610,7 +4603,7 @@ test "exchange core persist-state main-log wrapper appends entries using provide
     defer core.deinit();
 
     const first = try core.persistStateWithDefaultMainLog(
-        std.fs.cwd(),
+        std.Io.Dir.cwd(),
         81_001,
         1_111_222,
         .risk_engine,
@@ -4619,7 +4612,7 @@ test "exchange core persist-state main-log wrapper appends entries using provide
     try std.testing.expectEqual(cmd.CommandResultCode.success, first);
 
     const second = try core.persistStateWithDefaultMainLog(
-        std.fs.cwd(),
+        std.Io.Dir.cwd(),
         81_002,
         1_111_333,
         .matching_engine_router,
@@ -4629,9 +4622,9 @@ test "exchange core persist-state main-log wrapper appends entries using provide
 
     const main_log_path = try core.defaultPersistenceMainLogPath(allocator);
     defer allocator.free(main_log_path);
-    var main_log_file = try std.fs.cwd().openFile(main_log_path, .{});
-    defer main_log_file.close();
-    const main_log_contents = try main_log_file.readToEndAlloc(allocator, 8192);
+    var main_log_file = try std.Io.Dir.cwd().openFile(io_context.current(), main_log_path, .{});
+    defer main_log_file.close(io_context.current());
+    const main_log_contents = try io_context.readToEndAlloc(main_log_file, allocator, 8192);
     defer allocator.free(main_log_contents);
 
     try std.testing.expect(std.mem.indexOf(u8, main_log_contents, "snapshotId=81001") != null);
@@ -4873,8 +4866,8 @@ test "exchange core default-path journal wrappers support write/load/replay flow
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     try source.writeJournalToDefaultPath(tmp.dir, 0, 1);
-    var dumps_dir = try tmp.dir.openDir(config_mod.DefaultDiskStorageFolder, .{});
-    dumps_dir.close();
+    var dumps_dir = try tmp.dir.openDir(io_context.current(), config_mod.DefaultDiskStorageFolder, .{});
+    dumps_dir.close(io_context.current());
 
     var loaded = try ExchangeCore.init(allocator, .{
         .initial_state = config_mod.InitialStateConfig.cleanStart("EXJDEF"),
@@ -4926,15 +4919,15 @@ test "exchange core default-path snapshot wrappers capture and validate state" {
         &.{241},
         16,
     );
-    var dumps_dir = try tmp.dir.openDir(config_mod.DefaultDiskStorageFolder, .{});
-    dumps_dir.close();
+    var dumps_dir = try tmp.dir.openDir(io_context.current(), config_mod.DefaultDiskStorageFolder, .{});
+    dumps_dir.close(io_context.current());
     try core.validateSnapshotDefaultPath(tmp.dir, 55, .risk_engine, 0);
 
     const main_log_path = try core.defaultPersistenceMainLogPath(allocator);
     defer allocator.free(main_log_path);
-    var main_log_file = try tmp.dir.openFile(main_log_path, .{});
-    defer main_log_file.close();
-    const main_log_contents = try main_log_file.readToEndAlloc(allocator, 4096);
+    var main_log_file = try tmp.dir.openFile(io_context.current(), main_log_path, .{});
+    defer main_log_file.close(io_context.current());
+    const main_log_contents = try io_context.readToEndAlloc(main_log_file, allocator, 4096);
     defer allocator.free(main_log_contents);
     try std.testing.expect(std.mem.indexOf(u8, main_log_contents, "seq=") != null);
     try std.testing.expect(std.mem.indexOf(u8, main_log_contents, "timestampNs=") != null);
@@ -4975,9 +4968,9 @@ test "exchange core default-path snapshot capture appends .eca main log entries"
 
     const main_log_path = try core.defaultPersistenceMainLogPath(allocator);
     defer allocator.free(main_log_path);
-    var main_log_file = try tmp.dir.openFile(main_log_path, .{});
-    defer main_log_file.close();
-    const main_log_contents = try main_log_file.readToEndAlloc(allocator, 8192);
+    var main_log_file = try tmp.dir.openFile(io_context.current(), main_log_path, .{});
+    defer main_log_file.close(io_context.current());
+    const main_log_contents = try io_context.readToEndAlloc(main_log_file, allocator, 8192);
     defer allocator.free(main_log_contents);
 
     try std.testing.expect(std.mem.indexOf(u8, main_log_contents, "snapshotId=61") != null);
@@ -5786,7 +5779,7 @@ test "exchange core startupFromDiscoveredConfiguredPersistence falls back to con
     try source.captureSnapshotToDefaultPath(tmp.dir, 81, .risk_engine, 0, &.{}, 8);
     const main_log_path = try source.defaultPersistenceMainLogPath(allocator);
     defer allocator.free(main_log_path);
-    try tmp.dir.deleteFile(main_log_path);
+    try tmp.dir.deleteFile(io_context.current(), main_log_path);
 
     var target = try ExchangeCore.init(allocator, .{
         .initial_state = .{
@@ -5872,9 +5865,9 @@ test "exchange core strict discovered startup reports malformed main log entry" 
 
     const main_log_path = try source.defaultPersistenceMainLogPath(allocator);
     defer allocator.free(main_log_path);
-    var main_log_file = try tmp.dir.createFile(main_log_path, .{ .truncate = true });
-    defer main_log_file.close();
-    try main_log_file.writeAll("this is malformed\n");
+    var main_log_file = try tmp.dir.createFile(io_context.current(), main_log_path, .{ .truncate = true });
+    defer main_log_file.close(io_context.current());
+    try main_log_file.writeStreamingAll(io_context.current(), "this is malformed\n");
 
     var target = try ExchangeCore.init(allocator, .{
         .initial_state = .{

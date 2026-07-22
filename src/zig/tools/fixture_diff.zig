@@ -237,11 +237,11 @@ const SimpleEventsCollector = struct {
 
     fn onTradeEvent(ctx: ?*anyopaque, event: simple_events.TradeEvent) void {
         const self: *SimpleEventsCollector = @ptrCast(@alignCast(ctx orelse return));
-        var line: std.ArrayList(u8) = .empty;
-        defer line.deinit(self.allocator);
+        var line: std.Io.Writer.Allocating = .init(self.allocator);
+        defer line.deinit();
 
         var action_buf: [16]u8 = undefined;
-        var writer = line.writer(self.allocator);
+        const writer = &line.writer;
         writer.print("trade:{d}:{d}:{d}:{d}:{s}:{d}:{d}:", .{
             event.symbol,
             event.total_volume,
@@ -265,7 +265,7 @@ const SimpleEventsCollector = struct {
             }) catch @panic("simple-events oom");
         }
 
-        self.appendOwned(line.items) catch @panic("simple-events oom");
+        self.appendOwned(line.written()) catch @panic("simple-events oom");
     }
 
     fn onRejectEvent(ctx: ?*anyopaque, event: simple_events.RejectEvent) void {
@@ -297,10 +297,10 @@ const SimpleEventsCollector = struct {
 
     fn onOrderBook(ctx: ?*anyopaque, event: simple_events.OrderBook) void {
         const self: *SimpleEventsCollector = @ptrCast(@alignCast(ctx orelse return));
-        var line: std.ArrayList(u8) = .empty;
-        defer line.deinit(self.allocator);
+        var line: std.Io.Writer.Allocating = .init(self.allocator);
+        defer line.deinit();
 
-        var writer = line.writer(self.allocator);
+        const writer = &line.writer;
         writer.print("order_book:{d}:{d}:", .{ event.symbol, event.timestamp }) catch @panic("simple-events oom");
 
         for (event.asks, 0..) |level, idx| {
@@ -319,7 +319,7 @@ const SimpleEventsCollector = struct {
             writer.print("{d}@{d}@{d}", .{ level.price, level.volume, level.orders }) catch @panic("simple-events oom");
         }
 
-        self.appendOwned(line.items) catch @panic("simple-events oom");
+        self.appendOwned(line.written()) catch @panic("simple-events oom");
     }
 };
 
@@ -352,19 +352,19 @@ const SimpleEventsRuntime = struct {
     }
 };
 
-pub fn main() DiffError!void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+pub fn main(init: std.process.Init) DiffError!void {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var fixture_paths = try collectFixturePaths(allocator);
+    var fixture_paths = try collectFixturePaths(init.minimal.args, init.io, allocator);
     defer deinitOwnedPaths(allocator, &fixture_paths);
 
     if (fixture_paths.items.len == 0) return error.NoFixtureInputs;
 
     var total_mismatches: usize = 0;
     for (fixture_paths.items) |path| {
-        total_mismatches += try runFixtureDiff(allocator, path);
+        total_mismatches += try runFixtureDiff(init.io, allocator, path);
     }
 
     if (total_mismatches != 0) {
@@ -372,11 +372,15 @@ pub fn main() DiffError!void {
     }
 }
 
-fn collectFixturePaths(allocator: std.mem.Allocator) DiffError!std.ArrayListUnmanaged([]u8) {
+fn collectFixturePaths(
+    process_args: std.process.Args,
+    io: std.Io,
+    allocator: std.mem.Allocator,
+) DiffError!std.ArrayListUnmanaged([]u8) {
     var paths: std.ArrayListUnmanaged([]u8) = .empty;
     errdefer deinitOwnedPaths(allocator, &paths);
 
-    var args = try std.process.argsWithAllocator(allocator);
+    var args = try std.process.Args.Iterator.initAllocator(process_args, allocator);
     defer args.deinit();
 
     _ = args.next();
@@ -485,7 +489,7 @@ fn collectFixturePaths(allocator: std.mem.Allocator) DiffError!std.ArrayListUnma
         "src/zig/fixtures/java_exchange_trade_reports_long_direct_full_detailed_low32.fixture",
     };
     for (defaults) |path| {
-        if (fileExists(path)) {
+        if (fileExists(io, path)) {
             try appendOwnedPath(allocator, &paths, path);
         }
     }
@@ -508,13 +512,13 @@ fn deinitOwnedPaths(allocator: std.mem.Allocator, paths: *std.ArrayListUnmanaged
     paths.* = .empty;
 }
 
-fn fileExists(path: []const u8) bool {
-    std.fs.cwd().access(path, .{}) catch return false;
+fn fileExists(io: std.Io, path: []const u8) bool {
+    std.Io.Dir.cwd().access(io, path, .{}) catch return false;
     return true;
 }
 
-fn runFixtureDiff(allocator: std.mem.Allocator, path: []const u8) DiffError!usize {
-    const bytes = std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024) catch |err| {
+fn runFixtureDiff(io: std.Io, allocator: std.mem.Allocator, path: []const u8) DiffError!usize {
+    const bytes = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(1024 * 1024)) catch |err| {
         std.debug.print("  {s}: read error={}\n", .{ path, err });
         return error.InvalidArgs;
     };

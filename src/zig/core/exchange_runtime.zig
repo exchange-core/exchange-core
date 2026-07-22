@@ -586,16 +586,16 @@ test "exchange runtime boundary commands split preceding batches deterministical
 
     const reset_cmd: cmd.OrderCommand = .{
         .command = .reset,
-        .result_code = .@"new",
+        .result_code = .new,
     };
     const persist_matching_cmd: cmd.OrderCommand = .{
         .command = .persist_state_matching,
-        .result_code = .@"new",
+        .result_code = .new,
     };
     const binary_boundary_cmd: cmd.OrderCommand = .{
         .command = .binary_data_command,
         .symbol = -1,
-        .result_code = .@"new",
+        .result_code = .new,
     };
 
     try runtime.enqueue(makeAddUserCommand(9901));
@@ -664,7 +664,7 @@ test "exchange runtime timestamp gap and boundary command increment groups deter
     var c2: cmd.OrderCommand = .{
         .command = .reset,
         .timestamp = 200,
-        .result_code = .@"new",
+        .result_code = .new,
     };
     var c3 = makeAddUserCommand(9982);
     c3.timestamp = 201;

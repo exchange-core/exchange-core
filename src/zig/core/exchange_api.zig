@@ -1415,7 +1415,7 @@ pub const ExchangeApi = struct {
 
     pub fn bootstrapFromPersistence(
         self: *ExchangeApi,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_path: ?[]const u8,
         journal_path: ?[]const u8,
     ) BootstrapError!BootstrapOutcome {
@@ -1424,7 +1424,7 @@ pub const ExchangeApi = struct {
 
     pub fn startupFromPersistence(
         self: *ExchangeApi,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_path: ?[]const u8,
         journal_path: ?[]const u8,
     ) StartupError!BootstrapOutcome {
@@ -1433,7 +1433,7 @@ pub const ExchangeApi = struct {
 
     pub fn startupFromConfiguredPersistence(
         self: *ExchangeApi,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_module_type: PersistenceModuleType,
         snapshot_instance_id: u32,
         journal_partition_id: u16,
@@ -1448,7 +1448,7 @@ pub const ExchangeApi = struct {
 
     pub fn writeJournalToFile(
         self: *ExchangeApi,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
     ) JournalApiError!void {
         return self.core.writeJournalToFile(dir, path);
@@ -1456,7 +1456,7 @@ pub const ExchangeApi = struct {
 
     pub fn loadJournalFromFile(
         self: *ExchangeApi,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
     ) JournalApiError!void {
         return self.core.loadJournalFromFile(dir, path);
@@ -1464,7 +1464,7 @@ pub const ExchangeApi = struct {
 
     pub fn replayJournalFromFile(
         self: *ExchangeApi,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
     ) JournalReplayError!usize {
         return self.core.replayJournalFromFile(dir, path);
@@ -1472,7 +1472,7 @@ pub const ExchangeApi = struct {
 
     pub fn captureSnapshotToFile(
         self: *ExchangeApi,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
         symbols: []const i32,
         depth: usize,
@@ -1487,7 +1487,7 @@ pub const ExchangeApi = struct {
 
     pub fn validateSnapshotFile(
         self: *ExchangeApi,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
     ) SnapshotValidateError!void {
         return self.core.validateSnapshotFile(dir, path);
@@ -1495,7 +1495,7 @@ pub const ExchangeApi = struct {
 
     pub fn writeJournalToDefaultPath(
         self: *ExchangeApi,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         partition_id: u16,
     ) DefaultJournalApiError!void {
@@ -1508,7 +1508,7 @@ pub const ExchangeApi = struct {
 
     pub fn loadJournalFromDefaultPath(
         self: *ExchangeApi,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         partition_id: u16,
     ) DefaultJournalApiError!void {
@@ -1521,7 +1521,7 @@ pub const ExchangeApi = struct {
 
     pub fn replayJournalFromDefaultPath(
         self: *ExchangeApi,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         partition_id: u16,
     ) DefaultJournalReplayError!usize {
@@ -1534,7 +1534,7 @@ pub const ExchangeApi = struct {
 
     pub fn replayJournalFromDefaultPathRange(
         self: *ExchangeApi,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         partition_id: u16,
     ) DefaultJournalReplayRangeError!usize {
@@ -1547,7 +1547,7 @@ pub const ExchangeApi = struct {
 
     pub fn captureSnapshotToDefaultPath(
         self: *ExchangeApi,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         module_type: PersistenceModuleType,
         instance_id: u32,
@@ -1566,7 +1566,7 @@ pub const ExchangeApi = struct {
 
     pub fn validateSnapshotDefaultPath(
         self: *ExchangeApi,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         module_type: PersistenceModuleType,
         instance_id: u32,
@@ -1581,7 +1581,7 @@ pub const ExchangeApi = struct {
 
     pub fn persistStateWithDefaultMainLog(
         self: *ExchangeApi,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: i64,
         timestamp_ns: i64,
         module_type: PersistenceModuleType,
@@ -1598,7 +1598,7 @@ pub const ExchangeApi = struct {
 
     pub fn startupFromDiscoveredConfiguredPersistence(
         self: *ExchangeApi,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_module_type: PersistenceModuleType,
         snapshot_instance_id: u32,
         journal_partition_id: u16,
@@ -1613,7 +1613,7 @@ pub const ExchangeApi = struct {
 
     pub fn startupFromDiscoveredConfiguredPersistenceStrictMainLog(
         self: *ExchangeApi,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_module_type: PersistenceModuleType,
         snapshot_instance_id: u32,
         journal_partition_id: u16,
@@ -1660,7 +1660,7 @@ pub const ExchangeApi = struct {
 
     pub fn snapshotExistsDefaultPath(
         self: *const ExchangeApi,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         snapshot_id: u64,
         module_type: PersistenceModuleType,
         instance_id: u32,
@@ -1675,7 +1675,7 @@ pub const ExchangeApi = struct {
 
     pub fn snapshotExistsFile(
         self: *const ExchangeApi,
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         path: []const u8,
     ) SnapshotExistsError!bool {
         return self.core.snapshotExistsFile(dir, path);
@@ -2229,6 +2229,8 @@ const DeterministicRng = struct {
         return self.next() % max_exclusive;
     }
 };
+
+const test_io_context = @import("io_context.zig");
 
 test "exchange api sync path supports submitCommand and list sync semantics" {
     const allocator = std.testing.allocator;
@@ -4859,9 +4861,9 @@ test "exchange api persist-state main-log wrapper appends entries using provided
 
     const main_log_path = try core.defaultPersistenceMainLogPath(allocator);
     defer allocator.free(main_log_path);
-    var main_log_file = try tmp.dir.openFile(main_log_path, .{});
-    defer main_log_file.close();
-    const main_log_contents = try main_log_file.readToEndAlloc(allocator, 8192);
+    var main_log_file = try tmp.dir.openFile(test_io_context.current(), main_log_path, .{});
+    defer main_log_file.close(test_io_context.current());
+    const main_log_contents = try test_io_context.readToEndAlloc(main_log_file, allocator, 8192);
     defer allocator.free(main_log_contents);
 
     try std.testing.expect(std.mem.indexOf(u8, main_log_contents, "snapshotId=91001") != null);
@@ -5087,9 +5089,9 @@ test "exchange api strict discovered startup helper propagates malformed main-lo
 
     const main_log_path = try source.defaultPersistenceMainLogPath(allocator);
     defer allocator.free(main_log_path);
-    var main_log_file = try tmp.dir.createFile(main_log_path, .{ .truncate = true });
-    defer main_log_file.close();
-    try main_log_file.writeAll("malformed\n");
+    var main_log_file = try tmp.dir.createFile(test_io_context.current(), main_log_path, .{ .truncate = true });
+    defer main_log_file.close(test_io_context.current());
+    try main_log_file.writeStreamingAll(test_io_context.current(), "malformed\n");
 
     var target = try exchange_core_mod.ExchangeCore.init(allocator, .{
         .initial_state = .{

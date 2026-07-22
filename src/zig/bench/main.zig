@@ -13,7 +13,6 @@ const BenchError = kernel_mod.InitError ||
     error{
         UnexpectedResult,
         InvalidArgs,
-        TimerUnsupported,
     };
 
 const BenchResult = struct {
@@ -24,19 +23,19 @@ const BenchResult = struct {
     risk_hash: u64,
 };
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+pub fn main(init: std.process.Init) !void {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const rounds = try parseRoundsArg(allocator);
+    const rounds = try parseRoundsArg(init.minimal.args, allocator);
 
-    const naive_result = try runBenchmark(allocator, .naive, rounds);
-    const direct_result = try runBenchmark(allocator, .direct, rounds);
+    const naive_result = try runBenchmark(init.io, allocator, .naive, rounds);
+    const direct_result = try runBenchmark(init.io, allocator, .direct, rounds);
 
-    const stdout = std.fs.File.stdout();
+    const stdout = std.Io.File.stdout();
     var out_buffer: [4096]u8 = undefined;
-    var out_writer = stdout.writer(&out_buffer);
+    var out_writer = stdout.writer(init.io, &out_buffer);
     const out = &out_writer.interface;
 
     try out.print("exchange-core zig bench (rounds={d})\n", .{rounds});
@@ -46,8 +45,8 @@ pub fn main() !void {
     try out.flush();
 }
 
-fn parseRoundsArg(allocator: std.mem.Allocator) BenchError!usize {
-    var args = try std.process.argsWithAllocator(allocator);
+fn parseRoundsArg(process_args: std.process.Args, allocator: std.mem.Allocator) BenchError!usize {
+    var args = try std.process.Args.Iterator.initAllocator(process_args, allocator);
     defer args.deinit();
 
     _ = args.next();
@@ -74,6 +73,7 @@ fn printResult(writer: anytype, result: BenchResult) !void {
 }
 
 fn runBenchmark(
+    io: std.Io,
     allocator: std.mem.Allocator,
     kind: kernel_mod.OrderBookKind,
     rounds: usize,
@@ -88,7 +88,7 @@ fn runBenchmark(
 
     try runSetupPhase(allocator, &kernel);
 
-    var timer = try std.time.Timer.start();
+    const started = std.Io.Clock.awake.now(io);
 
     var commands: usize = 0;
     var order_id_counter: i64 = 1_000_000;
@@ -127,7 +127,11 @@ fn runBenchmark(
         }
     }
 
-    const elapsed_ns = timer.read();
+    const elapsed_raw = started.durationTo(std.Io.Clock.awake.now(io)).nanoseconds;
+    const elapsed_ns = if (elapsed_raw <= 0)
+        0
+    else
+        std.math.cast(u64, elapsed_raw) orelse std.math.maxInt(u64);
     const elapsed_sec_raw = @as(f64, @floatFromInt(elapsed_ns)) / 1_000_000_000.0;
     const elapsed_sec = if (elapsed_sec_raw <= 0.0) 0.000_000_001 else elapsed_sec_raw;
 

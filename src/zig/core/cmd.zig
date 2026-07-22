@@ -80,7 +80,7 @@ pub const OrderCommandType = enum(i8) {
 };
 
 pub const CommandResultCode = enum(i32) {
-    @"new" = 0,
+    new = 0,
     valid_for_matching_engine = 1,
     success = 100,
     accepted = 110,
@@ -120,7 +120,7 @@ pub const CommandResultCode = enum(i32) {
     };
 
     pub fn fromCode(raw_code: i32) FromCodeError!CommandResultCode {
-        return std.meta.intToEnum(CommandResultCode, raw_code) catch error.UnknownCommandResultCode;
+        return std.enums.fromInt(CommandResultCode, raw_code) orelse error.UnknownCommandResultCode;
     }
 
     pub fn code(self: CommandResultCode) i32 {
@@ -154,7 +154,7 @@ pub const OrderCommand = struct {
     user_cookie: i32 = 0,
     events_group: i64 = 0,
     service_flags: i32 = 0,
-    result_code: CommandResultCode = .@"new",
+    result_code: CommandResultCode = .new,
 
     pub fn newOrder(
         order_type: common.OrderType,

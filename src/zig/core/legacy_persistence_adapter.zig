@@ -1,4 +1,5 @@
 const std = @import("std");
+const io_context = @import("io_context.zig");
 
 const Lz4FrameMagic: u32 = 0x184D2204;
 const Lz4SkippableMagicMin: u32 = 0x184D2A50;
@@ -49,7 +50,7 @@ pub const LegacyLz4FrameHeader = union(LegacyLz4FrameKind) {
     }
 };
 
-pub const ProbeFileError = std.fs.File.OpenError || std.fs.File.ReadError;
+pub const ProbeFileError = std.Io.File.OpenError || std.Io.File.Reader.Error;
 
 pub const ParseLegacyLz4HeaderError = error{
     TruncatedFrameMagic,
@@ -111,14 +112,14 @@ pub fn detectMagic(magic_prefix: []const u8) MagicKind {
 }
 
 pub fn probeFileMagic(
-    dir: std.fs.Dir,
+    dir: std.Io.Dir,
     path: []const u8,
 ) ProbeFileError!MagicKind {
-    const file = try dir.openFile(path, .{});
-    defer file.close();
+    const file = try dir.openFile(io_context.current(), path, .{});
+    defer file.close(io_context.current());
 
     var magic: [4]u8 = undefined;
-    const bytes_read = try file.readAll(&magic);
+    const bytes_read = try io_context.readAll(file, &magic);
     return detectMagic(magic[0..bytes_read]);
 }
 
@@ -138,19 +139,19 @@ pub fn parseLegacyLz4FrameHeader(
 }
 
 pub fn parseLegacyLz4FileHeader(
-    dir: std.fs.Dir,
+    dir: std.Io.Dir,
     path: []const u8,
 ) ParseLegacyLz4FileHeaderError!LegacyLz4FrameHeader {
-    const file = try dir.openFile(path, .{});
-    defer file.close();
+    const file = try dir.openFile(io_context.current(), path, .{});
+    defer file.close(io_context.current());
 
     var header_probe: [HeaderProbeBytes]u8 = undefined;
-    const bytes_read = try file.readAll(&header_probe);
+    const bytes_read = try io_context.readAll(file, &header_probe);
     return parseLegacyLz4FrameHeader(header_probe[0..bytes_read]);
 }
 
 pub fn preflightLegacyImport(
-    dir: std.fs.Dir,
+    dir: std.Io.Dir,
     request: LegacyImportRequest,
 ) PreflightError!PreflightResult {
     try request.validate();
@@ -180,7 +181,7 @@ pub fn preflightLegacyImport(
 
 pub fn convertLegacyPersistenceArchives(
     _: std.mem.Allocator,
-    dir: std.fs.Dir,
+    dir: std.Io.Dir,
     request: LegacyImportRequest,
 ) ConvertError!void {
     _ = try preflightLegacyImport(dir, request);
@@ -312,9 +313,19 @@ test "parseLegacyLz4FrameHeader parses standard frame with content-size and dict
         0x69, // FLG: version=01, block independence, content-size, dict-id
         0x70, // BD: block max size code=7
         // content size (8)
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
         // dict id (4)
-        0x11, 0x22, 0x33, 0x44,
+        0x11,
+        0x22,
+        0x33,
+        0x44,
         // HC
         0x00,
     };
@@ -422,9 +433,9 @@ test "probeFileMagic reports truncated on short files" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const file = try tmp.dir.createFile("short.bin", .{ .truncate = true });
-    defer file.close();
-    try file.writeAll("XC");
+    const file = try tmp.dir.createFile(io_context.current(), "short.bin", .{ .truncate = true });
+    defer file.close(io_context.current());
+    try file.writeStreamingAll(io_context.current(), "XC");
 
     const detected = try probeFileMagic(tmp.dir, "short.bin");
     try std.testing.expectEqual(MagicKind.truncated, detected);
@@ -434,9 +445,9 @@ test "parseLegacyLz4FileHeader parses skippable header from file" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const file = try tmp.dir.createFile("archive.lz4", .{ .truncate = true });
-    defer file.close();
-    try file.writeAll(&[_]u8{
+    const file = try tmp.dir.createFile(io_context.current(), "archive.lz4", .{ .truncate = true });
+    defer file.close(io_context.current());
+    try file.writeStreamingAll(io_context.current(), &[_]u8{
         0x5C, 0x2A, 0x4D, 0x18, // skippable tag=12
         0x20, 0x00, 0x00, 0x00, // payload len
     });
@@ -456,19 +467,17 @@ test "preflightLegacyImport accepts legacy lz4 archives and captures parsed head
     defer tmp.cleanup();
 
     {
-        const file = try tmp.dir.createFile("snapshot.lz4", .{ .truncate = true });
-        defer file.close();
-        try file.writeAll(&[_]u8{
+        const file = try tmp.dir.createFile(io_context.current(), "snapshot.lz4", .{ .truncate = true });
+        defer file.close(io_context.current());
+        try file.writeStreamingAll(io_context.current(), &[_]u8{
             0x04, 0x22, 0x4D, 0x18,
-            0x60,
-            0x70,
-            0x00,
+            0x60, 0x70, 0x00,
         });
     }
     {
-        const file = try tmp.dir.createFile("journal.lz4", .{ .truncate = true });
-        defer file.close();
-        try file.writeAll(&[_]u8{
+        const file = try tmp.dir.createFile(io_context.current(), "journal.lz4", .{ .truncate = true });
+        defer file.close(io_context.current());
+        try file.writeStreamingAll(io_context.current(), &[_]u8{
             0x5F, 0x2A, 0x4D, 0x18,
             0x01, 0x00, 0x00, 0x00,
         });
@@ -503,9 +512,9 @@ test "preflightLegacyImport rejects non legacy inputs and invalid requests" {
     defer tmp.cleanup();
 
     {
-        const file = try tmp.dir.createFile("zig.snapshot", .{ .truncate = true });
-        defer file.close();
-        try file.writeAll("XCS2");
+        const file = try tmp.dir.createFile(io_context.current(), "zig.snapshot", .{ .truncate = true });
+        defer file.close(io_context.current());
+        try file.writeStreamingAll(io_context.current(), "XCS2");
     }
 
     try std.testing.expectError(
