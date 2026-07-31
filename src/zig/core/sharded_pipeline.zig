@@ -232,6 +232,80 @@ pub const StageFrontiers = struct {
     }
 };
 
+/// Allocation-free, monotonic discovery state for one consecutive events-group
+/// range. Group identifiers are deliberately not treated as ordered or unique:
+/// the sequence interval is the cache key, so wrapped and later-reused group
+/// identifiers cannot alias an earlier range.
+const R2GroupBoundaryCache = struct {
+    const Range = struct {
+        start: u64,
+        group: i64,
+        scanned_through: u64,
+        closed_end: ?u64 = null,
+    };
+
+    range: ?Range = null,
+    discovery_probes: u64 = 0,
+
+    fn clearRange(self: *R2GroupBoundaryCache) void {
+        self.range = null;
+    }
+
+    fn probeCount(self: *const R2GroupBoundaryCache) u64 {
+        return self.discovery_probes;
+    }
+
+    fn closedBoundary(
+        self: *R2GroupBoundaryCache,
+        slots: *StableSlotRing,
+        sequence: u64,
+        group: i64,
+        accepted: u64,
+        terminal_boundary: ?u64,
+    ) ?u64 {
+        if (sequence > accepted) return null;
+
+        const compatible = if (self.range) |range|
+            range.group == group and
+                sequence >= range.start and
+                accepted >= range.scanned_through and
+                (if (range.closed_end) |end|
+                    sequence <= end
+                else
+                    sequence == range.start)
+        else
+            false;
+        if (!compatible) {
+            self.range = .{
+                .start = sequence,
+                .group = group,
+                .scanned_through = sequence,
+            };
+        }
+
+        const range = &self.range.?;
+        if (range.closed_end) |end| return end;
+
+        var cursor = range.scanned_through;
+        while (cursor < accepted) {
+            const next = cursor + 1;
+            self.discovery_probes +%= 1;
+            const next_slot = slots.getSequence(next) orelse return null;
+            if (next_slot.events_group != group) {
+                range.closed_end = cursor;
+                return cursor;
+            }
+            cursor = next;
+            range.scanned_through = cursor;
+        }
+        if (terminal_boundary == cursor) {
+            range.closed_end = cursor;
+            return cursor;
+        }
+        return null;
+    }
+};
+
 pub const FailureStage = enum {
     accept,
     publication_ownership,
@@ -746,6 +820,7 @@ pub const PersistentGroupedRuntime = struct {
     preparation_errors: []?anyerror,
     committed: []bool,
     risk_release_scratch: RiskReleaseScratchState = .idle,
+    r2_group_boundary_cache: R2GroupBoundaryCache = .{},
     mutex: RuntimeMutex,
     condition: RuntimeCondition,
     state: Lifecycle = .cold,
@@ -874,6 +949,7 @@ pub const PersistentGroupedRuntime = struct {
             self.mutex.unlock();
             return error.InvalidLifecycle;
         }
+        self.r2_group_boundary_cache.clearRange();
         self.state = .starting;
         self.join_state = .joinable;
         var spawned: usize = 0;
@@ -1146,6 +1222,7 @@ pub const PersistentGroupedRuntime = struct {
 
         if (accepted_base != self.frontiers.accepted) {
             self.frontiers.adoptSettled(accepted_base);
+            self.r2_group_boundary_cache.clearRange();
         }
         for (submissions) |submission| {
             const sequence = submission.sequence.toInt();
@@ -1316,6 +1393,7 @@ pub const PersistentGroupedRuntime = struct {
             };
             self.condition.wait(&self.mutex);
         }
+        self.r2_group_boundary_cache.clearRange();
         self.quiescence_target = null;
         self.admission_frozen = false;
         self.condition.broadcast();
@@ -1349,6 +1427,7 @@ pub const PersistentGroupedRuntime = struct {
         self.finishRegisteredJoin();
         if (poisoned) return error.PipelinePoisoned;
         self.mutex.lock();
+        self.r2_group_boundary_cache.clearRange();
         self.state = .stopped;
         self.condition.broadcast();
         self.mutex.unlock();
@@ -1898,15 +1977,17 @@ pub const PersistentGroupedRuntime = struct {
         sequence: u64,
         group: i64,
     ) ?u64 {
-        var cursor = sequence;
-        while (cursor < self.frontiers.accepted) {
-            const next = cursor + 1;
-            const next_slot = self.slots.getSequence(next) orelse return null;
-            if (next_slot.events_group != group) return cursor;
-            cursor = next;
-        }
-        if (self.state == .closing) return cursor;
-        return if (self.quiescence_target == cursor) cursor else null;
+        const terminal_boundary = if (self.state == .closing)
+            self.frontiers.accepted
+        else
+            self.quiescence_target;
+        return self.r2_group_boundary_cache.closedBoundary(
+            &self.slots,
+            sequence,
+            group,
+            self.frontiers.accepted,
+            terminal_boundary,
+        );
     }
 
     fn shouldRiskWorkerExitLocked(
@@ -2054,6 +2135,7 @@ pub const PersistentGroupedRuntime = struct {
                 self.adapter.publicationFrontiersEqual(observed))
             {
                 self.frontiers.adoptSettled(observed);
+                self.r2_group_boundary_cache.clearRange();
                 return;
             }
         }
@@ -2110,6 +2192,7 @@ pub const PersistentGroupedRuntime = struct {
                 .cause = cause,
             };
         }
+        self.r2_group_boundary_cache.clearRange();
         self.state = .poisoned;
         self.condition.broadcast();
     }
@@ -2122,6 +2205,7 @@ pub const PersistentGroupedRuntime = struct {
         self.mutex.unlock();
         self.finishRegisteredJoin();
         self.mutex.lock();
+        self.r2_group_boundary_cache.clearRange();
         self.state = .cold;
         for (self.risk_contexts) |*context| context.thread_id = null;
         for (self.matching_contexts) |*context| context.thread_id = null;
@@ -2444,6 +2528,104 @@ test "stable slot ring wraps with stable addresses and new generations" {
     try std.testing.expect(wrapped.handle.generation != first_generation);
     try std.testing.expect(ring.get(first.handle) == null);
     ring.release(wrapped.handle);
+}
+
+test "R2 group boundary cache discovers each closed range in linear probes" {
+    const group_sizes = [_]usize{ 1, 16, 256, 4096 };
+    for (group_sizes) |group_size| {
+        const slot_count = try std.math.ceilPowerOfTwo(usize, group_size + 1);
+        var ring = try StableSlotRing.init(
+            std.testing.allocator,
+            std.testing.allocator,
+            slot_count,
+        );
+        defer ring.deinit();
+
+        const group = std.math.maxInt(i64);
+        for (1..group_size + 1) |sequence| {
+            const claimed = try ring.claim(@intCast(sequence));
+            claimed.slot.events_group = group;
+        }
+        const sentinel_sequence: u64 = @intCast(group_size + 1);
+        const sentinel = try ring.claim(sentinel_sequence);
+        sentinel.slot.events_group = std.math.minInt(i64);
+
+        var cache: R2GroupBoundaryCache = .{};
+        const boundary = cache.closedBoundary(
+            &ring,
+            1,
+            group,
+            sentinel_sequence,
+            null,
+        );
+        try std.testing.expectEqual(@as(?u64, @intCast(group_size)), boundary);
+
+        for (1..group_size + 1) |sequence| {
+            try std.testing.expectEqual(
+                @as(?u64, @intCast(group_size)),
+                cache.closedBoundary(
+                    &ring,
+                    @intCast(sequence),
+                    group,
+                    sentinel_sequence,
+                    null,
+                ),
+            );
+        }
+        try std.testing.expectEqual(@as(u64, @intCast(group_size)), cache.probeCount());
+    }
+}
+
+test "R2 group boundary cache resumes open range and closes terminal range" {
+    var ring = try StableSlotRing.init(
+        std.testing.allocator,
+        std.testing.allocator,
+        4,
+    );
+    defer ring.deinit();
+
+    const wrapped_group = std.math.maxInt(i64);
+    const first = try ring.claim(1);
+    first.slot.events_group = wrapped_group;
+
+    var cache: R2GroupBoundaryCache = .{};
+    try std.testing.expectEqual(
+        @as(?u64, null),
+        cache.closedBoundary(&ring, 1, wrapped_group, 1, null),
+    );
+    try std.testing.expectEqual(@as(u64, 0), cache.probeCount());
+
+    const second = try ring.claim(2);
+    second.slot.events_group = wrapped_group;
+    try std.testing.expectEqual(
+        @as(?u64, null),
+        cache.closedBoundary(&ring, 1, wrapped_group, 2, null),
+    );
+    try std.testing.expectEqual(@as(u64, 1), cache.probeCount());
+
+    try std.testing.expectEqual(
+        @as(?u64, null),
+        cache.closedBoundary(&ring, 1, wrapped_group, 2, null),
+    );
+    try std.testing.expectEqual(@as(u64, 1), cache.probeCount());
+
+    const third = try ring.claim(3);
+    third.slot.events_group = std.math.minInt(i64);
+    try std.testing.expectEqual(
+        @as(?u64, 2),
+        cache.closedBoundary(&ring, 1, wrapped_group, 3, null),
+    );
+    try std.testing.expectEqual(
+        @as(?u64, 2),
+        cache.closedBoundary(&ring, 2, wrapped_group, 3, null),
+    );
+    try std.testing.expectEqual(@as(u64, 2), cache.probeCount());
+
+    try std.testing.expectEqual(
+        @as(?u64, 3),
+        cache.closedBoundary(&ring, 3, std.math.minInt(i64), 3, 3),
+    );
+    try std.testing.expectEqual(@as(u64, 2), cache.probeCount());
 }
 
 test "pipeline frees staged payloads with kernel allocator not ring storage allocator" {
@@ -4089,4 +4271,11 @@ test "persistent grouped journal result and r2 chains remain ordered and non ali
     try std.testing.expectEqual(settled + 3, runtime.riskReleaseFrontier());
     try std.testing.expectEqual(settled + 3, runtime.reclaimedFrontier());
     try std.testing.expectEqual(@as(usize, 0), runtime.occupiedSlotCount());
+    // The live runtime inspected each newly admitted adjacency exactly once:
+    // max -> max stays open, then max -> min closes the range. Worker wakeups
+    // and the terminal drain must not rescan either adjacency.
+    try std.testing.expectEqual(
+        @as(u64, 2),
+        runtime.r2_group_boundary_cache.probeCount(),
+    );
 }

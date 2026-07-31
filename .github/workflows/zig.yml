@@ -1,0 +1,136 @@
+name: Zig
+
+on:
+  push:
+    paths:
+      - "build.zig"
+      - "build.zig.zon"
+      - "src/zig/**"
+      - ".github/workflows/zig.yml"
+  pull_request:
+    paths:
+      - "build.zig"
+      - "build.zig.zon"
+      - "src/zig/**"
+      - ".github/workflows/zig.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zig-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ZIG_VERSION: 0.16.0
+
+jobs:
+  native-gate:
+    name: Native serial gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: ${{ env.ZIG_VERSION }}
+          cache-key: native-gate
+
+      - name: Verify toolchain
+        run: test "$(zig version)" = "$ZIG_VERSION"
+
+      - name: Check formatting
+        run: zig fmt --check build.zig src/zig
+
+      # The gate's Debug and ReleaseSafe persistence runners must stay serial;
+      # concurrent execution can race on their Java-compatible artifact names.
+      - name: Run native migration gate
+        run: zig build -j1 gate --summary all
+
+  cross-compile:
+    name: Cross compile (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x86_64 Linux baseline
+            target: x86_64-linux-gnu
+            cpu: baseline
+            artifact: x86_64-linux-baseline
+            assert_avx2: false
+          - name: x86_64 Linux AVX2
+            target: x86_64-linux-gnu
+            cpu: baseline+avx2
+            artifact: x86_64-linux-avx2
+            assert_avx2: true
+          - name: RISC-V Linux scalar fallback
+            target: riscv64-linux-gnu
+            cpu: baseline
+            artifact: riscv64-linux-baseline
+            assert_avx2: false
+          - name: s390x Linux big-endian
+            target: s390x-linux-gnu
+            cpu: baseline
+            artifact: s390x-linux-baseline
+            assert_avx2: false
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: ${{ env.ZIG_VERSION }}
+          cache-key: cross-${{ matrix.artifact }}
+
+      - name: Verify toolchain
+        run: test "$(zig version)" = "$ZIG_VERSION"
+
+      # Foreign test executables are intentionally not run. QEMU would add a
+      # libc/syscall-emulation dependency unrelated to carrier portability;
+      # --test-no-exec still compiles the complete test root for each target.
+      - name: Compile complete test root
+        run: |
+          mkdir -p zig-out/cross
+          zig test src/zig/root.zig \
+            --test-no-exec \
+            -target "${{ matrix.target }}" \
+            -mcpu="${{ matrix.cpu }}" \
+            -OReleaseSafe \
+            -femit-bin="zig-out/cross/${{ matrix.artifact }}-tests"
+
+      # This assertion is deliberately scoped to the two carrier functions,
+      # avoiding matches in Zig's standard library or unrelated application
+      # code. The generic-x86 scalar policy is covered by the native unit test.
+      - name: Verify AVX2 carrier byte shuffles
+        if: matrix.assert_avx2
+        run: |
+          zig test src/zig/core/java_binary_wire.zig \
+            --test-no-exec \
+            -target "${{ matrix.target }}" \
+            -mcpu="${{ matrix.cpu }}" \
+            -OReleaseFast \
+            -femit-bin="zig-out/cross/${{ matrix.artifact }}-wire-tests" \
+            -femit-asm="zig-out/cross/${{ matrix.artifact }}-wire.s"
+          sed -n \
+            '/^java_binary_wire\.packSignedWordsBigEndian:/,/^[[:space:]]*\.size[[:space:]]*java_binary_wire\.packSignedWordsBigEndian/p' \
+            "zig-out/cross/${{ matrix.artifact }}-wire.s" \
+            > "zig-out/cross/${{ matrix.artifact }}-pack.s"
+          sed -n \
+            '/^java_binary_wire\.unpackSignedWordsBigEndian:/,/^[[:space:]]*\.size[[:space:]]*java_binary_wire\.unpackSignedWordsBigEndian/p' \
+            "zig-out/cross/${{ matrix.artifact }}-wire.s" \
+            > "zig-out/cross/${{ matrix.artifact }}-unpack.s"
+          test -s "zig-out/cross/${{ matrix.artifact }}-pack.s"
+          test -s "zig-out/cross/${{ matrix.artifact }}-unpack.s"
+          grep -q 'vpshufb' "zig-out/cross/${{ matrix.artifact }}-pack.s"
+          grep -q 'vpshufb' "zig-out/cross/${{ matrix.artifact }}-unpack.s"

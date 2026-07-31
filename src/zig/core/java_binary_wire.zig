@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const binary_payload = @import("binary_payload.zig");
 const common = @import("common.zig");
 
@@ -69,6 +70,19 @@ pub const CarrierPackError = std.mem.Allocator.Error || error{
 pub const CarrierUnpackError = CarrierPackError || error{
     CarrierWordCountNotMultipleOfFive,
 };
+
+fn carrierWordVectorLengthForCpu(comptime cpu: std.Target.Cpu) ?comptime_int {
+    const lanes = std.simd.suggestVectorLengthForCpu(u64, cpu) orelse return null;
+    if (cpu.arch.isX86() and !cpu.has(.x86, .ssse3)) return null;
+    return lanes;
+}
+
+/// Returns the target-selected word-vector width used by carrier transforms.
+/// Generic x86 with only SSE/SSE2 stays scalar because LLVM's emulated vector
+/// byte swap costs more instructions than the scalar `bswap` fallback.
+pub fn carrierWordVectorLength() ?comptime_int {
+    return carrierWordVectorLengthForCpu(builtin.cpu);
+}
 
 pub const DecodedRawBlock = struct {
     bytes: []u8,
@@ -266,19 +280,17 @@ pub fn decodeRawLz4Bounded(
 
 /// Produces a standards-compatible raw LZ4 block consisting of one final
 /// literal-only sequence. It favors interoperability and simplicity over ratio.
-pub fn encodeRawLz4LiteralOnly(
-    allocator: std.mem.Allocator,
-    input: []const u8,
-) RawLz4EncodeError![]u8 {
-    const extension_size = if (input.len < 15)
+fn rawLz4LiteralOnlyEncodedSize(input_size: usize) error{InputTooLarge}!usize {
+    const extension_size = if (input_size < 15)
         @as(usize, 0)
     else
-        (input.len - 15) / 255 + 1;
+        (input_size - 15) / 255 + 1;
     const header_size = std.math.add(usize, 1, extension_size) catch return error.InputTooLarge;
-    const encoded_size = std.math.add(usize, header_size, input.len) catch return error.InputTooLarge;
-    const encoded = try allocator.alloc(u8, encoded_size);
-    errdefer allocator.free(encoded);
+    return std.math.add(usize, header_size, input_size) catch return error.InputTooLarge;
+}
 
+fn writeRawLz4LiteralOnly(encoded: []u8, input: []const u8) void {
+    std.debug.assert(encoded.len == (rawLz4LiteralOnlyEncodedSize(input.len) catch unreachable));
     encoded[0] = @as(u8, @intCast(@min(input.len, 15))) << 4;
     var cursor: usize = 1;
     if (input.len >= 15) {
@@ -292,6 +304,16 @@ pub fn encodeRawLz4LiteralOnly(
         cursor += 1;
     }
     @memcpy(encoded[cursor..], input);
+}
+
+pub fn encodeRawLz4LiteralOnly(
+    allocator: std.mem.Allocator,
+    input: []const u8,
+) RawLz4EncodeError![]u8 {
+    const encoded_size = try rawLz4LiteralOnlyEncodedSize(input.len);
+    const encoded = try allocator.alloc(u8, encoded_size);
+    errdefer allocator.free(encoded);
+    writeRawLz4LiteralOnly(encoded, input);
     return encoded;
 }
 
@@ -305,12 +327,12 @@ pub fn encodeRequestEnvelope(
     try validateOriginalSize(body.len, config);
     const original_size = std.math.cast(u32, body.len) orelse return error.OriginalSizeTooLarge;
 
-    const compressed = try encodeRawLz4LiteralOnly(allocator, body);
-    defer allocator.free(compressed);
-    const envelope_size = std.math.add(usize, @sizeOf(u32), compressed.len) catch return error.CarrierTooLarge;
+    const compressed_size = try rawLz4LiteralOnlyEncodedSize(body.len);
+    const envelope_size = std.math.add(usize, @sizeOf(u32), compressed_size) catch
+        return error.CarrierTooLarge;
     const envelope = try allocator.alloc(u8, envelope_size);
     std.mem.writeInt(u32, envelope[0..4], original_size, .big);
-    @memcpy(envelope[4..], compressed);
+    writeRawLz4LiteralOnly(envelope[4..], body);
     return envelope;
 }
 
@@ -352,32 +374,39 @@ fn validateOriginalSize(
     }
 }
 
+fn carrierWordCountForByteLength(byte_count: usize) error{CarrierTooLarge}!struct {
+    live: usize,
+    padded: usize,
+} {
+    const rounded_bytes = std.math.add(usize, byte_count, 7) catch return error.CarrierTooLarge;
+    const live = rounded_bytes / @sizeOf(i64);
+    const remainder = live % words_per_frame;
+    const frame_padding = if (remainder == 0) @as(usize, 0) else words_per_frame - remainder;
+    return .{
+        .live = live,
+        .padded = std.math.add(usize, live, frame_padding) catch return error.CarrierTooLarge,
+    };
+}
+
 /// Packs bytes into signed Java long carriers using big-endian bit order and
 /// zero-pads the word count to a whole five-word message.
 pub fn packSignedWordsBigEndian(
     allocator: std.mem.Allocator,
     bytes: []const u8,
 ) CarrierPackError![]i64 {
-    const rounded_bytes = std.math.add(usize, bytes.len, 7) catch return error.CarrierTooLarge;
-    const words_without_frame_padding = rounded_bytes / 8;
-    const remainder = words_without_frame_padding % words_per_frame;
-    const frame_padding = if (remainder == 0) @as(usize, 0) else words_per_frame - remainder;
-    const word_count = std.math.add(
-        usize,
-        words_without_frame_padding,
-        frame_padding,
-    ) catch return error.CarrierTooLarge;
+    const counts = try carrierWordCountForByteLength(bytes.len);
 
-    const words = try allocator.alloc(i64, word_count);
-    @memset(words, 0);
+    const words = try allocator.alloc(i64, counts.padded);
 
     const complete_words = bytes.len / @sizeOf(i64);
     var word_index: usize = 0;
-    if (std.simd.suggestVectorLength(u64)) |lanes| {
+    if (carrierWordVectorLength()) |lanes| {
         const WordVector = @Vector(lanes, u64);
         const vector_bytes = lanes * @sizeOf(u64);
         while (word_index + lanes <= complete_words) : (word_index += lanes) {
             const byte_index = word_index * @sizeOf(u64);
+            // The source is intentionally allowed to be vector-misaligned. The
+            // fixed slice proves bounds without claiming stronger alignment.
             const native_words: WordVector = @bitCast(
                 bytes[byte_index..][0..vector_bytes].*,
             );
@@ -390,12 +419,13 @@ pub fn packSignedWordsBigEndian(
         const start = word_index * @sizeOf(i64);
         words[word_index] = std.mem.readInt(i64, bytes[start..][0..8], .big);
     }
-    if (word_index < words_without_frame_padding) {
+    if (word_index < counts.live) {
         var raw = [_]u8{0} ** 8;
         const start = word_index * 8;
         @memcpy(raw[0 .. bytes.len - start], bytes[start..]);
         words[word_index] = std.mem.readInt(i64, &raw, .big);
     }
+    @memset(words[counts.live..], 0);
     return words;
 }
 
@@ -410,10 +440,12 @@ pub fn unpackSignedWordsBigEndian(
     const bytes = try allocator.alloc(u8, byte_count);
 
     var word_index: usize = 0;
-    if (std.simd.suggestVectorLength(u64)) |lanes| {
+    if (carrierWordVectorLength()) |lanes| {
         const WordVector = @Vector(lanes, u64);
         const ByteVector = @Vector(lanes * @sizeOf(u64), u8);
         while (word_index + lanes <= words.len) : (word_index += lanes) {
+            // `[]const i64` guarantees word alignment, not vector alignment.
+            // Keep this a guarded unaligned load; do not add `@alignCast`.
             const native_words: WordVector = @bitCast(words[word_index..][0..lanes].*);
             const big_endian_words = std.mem.nativeToBig(WordVector, native_words);
             const big_endian_bytes: ByteVector = @bitCast(big_endian_words);
@@ -428,14 +460,47 @@ pub fn unpackSignedWordsBigEndian(
     return bytes;
 }
 
+fn convertNativeByteStorageToBigEndianWords(words: []i64) void {
+    const bytes = std.mem.sliceAsBytes(words);
+    var word_index: usize = 0;
+    if (carrierWordVectorLength()) |lanes| {
+        const WordVector = @Vector(lanes, u64);
+        const vector_bytes = lanes * @sizeOf(u64);
+        while (word_index + lanes <= words.len) : (word_index += lanes) {
+            const byte_index = word_index * @sizeOf(u64);
+            const native_words: WordVector = @bitCast(
+                bytes[byte_index..][0..vector_bytes].*,
+            );
+            const big_endian_words = std.mem.nativeToBig(WordVector, native_words);
+            words[word_index..][0..lanes].* = @bitCast(big_endian_words);
+        }
+    }
+    while (word_index < words.len) : (word_index += 1) {
+        const byte_index = word_index * @sizeOf(i64);
+        words[word_index] = std.mem.readInt(i64, bytes[byte_index..][0..8], .big);
+    }
+}
+
 pub fn encodeRequestWords(
     allocator: std.mem.Allocator,
     body: []const u8,
     config: Config,
 ) RequestEncodeError![]i64 {
-    const envelope = try encodeRequestEnvelope(allocator, body, config);
-    defer allocator.free(envelope);
-    return packSignedWordsBigEndian(allocator, envelope);
+    try validateOriginalSize(body.len, config);
+    const original_size = std.math.cast(u32, body.len) orelse return error.OriginalSizeTooLarge;
+    const compressed_size = try rawLz4LiteralOnlyEncodedSize(body.len);
+    const envelope_size = std.math.add(usize, @sizeOf(u32), compressed_size) catch
+        return error.CarrierTooLarge;
+    const counts = try carrierWordCountForByteLength(envelope_size);
+
+    const words = try allocator.alloc(i64, counts.padded);
+    errdefer allocator.free(words);
+    const carrier_bytes = std.mem.sliceAsBytes(words);
+    std.mem.writeInt(u32, carrier_bytes[0..4], original_size, .big);
+    writeRawLz4LiteralOnly(carrier_bytes[4..envelope_size], body);
+    @memset(carrier_bytes[envelope_size..], 0);
+    convertNativeByteStorageToBigEndianWords(words);
+    return words;
 }
 
 pub fn decodeRequestWords(
@@ -516,6 +581,22 @@ test "literal-only raw LZ4 covers short and extended literal lengths" {
         try std.testing.expectEqual(encoded.len, decoded.compressed_bytes_consumed);
         try std.testing.expectEqualSlices(u8, input, decoded.bytes);
     }
+}
+
+test "carrier SIMD policy requires efficient x86 byte shuffle" {
+    const without_byte_shuffle = comptime blk: {
+        var cpu = std.Target.Cpu.baseline(.x86_64, builtin.os);
+        cpu.features.removeFeature(@intFromEnum(std.Target.x86.Feature.ssse3));
+        break :blk carrierWordVectorLengthForCpu(cpu);
+    };
+    try std.testing.expect(without_byte_shuffle == null);
+
+    const with_byte_shuffle = comptime blk: {
+        var cpu = std.Target.Cpu.baseline(.x86_64, builtin.os);
+        cpu.features.addFeature(@intFromEnum(std.Target.x86.Feature.ssse3));
+        break :blk carrierWordVectorLengthForCpu(cpu);
+    };
+    try std.testing.expect((with_byte_shuffle orelse 0) >= 2);
 }
 
 test "raw LZ4 decoder supports matches and overlapping copies" {
@@ -659,6 +740,72 @@ test "request envelope enforces size cap and exact zero carrier padding" {
     );
 }
 
+fn encodeRequestWordsComposed(
+    allocator: std.mem.Allocator,
+    body: []const u8,
+    config: Config,
+) RequestEncodeError![]i64 {
+    const envelope = try encodeRequestEnvelope(allocator, body, config);
+    defer allocator.free(envelope);
+    return packSignedWordsBigEndian(allocator, envelope);
+}
+
+test "direct request carriers equal composed envelopes across boundaries" {
+    const allocator = std.testing.allocator;
+    const sizes = [_]usize{
+        0,   1,   7,   8,    14, 15,  16,  31,
+        32,  33,  39,  40,   41, 254, 255, 256,
+        269, 270, 271, 4099,
+    };
+    for (sizes) |size| {
+        const body = try allocator.alloc(u8, size);
+        defer allocator.free(body);
+        for (body, 0..) |*byte, index| byte.* = @truncate(index *% 197 +% size);
+
+        const direct = try encodeRequestWords(allocator, body, .{});
+        defer allocator.free(direct);
+        const composed = try encodeRequestWordsComposed(allocator, body, .{});
+        defer allocator.free(composed);
+        try std.testing.expectEqualSlices(i64, composed, direct);
+
+        const envelope = try encodeRequestEnvelope(allocator, body, .{});
+        defer allocator.free(envelope);
+        const carrier_bytes = try unpackSignedWordsBigEndian(allocator, direct);
+        defer allocator.free(carrier_bytes);
+        try std.testing.expectEqualSlices(u8, envelope, carrier_bytes[0..envelope.len]);
+        for (carrier_bytes[envelope.len..]) |padding_byte| {
+            try std.testing.expectEqual(@as(u8, 0), padding_byte);
+        }
+
+        var decoded = try decodeRequestWords(allocator, direct, .{});
+        defer decoded.deinit(allocator);
+        try std.testing.expectEqualSlices(u8, body, decoded.body);
+    }
+}
+
+test "direct request carrier encoding owns one allocation" {
+    var counting = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    const allocator = counting.allocator();
+    const words = try encodeRequestWords(allocator, "one final carrier", .{});
+    try std.testing.expectEqual(@as(usize, 1), counting.allocations);
+    allocator.free(words);
+    try std.testing.expectEqual(@as(usize, 1), counting.deallocations);
+
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{
+        .fail_index = 0,
+    });
+    try std.testing.expectError(
+        error.OutOfMemory,
+        encodeRequestWords(failing.allocator(), "one final carrier", .{}),
+    );
+    try std.testing.expect(failing.has_induced_failure);
+
+    try std.testing.expectError(
+        error.OriginalSizeTooLarge,
+        encodeRequestWords(std.testing.allocator, "too large", .{ .max_original_size = 8 }),
+    );
+}
+
 test "signed big-endian carriers preserve 8 and 40-byte boundaries" {
     const allocator = std.testing.allocator;
     const sizes = [_]usize{ 8, 40, 41 };
@@ -685,60 +832,83 @@ test "signed big-endian carriers preserve 8 and 40-byte boundaries" {
     );
 }
 
-test "SIMD carrier transforms match scalar big-endian semantics across vector tails" {
-    const allocator = std.testing.allocator;
-    const vector_words = std.simd.suggestVectorLength(u64) orelse 1;
-    const vector_bytes = vector_words * @sizeOf(u64);
-    const lengths = [_]usize{
-        0,
-        1,
-        7,
-        8,
-        9,
-        vector_bytes - 1,
-        vector_bytes,
-        vector_bytes + 1,
-        vector_bytes * 2 - 1,
-        vector_bytes * 2,
-        vector_bytes * 2 + 1,
-        39,
-        40,
-        41,
-        127,
-        128,
-        129,
-        4099,
-    };
+fn expectCarrierTransformsMatchScalar(
+    allocator: std.mem.Allocator,
+    input: []const u8,
+) !void {
+    const words = try packSignedWordsBigEndian(allocator, input);
+    defer allocator.free(words);
+    try std.testing.expectEqual(@as(usize, 0), words.len % words_per_frame);
 
-    for (lengths) |length| {
-        const input = try allocator.alloc(u8, length);
-        defer allocator.free(input);
+    const live_words = (input.len + 7) / 8;
+    for (0..live_words) |index| {
+        var raw = [_]u8{0} ** 8;
+        const start = index * 8;
+        const end = @min(start + 8, input.len);
+        @memcpy(raw[0 .. end - start], input[start..end]);
+        try std.testing.expectEqual(std.mem.readInt(i64, &raw, .big), words[index]);
+    }
+    for (words[live_words..]) |padding_word| {
+        try std.testing.expectEqual(@as(i64, 0), padding_word);
+    }
+
+    const unpacked = try unpackSignedWordsBigEndian(allocator, words);
+    defer allocator.free(unpacked);
+    try std.testing.expectEqualSlices(u8, input, unpacked[0..input.len]);
+    for (unpacked[input.len..]) |padding_byte| {
+        try std.testing.expectEqual(@as(u8, 0), padding_byte);
+    }
+}
+
+test "SIMD carrier transforms match scalar semantics for aligned and misaligned tails" {
+    const allocator = std.testing.allocator;
+    const vector_words = carrierWordVectorLength() orelse 1;
+    const exhaustive_limit = vector_words * @sizeOf(u64) * 3 + 8;
+
+    for (0..exhaustive_limit) |length| {
+        for ([_]usize{ 0, 1 }) |offset| {
+            const storage = try allocator.alloc(u8, length + offset);
+            defer allocator.free(storage);
+            const input = storage[offset..];
+            for (input, 0..) |*byte, index| {
+                byte.* = @truncate(index *% 193 +% length);
+            }
+            try expectCarrierTransformsMatchScalar(allocator, input);
+        }
+    }
+
+    for ([_]usize{ 127, 128, 129, 4099 }) |length| {
+        const storage = try allocator.alloc(u8, length + 1);
+        defer allocator.free(storage);
+        const input = storage[1..];
         for (input, 0..) |*byte, index| {
             byte.* = @truncate(index *% 193 +% length);
         }
+        try expectCarrierTransformsMatchScalar(allocator, input);
+    }
+}
 
-        const words = try packSignedWordsBigEndian(allocator, input);
-        defer allocator.free(words);
-        try std.testing.expectEqual(@as(usize, 0), words.len % words_per_frame);
+test "SIMD unpack accepts vector-misaligned word slices" {
+    const lanes = carrierWordVectorLength() orelse return;
+    const allocator = std.testing.allocator;
+    var input: [129]u8 = undefined;
+    for (&input, 0..) |*byte, index| byte.* = @truncate(index *% 211 +% 7);
 
-        const live_words = (input.len + 7) / 8;
-        for (0..live_words) |index| {
-            var raw = [_]u8{0} ** 8;
-            const start = index * 8;
-            const end = @min(start + 8, input.len);
-            @memcpy(raw[0 .. end - start], input[start..end]);
-            try std.testing.expectEqual(std.mem.readInt(i64, &raw, .big), words[index]);
-        }
-        for (words[live_words..]) |padding_word| {
-            try std.testing.expectEqual(@as(i64, 0), padding_word);
-        }
+    const aligned_words = try packSignedWordsBigEndian(allocator, &input);
+    defer allocator.free(aligned_words);
+    const storage = try allocator.alloc(i64, aligned_words.len + lanes);
+    defer allocator.free(storage);
+    const vector_bytes = lanes * @sizeOf(i64);
+    const offset: usize = if (@intFromPtr(storage.ptr) % vector_bytes == 0) 1 else 0;
+    const misaligned_words = storage[offset..][0..aligned_words.len];
+    try std.testing.expect(@intFromPtr(misaligned_words.ptr) % vector_bytes != 0);
+    @memcpy(misaligned_words, aligned_words);
 
-        const unpacked = try unpackSignedWordsBigEndian(allocator, words);
-        defer allocator.free(unpacked);
-        try std.testing.expectEqualSlices(u8, input, unpacked[0..input.len]);
-        for (unpacked[input.len..]) |padding_byte| {
-            try std.testing.expectEqual(@as(u8, 0), padding_byte);
-        }
+    const unpacked = try unpackSignedWordsBigEndian(allocator, misaligned_words);
+    defer allocator.free(unpacked);
+    try std.testing.expectEqualSlices(u8, &input, unpacked[0..input.len]);
+    for (unpacked[input.len..]) |padding_byte| {
+        try std.testing.expectEqual(@as(u8, 0), padding_byte);
     }
 }
 

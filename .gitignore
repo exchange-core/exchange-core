@@ -10,8 +10,11 @@ delombok/
 
 # dumps #
 dumps/*.ec*
+/dumps/*.xcj3
 zig-cache/
 .zig-cache/
+/.zig-cache-*/
+/.zig-global-cache-*/
 zig-out/
 .zig-cache-local/
 .zig-cache-global/

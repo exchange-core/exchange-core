@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const core = @import("exchange_core").core;
 
 const wire = core.java_binary_wire;
@@ -10,20 +11,32 @@ const CalibrationFloorNs: u64 = 2 * std.time.ns_per_ms;
 const BenchError = wire.CarrierPackError || wire.CarrierUnpackError || error{
     InvalidArguments,
     MissingArgumentValue,
-    ScalarProductionMismatch,
+    ImplementationMismatch,
     CalibrationOverflow,
+    ReleaseFastRequired,
 };
 
 const Implementation = enum {
     scalar_source,
+    scalar_direct,
     production,
 
     fn label(self: Implementation) []const u8 {
         return switch (self) {
             .scalar_source => "scalar_source",
+            .scalar_direct => "scalar_direct",
             .production => "production",
         };
     }
+};
+
+const CounterbalancedOrders = [_][3]Implementation{
+    .{ .scalar_source, .scalar_direct, .production },
+    .{ .scalar_direct, .production, .scalar_source },
+    .{ .production, .scalar_source, .scalar_direct },
+    .{ .scalar_source, .production, .scalar_direct },
+    .{ .production, .scalar_direct, .scalar_source },
+    .{ .scalar_direct, .scalar_source, .production },
 };
 
 const Operation = enum {
@@ -37,13 +50,13 @@ const Operation = enum {
 
 const Options = struct {
     bytes: usize = 1024 * 1024,
-    warmup_pairs: usize = 3,
-    trials: usize = 11,
+    warmup_rounds: usize = 3,
+    trials: usize = 12,
     min_trial_ms: u64 = 100,
 
     fn validate(self: Options) BenchError!void {
         if (self.bytes == 0 or
-            self.warmup_pairs > 1000 or
+            self.warmup_rounds > 1000 or
             self.trials == 0 or
             self.trials > MaxTrials or
             self.min_trial_ms == 0 or
@@ -72,9 +85,11 @@ const Measurement = struct {
 };
 
 const OperationSamples = struct {
-    scalar: [MaxTrials]f64 = undefined,
+    scalar_source: [MaxTrials]f64 = undefined,
+    scalar_direct: [MaxTrials]f64 = undefined,
     production: [MaxTrials]f64 = undefined,
-    speedup: [MaxTrials]f64 = undefined,
+    production_vs_source_speedup: [MaxTrials]f64 = undefined,
+    production_vs_direct_speedup: [MaxTrials]f64 = undefined,
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -104,6 +119,7 @@ fn runBenchmark(
     out: *std.Io.Writer,
     options: Options,
 ) !void {
+    try requireReleaseFast();
     try options.validate();
     const target_ns = try options.targetNs();
 
@@ -115,31 +131,49 @@ fn runBenchmark(
 
     const scalar_words = try packScalarSource(allocator, input);
     defer allocator.free(scalar_words);
+    const direct_words = try packScalarDirect(allocator, input);
+    defer allocator.free(direct_words);
     const production_words = try wire.packSignedWordsBigEndian(allocator, input);
     defer allocator.free(production_words);
-    if (!std.mem.eql(i64, scalar_words, production_words)) {
-        return error.ScalarProductionMismatch;
+    if (!std.mem.eql(i64, scalar_words, direct_words) or
+        !std.mem.eql(i64, scalar_words, production_words))
+    {
+        return error.ImplementationMismatch;
     }
 
     const scalar_bytes = try unpackScalarSource(allocator, scalar_words);
     defer allocator.free(scalar_bytes);
+    const direct_bytes = try unpackScalarDirect(allocator, scalar_words);
+    defer allocator.free(direct_bytes);
     const production_bytes = try wire.unpackSignedWordsBigEndian(allocator, scalar_words);
     defer allocator.free(production_bytes);
-    if (!std.mem.eql(u8, scalar_bytes, production_bytes) or
+    if (!std.mem.eql(u8, scalar_bytes, direct_bytes) or
+        !std.mem.eql(u8, scalar_bytes, production_bytes) or
         !std.mem.eql(u8, input, production_bytes[0..input.len]))
     {
-        return error.ScalarProductionMismatch;
+        return error.ImplementationMismatch;
     }
 
     try out.print(
-        "exchange-core SIMD carrier benchmark bytes={d} warmup_pairs={d} trials={d} min_trial_ms={d} vector_lanes_u64={d}\n",
+        "exchange-core SIMD carrier benchmark payload_bytes={d} carrier_words={d} " ++
+            "carrier_bytes={d} warmup_rounds={d} trials={d} min_trial_ms={d} " ++
+            "vector_lanes_u64={d} build_mode={s}\n",
         .{
             options.bytes,
-            options.warmup_pairs,
+            scalar_words.len,
+            @as(u128, scalar_words.len) * @sizeOf(i64),
+            options.warmup_rounds,
             options.trials,
             options.min_trial_ms,
-            std.simd.suggestVectorLength(u64) orelse 1,
+            wire.carrierWordVectorLength() orelse 1,
+            @tagName(builtin.mode),
         },
+    );
+    try out.writeAll(
+        "workload=steady_state_repeated_buffer allocator=smp_allocator " ++
+            "checksum_pre_touch=one_untimed_full_transform_before_each_timed_row " ++
+            "timed_scope=allocate_transform_free\n" ++
+            "TIMING_RESULTS_CSV\n",
     );
     try out.writeAll(
         "operation,trial,run_order,implementation,iterations,elapsed_ns,bytes_per_second,checksum\n",
@@ -170,6 +204,13 @@ fn runBenchmark(
         &unpack_samples,
     );
 
+    try out.writeAll(
+        "PAIRED_RESULTS_CSV\n" ++
+            "operation,trial,counterbalance_order,production_vs_source_speedup," ++
+            "production_vs_direct_speedup\n",
+    );
+    try printPairedRows(out, .pack, pack_samples, options.trials);
+    try printPairedRows(out, .unpack, unpack_samples, options.trials);
     try printSummary(out, .pack, pack_samples, options.trials);
     try printSummary(out, .unpack, unpack_samples, options.trials);
 }
@@ -185,16 +226,26 @@ fn benchmarkOperation(
     words: []const i64,
     samples: *OperationSamples,
 ) !void {
-    for (0..options.warmup_pairs) |_| {
-        _ = try measure(io, allocator, operation, .scalar_source, input, words, 1);
-        _ = try measure(io, allocator, operation, .production, input, words, 1);
+    for (0..options.warmup_rounds) |round| {
+        for (CounterbalancedOrders[round % CounterbalancedOrders.len]) |implementation| {
+            _ = try measure(io, allocator, operation, implementation, input, words, 1);
+        }
     }
 
-    const scalar_iterations = try calibrate(
+    const source_iterations = try calibrate(
         io,
         allocator,
         operation,
         .scalar_source,
+        input,
+        words,
+        target_ns,
+    );
+    const direct_iterations = try calibrate(
+        io,
+        allocator,
+        operation,
+        .scalar_direct,
         input,
         words,
         target_ns,
@@ -208,15 +259,12 @@ fn benchmarkOperation(
         words,
         target_ns,
     );
-    const iterations = @max(scalar_iterations, production_iterations);
+    const iterations = @max(source_iterations, @max(direct_iterations, production_iterations));
 
     for (0..options.trials) |trial| {
-        const order = if ((trial & 1) == 0)
-            [_]Implementation{ .scalar_source, .production }
-        else
-            [_]Implementation{ .production, .scalar_source };
+        const order = CounterbalancedOrders[trial % CounterbalancedOrders.len];
 
-        var checksums: [2]u64 = undefined;
+        var checksums: [3]u64 = undefined;
         for (order, 0..) |implementation, run_order| {
             const result = try measure(
                 io,
@@ -229,7 +277,8 @@ fn benchmarkOperation(
             );
             checksums[@intFromEnum(implementation)] = result.checksum;
             switch (implementation) {
-                .scalar_source => samples.scalar[trial] = result.bytes_per_second,
+                .scalar_source => samples.scalar_source[trial] = result.bytes_per_second,
+                .scalar_direct => samples.scalar_direct[trial] = result.bytes_per_second,
                 .production => samples.production[trial] = result.bytes_per_second,
             }
             try out.print(
@@ -246,9 +295,18 @@ fn benchmarkOperation(
                 },
             );
         }
-        if (checksums[0] != checksums[1]) return error.ScalarProductionMismatch;
-        samples.speedup[trial] = samples.production[trial] / samples.scalar[trial];
+        if (checksums[0] != checksums[1] or checksums[0] != checksums[2]) {
+            return error.ImplementationMismatch;
+        }
+        samples.production_vs_source_speedup[trial] =
+            samples.production[trial] / samples.scalar_source[trial];
+        samples.production_vs_direct_speedup[trial] =
+            samples.production[trial] / samples.scalar_direct[trial];
     }
+}
+
+fn requireReleaseFast() BenchError!void {
+    if (builtin.mode != .ReleaseFast) return error.ReleaseFastRequired;
 }
 
 fn calibrate(
@@ -291,36 +349,48 @@ fn measure(
     words: []const i64,
     iterations: usize,
 ) !Measurement {
-    var checksum: u64 = 0;
+    const checksum = switch (operation) {
+        .pack => blk: {
+            const packed_words = try pack(allocator, implementation, input);
+            defer allocator.free(packed_words);
+            break :blk checksumWords(packed_words);
+        },
+        .unpack => blk: {
+            const unpacked = try unpack(allocator, implementation, words);
+            defer allocator.free(unpacked);
+            break :blk checksumBytes(unpacked);
+        },
+    };
+
+    var timed_checksum: u64 = 0;
     const started = std.Io.Clock.awake.now(io);
     switch (operation) {
         .pack => for (0..iterations) |_| {
-            const packed_words = switch (implementation) {
-                .scalar_source => try packScalarSource(allocator, input),
-                .production => try wire.packSignedWordsBigEndian(allocator, input),
-            };
+            const packed_words = try pack(allocator, implementation, input);
+            defer allocator.free(packed_words);
             std.mem.doNotOptimizeAway(packed_words.ptr);
-            checksum +%= @bitCast(packed_words[0]);
-            checksum +%= @bitCast(packed_words[packed_words.len - 1]);
-            allocator.free(packed_words);
+            timed_checksum +%= @bitCast(packed_words[0]);
+            timed_checksum +%= @bitCast(packed_words[packed_words.len - 1]);
         },
         .unpack => for (0..iterations) |_| {
-            const unpacked = switch (implementation) {
-                .scalar_source => try unpackScalarSource(allocator, words),
-                .production => try wire.unpackSignedWordsBigEndian(allocator, words),
-            };
+            const unpacked = try unpack(allocator, implementation, words);
+            defer allocator.free(unpacked);
             std.mem.doNotOptimizeAway(unpacked.ptr);
-            checksum +%= unpacked[0];
-            checksum +%= unpacked[unpacked.len - 1];
-            allocator.free(unpacked);
+            timed_checksum +%= unpacked[0];
+            timed_checksum +%= unpacked[unpacked.len - 1];
         },
     }
+    std.mem.doNotOptimizeAway(timed_checksum);
     const elapsed_raw = started.durationTo(std.Io.Clock.awake.now(io)).nanoseconds;
     const elapsed_ns = if (elapsed_raw <= 0)
         1
     else
         std.math.cast(u64, elapsed_raw) orelse std.math.maxInt(u64);
-    const total_bytes = @as(u128, input.len) * iterations;
+    const bytes_per_iteration: u128 = switch (operation) {
+        .pack => input.len,
+        .unpack => @as(u128, words.len) * @sizeOf(i64),
+    };
+    const total_bytes = bytes_per_iteration * iterations;
     const bytes_per_second = @as(f64, @floatFromInt(total_bytes)) *
         @as(f64, std.time.ns_per_s) / @as(f64, @floatFromInt(elapsed_ns));
     return .{
@@ -331,25 +401,101 @@ fn measure(
     };
 }
 
+fn printPairedRows(
+    out: *std.Io.Writer,
+    operation: Operation,
+    samples: OperationSamples,
+    trials: usize,
+) !void {
+    for (0..trials) |trial| {
+        try out.print(
+            "{s},{d},{d},{d:.6},{d:.6}\n",
+            .{
+                operation.label(),
+                trial + 1,
+                trial % CounterbalancedOrders.len + 1,
+                samples.production_vs_source_speedup[trial],
+                samples.production_vs_direct_speedup[trial],
+            },
+        );
+    }
+}
+
+const Distribution = struct {
+    min: f64,
+    p05: f64,
+    median: f64,
+    p95: f64,
+    max: f64,
+
+    fn fromSorted(sorted: []const f64) Distribution {
+        std.debug.assert(sorted.len > 0);
+        return .{
+            .min = sorted[0],
+            .p05 = nearestRank(sorted, 5),
+            .median = median(sorted),
+            .p95 = nearestRank(sorted, 95),
+            .max = sorted[sorted.len - 1],
+        };
+    }
+};
+
 fn printSummary(
     out: *std.Io.Writer,
     operation: Operation,
     samples: OperationSamples,
     trials: usize,
 ) !void {
-    var scalar = samples.scalar;
+    var scalar_source = samples.scalar_source;
+    var scalar_direct = samples.scalar_direct;
     var production = samples.production;
-    var speedup = samples.speedup;
-    std.sort.heap(f64, scalar[0..trials], {}, std.sort.asc(f64));
+    var production_vs_source_speedup = samples.production_vs_source_speedup;
+    var production_vs_direct_speedup = samples.production_vs_direct_speedup;
+    std.sort.heap(f64, scalar_source[0..trials], {}, std.sort.asc(f64));
+    std.sort.heap(f64, scalar_direct[0..trials], {}, std.sort.asc(f64));
     std.sort.heap(f64, production[0..trials], {}, std.sort.asc(f64));
-    std.sort.heap(f64, speedup[0..trials], {}, std.sort.asc(f64));
+    std.sort.heap(
+        f64,
+        production_vs_source_speedup[0..trials],
+        {},
+        std.sort.asc(f64),
+    );
+    std.sort.heap(
+        f64,
+        production_vs_direct_speedup[0..trials],
+        {},
+        std.sort.asc(f64),
+    );
+    const source_speedup = Distribution.fromSorted(production_vs_source_speedup[0..trials]);
+    const direct_speedup = Distribution.fromSorted(production_vs_direct_speedup[0..trials]);
     try out.print(
-        "SUMMARY operation={s} scalar_median_Bps={d:.3} production_median_Bps={d:.3} paired_speedup_median={d:.4}\n",
+        "SUMMARY operation={s} scalar_source_median_Bps={d:.3} " ++
+            "scalar_direct_median_Bps={d:.3} production_median_Bps={d:.3} " ++
+            "production_vs_source_paired_speedup_min={d:.4} " ++
+            "production_vs_source_paired_speedup_p05={d:.4} " ++
+            "production_vs_source_paired_speedup_median={d:.4} " ++
+            "production_vs_source_paired_speedup_p95={d:.4} " ++
+            "production_vs_source_paired_speedup_max={d:.4} " ++
+            "production_vs_direct_paired_speedup_min={d:.4} " ++
+            "production_vs_direct_paired_speedup_p05={d:.4} " ++
+            "production_vs_direct_paired_speedup_median={d:.4} " ++
+            "production_vs_direct_paired_speedup_p95={d:.4} " ++
+            "production_vs_direct_paired_speedup_max={d:.4}\n",
         .{
             operation.label(),
-            median(scalar[0..trials]),
+            median(scalar_source[0..trials]),
+            median(scalar_direct[0..trials]),
             median(production[0..trials]),
-            median(speedup[0..trials]),
+            source_speedup.min,
+            source_speedup.p05,
+            source_speedup.median,
+            source_speedup.p95,
+            source_speedup.max,
+            direct_speedup.min,
+            direct_speedup.p05,
+            direct_speedup.median,
+            direct_speedup.p95,
+            direct_speedup.max,
         },
     );
 }
@@ -358,6 +504,13 @@ fn median(sorted: []const f64) f64 {
     const middle = sorted.len / 2;
     if ((sorted.len & 1) == 1) return sorted[middle];
     return (sorted[middle - 1] + sorted[middle]) / 2.0;
+}
+
+fn nearestRank(sorted: []const f64, percentile: usize) f64 {
+    std.debug.assert(sorted.len > 0);
+    std.debug.assert(percentile >= 1 and percentile <= 100);
+    const rank = (sorted.len * percentile + 99) / 100;
+    return sorted[rank - 1];
 }
 
 noinline fn packScalarSource(
@@ -402,6 +555,102 @@ noinline fn unpackScalarSource(
     return bytes;
 }
 
+noinline fn packScalarDirect(
+    allocator: std.mem.Allocator,
+    bytes: []const u8,
+) wire.CarrierPackError![]i64 {
+    const rounded_bytes = std.math.add(usize, bytes.len, 7) catch return error.CarrierTooLarge;
+    const words_without_frame_padding = rounded_bytes / 8;
+    const remainder = words_without_frame_padding % wire.words_per_frame;
+    const frame_padding = if (remainder == 0) @as(usize, 0) else wire.words_per_frame - remainder;
+    const word_count = std.math.add(
+        usize,
+        words_without_frame_padding,
+        frame_padding,
+    ) catch return error.CarrierTooLarge;
+
+    const words = try allocator.alloc(i64, word_count);
+
+    const complete_words = bytes.len / @sizeOf(i64);
+    var word_index: usize = 0;
+    while (word_index < complete_words) : (word_index += 1) {
+        const start = word_index * @sizeOf(i64);
+        words[word_index] = std.mem.readInt(i64, bytes[start..][0..8], .big);
+    }
+    if (word_index < words_without_frame_padding) {
+        var raw = [_]u8{0} ** 8;
+        const start = word_index * 8;
+        @memcpy(raw[0 .. bytes.len - start], bytes[start..]);
+        words[word_index] = std.mem.readInt(i64, &raw, .big);
+    }
+    @memset(words[words_without_frame_padding..], 0);
+    return words;
+}
+
+noinline fn unpackScalarDirect(
+    allocator: std.mem.Allocator,
+    words: []const i64,
+) wire.CarrierUnpackError![]u8 {
+    if (words.len % wire.words_per_frame != 0) {
+        return error.CarrierWordCountNotMultipleOfFive;
+    }
+    const byte_count = std.math.mul(usize, words.len, @sizeOf(i64)) catch
+        return error.CarrierTooLarge;
+    const bytes = try allocator.alloc(u8, byte_count);
+    var word_index: usize = 0;
+    while (word_index < words.len) : (word_index += 1) {
+        const word = words[word_index];
+        std.mem.writeInt(i64, bytes[word_index * 8 ..][0..8], word, .big);
+    }
+    return bytes;
+}
+
+// Keep the timed call boundary opaque so the compiler must materialize every
+// output word even though the harness samples only the edges inside the timer.
+noinline fn pack(
+    allocator: std.mem.Allocator,
+    implementation: Implementation,
+    bytes: []const u8,
+) wire.CarrierPackError![]i64 {
+    return switch (implementation) {
+        .scalar_source => packScalarSource(allocator, bytes),
+        .scalar_direct => packScalarDirect(allocator, bytes),
+        .production => wire.packSignedWordsBigEndian(allocator, bytes),
+    };
+}
+
+noinline fn unpack(
+    allocator: std.mem.Allocator,
+    implementation: Implementation,
+    words: []const i64,
+) wire.CarrierUnpackError![]u8 {
+    return switch (implementation) {
+        .scalar_source => unpackScalarSource(allocator, words),
+        .scalar_direct => unpackScalarDirect(allocator, words),
+        .production => wire.unpackSignedWordsBigEndian(allocator, words),
+    };
+}
+
+fn checksumWords(words: []const i64) u64 {
+    var checksum: u64 = 0xcbf29ce484222325;
+    for (words) |word| {
+        checksum ^= @bitCast(word);
+        checksum *%= 0x100000001b3;
+    }
+    checksum ^= words.len;
+    return checksum;
+}
+
+fn checksumBytes(bytes: []const u8) u64 {
+    var checksum: u64 = 0xcbf29ce484222325;
+    for (bytes) |byte| {
+        checksum ^= byte;
+        checksum *%= 0x100000001b3;
+    }
+    checksum ^= bytes.len;
+    return checksum;
+}
+
 fn parseOptions(
     process_args: std.process.Args,
     allocator: std.mem.Allocator,
@@ -416,7 +665,7 @@ fn parseOptions(
         if (std.mem.eql(u8, arg, "--bytes")) {
             options.bytes = try parseInt(usize, args.next() orelse return error.MissingArgumentValue);
         } else if (std.mem.eql(u8, arg, "--warmup")) {
-            options.warmup_pairs = try parseInt(usize, args.next() orelse return error.MissingArgumentValue);
+            options.warmup_rounds = try parseInt(usize, args.next() orelse return error.MissingArgumentValue);
         } else if (std.mem.eql(u8, arg, "--trials")) {
             options.trials = try parseInt(usize, args.next() orelse return error.MissingArgumentValue);
         } else if (std.mem.eql(u8, arg, "--min-trial-ms")) {
@@ -437,15 +686,94 @@ fn writeUsage(out: *std.Io.Writer) !void {
     try out.writeAll(
         \\Usage: exchange-core-simd-bench [options]
         \\
-        \\Benchmarks the original scalar source against the production binary-carrier
-        \\pack/unpack implementation using paired, counterbalanced ReleaseFast trials.
+        \\Benchmarks the original scalar source, direct scalar endian loops, and the
+        \\production SIMD binary-carrier pack/unpack implementation using paired,
+        \\counterbalanced ReleaseFast trials. The workload repeatedly transforms one
+        \\buffer and times allocation, transform, and free after an untimed full-output
+        \\checksum pre-touch for each measured row.
         \\
         \\Options:
-        \\  --bytes N          Input size in bytes (default: 1048576)
-        \\  --warmup N         Untimed warmup pairs (default: 3)
-        \\  --trials N         Timed paired trials, max 101 (default: 11)
+        \\  --bytes N          Logical payload size in bytes (default: 1048576)
+        \\  --warmup N         Untimed three-way warmup rounds (default: 3)
+        \\  --trials N         Timed three-way trials, max 101 (default: 12)
         \\  --min-trial-ms N   Calibrated minimum trial duration (default: 100)
         \\  -h, --help         Show this help
         \\
     );
+}
+
+test "default trials cover two complete counterbalance cycles" {
+    const options: Options = .{};
+    try std.testing.expectEqual(@as(usize, 12), options.trials);
+    try std.testing.expectEqual(@as(usize, 0), options.trials % CounterbalancedOrders.len);
+}
+
+test "counterbalance cycle uses every permutation and position evenly" {
+    var position_counts: [3][3]usize = .{
+        .{ 0, 0, 0 },
+        .{ 0, 0, 0 },
+        .{ 0, 0, 0 },
+    };
+
+    for (CounterbalancedOrders) |order| {
+        var seen: [3]bool = .{ false, false, false };
+        for (order, 0..) |implementation, position| {
+            const implementation_index = @intFromEnum(implementation);
+            try std.testing.expect(!seen[implementation_index]);
+            seen[implementation_index] = true;
+            position_counts[implementation_index][position] += 1;
+        }
+        try std.testing.expectEqualSlices(bool, &.{ true, true, true }, &seen);
+    }
+
+    for (position_counts) |counts| {
+        try std.testing.expectEqualSlices(usize, &.{ 2, 2, 2 }, &counts);
+    }
+}
+
+test "distribution reports nearest-rank tails and even median" {
+    var values = [_]f64{ 4.0, 1.0, 3.0, 2.0 };
+    std.sort.heap(f64, &values, {}, std.sort.asc(f64));
+    const distribution = Distribution.fromSorted(&values);
+
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), distribution.min, 0.000_001);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), distribution.p05, 0.000_001);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.5), distribution.median, 0.000_001);
+    try std.testing.expectApproxEqAbs(@as(f64, 4.0), distribution.p95, 0.000_001);
+    try std.testing.expectApproxEqAbs(@as(f64, 4.0), distribution.max, 0.000_001);
+}
+
+test "benchmark rejects non-ReleaseFast execution" {
+    if (builtin.mode == .ReleaseFast) {
+        try requireReleaseFast();
+    } else {
+        try std.testing.expectError(error.ReleaseFastRequired, requireReleaseFast());
+    }
+}
+
+test "all benchmark implementations agree across vector chunks and a tail" {
+    const allocator = std.testing.allocator;
+    var input: [65]u8 = undefined;
+    for (&input, 0..) |*byte, index| {
+        byte.* = @truncate(index *% 131 +% 17);
+    }
+
+    const source_words = try packScalarSource(allocator, &input);
+    defer allocator.free(source_words);
+    const direct_words = try packScalarDirect(allocator, &input);
+    defer allocator.free(direct_words);
+    const production_words = try wire.packSignedWordsBigEndian(allocator, &input);
+    defer allocator.free(production_words);
+    try std.testing.expectEqualSlices(i64, source_words, direct_words);
+    try std.testing.expectEqualSlices(i64, source_words, production_words);
+
+    const source_bytes = try unpackScalarSource(allocator, source_words);
+    defer allocator.free(source_bytes);
+    const direct_bytes = try unpackScalarDirect(allocator, source_words);
+    defer allocator.free(direct_bytes);
+    const production_bytes = try wire.unpackSignedWordsBigEndian(allocator, source_words);
+    defer allocator.free(production_bytes);
+    try std.testing.expectEqualSlices(u8, source_bytes, direct_bytes);
+    try std.testing.expectEqualSlices(u8, source_bytes, production_bytes);
+    try std.testing.expectEqualSlices(u8, &input, production_bytes[0..input.len]);
 }

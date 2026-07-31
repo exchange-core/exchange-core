@@ -108,8 +108,23 @@ pub fn build(b: *std.Build) void {
     const run_debug_client_tests = b.addRunArtifact(debug_client_tests);
     run_debug_client_tests.step.dependOn(&run_debug_server_tests.step);
 
-    const test_step = b.step("test", "Run exchange-core and standalone app Zig unit tests");
-    test_step.dependOn(&run_debug_client_tests.step);
+    const debug_simd_bench_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/bench/simd.zig"),
+        .target = target,
+        .optimize = .Debug,
+    });
+    debug_simd_bench_module.addImport("exchange_core", debug_exchange_core);
+    const debug_simd_bench_tests = b.addTest(.{
+        .root_module = debug_simd_bench_module,
+    });
+    const run_debug_simd_bench_tests = b.addRunArtifact(debug_simd_bench_tests);
+    run_debug_simd_bench_tests.step.dependOn(&run_debug_client_tests.step);
+
+    const test_step = b.step(
+        "test",
+        "Run exchange-core, standalone app, and SIMD benchmark Zig unit tests",
+    );
+    test_step.dependOn(&run_debug_simd_bench_tests.step);
 
     const release_safe_module = b.createModule(.{
         .root_source_file = b.path("src/zig/root.zig"),
@@ -157,11 +172,23 @@ pub fn build(b: *std.Build) void {
     const run_release_safe_client_tests = b.addRunArtifact(release_safe_client_tests);
     run_release_safe_client_tests.step.dependOn(&run_release_safe_server_tests.step);
 
+    const release_safe_simd_bench_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/bench/simd.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+    });
+    release_safe_simd_bench_module.addImport("exchange_core", release_safe_module);
+    const release_safe_simd_bench_tests = b.addTest(.{
+        .root_module = release_safe_simd_bench_module,
+    });
+    const run_release_safe_simd_bench_tests = b.addRunArtifact(release_safe_simd_bench_tests);
+    run_release_safe_simd_bench_tests.step.dependOn(&run_release_safe_client_tests.step);
+
     const test_release_safe_step = b.step(
         "test-release-safe",
-        "Run exchange-core and standalone app unit tests in ReleaseSafe mode",
+        "Run exchange-core, standalone app, and SIMD benchmark tests in ReleaseSafe mode",
     );
-    test_release_safe_step.dependOn(&run_release_safe_client_tests.step);
+    test_release_safe_step.dependOn(&run_release_safe_simd_bench_tests.step);
 
     const bench_module = b.createModule(.{
         .root_source_file = b.path("src/zig/bench/main.zig"),
@@ -202,12 +229,17 @@ pub fn build(b: *std.Build) void {
     );
     orchestrator_ab_step.dependOn(&run_orchestrator_ab.step);
 
+    const simd_bench_exchange_core = b.createModule(.{
+        .root_source_file = b.path("src/zig/root.zig"),
+        .target = target,
+        .optimize = .ReleaseFast,
+    });
     const simd_bench_module = b.createModule(.{
         .root_source_file = b.path("src/zig/bench/simd.zig"),
         .target = target,
-        .optimize = optimize,
+        .optimize = .ReleaseFast,
     });
-    simd_bench_module.addImport("exchange_core", exchange_core);
+    simd_bench_module.addImport("exchange_core", simd_bench_exchange_core);
     const simd_bench_exe = b.addExecutable(.{
         .name = "exchange-core-simd-bench",
         .root_module = simd_bench_module,
@@ -219,7 +251,7 @@ pub fn build(b: *std.Build) void {
 
     const simd_bench_step = b.step(
         "bench-simd",
-        "Benchmark scalar and production binary-carrier transforms",
+        "Run the fixed-ReleaseFast three-way binary-carrier SIMD benchmark",
     );
     simd_bench_step.dependOn(&run_simd_bench.step);
 
@@ -344,14 +376,19 @@ pub fn build(b: *std.Build) void {
     // the aggregate gate so they cannot race each other, while preserving the
     // standalone `test-release-safe` step as a ReleaseSafe-only command.
     const run_gate_release_safe_tests = b.addRunArtifact(release_safe_tests);
-    run_gate_release_safe_tests.step.dependOn(&run_debug_client_tests.step);
+    run_gate_release_safe_tests.step.dependOn(&run_debug_simd_bench_tests.step);
     const run_gate_release_safe_protocol_tests = b.addRunArtifact(release_safe_protocol_tests);
     run_gate_release_safe_protocol_tests.step.dependOn(&run_gate_release_safe_tests.step);
     const run_gate_release_safe_server_tests = b.addRunArtifact(release_safe_server_tests);
     run_gate_release_safe_server_tests.step.dependOn(&run_gate_release_safe_protocol_tests.step);
     const run_gate_release_safe_client_tests = b.addRunArtifact(release_safe_client_tests);
     run_gate_release_safe_client_tests.step.dependOn(&run_gate_release_safe_server_tests.step);
-    gate_step.dependOn(&run_gate_release_safe_client_tests.step);
+    const run_gate_release_safe_simd_bench_tests = b.addRunArtifact(release_safe_simd_bench_tests);
+    run_gate_release_safe_simd_bench_tests.step.dependOn(&run_gate_release_safe_client_tests.step);
+    gate_step.dependOn(&run_gate_release_safe_simd_bench_tests.step);
+    // Compile, but do not execute, the fixed-ReleaseFast benchmark as part of
+    // the gate. The benchmark's functional tests run above in both safety modes.
+    gate_step.dependOn(&simd_bench_exe.step);
     // The standalone parity diff accepts an optional fixture path through
     // `b.args`. The aggregate gate must always exercise its default fixture
     // set, regardless of arguments supplied to another requested build step.
