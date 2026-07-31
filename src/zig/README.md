@@ -49,9 +49,17 @@ snapshot and journal state in Java, and excluded process-local identity hashes
 from the portable manifest. The committed fixture then restored/replayed in
 Zig in both Debug and ReleaseSafe.
 
-## Usage guide
+## Standalone TCP demo
 
-- See `src/zig/USAGE_EXAMPLES.md` for copy-paste integration, persistence, orchestrator, and migration workflow examples.
+`zig build` installs `exchange-core-server` and `exchange-core-client` in
+`zig-out/bin`. Start the server with `zig build run-server`, then send commands
+from another terminal with `zig build run-client -- ping`. The programs use a
+local newline-delimited demo protocol—not FIX or REST—and default to
+`127.0.0.1:7379` with symbol `241` (base `11`, quote `15`).
+
+See `src/zig/USAGE_EXAMPLES.md` for the complete two-terminal transaction
+quickstart, command reference, graceful shutdown, embedded integration,
+persistence, orchestrator, and migration workflow examples.
 
 ## Implemented surface
 

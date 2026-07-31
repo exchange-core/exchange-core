@@ -10,14 +10,106 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const exchange_protocol = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/protocol.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const server_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/server.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    server_module.addImport("exchange_core", exchange_core);
+    server_module.addImport("exchange_protocol", exchange_protocol);
+    const server_exe = b.addExecutable(.{
+        .name = "exchange-core-server",
+        .root_module = server_module,
+    });
+    const install_server = b.addInstallArtifact(server_exe, .{});
+    b.getInstallStep().dependOn(&install_server.step);
+    const server_step = b.step("server", "Build and install the standalone TCP server");
+    server_step.dependOn(&install_server.step);
+
+    const run_server = b.addRunArtifact(server_exe);
+    if (b.args) |args| {
+        run_server.addArgs(args);
+    }
+    const run_server_step = b.step("run-server", "Run the standalone TCP server");
+    run_server_step.dependOn(&run_server.step);
+
+    const client_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/client.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    client_module.addImport("exchange_protocol", exchange_protocol);
+    const client_exe = b.addExecutable(.{
+        .name = "exchange-core-client",
+        .root_module = client_module,
+    });
+    const install_client = b.addInstallArtifact(client_exe, .{});
+    b.getInstallStep().dependOn(&install_client.step);
+    const client_step = b.step("client", "Build and install the standalone TCP client");
+    client_step.dependOn(&install_client.step);
+
+    const run_client = b.addRunArtifact(client_exe);
+    if (b.args) |args| {
+        run_client.addArgs(args);
+    }
+    const run_client_step = b.step("run-client", "Run the standalone TCP client");
+    run_client_step.dependOn(&run_client.step);
+
     const module_tests = b.addTest(.{
         .root_module = exchange_core,
     });
 
     const run_module_tests = b.addRunArtifact(module_tests);
 
-    const test_step = b.step("test", "Run exchange-core Zig unit tests");
-    test_step.dependOn(&run_module_tests.step);
+    const debug_exchange_core = b.createModule(.{
+        .root_source_file = b.path("src/zig/root.zig"),
+        .target = target,
+        .optimize = .Debug,
+    });
+    const debug_exchange_protocol = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/protocol.zig"),
+        .target = target,
+        .optimize = .Debug,
+    });
+    const debug_protocol_tests = b.addTest(.{
+        .root_module = debug_exchange_protocol,
+    });
+    const run_debug_protocol_tests = b.addRunArtifact(debug_protocol_tests);
+    run_debug_protocol_tests.step.dependOn(&run_module_tests.step);
+
+    const debug_server_test_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/server.zig"),
+        .target = target,
+        .optimize = .Debug,
+    });
+    debug_server_test_module.addImport("exchange_core", debug_exchange_core);
+    debug_server_test_module.addImport("exchange_protocol", debug_exchange_protocol);
+    const debug_server_tests = b.addTest(.{
+        .root_module = debug_server_test_module,
+    });
+    const run_debug_server_tests = b.addRunArtifact(debug_server_tests);
+    run_debug_server_tests.step.dependOn(&run_debug_protocol_tests.step);
+
+    const debug_client_test_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/client.zig"),
+        .target = target,
+        .optimize = .Debug,
+    });
+    debug_client_test_module.addImport("exchange_protocol", debug_exchange_protocol);
+    const debug_client_tests = b.addTest(.{
+        .root_module = debug_client_test_module,
+    });
+    const run_debug_client_tests = b.addRunArtifact(debug_client_tests);
+    run_debug_client_tests.step.dependOn(&run_debug_server_tests.step);
+
+    const test_step = b.step("test", "Run exchange-core and standalone app Zig unit tests");
+    test_step.dependOn(&run_debug_client_tests.step);
 
     const release_safe_module = b.createModule(.{
         .root_source_file = b.path("src/zig/root.zig"),
@@ -28,8 +120,48 @@ pub fn build(b: *std.Build) void {
         .root_module = release_safe_module,
     });
     const run_release_safe_tests = b.addRunArtifact(release_safe_tests);
-    const test_release_safe_step = b.step("test-release-safe", "Run exchange-core Zig unit tests in ReleaseSafe mode");
-    test_release_safe_step.dependOn(&run_release_safe_tests.step);
+
+    const release_safe_protocol = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/protocol.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+    });
+    const release_safe_protocol_tests = b.addTest(.{
+        .root_module = release_safe_protocol,
+    });
+    const run_release_safe_protocol_tests = b.addRunArtifact(release_safe_protocol_tests);
+    run_release_safe_protocol_tests.step.dependOn(&run_release_safe_tests.step);
+
+    const release_safe_server_test_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/server.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+    });
+    release_safe_server_test_module.addImport("exchange_core", release_safe_module);
+    release_safe_server_test_module.addImport("exchange_protocol", release_safe_protocol);
+    const release_safe_server_tests = b.addTest(.{
+        .root_module = release_safe_server_test_module,
+    });
+    const run_release_safe_server_tests = b.addRunArtifact(release_safe_server_tests);
+    run_release_safe_server_tests.step.dependOn(&run_release_safe_protocol_tests.step);
+
+    const release_safe_client_test_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/client.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+    });
+    release_safe_client_test_module.addImport("exchange_protocol", release_safe_protocol);
+    const release_safe_client_tests = b.addTest(.{
+        .root_module = release_safe_client_test_module,
+    });
+    const run_release_safe_client_tests = b.addRunArtifact(release_safe_client_tests);
+    run_release_safe_client_tests.step.dependOn(&run_release_safe_server_tests.step);
+
+    const test_release_safe_step = b.step(
+        "test-release-safe",
+        "Run exchange-core and standalone app unit tests in ReleaseSafe mode",
+    );
+    test_release_safe_step.dependOn(&run_release_safe_client_tests.step);
 
     const bench_module = b.createModule(.{
         .root_source_file = b.path("src/zig/bench/main.zig"),
@@ -184,15 +316,21 @@ pub fn build(b: *std.Build) void {
 
     const gate_step = b.step(
         "gate",
-        "Run full Zig migration gate (test, test-release-safe, parity-diff, API surface checks and audits, Java production class map)",
+        "Run full Zig migration gate (core/app tests, ReleaseSafe, parity diff, API surface checks and audits, Java production class map)",
     );
     // Some persistence tests intentionally exercise stable Java-compatible
     // artifact names. Keep the two optimization-mode runners serial inside
     // the aggregate gate so they cannot race each other, while preserving the
     // standalone `test-release-safe` step as a ReleaseSafe-only command.
     const run_gate_release_safe_tests = b.addRunArtifact(release_safe_tests);
-    run_gate_release_safe_tests.step.dependOn(&run_module_tests.step);
-    gate_step.dependOn(&run_gate_release_safe_tests.step);
+    run_gate_release_safe_tests.step.dependOn(&run_debug_client_tests.step);
+    const run_gate_release_safe_protocol_tests = b.addRunArtifact(release_safe_protocol_tests);
+    run_gate_release_safe_protocol_tests.step.dependOn(&run_gate_release_safe_tests.step);
+    const run_gate_release_safe_server_tests = b.addRunArtifact(release_safe_server_tests);
+    run_gate_release_safe_server_tests.step.dependOn(&run_gate_release_safe_protocol_tests.step);
+    const run_gate_release_safe_client_tests = b.addRunArtifact(release_safe_client_tests);
+    run_gate_release_safe_client_tests.step.dependOn(&run_gate_release_safe_server_tests.step);
+    gate_step.dependOn(&run_gate_release_safe_client_tests.step);
     // The standalone parity diff accepts an optional fixture path through
     // `b.args`. The aggregate gate must always exercise its default fixture
     // set, regardless of arguments supplied to another requested build step.

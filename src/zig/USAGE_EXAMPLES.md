@@ -3,7 +3,104 @@
 This guide is the practical companion for the Java -> Zig migration under `src/zig`.
 All snippets target Zig `0.16.0`.
 
-## 1. Day-to-day commands
+## 1. Standalone TCP quickstart
+
+The repository builds two runnable programs:
+
+- `exchange-core-server` starts an in-memory exchange and listens for commands.
+- `exchange-core-client` sends one command and prints the server's one-line response.
+
+They speak a small newline-delimited **demo line protocol**. It is intended for
+local exploration of the port; it is not a FIX session and it is not a REST API.
+
+Build both binaries from the repository root. A plain build installs them in
+`zig-out/bin`:
+
+```sh
+zig build
+```
+
+The server initializes symbol `241` as a currency-exchange pair with base
+currency `11` and quote currency `15`. Start it in the first terminal:
+
+```sh
+./zig-out/bin/exchange-core-server
+# equivalent: zig build run-server
+```
+
+It binds to `127.0.0.1:7379` by default and remains in the foreground. In a
+second terminal, run a complete transaction sequence:
+
+```sh
+CLIENT=./zig-out/bin/exchange-core-client
+
+$CLIENT ping
+$CLIENT add-user 1001
+$CLIENT add-user 1002
+$CLIENT deposit 1001 15 20000000 1
+$CLIENT deposit 1002 11 1000000 2
+$CLIENT place 9001 1001 241 10500 100 bid gtc
+$CLIENT place 9002 1002 241 10500 100 ask gtc
+$CLIENT balance 1001 15
+$CLIENT balance 1002 11
+$CLIENT book 241 20
+```
+
+Each request receives exactly one newline-delimited response. `ping`, `balance`,
+`book`, and `shutdown` return an `OK` record with command-specific fields.
+Exchange commands return this record shape:
+
+```text
+OK tag=response code=CODE sequence=SEQUENCE events=COUNT
+```
+
+Callers must inspect the numeric exchange result `code` (`100` is success),
+because an engine rejection is still a successfully processed protocol request.
+Malformed requests and execution failures return
+`ERR kind=KIND message=ERROR_NAME`. Client-side argument, address, connection,
+read, and write failures are printed to stderr. A bad request does not stop the
+listening server.
+
+The full command set is:
+
+```text
+ping
+add-user UID
+deposit UID CURRENCY AMOUNT TRANSACTION_ID
+place ORDER_ID UID SYMBOL PRICE SIZE bid|ask [gtc|ioc]
+move ORDER_ID UID SYMBOL NEW_PRICE
+reduce ORDER_ID UID SYMBOL SIZE
+cancel ORDER_ID UID SYMBOL
+balance UID CURRENCY
+book SYMBOL [DEPTH]
+shutdown
+```
+
+`place` defaults to `gtc`; `book` defaults to depth `20` and accepts at most
+`1000`. Use the same `--host HOST --port PORT` options on both programs when
+changing the endpoint:
+
+```sh
+./zig-out/bin/exchange-core-server --host 127.0.0.1 --port 7400
+./zig-out/bin/exchange-core-client --host 127.0.0.1 --port 7400 ping
+```
+
+For built-in help, run either binary with `--help`, or forward arguments through
+the build steps:
+
+```sh
+zig build run-server -- --help
+zig build run-client -- --help
+```
+
+Shut down gracefully from the client terminal. The server sends its response,
+stops accepting connections, and then shuts down the exchange core:
+
+```sh
+$CLIENT shutdown
+```
+
+## 2. Day-to-day commands
 
 Run from repository root:
 
@@ -30,7 +127,7 @@ zig build api-surface-check
 zig build java-api-parity-audit
 ```
 
-## 2. Minimal embedded engine lifecycle (ExchangeCore + ExchangeApi)
+## 3. Minimal embedded engine lifecycle (ExchangeCore + ExchangeApi)
 
 ```zig
 const std = @import("std");
@@ -66,7 +163,7 @@ pub fn main(init: std.process.Init) !void {
 }
 ```
 
-## 3. Exchange API usage: sync + async + order book
+## 4. Exchange API usage: sync + async + order book
 
 ```zig
 const std = @import("std");
@@ -134,7 +231,7 @@ fn run(api: *core.exchange_api.ExchangeApi, allocator: std.mem.Allocator, io: st
 }
 ```
 
-## 4. Persistence flow: write snapshot + restart from discovered default paths
+## 5. Persistence flow: write snapshot + restart from discovered default paths
 
 This is the recommended day-to-day flow for parity work: persist with main-log metadata, then restart from discovered snapshot/journal files.
 
@@ -199,7 +296,7 @@ pub fn persistenceRoundTrip(allocator: std.mem.Allocator, io: std.Io) !void {
 }
 ```
 
-## 5. Java-shaped config + orchestrator (single vs sharded backend)
+## 6. Java-shaped config + orchestrator (single vs sharded backend)
 
 `ExchangeOrchestrator` chooses backend from Java-style config automatically:
 - the default `persistent_grouped` pipeline uses the sharded backend, including
@@ -239,7 +336,7 @@ The promoted default supports `.split` because it selects the sharded backend.
 An explicit `.immediate` 1ME/1RE compatibility configuration selects the
 single backend and returns `error.SplitModeRequiresShardedBackend` for `.split`.
 
-## 6. Porting workflow for new Java behavior
+## 7. Porting workflow for new Java behavior
 
 1. Generate/update Java parity fixtures in `src/zig/fixtures/` (Maven test).
 2. Implement Zig behavior with typed command/report paths and explicit error handling.
@@ -258,7 +355,7 @@ mvn -Dtest=exchange.core2.tests.fixtures.GenerateJavaParityFixtureTest \
     test
 ```
 
-## 7. Style and safety references
+## 8. Style and safety references
 
 - Tiger style baseline: `src/zig/TIGER_STYLE_CHECKLIST.md`
 - Migration status: `src/zig/MIGRATION_COVERAGE.md`
