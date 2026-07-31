@@ -502,6 +502,18 @@ pub fn build(b: *std.Build) void {
         b.path("src/zig/apps/browser/scenarios.js"),
         "browser/scenarios.js",
     );
+    const install_wasm_scenarios_page = b.addInstallFile(
+        b.path("src/zig/apps/browser/scenarios.html"),
+        "browser/scenarios.html",
+    );
+    const install_wasm_manual_app = b.addInstallFile(
+        b.path("src/zig/apps/browser/manual-app.js"),
+        "browser/manual-app.js",
+    );
+    const install_wasm_manual_session = b.addInstallFile(
+        b.path("src/zig/apps/browser/manual-session.js"),
+        "browser/manual-session.js",
+    );
 
     const wasm_step = b.step("wasm", "Build the browser exchange and stage zig-out/browser");
     wasm_step.dependOn(&install_wasm.step);
@@ -509,6 +521,9 @@ pub fn build(b: *std.Build) void {
     wasm_step.dependOn(&install_wasm_page.step);
     wasm_step.dependOn(&install_wasm_app.step);
     wasm_step.dependOn(&install_wasm_scenarios.step);
+    wasm_step.dependOn(&install_wasm_scenarios_page.step);
+    wasm_step.dependOn(&install_wasm_manual_app.step);
+    wasm_step.dependOn(&install_wasm_manual_session.step);
 
     const run_wasm_smoke = b.addSystemCommand(&.{ "node", "src/zig/apps/browser/smoke.mjs" });
     run_wasm_smoke.addFileArg(wasm_exe.getEmittedBin());

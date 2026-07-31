@@ -179,6 +179,6 @@ try {
   );
 }
 
-window.addEventListener("pagehide", () => {
-  exchange?.destroy();
-}, { once: true });
+window.addEventListener("pagehide", (event) => {
+  if (!event.persisted) exchange?.destroy();
+});

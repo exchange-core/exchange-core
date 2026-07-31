@@ -4,184 +4,167 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
-    <title>Exchange Core · WebAssembly</title>
+    <title>Exchange Core · Local Trading Desk</title>
     <style>
       :root {
         font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        color: #f2f7f6;
-        background: #081211;
+        color: #f3f8f7;
+        background: #07110f;
         font-synthesis: none;
+        --surface: rgba(13, 29, 26, .94);
+        --surface-strong: #10211e;
+        --border: #203b35;
+        --muted: #91a6a1;
+        --teal: #6be2cb;
+        --teal-dark: #05211c;
+        --amber: #e8b95f;
+        --red: #ff8f84;
       }
 
       * { box-sizing: border-box; }
 
       body {
+        min-width: 320px;
         min-height: 100vh;
         margin: 0;
         background:
-          radial-gradient(circle at 15% 0%, rgba(22, 163, 143, .2), transparent 34rem),
-          radial-gradient(circle at 100% 65%, rgba(230, 172, 64, .1), transparent 30rem),
-          #081211;
+          radial-gradient(circle at 12% -8%, rgba(22, 163, 143, .21), transparent 34rem),
+          radial-gradient(circle at 98% 76%, rgba(230, 172, 64, .09), transparent 32rem),
+          #07110f;
       }
 
       main {
-        width: min(1120px, calc(100% - 32px));
+        width: min(1420px, calc(100% - 32px));
         margin: 0 auto;
-        padding: 64px 0;
+        padding: 32px 0 56px;
       }
 
-      header {
+      nav {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 34px;
+      }
+
+      nav a {
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        padding: 0 16px;
+        border: 1px solid #2b4540;
+        border-radius: 999px;
+        color: #b9c9c5;
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      nav a:hover { border-color: #70d8c5; color: #f3f8f7; }
+      nav a[aria-current="page"] { border-color: #45cfb5; color: var(--teal-dark); background: var(--teal); }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
+        align-items: end;
+        gap: 36px;
         margin-bottom: 28px;
       }
 
       .eyebrow {
         margin: 0 0 10px;
         color: #74ddca;
-        font-size: .75rem;
-        font-weight: 750;
+        font-size: .74rem;
+        font-weight: 780;
         letter-spacing: .16em;
         text-transform: uppercase;
       }
 
       h1 {
-        max-width: 680px;
+        max-width: 820px;
         margin: 0;
-        font-size: clamp(2.3rem, 6vw, 4.8rem);
-        line-height: .95;
-        letter-spacing: -.055em;
+        font-size: clamp(2.2rem, 5vw, 4.5rem);
+        line-height: .96;
+        letter-spacing: -.052em;
       }
 
       .lede {
-        max-width: 680px;
-        margin: 20px 0 0;
-        color: #a7b8b5;
-        font-size: 1.05rem;
+        max-width: 760px;
+        margin: 18px 0 0;
+        color: #a9bbb7;
+        font-size: 1.02rem;
         line-height: 1.65;
       }
 
-      .control-panel {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        align-items: center;
-        gap: 24px;
-        margin-bottom: 18px;
-        padding: 18px 20px;
-        border: 1px solid #203832;
-        border-radius: 20px;
-        background: rgba(13, 29, 26, .9);
-        box-shadow: 0 22px 70px rgba(0, 0, 0, .16);
-      }
-
-      .scenario-picker {
-        display: grid;
-        grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
-        align-items: center;
-        gap: 18px;
-      }
-
-      .control-label {
-        display: block;
-        margin-bottom: 8px;
-        color: #74ddca;
-        font-size: .72rem;
-        font-weight: 750;
-        letter-spacing: .12em;
-        text-transform: uppercase;
-      }
-
-      select {
-        width: 100%;
-        min-height: 44px;
-        padding: 0 40px 0 14px;
-        border: 1px solid #2b4540;
-        border-radius: 12px;
-        color: inherit;
-        background: #10211e;
-        font: inherit;
-        font-weight: 700;
-        cursor: pointer;
-      }
-
-      select:focus-visible { outline: 3px solid #e8b95f; outline-offset: 3px; }
-      select:disabled { cursor: wait; opacity: .48; }
-
-      .scenario-description {
+      .boundary {
         margin: 0;
-        color: #a7b8b5;
-        font-size: .9rem;
+        padding: 18px 20px;
+        border: 1px solid #4b422a;
+        border-radius: 16px;
+        color: #d7c89d;
+        background: rgba(58, 47, 22, .42);
+        font-size: .88rem;
         line-height: 1.55;
       }
 
-      .actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        justify-content: flex-end;
+      .boundary strong { display: block; margin-bottom: 4px; color: #f2d489; }
+
+      .status-bar {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        align-items: center;
+        gap: 16px;
+        min-height: 60px;
+        margin-bottom: 18px;
+        padding: 8px 10px 8px 18px;
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        background: rgba(11, 27, 24, .86);
       }
 
-      button {
-        min-height: 44px;
-        padding: 0 18px;
-        border: 1px solid #2b4540;
-        border-radius: 999px;
-        color: inherit;
-        background: #10211e;
-        font: inherit;
-        font-weight: 700;
-        cursor: pointer;
-        transition: transform .15s ease, border-color .15s ease, background .15s ease;
-      }
-
-      button.primary {
-        border-color: #45cfb5;
-        color: #05211c;
-        background: #6be2cb;
-      }
-
-      button:hover:not(:disabled) { transform: translateY(-1px); border-color: #70d8c5; }
-      button:focus-visible { outline: 3px solid #e8b95f; outline-offset: 3px; }
-      button:disabled { cursor: wait; opacity: .48; }
-
-      .status {
+      .status-copy {
         display: flex;
         align-items: center;
-        gap: 10px;
-        min-height: 48px;
-        margin-bottom: 18px;
-        padding: 12px 16px;
-        border: 1px solid #223b36;
-        border-radius: 14px;
-        color: #b7c6c3;
-        background: rgba(11, 27, 24, .76);
+        gap: 11px;
+        min-width: 0;
+        color: #b8c8c4;
       }
 
-      .status::before {
+      .status-copy::before {
         width: 9px;
         height: 9px;
+        flex: 0 0 auto;
         border-radius: 50%;
         background: #d4a84e;
         content: "";
         box-shadow: 0 0 16px currentColor;
       }
 
-      .status[data-state="ready"]::before { background: #4be0b3; }
-      .status[data-state="error"] { color: #ffb8b1; border-color: #693d38; }
-      .status[data-state="error"]::before { background: #ff7469; }
+      .status-copy[data-state="ready"]::before { background: #4be0b3; }
+      .status-copy[data-state="warning"] { color: #f0d18a; }
+      .status-copy[data-state="warning"]::before { background: #e8b95f; }
+      .status-copy[data-state="error"] { color: #ffb8b1; }
+      .status-copy[data-state="error"]::before { background: #ff7469; }
 
-      .dashboard {
+      .status-meta {
+        color: #81958f;
+        font: .78rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        white-space: nowrap;
+      }
+
+      .desk-grid {
         display: grid;
-        grid-template-columns: minmax(0, 1.15fr) minmax(300px, .85fr);
+        grid-template-columns: minmax(280px, .76fr) minmax(480px, 1.36fr) minmax(300px, .88fr);
+        align-items: start;
         gap: 18px;
       }
 
-      .stack { display: grid; gap: 18px; }
+      .stack { display: grid; gap: 18px; min-width: 0; }
 
       .card {
+        min-width: 0;
         overflow: hidden;
-        border: 1px solid #203832;
+        border: 1px solid var(--border);
         border-radius: 20px;
-        background: rgba(13, 29, 26, .9);
-        box-shadow: 0 22px 70px rgba(0, 0, 0, .22);
+        background: var(--surface);
+        box-shadow: 0 22px 70px rgba(0, 0, 0, .2);
       }
 
       .card-heading {
@@ -189,101 +172,267 @@
         align-items: baseline;
         justify-content: space-between;
         gap: 16px;
-        padding: 18px 20px;
-        border-bottom: 1px solid #203832;
+        padding: 17px 19px;
+        border-bottom: 1px solid var(--border);
       }
 
       h2 { margin: 0; font-size: 1rem; letter-spacing: -.01em; }
-      .meta { color: #81938f; font-size: .8rem; }
+      h3 { margin: 0; font-size: .9rem; }
+      .meta { color: #81958f; font-size: .78rem; }
+
+      form { padding: 18px; }
+      fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+      legend {
+        width: 100%;
+        margin-bottom: 14px;
+        color: #a9bbb7;
+        font-size: .8rem;
+        font-weight: 700;
+      }
+
+      .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+      .field { min-width: 0; }
+      .field.wide { grid-column: 1 / -1; }
+
+      label {
+        display: block;
+        margin-bottom: 7px;
+        color: #9db0ac;
+        font-size: .76rem;
+        font-weight: 730;
+      }
+
+      input, select, button {
+        min-height: 44px;
+        border: 1px solid #2b4540;
+        border-radius: 11px;
+        color: inherit;
+        background: var(--surface-strong);
+        font: inherit;
+      }
+
+      input, select { width: 100%; padding: 0 12px; }
+      input::placeholder { color: #60736e; }
+      input[aria-invalid="true"] { border-color: #db6d62; }
+
+      button {
+        padding: 0 17px;
+        font-weight: 750;
+        cursor: pointer;
+        transition: transform .15s ease, border-color .15s ease, background .15s ease;
+      }
+
+      button.primary { border-color: #45cfb5; color: var(--teal-dark); background: var(--teal); }
+      button:hover:not(:disabled) { transform: translateY(-1px); border-color: #70d8c5; }
+      button:disabled, input:disabled, select:disabled { cursor: wait; opacity: .48; }
+      button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible {
+        outline: 3px solid var(--amber);
+        outline-offset: 3px;
+      }
+
+      .form-action { width: 100%; margin-top: 15px; }
+      .hint { margin: 9px 0 0; color: #768b86; font-size: .74rem; line-height: 1.5; }
+
+      .client-list {
+        display: grid;
+        gap: 1px;
+        margin: 0;
+        padding: 0;
+        background: var(--border);
+        list-style: none;
+      }
+
+      .client {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        padding: 14px 18px;
+        background: #0d1d1a;
+      }
+
+      .client-name { overflow: hidden; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+      .client-uid { margin-top: 3px; color: #758984; font: .72rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .client-funds { color: #a8bab6; font: .75rem/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: right; white-space: nowrap; }
 
       .book-grid { display: grid; grid-template-columns: 1fr 1fr; }
-      .book-side + .book-side { border-left: 1px solid #203832; }
-
-      table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-      th, td { padding: 11px 16px; text-align: right; }
+      .book-side { min-width: 0; }
+      .book-side + .book-side { border-left: 1px solid var(--border); }
+      .table-wrap { width: 100%; overflow-x: auto; }
+      table { width: 100%; min-width: 280px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+      caption { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+      th, td { padding: 11px 15px; text-align: right; }
       th:first-child, td:first-child { text-align: left; }
       th {
         color: #718681;
-        font-size: .69rem;
+        font-size: .67rem;
         letter-spacing: .08em;
         text-transform: uppercase;
       }
-      td { border-top: 1px solid rgba(32, 56, 50, .7); font-size: .9rem; }
-      .asks td:first-child { color: #ff8f84; }
+      td { border-top: 1px solid rgba(32, 56, 50, .72); font-size: .86rem; }
+      .asks td:first-child { color: var(--red); }
       .bids td:first-child { color: #63dfbd; }
       .empty { color: #6f817d !important; text-align: center !important; }
 
-      pre {
-        min-height: 286px;
-        max-height: 440px;
-        overflow: auto;
+      .activity-list {
+        max-height: 690px;
+        overflow-y: auto;
         margin: 0;
-        padding: 18px 20px;
-        color: #b9c9c5;
-        font: .78rem/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        white-space: pre-wrap;
+        padding: 0;
+        list-style: none;
       }
 
-      .scenario {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 1px;
-        background: #203832;
-      }
+      .activity-item { padding: 14px 18px; border-top: 1px solid rgba(32, 56, 50, .76); }
+      .activity-item:first-child { border-top: 0; }
+      .activity-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+      .activity-client { min-width: 0; overflow: hidden; font-size: .85rem; font-weight: 740; text-overflow: ellipsis; white-space: nowrap; }
+      .activity-sequence { color: #758984; font: .69rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .activity-order { margin: 7px 0 0; color: #c3d0cd; font: .78rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .activity-result { margin: 5px 0 0; color: #78dbbd; font-size: .74rem; }
+      .activity-result.rejected { color: #efc46f; }
+      .activity-empty { padding: 34px 18px; color: #71847f; font-size: .84rem; line-height: 1.6; text-align: center; }
 
-      .metric { padding: 17px; background: #0d1d1a; }
-      .metric dt { color: #718681; font-size: .7rem; letter-spacing: .08em; text-transform: uppercase; }
-      .metric dd { margin: 7px 0 0; font-size: 1.05rem; font-weight: 730; }
+      .empty-state { padding: 22px 18px; color: #71847f; font-size: .82rem; text-align: center; }
+
+      @media (max-width: 1120px) {
+        .desk-grid { grid-template-columns: minmax(280px, .78fr) minmax(0, 1.35fr); }
+        .activity-card { grid-column: 1 / -1; }
+        .activity-list { display: grid; grid-template-columns: repeat(2, 1fr); max-height: none; }
+        .activity-item:nth-child(2) { border-top: 0; }
+      }
 
       @media (max-width: 780px) {
-        main { padding: 34px 0; }
-        .control-panel { grid-template-columns: 1fr; }
-        .actions { justify-content: flex-start; }
-        .dashboard { grid-template-columns: 1fr; }
+        main { padding-top: 22px; }
+        .hero { grid-template-columns: 1fr; gap: 20px; }
+        .status-bar { grid-template-columns: 1fr auto; }
+        .status-meta { display: none; }
+        .desk-grid { grid-template-columns: 1fr; }
+        .activity-card { grid-column: auto; }
+        .activity-list { display: block; }
+        .activity-item:nth-child(2) { border-top: 1px solid rgba(32, 56, 50, .76); }
       }
 
       @media (max-width: 520px) {
-        .scenario-picker { grid-template-columns: 1fr; gap: 12px; }
-        .actions { display: grid; grid-template-columns: 1fr; }
-        button { width: 100%; }
-        .book-grid { grid-template-columns: 1fr; }
-        .book-side + .book-side { border-top: 1px solid #203832; border-left: 0; }
-        .scenario { grid-template-columns: 1fr; }
+        main { width: min(100% - 20px, 1420px); }
+        nav { margin-bottom: 26px; }
+        nav a { flex: 1; justify-content: center; }
+        .status-bar { grid-template-columns: 1fr; padding: 14px; }
+        #reset-market { width: 100%; }
+        .field-grid, .book-grid { grid-template-columns: 1fr; }
+        .book-side + .book-side { border-top: 1px solid var(--border); border-left: 0; }
+        .client { grid-template-columns: 1fr; }
+        .client-funds { text-align: left; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        button { transition: none; }
+        button:hover:not(:disabled) { transform: none; }
       }
     </style>
   </head>
   <body>
     <main>
-      <header>
+      <nav aria-label="Browser demos">
+        <a href="./" aria-current="page">Order desk</a>
+        <a href="./scenarios.html">Scenarios</a>
+      </nav>
+
+      <header class="hero">
         <div>
           <p class="eyebrow">Exchange Core · Zig + WebAssembly</p>
-          <h1>A real order book, inside your browser.</h1>
+          <h1>One market. Several traders.</h1>
           <p class="lede">
-            Explore deterministic spot-market behavior locally. The direct matching engine,
-            risk checks, balances, matcher events, and L2 snapshots all execute in WebAssembly.
+            Send manual buy and sell orders from several simulated clients into one shared,
+            browser-local order book. Risk checks, matching, and L2 snapshots run in WebAssembly.
           </p>
         </div>
+        <p class="boundary">
+          <strong>Local simulation only</strong>
+          Every client on this page shares one exchange instance in this tab. Reloading clears it;
+          true sharing across browsers or devices needs an authoritative server and network transport.
+        </p>
       </header>
 
-      <section class="control-panel" aria-label="Market scenario controls">
-        <div class="scenario-picker">
-          <div>
-            <label class="control-label" for="scenario-select">Market scenario</label>
-            <select id="scenario-select" aria-describedby="scenario-description" disabled></select>
-          </div>
-          <p id="scenario-description" class="scenario-description" aria-live="polite"></p>
+      <section class="status-bar" aria-label="Exchange status">
+        <div id="status" class="status-copy" data-state="loading" role="status" aria-live="polite">
+          Loading exchange-core.wasm…
         </div>
-        <div class="actions" aria-label="Exchange controls">
-          <button id="reset" type="button" disabled>Reset scenario</button>
-          <button id="run" class="primary" type="button" disabled>Run selected scenario</button>
-        </div>
+        <span id="abi" class="status-meta">ABI — · direct engine</span>
+        <button id="reset-market" type="button" disabled>Reset shared market</button>
       </section>
 
-      <div id="status" class="status" role="status" aria-live="polite">
-        Loading exchange-core.wasm…
-      </div>
+      <section class="desk-grid" aria-label="Manual trading desk">
+        <div class="stack">
+          <article class="card">
+            <div class="card-heading">
+              <h2>Send an order</h2>
+              <span id="next-order-id" class="meta">Order —</span>
+            </div>
+            <form id="order-form">
+              <fieldset>
+                <legend>Order details</legend>
+                <div class="field-grid">
+                  <div class="field wide">
+                    <label for="order-client">Client</label>
+                    <select id="order-client" name="client" disabled required></select>
+                  </div>
+                  <div class="field">
+                    <label for="order-side">Side</label>
+                    <select id="order-side" name="side" disabled>
+                      <option value="buy">Buy</option>
+                      <option value="sell">Sell</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="order-type">Order type</label>
+                    <select id="order-type" name="orderType" disabled>
+                      <option value="gtc">GTC</option>
+                      <option value="ioc">IOC</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="order-price">Price</label>
+                    <input id="order-price" name="price" inputmode="numeric" pattern="[0-9]+" placeholder="101" aria-describedby="order-integer-hint" disabled required>
+                  </div>
+                  <div class="field">
+                    <label for="order-size">Quantity</label>
+                    <input id="order-size" name="size" inputmode="numeric" pattern="[0-9]+" placeholder="5" aria-describedby="order-integer-hint" disabled required>
+                  </div>
+                </div>
+                <p id="order-integer-hint" class="hint">Price and quantity are positive whole numbers. Bid reserve price equals its order price.</p>
+                <button id="order-submit" class="primary form-action" type="submit" disabled>Send order</button>
+              </fieldset>
+            </form>
+          </article>
 
-      <section class="dashboard" aria-label="Exchange demonstration">
+          <article class="card">
+            <div class="card-heading">
+              <h2>Add a client</h2>
+              <span class="meta">Prefund locally</span>
+            </div>
+            <form id="add-client-form">
+              <fieldset>
+                <legend>New logical client</legend>
+                <div class="field-grid">
+                  <div class="field wide">
+                    <label for="client-name">Display name</label>
+                    <input id="client-name" name="name" maxlength="40" placeholder="Trader four" disabled required>
+                  </div>
+                  <div class="field">
+                    <label for="base-balance">BTC balance</label>
+                    <input id="base-balance" name="baseBalance" inputmode="numeric" pattern="[0-9]+" value="1000" aria-describedby="balance-hint" disabled required>
+                  </div>
+                  <div class="field">
+                    <label for="quote-balance">USD balance</label>
+                    <input id="quote-balance" name="quoteBalance" inputmode="numeric" pattern="[0-9]+" value="100000" aria-describedby="balance-hint" disabled required>
+                  </div>
+                </div>
+                <p id="balance-hint" class="hint">Configured starting funds are shown below; this ABI does not expose live balance queries.</p>
+                <button id="add-client-submit" class="form-action" type="submit" disabled>Add funded client</button>
+              </fieldset>
+            </form>
+          </article>
+        </div>
+
         <div class="stack">
           <article class="card">
             <div class="card-heading">
@@ -291,40 +440,46 @@
               <span id="book-meta" class="meta">No snapshot</span>
             </div>
             <div class="book-grid">
-              <div class="book-side asks">
-                <table aria-label="Ask levels">
-                  <thead><tr><th>Ask price</th><th>Volume</th><th>Orders</th></tr></thead>
-                  <tbody id="asks"><tr><td class="empty" colspan="3">—</td></tr></tbody>
+              <div class="book-side asks table-wrap">
+                <table>
+                  <caption>Live ask levels</caption>
+                  <thead><tr><th scope="col">Ask price</th><th scope="col">Volume</th><th scope="col">Orders</th></tr></thead>
+                  <tbody id="asks"><tr><td class="empty" colspan="3">Loading…</td></tr></tbody>
                 </table>
               </div>
-              <div class="book-side bids">
-                <table aria-label="Bid levels">
-                  <thead><tr><th>Bid price</th><th>Volume</th><th>Orders</th></tr></thead>
-                  <tbody id="bids"><tr><td class="empty" colspan="3">—</td></tr></tbody>
+              <div class="book-side bids table-wrap">
+                <table>
+                  <caption>Live bid levels</caption>
+                  <thead><tr><th scope="col">Bid price</th><th scope="col">Volume</th><th scope="col">Orders</th></tr></thead>
+                  <tbody id="bids"><tr><td class="empty" colspan="3">Loading…</td></tr></tbody>
                 </table>
               </div>
             </div>
           </article>
 
           <article class="card">
-            <dl class="scenario" aria-live="polite">
-              <div class="metric"><dt id="metric-0-label">—</dt><dd id="metric-0-value">—</dd></div>
-              <div class="metric"><dt id="metric-1-label">—</dt><dd id="metric-1-value">—</dd></div>
-              <div class="metric"><dt id="metric-2-label">—</dt><dd id="metric-2-value">—</dd></div>
-            </dl>
+            <div class="card-heading">
+              <h2>Clients</h2>
+              <span id="client-count" class="meta">0 clients</span>
+            </div>
+            <ul id="client-list" class="client-list">
+              <li class="empty-state">Waiting for WebAssembly…</li>
+            </ul>
           </article>
         </div>
 
-        <article class="card">
+        <article class="card activity-card">
           <div class="card-heading">
-            <h2>Command log</h2>
-            <span id="abi" class="meta">ABI —</span>
+            <h2>Order activity</h2>
+            <span class="meta">Native results</span>
           </div>
-          <pre id="log" aria-live="polite">Waiting for WebAssembly…</pre>
+          <ol id="activity" class="activity-list" reversed>
+            <li class="activity-empty">Orders, business rejections, and matcher-event counts will appear here.</li>
+          </ol>
         </article>
       </section>
     </main>
 
-    <script type="module" src="./app.js"></script>
+    <script type="module" src="./manual-app.js"></script>
   </body>
 </html>

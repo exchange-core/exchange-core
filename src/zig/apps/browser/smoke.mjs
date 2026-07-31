@@ -11,6 +11,10 @@ import {
   runMarketScenario,
   scenarioCatalog,
 } from "./scenarios.js";
+import {
+  DEFAULT_CLIENTS,
+  ManualMarketSession,
+} from "./manual-session.js";
 
 const wasmPath = process.argv[2];
 if (!wasmPath) {
@@ -89,6 +93,7 @@ function bookSignature(book) {
 
 const exchange = core.create(EngineKind.direct);
 const summaries = [];
+let manualFlow;
 
 try {
   let rejectedNumberI64 = false;
@@ -153,6 +158,91 @@ try {
     ),
     "insufficient-funds scenario did not preserve riskNsf",
   );
+
+  invariant(Object.isFrozen(DEFAULT_CLIENTS), "default manual clients must be frozen");
+  invariant(DEFAULT_CLIENTS.length === 3, "expected three default manual clients");
+  const manualSession = new ManualMarketSession(exchange);
+  const initialManualSnapshot = manualSession.reset();
+  invariant(Object.isFrozen(initialManualSnapshot), "manual snapshot must be frozen");
+  invariant(initialManualSnapshot.clients.length === 3, "manual reset lost default clients");
+  invariant(
+    bookSignature(initialManualSnapshot.book) === "asks=;bids=",
+    "manual market did not start empty",
+  );
+
+  const restingAsk = manualSession.submitOrder({
+    uid: 1_001n,
+    side: "sell",
+    orderType: "gtc",
+    price: 100n,
+    size: 5n,
+  });
+  invariant(restingAsk.result.code === CommandResultCode.success, "manual ask failed");
+  invariant(restingAsk.eventCount === 0, "manual resting ask emitted events");
+
+  const crossingBid = manualSession.submitOrder({
+    uid: 1_002n,
+    side: "buy",
+    orderType: "ioc",
+    price: 100n,
+    size: 2n,
+  });
+  invariant(crossingBid.result.code === CommandResultCode.success, "manual IOC bid failed");
+  invariant(crossingBid.eventCount === 1, "manual IOC bid event count changed");
+
+  const restingBid = manualSession.submitOrder({
+    uid: 1_003n,
+    side: "buy",
+    orderType: "gtc",
+    price: 99n,
+    size: 2n,
+  });
+  invariant(restingBid.result.code === CommandResultCode.success, "manual resting bid failed");
+  invariant(restingBid.eventCount === 0, "manual resting bid emitted events");
+
+  const fourthClient = manualSession.addClient({
+    name: "Dana",
+    baseBalance: 1n,
+    quoteBalance: 1n,
+  });
+  invariant(fourthClient.uid === 1_004n, "manual client uid allocation changed");
+  const rejectedBid = manualSession.submitOrder({
+    uid: fourthClient.uid,
+    side: "buy",
+    orderType: "gtc",
+    price: 100n,
+    size: 2n,
+  });
+  invariant(
+    rejectedBid.result.code === CommandResultCode.riskNsf && rejectedBid.result.ok === false,
+    "manual order did not preserve riskNsf",
+  );
+  invariant(rejectedBid.eventCount === 0, "manual rejected bid emitted events");
+
+  const finalManualSnapshot = manualSession.snapshot();
+  invariant(finalManualSnapshot.clients.length === 4, "manual client addition was lost");
+  invariant(finalManualSnapshot.activity.length === 4, "manual activity count changed");
+  invariant(
+    bookSignature(finalManualSnapshot.book) === "asks=100/3/1;bids=99/2/1",
+    "manual multi-client L2 book changed",
+  );
+
+  const resetManualSnapshot = manualSession.reset();
+  invariant(resetManualSnapshot.clients.length === 3, "manual reset did not restore defaults");
+  invariant(resetManualSnapshot.activity.length === 0, "manual reset did not clear activity");
+  invariant(
+    bookSignature(resetManualSnapshot.book) === "asks=;bids=",
+    "manual reset did not clear the L2 book",
+  );
+  manualFlow = Object.freeze({
+    clients: finalManualSnapshot.clients.length,
+    orders: finalManualSnapshot.activity.length,
+    book: finalManualSnapshot.book,
+    rejection: rejectedBid.result.name,
+  });
+  console.log(
+    `PASS manual-session clients=${manualFlow.clients} orders=${manualFlow.orders} asks=${manualFlow.book.asks.length} bids=${manualFlow.book.bids.length} rejection=${manualFlow.rejection}`,
+  );
 } finally {
   exchange.destroy();
 }
@@ -166,5 +256,5 @@ try {
 invariant(rejectedStaleHandle, "wrapper allowed use after destroy");
 
 console.log(
-  `PASS wasm-browser abi=${core.abiVersion} scenarios=${summaries.length} total-events=${summaries.reduce((total, summary) => total + summary.eventCount, 0)}`,
+  `PASS wasm-browser abi=${core.abiVersion} scenarios=${summaries.length} manual-orders=${manualFlow.orders} total-events=${summaries.reduce((total, summary) => total + summary.eventCount, 0)}`,
 );

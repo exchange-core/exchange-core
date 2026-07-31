@@ -1,10 +1,14 @@
 # Browser WebAssembly exchange
 
-This target runs the real in-memory Zig `ExchangeKernel` in a browser. Commands
-still follow the production risk -> matching -> risk-release path and use the
-same native `CommandResultCode` values as the rest of the Zig port. The browser
-adapter is a narrow lifecycle and integer ABI around that kernel; it is not a
-second matching-engine implementation.
+This target runs the real in-memory Zig `ExchangeKernel` in a browser. The root
+route is a manual trading desk where several logical clients submit orders to
+one shared order book. The deterministic scenario explorer remains available
+at `/scenarios.html`.
+
+Commands still follow the production risk -> matching -> risk-release path and
+use the same native `CommandResultCode` values as the rest of the Zig port. The
+browser adapter is a narrow lifecycle and integer ABI around that kernel; it is
+not a second matching-engine implementation.
 
 ## Build and verify
 
@@ -20,14 +24,15 @@ zig build -j1 wasm-smoke
 
 - `exchange-core.wasm` - the `wasm32-freestanding`, single-threaded engine
 - `exchange-core.js` - the dependency-free JavaScript wrapper
-- `scenarios.js` - the browser/Node-shared deterministic scenario catalog and runner
-- `index.html` and `app.js` - the interactive scenario explorer
+- `index.html`, `manual-app.js`, and `manual-session.js` - the manual trading desk
+- `scenarios.html`, `app.js`, and `scenarios.js` - the deterministic scenario explorer
 
 `wasm-smoke` compiles the same adapter and runs every catalog scenario through
-the exact emitted WebAssembly in Node. It also keeps the ABI export, no-import,
-strict `bigint`, and stale-handle checks around those market flows. Node is used
-only as a portable WebAssembly host for this focused smoke test; the main Zig
-migration gate does not depend on Node.
+the exact emitted WebAssembly in Node. It also runs an independent multi-client
+flow against the shared manual-session logic and keeps the ABI export,
+no-import, strict `bigint`, and stale-handle checks around those market flows.
+Node is used only as a portable WebAssembly host for this focused smoke test;
+the main Zig migration gate does not depend on Node.
 
 ## Run in a browser
 
@@ -38,7 +43,51 @@ opening `index.html` as a `file:` URL. For example:
 python3 -m http.server 8000 --directory zig-out/browser
 ```
 
-Then open <http://127.0.0.1:8000/>. Choose and run any deterministic scenario:
+Then open <http://127.0.0.1:8000/> for the manual trading desk or
+<http://127.0.0.1:8000/scenarios.html> for the deterministic explorer.
+
+## Manual multi-client trading desk
+
+The root page owns one synchronous `Exchange` handle and registers multiple
+logical client identities in it. All clients therefore trade against the same
+browser-local order book. They are not network clients, and separate tabs,
+browsers, devices, or processes do not share this state.
+
+The desk starts with Alice, Bob, and Carol (UIDs 1001-1003) and gives every
+client initial funding of 1,000 base units and 100,000 quote units. Use **Add
+client** to register another logical identity; its form starts with those same
+funding amounts but accepts custom non-negative values. The new identity is
+immediately available in the order ticket. These figures are bootstrap inputs,
+not live balance displays: the browser ABI does not currently expose post-trade
+balance queries. Select a client, choose buy (bid) or sell (ask) and GTC or IOC,
+enter integer price and quantity values, then submit the order. Bids reserve at
+the entered price, while asks do not require a reserve bid price.
+
+Every submission shows the native command result, matcher-event count, and the
+refreshed shared L2 asks and bids. The activity log identifies which client sent
+each command so crossing orders can be followed across client identities.
+Business rejections remain visible result codes rather than JavaScript errors.
+Resetting the desk clears the engine and deterministically recreates the symbol,
+client roster, and prefunding.
+
+This is a single-tab manual demonstration, not an order-book server. For
+concurrent JavaScript callers, put the exchange behind one serialized worker
+owner. For cross-device shared state, use an authoritative server and network
+transport. Do not let several JavaScript agents call the same wrapper
+concurrently.
+
+`manual-session.js` keeps this bootstrap and order-submission logic independent
+of the DOM so the browser desk and Node smoke exercise the same contract.
+`ManualMarketSession` operates on one supplied exchange handle, registers
+clients, assigns monotonic order and transaction IDs, and submits orders. Each
+activity entry contains the native result and matcher-event count; snapshots
+contain the clients, activity, next order ID, and refreshed L2 book. Prices,
+quantities, balances, and IDs remain JavaScript `bigint` values at this
+boundary.
+
+## Deterministic scenarios
+
+On `/scenarios.html`, choose and run any catalog scenario:
 
 - **Partial fill** - a smaller IOC bid leaves part of a resting ask
 - **Multi-level sweep** - an IOC bid consumes two ask levels in price order
@@ -46,9 +95,9 @@ Then open <http://127.0.0.1:8000/>. Choose and run any deterministic scenario:
 - **Move, reduce, cancel** - one resting order completes its full lifecycle
 - **Insufficient funds** - risk rejects an underfunded bid before matching
 
-Selecting or resetting a scenario clears the engine. Running always resets and
-bootstraps it again, so repeated runs start from identical state and produce the
-same native result codes, matcher-event counts, and L2 snapshot.
+Selecting or resetting a scenario clears the explorer's engine. Running always
+resets and bootstraps it again, so repeated runs start from identical state and
+produce the same native result codes, matcher-event counts, and L2 snapshot.
 
 ## Shared scenario runner
 
