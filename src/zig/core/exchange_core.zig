@@ -205,6 +205,7 @@ const PendingPersistPair = struct {
     snapshot_id: u64,
     timestamp_ns: u64,
     matching_seq: u64,
+    matching_store_succeeded: bool,
     matching_digest: ?snapshot_mod.PayloadDigest,
 };
 
@@ -4960,20 +4961,25 @@ pub const ExchangeCore = struct {
         try self.descriptors.reserveNextSnapshot();
 
         if (self.custom_serialization_processor) |*processor| {
-            try processor.storeData(.{
+            var store_error: ?serialization_processor.StoreError = null;
+            processor.storeData(.{
                 .snapshot_id = snapshot_id,
                 .sequence = sequence,
                 .timestamp_ns = timestamp_ns,
                 .module_type = .matching_engine_router,
                 .instance_id = 0,
                 .state = .{ .single = self.kernel },
-            });
+            }) catch |err| {
+                store_error = err;
+            };
             self.pending_persist_pair = .{
                 .snapshot_id = snapshot_id,
                 .timestamp_ns = timestamp_ns,
                 .matching_seq = sequence,
+                .matching_store_succeeded = store_error == null,
                 .matching_digest = null,
             };
+            if (store_error) |err| return err;
             return;
         }
 
@@ -5014,6 +5020,7 @@ pub const ExchangeCore = struct {
             .snapshot_id = snapshot_id,
             .timestamp_ns = timestamp_ns,
             .matching_seq = sequence,
+            .matching_store_succeeded = true,
             .matching_digest = digest,
         };
     }
@@ -5026,6 +5033,12 @@ pub const ExchangeCore = struct {
         if (self.config.serialization.backend == .dummy) {
             return error.PersistenceBackendDisabled;
         }
+        // A custom risk command consumes its matching half even when command
+        // validation or the risk callback fails. Disk cleanup remains tied to
+        // manifest publication below.
+        defer if (self.custom_serialization_processor != null) {
+            self.pending_persist_pair = null;
+        };
         const snapshot_id = std.math.cast(u64, command.order_id) orelse return error.InvalidPersistSnapshotId;
         const timestamp_ns = std.math.cast(u64, command.timestamp) orelse return error.InvalidPersistTimestamp;
         const pending = self.pending_persist_pair orelse return error.PersistPairMismatch;
@@ -5035,9 +5048,6 @@ pub const ExchangeCore = struct {
         }
 
         if (self.custom_serialization_processor) |*processor| {
-            // No failed custom risk write may leave an older matching half
-            // available to a later persistence command.
-            self.pending_persist_pair = null;
             try processor.storeData(.{
                 .snapshot_id = snapshot_id,
                 .sequence = sequence,
@@ -5046,6 +5056,9 @@ pub const ExchangeCore = struct {
                 .instance_id = 0,
                 .state = .{ .single = self.kernel },
             });
+            if (pending.matching_store_succeeded) {
+                self.registerSnapshotDescriptorAssumeReserved(snapshot_id, sequence, timestamp_ns);
+            }
             return;
         }
 
@@ -5111,6 +5124,9 @@ pub const ExchangeCore = struct {
     ) void {
         if (command.command != .persist_state_risk) return;
         if (command.result_code != .success) return;
+        // Live custom persistence registers only after both callbacks succeed,
+        // while disk and replay retain their existing descriptor paths.
+        if (self.custom_serialization_processor != null) return;
 
         const snapshot_id = std.math.cast(u64, command.order_id) orelse unreachable;
         const timestamp_ns = std.math.cast(u64, command.timestamp) orelse unreachable;
@@ -18179,6 +18195,7 @@ test "exchange core classifies order-book invariant failures at matching stage" 
 
 const CustomSerializationTestRecorder = struct {
     const journal_capacity = 32;
+    const store_capacity = 8;
 
     factory_calls: usize = 0,
     startup_calls: usize = 0,
@@ -18194,6 +18211,9 @@ const CustomSerializationTestRecorder = struct {
     store_saw_single: bool = true,
     fail_startup: bool = false,
     fail_journal: bool = false,
+    reject_matching_store: bool = false,
+    reject_risk_store: bool = false,
+    store_modules: [store_capacity]serialization_processor.ModuleType = undefined,
     journal_requests: [journal_capacity]serialization_processor.JournalRequest = undefined,
 
     fn fromContext(context: ?*anyopaque) *CustomSerializationTestRecorder {
@@ -18230,16 +18250,24 @@ const CustomSerializationTestRecorder = struct {
         request: serialization_processor.StoreRequest,
     ) serialization_processor.StoreError!bool {
         const self = fromContext(context);
+        std.debug.assert(self.store_calls < self.store_modules.len);
+        self.store_modules[self.store_calls] = request.module_type;
         self.store_calls += 1;
-        switch (request.module_type) {
-            .matching_engine_router => self.matching_stores += 1,
-            .risk_engine => self.risk_stores += 1,
-        }
+        const rejected = switch (request.module_type) {
+            .matching_engine_router => rejected: {
+                self.matching_stores += 1;
+                break :rejected self.reject_matching_store;
+            },
+            .risk_engine => rejected: {
+                self.risk_stores += 1;
+                break :rejected self.reject_risk_store;
+            },
+        };
         switch (request.state) {
             .single => {},
             .sharded => self.store_saw_single = false,
         }
-        return true;
+        return !rejected;
     }
 
     fn journal(
@@ -18463,6 +18491,116 @@ test "exchange core custom serialization factory delegates lifecycle journal and
     core.deinit();
     try std.testing.expectEqual(@as(usize, 1), recorder.shutdown_calls);
     try std.testing.expectEqual(@as(usize, 1), recorder.destroy_calls);
+}
+
+test "exchange core custom persistence completes both callbacks and recovers after either rejection" {
+    const FailureCase = struct {
+        failed_snapshot_id: i64,
+        valid_snapshot_id: i64,
+        rejected_module: serialization_processor.ModuleType,
+        expected_matching_result: cmd.CommandResultCode,
+        expected_risk_result: cmd.CommandResultCode,
+    };
+    const cases = [_]FailureCase{
+        .{
+            .failed_snapshot_id = 240_101,
+            .valid_snapshot_id = 240_102,
+            .rejected_module = .matching_engine_router,
+            .expected_matching_result = .state_persist_matching_engine_failed,
+            .expected_risk_result = .success,
+        },
+        .{
+            .failed_snapshot_id = 240_103,
+            .valid_snapshot_id = 240_104,
+            .rejected_module = .risk_engine,
+            .expected_matching_result = .accepted,
+            .expected_risk_result = .state_persist_risk_engine_failed,
+        },
+    };
+    const expected_failed_modules = [_]serialization_processor.ModuleType{
+        .matching_engine_router,
+        .risk_engine,
+    };
+    const expected_all_modules = [_]serialization_processor.ModuleType{
+        .matching_engine_router,
+        .risk_engine,
+        .matching_engine_router,
+        .risk_engine,
+    };
+
+    for (cases) |case| {
+        var recorder: CustomSerializationTestRecorder = .{
+            .reject_matching_store = case.rejected_module == .matching_engine_router,
+            .reject_risk_store = case.rejected_module == .risk_engine,
+        };
+        const factory: serialization_processor.Factory = .{
+            .context = &recorder,
+            .create = CustomSerializationTestRecorder.create,
+        };
+        var core = try ExchangeCore.init(std.testing.allocator, .{
+            .serialization = config_mod.SerializationConfig.custom(factory, false),
+        });
+        defer core.deinit();
+        try core.startup();
+
+        const failed_requests = try core.persistStateAsync(
+            case.failed_snapshot_id,
+            9_990_101,
+        );
+        try std.testing.expectEqual(@as(usize, 2), try core.drainAsyncPending());
+        try std.testing.expect(core.isPersistStateResultReady(failed_requests));
+
+        var failed_matching = core.takeAsyncResult(failed_requests.matching_request_id) orelse
+            return error.MissingAsyncResult;
+        defer failed_matching.deinit(std.testing.allocator);
+        var failed_risk = core.takeAsyncResult(failed_requests.risk_request_id) orelse
+            return error.MissingAsyncResult;
+        defer failed_risk.deinit(std.testing.allocator);
+        try std.testing.expectEqual(case.expected_matching_result, failed_matching.result_code);
+        try std.testing.expectEqual(case.expected_risk_result, failed_risk.result_code);
+        try std.testing.expectEqual(@as(usize, 2), recorder.store_calls);
+        try std.testing.expectEqualSlices(
+            serialization_processor.ModuleType,
+            &expected_failed_modules,
+            recorder.store_modules[0..2],
+        );
+        try std.testing.expect(core.pending_persist_pair == null);
+        try std.testing.expectEqual(@as(usize, 1), try core.persistenceSnapshotCount());
+        try std.testing.expectEqual(
+            @as(?SnapshotRef, null),
+            try core.persistenceFindSnapshotById(@intCast(case.failed_snapshot_id)),
+        );
+
+        recorder.reject_matching_store = false;
+        recorder.reject_risk_store = false;
+        const valid_requests = try core.persistStateAsync(
+            case.valid_snapshot_id,
+            9_990_102,
+        );
+        try std.testing.expectEqual(@as(usize, 2), try core.drainAsyncPending());
+        try std.testing.expect(core.isPersistStateResultReady(valid_requests));
+
+        var valid_matching = core.takeAsyncResult(valid_requests.matching_request_id) orelse
+            return error.MissingAsyncResult;
+        defer valid_matching.deinit(std.testing.allocator);
+        var valid_risk = core.takeAsyncResult(valid_requests.risk_request_id) orelse
+            return error.MissingAsyncResult;
+        defer valid_risk.deinit(std.testing.allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.accepted, valid_matching.result_code);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, valid_risk.result_code);
+        try std.testing.expectEqual(@as(usize, 4), recorder.store_calls);
+        try std.testing.expectEqualSlices(
+            serialization_processor.ModuleType,
+            &expected_all_modules,
+            recorder.store_modules[0..4],
+        );
+        try std.testing.expect(core.pending_persist_pair == null);
+        try std.testing.expectEqual(@as(usize, 2), try core.persistenceSnapshotCount());
+        try std.testing.expectEqual(
+            @as(u64, @intCast(case.valid_snapshot_id)),
+            (try core.persistenceCurrentSnapshot()).snapshot_id,
+        );
+    }
 }
 
 test "exchange core custom serialization startup and journal errors propagate" {

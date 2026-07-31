@@ -562,6 +562,7 @@ const PendingPersistPair = struct {
     timestamp_ns: u64,
     matching_sequence: u64,
     mode: ExecutionMode,
+    matching_store_succeeded: bool,
 };
 
 /// XCJ3 is deliberately isolated from Java/XCJ1/XCJ2 `.ecj` files. Keeping a
@@ -7643,23 +7644,33 @@ pub const ExchangeApiSharded = struct {
         try self.descriptors.reserveNextSnapshot();
 
         if (self.custom_serialization_processor) |*processor| {
-            for (0..self.matchingShardCount()) |instance| {
-                try processor.storeData(.{
+            const matching_instance_count = std.math.cast(
+                u32,
+                self.matchingShardCount(),
+            ) orelse return error.EngineCountOverflow;
+            var first_store_error: ?serialization_processor.StoreError = null;
+            for (0..matching_instance_count) |instance| {
+                processor.storeData(.{
                     .snapshot_id = snapshot_id,
                     .sequence = sequence,
                     .timestamp_ns = timestamp_ns,
                     .module_type = .matching_engine_router,
-                    .instance_id = std.math.cast(u32, instance) orelse
-                        return error.EngineCountOverflow,
+                    .instance_id = @intCast(instance),
                     .state = .{ .sharded = &self.core.kernels },
-                });
+                }) catch |err| {
+                    if (first_store_error == null) first_store_error = err;
+                };
             }
             self.pending_persist_pair = .{
                 .snapshot_id = snapshot_id,
                 .timestamp_ns = timestamp_ns,
                 .matching_sequence = sequence,
                 .mode = mode,
+                .matching_store_succeeded = first_store_error == null,
             };
+            if (first_store_error) |err| {
+                return err;
+            }
             return;
         }
 
@@ -7681,6 +7692,7 @@ pub const ExchangeApiSharded = struct {
             .timestamp_ns = timestamp_ns,
             .matching_sequence = sequence,
             .mode = mode,
+            .matching_store_succeeded = true,
         };
     }
 
@@ -7713,22 +7725,33 @@ pub const ExchangeApiSharded = struct {
         try self.validatePersistenceFrontier(sequence);
 
         if (self.custom_serialization_processor) |*processor| {
-            for (0..self.riskShardCount()) |instance| {
-                try processor.storeData(.{
+            const risk_instance_count = std.math.cast(
+                u32,
+                self.riskShardCount(),
+            ) orelse return error.EngineCountOverflow;
+            var first_store_error: ?serialization_processor.StoreError = null;
+            for (0..risk_instance_count) |instance| {
+                processor.storeData(.{
                     .snapshot_id = snapshot_id,
                     .sequence = sequence,
                     .timestamp_ns = timestamp_ns,
                     .module_type = .risk_engine,
-                    .instance_id = std.math.cast(u32, instance) orelse
-                        return error.EngineCountOverflow,
+                    .instance_id = @intCast(instance),
                     .state = .{ .sharded = &self.core.kernels },
-                });
+                }) catch |err| {
+                    if (first_store_error == null) first_store_error = err;
+                };
             }
-            self.registerSnapshotDescriptorAssumeReserved(
-                snapshot_id,
-                sequence,
-                timestamp_ns,
-            );
+            if (first_store_error) |err| {
+                return err;
+            }
+            if (pending.matching_store_succeeded) {
+                self.registerSnapshotDescriptorAssumeReserved(
+                    snapshot_id,
+                    sequence,
+                    timestamp_ns,
+                );
+            }
             return;
         }
 
@@ -21031,6 +21054,12 @@ test "sharded exchange api simple events handler tracks sync async and runtime c
 
 const ShardedSerializationTestRecorder = struct {
     const journal_capacity = 32;
+    const store_capacity = 32;
+
+    const StoreCall = struct {
+        module_type: serialization_processor.ModuleType,
+        instance_id: u32,
+    };
 
     factory_calls: usize = 0,
     startup_calls: usize = 0,
@@ -21046,6 +21075,8 @@ const ShardedSerializationTestRecorder = struct {
     factory_risk_count: usize = 0,
     startup_saw_sharded: bool = false,
     store_saw_sharded: bool = true,
+    reject_store_once: ?StoreCall = null,
+    store_requests: [store_capacity]StoreCall = undefined,
     journal_requests: [journal_capacity]serialization_processor.JournalRequest = undefined,
 
     fn fromContext(context: ?*anyopaque) *ShardedSerializationTestRecorder {
@@ -21084,6 +21115,12 @@ const ShardedSerializationTestRecorder = struct {
         request: serialization_processor.StoreRequest,
     ) serialization_processor.StoreError!bool {
         const self = fromContext(context);
+        std.debug.assert(self.store_calls < self.store_requests.len);
+        const store_call: StoreCall = .{
+            .module_type = request.module_type,
+            .instance_id = request.instance_id,
+        };
+        self.store_requests[self.store_calls] = store_call;
         self.store_calls += 1;
         switch (request.state) {
             .sharded => {},
@@ -21099,6 +21136,14 @@ const ShardedSerializationTestRecorder = struct {
                 self.risk_stores += 1;
                 self.risk_instances_mask |= instance_bit;
             },
+        }
+        if (self.reject_store_once) |rejection| {
+            if (rejection.module_type == store_call.module_type and
+                rejection.instance_id == store_call.instance_id)
+            {
+                self.reject_store_once = null;
+                return false;
+            }
         }
         return true;
     }
@@ -21158,6 +21203,18 @@ fn expectShardedCustomJournalBatchSchedule(
         }
     }
     try std.testing.expectEqual(expected_batch_lengths.len, terminal_count);
+}
+
+fn expectShardedCustomStoreOrder(
+    recorder: *const ShardedSerializationTestRecorder,
+    offset: usize,
+    expected: []const ShardedSerializationTestRecorder.StoreCall,
+) !void {
+    try std.testing.expect(offset + expected.len <= recorder.store_calls);
+    for (expected, recorder.store_requests[offset .. offset + expected.len]) |want, actual| {
+        try std.testing.expectEqual(want.module_type, actual.module_type);
+        try std.testing.expectEqual(want.instance_id, actual.instance_id);
+    }
 }
 
 test "sharded custom serialization end-of-batch enumerates cold and running schedules" {
@@ -21293,6 +21350,118 @@ test "sharded custom serialization freezes captured batch before concurrent suff
     gate.open();
     try std.testing.expectEqual(@as(usize, 0), try api.drainPending());
     try expectShardedCustomJournalBatchSchedule(&recorder, &.{ 2, 2 });
+}
+
+fn runShardedCustomPersistenceRejectionScenario(
+    pipeline_mode: config_mod.ShardedPipelineMode,
+    rejection: ShardedSerializationTestRecorder.StoreCall,
+    expected_matching_result: cmd.CommandResultCode,
+    expected_risk_result: cmd.CommandResultCode,
+) !void {
+    var recorder: ShardedSerializationTestRecorder = .{
+        .reject_store_once = rejection,
+    };
+    const factory: serialization_processor.Factory = .{
+        .context = &recorder,
+        .create = ShardedSerializationTestRecorder.create,
+    };
+    var core_config = Config.javaDefault();
+    core_config.matching.num_shards = 2;
+    core_config.sharded_pipeline_mode = pipeline_mode;
+    core_config.serialization = config_mod.SerializationConfig.custom(
+        factory,
+        false,
+    );
+    var api = try ExchangeApiSharded.initWithPersistenceRoot(
+        std.testing.allocator,
+        std.Io.Dir.cwd(),
+        core_config,
+    );
+    defer api.deinit();
+    try api.startup();
+
+    const expected_family_order = [_]ShardedSerializationTestRecorder.StoreCall{
+        .{ .module_type = .matching_engine_router, .instance_id = 0 },
+        .{ .module_type = .matching_engine_router, .instance_id = 1 },
+        .{ .module_type = .risk_engine, .instance_id = 0 },
+        .{ .module_type = .risk_engine, .instance_id = 1 },
+    };
+
+    var failed_matching = makePersistStateMatchingCommand(250_101, 9_991_101);
+    var failed_risk = makePersistStateRiskCommand(250_101, 9_991_101);
+    var failed_commands = [_]*cmd.OrderCommand{ &failed_matching, &failed_risk };
+    const failed_batch = try api.submitCommandBatch(.routed, failed_commands[0..]);
+
+    try std.testing.expectEqual(expected_matching_result, failed_matching.result_code);
+    try std.testing.expectEqual(expected_risk_result, failed_risk.result_code);
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.mergeToFirstFailed(&.{
+            expected_matching_result,
+            expected_risk_result,
+        }),
+        failed_batch.result_code,
+    );
+    try std.testing.expectEqual(@as(usize, 4), recorder.store_calls);
+    try std.testing.expectEqual(@as(usize, 2), recorder.matching_stores);
+    try std.testing.expectEqual(@as(usize, 2), recorder.risk_stores);
+    try std.testing.expectEqual(@as(u64, 0b11), recorder.matching_instances_mask);
+    try std.testing.expectEqual(@as(u64, 0b11), recorder.risk_instances_mask);
+    try expectShardedCustomStoreOrder(&recorder, 0, &expected_family_order);
+    try std.testing.expectEqual(@as(usize, 1), api.persistenceSnapshotCount());
+    try std.testing.expect(api.persistenceFindSnapshotById(250_101) == null);
+    try std.testing.expect(api.pending_persist_pair == null);
+    try std.testing.expect(recorder.reject_store_once == null);
+
+    var valid_matching = makePersistStateMatchingCommand(250_102, 9_991_102);
+    var valid_risk = makePersistStateRiskCommand(250_102, 9_991_102);
+    var valid_commands = [_]*cmd.OrderCommand{ &valid_matching, &valid_risk };
+    const valid_batch = try api.submitCommandBatch(.routed, valid_commands[0..]);
+
+    try std.testing.expectEqual(cmd.CommandResultCode.accepted, valid_matching.result_code);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, valid_risk.result_code);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, valid_batch.result_code);
+    try std.testing.expectEqual(@as(usize, 8), recorder.store_calls);
+    try std.testing.expectEqual(@as(usize, 4), recorder.matching_stores);
+    try std.testing.expectEqual(@as(usize, 4), recorder.risk_stores);
+    try expectShardedCustomStoreOrder(&recorder, 4, &expected_family_order);
+    try std.testing.expectEqual(@as(usize, 2), api.persistenceSnapshotCount());
+    try std.testing.expectEqual(@as(u64, 250_102), api.persistenceCurrentSnapshot().snapshot_id);
+    try std.testing.expect(api.pending_persist_pair == null);
+}
+
+test "sharded custom serialization attempts every module after store rejection" {
+    const RejectionCase = struct {
+        rejection: ShardedSerializationTestRecorder.StoreCall,
+        matching_result: cmd.CommandResultCode,
+        risk_result: cmd.CommandResultCode,
+    };
+    const rejection_cases = [_]RejectionCase{
+        .{
+            .rejection = .{ .module_type = .matching_engine_router, .instance_id = 0 },
+            .matching_result = .state_persist_matching_engine_failed,
+            .risk_result = .success,
+        },
+        .{
+            .rejection = .{ .module_type = .risk_engine, .instance_id = 0 },
+            .matching_result = .accepted,
+            .risk_result = .state_persist_risk_engine_failed,
+        },
+    };
+    const pipeline_modes = [_]config_mod.ShardedPipelineMode{
+        .immediate,
+        .persistent_grouped,
+    };
+
+    for (pipeline_modes) |pipeline_mode| {
+        for (rejection_cases) |rejection_case| {
+            try runShardedCustomPersistenceRejectionScenario(
+                pipeline_mode,
+                rejection_case.rejection,
+                rejection_case.matching_result,
+                rejection_case.risk_result,
+            );
+        }
+    }
 }
 
 test "sharded exchange custom serialization delegates every module instance" {
