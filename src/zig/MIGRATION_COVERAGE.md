@@ -24,12 +24,18 @@ Current toolchain:
 - workspace-local Temurin JDK 11.0.32+9 for the Chronicle 2.19.1 persistence
   oracle
 
-Focused and broad checks on the final grouped-default boundary:
+Focused and broad checks on the final grouped-default and carrier boundary:
 
-- `persistent grouped` in `sharded_pipeline.zig`: 21/21 Debug and 21/21
+- `persistent grouped` through the current test root: 45/45 Debug and 45/45
   ReleaseSafe, covering worker reuse, batch admission, backpressure, R1
   lookahead, R2 prepare-all/commit-none, matching/R1 failure ordering, poison,
   asymmetric state, allocator ownership, and terminal settlement
+- R2 boundary-cache focus: 4/4 Debug and 4/4 ReleaseSafe; exact adjacency
+  probes are 1, 16, 256, and 4096 for closed groups of those sizes instead of
+  the previous 1, 136, 32896, and 8390656 repeated probes
+- `java_binary_wire.zig`: 350/350 Debug and 350/350 ReleaseSafe, including
+  byte-exact one-allocation request carriers, SIMD/scalar equality, every tail,
+  deliberately misaligned byte and word slices, padding, and allocation faults
 - `persistent grouped` through `exchange_api_sharded.zig`: 43/43 ReleaseSafe;
   broader `grouped` coverage through `exchange_orchestrator.zig`: 67/67
   ReleaseSafe
@@ -39,16 +45,26 @@ Focused and broad checks on the final grouped-default boundary:
   precedence remains compatible
 - committed Java `DiskSerializationProcessor` fixture path: 4/4 Debug and 4/4
   ReleaseSafe after the deterministic-manifest correction
-- `zig build -j1 gate --summary all`: 26/26 steps and 2255/2255 tests,
-  comprising 1117 Debug, 1117 ReleaseSafe, and 21 evidence-tool tests, plus the
-  exact 96/96 default fixture manifest, API surface, Java API parity audit, and
-  the executable 91-class production-map check;
+- `zig build -j1 gate --summary all`: 43/43 steps and 2305/2305 tests,
+  comprising 1124 core tests, 13 standalone app tests, and 5 SIMD benchmark
+  tests in each of Debug and ReleaseSafe, plus 21 evidence-tool tests; the gate
+  also compiles the fixed-ReleaseFast benchmark and runs the exact 96/96
+  default fixture manifest, API surface, Java API parity audit, and executable
+  91-class production-map check;
   persistence-disabled and injected-fault warnings are expected test evidence
+- pinned Zig 0.16.0 cross-target ReleaseSafe compilation: x86_64 Linux
+  baseline, x86_64 Linux AVX2, RISC-V Linux scalar fallback, and s390x Linux
+  big-endian all passed; AVX2 codegen contains scoped `vpshufb` carrier loops
 - ReleaseFast `bench-orchestrator-ab` with four counterbalanced trials, 20,000
   settled commands, 20,000 detached commands, 500 latency samples, and 512
   memory-probe commands: all 16 rows produced canonical fingerprint
   `115306a07a302c98`; all eight persistent capacity rows passed their executable
-  1x1/4x2 throughput and latency floors
+  1x1/4x2 throughput and latency floors; exact raw rows are retained in
+  `ORCHESTRATOR_AB_RAW_2026-07-31.txt`
+- fixed-ReleaseFast 16 MiB carrier benchmark: three independent processes,
+  24 counterbalanced trials each; median process-level production/direct
+  speedups were 1.1366x pack and 1.1126x unpack, with every timing and paired
+  row retained in `SIMD_BENCHMARK_RAW_2026-07-31.txt`
 - compatible Temurin 11.0.32+9 `mvn test`: 174 tests, 0 failures, 0 errors, 10
   intentionally skipped opt-in fixture writers
 - the persistence writer passed in two separate JVM processes after removing
@@ -129,18 +145,18 @@ can be migrated instead of silently losing state.
 The implementation sequence is complete: the serial timing oracle, persistent
 per-RE and per-ME workers, live API integration, terminal global barriers,
 query/snapshot/reset/shutdown quiescence, fail-closed XCM1 inventory, A/B
-benchmark, default switch, and 2255-test repository gate are all current. The
+benchmark, default switch, and 2305-test repository gate are all current. The
 dated benchmark report records covered-workload final-state equivalence and the
 executable capacity result.
 
 ## Closed performance and capacity gate
 
 The ReleaseFast four-trial gate passed 3/3 build steps and all eight persistent
-1x1/4x2 capacity rows. The 1x1 grouped medians were 523096.04 settled
-commands/s, 785795.70 detached commands/s, 32896 ns terminal-drain p50, and
-11229 ns report p50. The 4x2 medians were 171107.15 settled commands/s,
-232996.80 detached commands/s, 52521 ns terminal-drain p50, and 11458.5 ns
-report p50. Every row
+1x1/4x2 capacity rows. The 1x1 grouped medians were 636575.92 settled
+commands/s, 1005495.13 detached commands/s, 32792 ns terminal-drain p50, and
+11229.5 ns report p50. The 4x2 medians were 189886.68 settled commands/s,
+281443.53 detached commands/s, 54979 ns terminal-drain p50, and 11500 ns report
+p50. Every row
 returned to zero live requested bytes after deinit. The report is a same-host
 Zig capacity gate, not a cross-host Java benchmark claim. See
 [`ORCHESTRATOR_AB_BENCHMARK_REPORT_2026-07-31.md`](ORCHESTRATOR_AB_BENCHMARK_REPORT_2026-07-31.md).
@@ -174,7 +190,7 @@ Zig capacity gate, not a cross-host Java benchmark claim. See
   global barriers, callbacks outside execution locks, query/snapshot/shutdown
   quiescence, startup rollback, and poison-safe worker/runtime teardown
 - grouped-default XCM1 inventory and typed pin-or-migrate failure,
-  covered-workload A/B final-state fingerprint parity, and the 2255-test
+  covered-workload A/B final-state fingerprint parity, and the 2305-test
   repository gate
 - Java-equivalent borrowed raw full-response observation across single,
   sharded, and orchestrated execution, with one grouping gate, journal-first
@@ -212,9 +228,10 @@ Zig capacity gate, not a cross-host Java benchmark claim. See
 
 - focused Debug and ReleaseSafe topology, persistence, lifecycle, and custom
   extension checks passed;
-- the serialized aggregate gate passed 26/26 build steps and 2255/2255 tests:
-  1117 Debug, 1117 ReleaseSafe, and 21 evidence-tool tests, including the exact
-  96/96 default fixture manifest and both API audits;
+- the serialized aggregate gate passed 43/43 build steps and 2305/2305 tests:
+  1124 core, 13 standalone app, and 5 SIMD benchmark tests in each of Debug and
+  ReleaseSafe, plus 21 evidence-tool tests, including the exact 96/96 default
+  fixture manifest and both API audits;
 - the executable 91-class Java production map passed;
 - Temurin 11.0.32+9 ran the complete Java suite: 174 tests, 0 failures, 0
   errors, and 10 intentionally skipped opt-in writers;

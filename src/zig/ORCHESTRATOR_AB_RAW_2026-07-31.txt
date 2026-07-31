@@ -1,0 +1,42 @@
+exchange-core orchestrator A/B raw capture
+date=2026-07-31
+source_commit=46933667
+zig=0.16.0
+benchmark_payload_sha256=6b413d62366df5428c448d355bdc18a9ae8d51c6c30ff016d1ff454867215011
+command=zig build -j1 -Doptimize=ReleaseFast bench-orchestrator-ab -- --trials 4 --commands 20000 --detached-commands 20000 --latency-samples 500 --warmup 256 --window 256 --memory-probe-commands 512
+
+exchange-core orchestrator A/B benchmark
+output_schema_version=2 build_mode=ReleaseFast timing_allocator=smp_allocator memory_allocator=separate_debug_allocator_requested_bytes
+config_base=JavaExchangeConfig.javaDefault publication_mode=routed trials=4 commands=20000 detached_commands=20000 latency_samples=500 warmup=256 window=256
+java_default_ring_buffer=16384 java_default_msgs_in_group=256 java_default_max_group_duration_ns=10000 java_default_wait_strategy=blocking java_default_orderbook=naive
+terminal_drain_latency_command=nop terminal_drain_boundary=async_submit_drain_take_includes_grouped_r2 total_currency_balance_report_latency_boundary=separate_post_drain_query warmup_workload=paired_gtc_trades poll_window_workload=paired_gtc_trades detached_workload=paired_gtc_trades_then_terminal_drain memory_scope=allocator_live_requested_heap_excludes_rss_and_thread_stacks
+worker_count_basis=configured_expected_owned_threads_including_driver public_aggregate_worker_count=unavailable
+capacity_gate_reference=fixed_ReleaseFast_local_floor capacity_gate_1x1=throughput>=300000_detached>=450000_terminal_p50<=100000ns_report_p50<=25000ns capacity_gate_4x2=throughput>=150000_detached>=180000_terminal_p50<=150000ns_report_p50<=25000ns
+
+timing_results_csv
+trial,run_order,topology,config_mode,backend,matching_shards,risk_shards,expected_driver_workers,expected_matching_workers,expected_risk_workers,expected_owned_workers,init_ns,startup_ns,terminal_drain_p50_ns,terminal_drain_p95_ns,terminal_drain_p99_ns,terminal_drain_max_ns,total_currency_balance_report_p50_ns,total_currency_balance_report_p95_ns,total_currency_balance_report_p99_ns,total_currency_balance_report_max_ns,throughput_commands,throughput_settled_elapsed_ns,throughput_settled_commands_per_second,shutdown_ns,fingerprint,detached_commands,detached_terminal_elapsed_ns,detached_terminal_commands_per_second
+0,0,1x1,immediate,single,1,1,1,0,0,1,67125,39125,5292,6583,8375,26708,250,333,583,11959,20000,18566709,1077196.83,20667,115306a07a302c98,20000,8095875,2470393.87
+0,1,1x1,persistent_grouped,sharded,1,1,1,1,1,3,23083,1269125,31167,50125,78667,128375,11209,11666,13750,22917,20000,34268083,583633.46,695708,115306a07a302c98,20000,20041125,997947.97
+1,0,1x1,persistent_grouped,sharded,1,1,1,1,1,3,20375,712541,32292,36792,46167,100209,11208,11625,12125,17500,20000,31339292,638176.51,330500,115306a07a302c98,20000,19865709,1006759.94
+1,1,1x1,immediate,single,1,1,1,0,0,1,11333,15167,3875,6458,8708,21625,208,541,708,5542,20000,13086000,1528350.91,17334,115306a07a302c98,20000,7389375,2706588.85
+2,0,1x1,immediate,single,1,1,1,0,0,1,7667,12042,3417,5875,6792,10750,167,416,625,709,20000,14018416,1426694.71,12709,115306a07a302c98,20000,7592834,2634062.59
+2,1,1x1,persistent_grouped,sharded,1,1,1,1,1,3,15959,709625,33625,40166,94792,225042,11291,11958,16958,127041,20000,31493500,635051.68,367000,115306a07a302c98,20000,19790833,1010568.88
+3,0,1x1,persistent_grouped,sharded,1,1,1,1,1,3,14875,642291,33292,38875,47209,104250,11250,11667,15041,16458,20000,31343042,638100.16,423958,115306a07a302c98,20000,19915750,1004230.32
+3,1,1x1,immediate,single,1,1,1,0,0,1,8792,13791,4167,6583,7958,27666,208,542,625,709,20000,13293708,1504471.14,7458,115306a07a302c98,20000,7423042,2694313.19
+0,0,4x2,immediate,sharded,4,2,1,0,0,1,11041,9917,3500,6042,8000,10667,292,667,958,959,20000,17117042,1168426.18,13459,115306a07a302c98,20000,10355791,1931286.56
+0,1,4x2,persistent_grouped,sharded,4,2,1,4,2,7,17417,1097250,55000,79459,93417,111416,11541,12916,14000,17917,20000,104097666,192127.27,1051166,115306a07a302c98,20000,70666750,283018.53
+1,0,4x2,persistent_grouped,sharded,4,2,1,4,2,7,20583,912792,54042,79417,101250,141334,11500,12875,14417,21834,20000,112791250,177318.72,372958,115306a07a302c98,20000,71462125,279868.53
+1,1,4x2,immediate,sharded,4,2,1,0,0,1,16166,14167,4167,5708,14709,24209,250,375,458,1209,20000,18673541,1071034.14,15083,115306a07a302c98,20000,10826333,1847347.57
+2,0,4x2,immediate,sharded,4,2,1,0,0,1,14333,15500,4166,5875,7667,33833,250,375,834,26584,20000,18714584,1068685.26,27250,115306a07a302c98,20000,11769875,1699253.39
+2,1,4x2,persistent_grouped,sharded,4,2,1,4,2,7,17625,767666,54958,98708,189917,1204041,10375,12959,19625,127167,20000,103100709,193985.09,456416,115306a07a302c98,20000,71695542,278957.37
+3,0,4x2,persistent_grouped,sharded,4,2,1,4,2,7,13959,698084,55958,82625,98625,167459,11500,12792,14167,42542,20000,106583625,187646.09,556458,115306a07a302c98,20000,69857541,286296.94
+3,1,4x2,immediate,sharded,4,2,1,0,0,1,22375,13208,4042,5584,8292,38750,250,416,666,1458,20000,18223417,1097489.02,20875,115306a07a302c98,20000,10850167,1843289.60
+
+memory_evidence_csv
+topology,config_mode,backend,expected_owned_workers,probe_commands,live_requested_after_init,live_requested_after_startup,live_requested_after_setup,live_requested_after_settlement,live_requested_after_shutdown,live_requested_after_deinit
+1x1,immediate,single,1,512,17468576,17468576,17489568,17493472,17493472,0
+1x1,persistent_grouped,sharded,3,512,31397400,40967436,40988812,40992716,31422680,0
+4x2,immediate,sharded,1,512,31399440,31399440,31444944,31449040,31449040,0
+4x2,persistent_grouped,sharded,7,512,31399440,40969992,41015496,41019592,31449040,0
+
+semantic_gate=PASS canonical_fingerprint=115306a07a302c98 fingerprint_comparisons=15 mode_equivalence_gate=PASS topology_equivalence_gate=PASS capacity_gate=PASS capacity_rows_checked=8
