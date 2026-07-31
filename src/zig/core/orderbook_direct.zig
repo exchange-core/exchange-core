@@ -10,6 +10,7 @@ pub const UserOrderView = naive.UserOrderView;
 pub const HoldAggregationError = std.mem.Allocator.Error || error{
     ArithmeticOverflow,
 };
+pub const ProcessError = naive.ProcessError;
 pub const RestoreOrdersError = std.mem.Allocator.Error || error{
     InvalidOrderSymbol,
     InvalidOrderSize,
@@ -244,7 +245,7 @@ pub const DirectOrderBook = struct {
     pub fn processCommand(
         self: *DirectOrderBook,
         command: *cmd.OrderCommand,
-    ) std.mem.Allocator.Error!cmd.CommandResultCode {
+    ) ProcessError!cmd.CommandResultCode {
         return self.processCommandWithEvents(command, null);
     }
 
@@ -252,13 +253,16 @@ pub const DirectOrderBook = struct {
         self: *DirectOrderBook,
         command: *cmd.OrderCommand,
         event_chain: ?*events.EventChain,
-    ) std.mem.Allocator.Error!cmd.CommandResultCode {
+    ) ProcessError!cmd.CommandResultCode {
         return switch (command.command) {
             .move_order => try self.moveOrder(command, event_chain),
             .cancel_order => try self.cancelOrder(command, event_chain),
             .reduce_order => try self.reduceOrder(command, event_chain),
             .place_order => blk: {
                 if (command.result_code == .valid_for_matching_engine) {
+                    if (invalidPlaceOrderResult(command)) |result| {
+                        break :blk result;
+                    }
                     try self.newOrder(command, event_chain);
                     break :blk .success;
                 }
@@ -882,11 +886,11 @@ pub const DirectOrderBook = struct {
             const fill_size: i64 = @min(remaining, maker_order.remaining());
             std.debug.assert(fill_size > 0);
 
-            try appendTradeEvent(event_chain, taker.*, maker_order.*, fill_size);
+            remaining -= fill_size;
+            try appendTradeEvent(event_chain, taker.*, maker_order.*, fill_size, remaining == 0);
 
             maker_order.filled += fill_size;
             maker_order.parent.volume -= fill_size;
-            remaining -= fill_size;
 
             if (maker_order.filled == maker_order.size) {
                 self.removeOrderAndFree(maker_order);
@@ -904,20 +908,26 @@ pub const DirectOrderBook = struct {
         taker.filled = taker.size - remaining;
     }
 
-    fn checkBudgetToFill(self: *const DirectOrderBook, action: common.OrderAction, size: i64) ?i128 {
+    fn checkBudgetToFill(
+        self: *const DirectOrderBook,
+        action: common.OrderAction,
+        size: i64,
+    ) error{OrderBookInvariantViolation}!?i128 {
         if (size <= 0) return null;
 
-        const opposite = self.sideBucketsConst(action.opposite()).items;
         var remaining = size;
         var budget: i128 = 0;
 
-        for (opposite) |bucket| {
-            if (remaining > bucket.volume) {
-                remaining -= bucket.volume;
-                budget += @as(i128, bucket.volume) * @as(i128, bucket.price);
-            } else {
-                return budget + @as(i128, remaining) * @as(i128, bucket.price);
+        var maker = self.sideBestConst(action.opposite()).*;
+        while (maker) |order| : (maker = order.prev) {
+            const available = order.remaining();
+            if (available <= 0) {
+                return error.OrderBookInvariantViolation;
             }
+            const fill_size = @min(remaining, available);
+            budget += @as(i128, fill_size) * @as(i128, order.price);
+            remaining -= fill_size;
+            if (remaining == 0) return budget;
         }
 
         return null;
@@ -934,6 +944,7 @@ pub const DirectOrderBook = struct {
         taker: ActiveOrder,
         maker: DirectOrder,
         fill_size: i64,
+        active_order_completed: bool,
     ) std.mem.Allocator.Error!void {
         if (event_chain == null) return;
         if (fill_size <= 0) return;
@@ -944,7 +955,7 @@ pub const DirectOrderBook = struct {
             maker.reserve_bid_price;
         _ = try event_chain.?.append(.{
             .event_type = .trade,
-            .active_order_completed = taker.filled + fill_size == taker.size,
+            .active_order_completed = active_order_completed,
             .matched_order_id = maker.order_id,
             .matched_order_uid = maker.uid,
             .matched_order_completed = maker.filled + fill_size == maker.size,
@@ -964,13 +975,38 @@ pub const DirectOrderBook = struct {
         if (event_chain == null) return;
         if (reject_size <= 0) return;
 
-        _ = try event_chain.?.prepend(.{
+        _ = try event_chain.?.prepend(rejectEvent(taker, reject_size, order_type, reject_price));
+    }
+
+    fn rejectEvent(
+        taker: ActiveOrder,
+        reject_size: i64,
+        order_type: common.OrderType,
+        reject_price: i64,
+    ) events.MatcherTradeEvent {
+        return .{
             .event_type = .reject,
             .active_order_completed = true,
             .price = if (order_type == .fok_budget) reject_price else taker.price,
             .size = reject_size,
             .bidder_hold_price = if (taker.action == .bid) taker.reserve_bid_price else 0,
-        });
+        };
+    }
+
+    fn prependReservedRejectEvent(
+        event_chain: *events.EventChain,
+        node: *events.MatcherTradeEvent,
+        taker: ActiveOrder,
+        reject_size: i64,
+        order_type: common.OrderType,
+        reject_price: i64,
+    ) void {
+        std.debug.assert(reject_size > 0);
+        node.* = rejectEvent(taker, reject_size, order_type, reject_price);
+        node.next_event = event_chain.head;
+        event_chain.head = node;
+        if (event_chain.tail == null) event_chain.tail = node;
+        event_chain.len += 1;
     }
 
     fn appendReduceEvent(
@@ -979,13 +1015,14 @@ pub const DirectOrderBook = struct {
         price: i64,
         reserve_bid_price: i64,
         reduced_size: i64,
+        completed: bool,
     ) std.mem.Allocator.Error!void {
         if (event_chain == null) return;
         if (reduced_size <= 0) return;
 
         _ = try event_chain.?.append(.{
             .event_type = .reduce,
-            .active_order_completed = true,
+            .active_order_completed = completed,
             .price = price,
             .size = reduced_size,
             .bidder_hold_price = if (action == .bid) reserve_bid_price else 0,
@@ -996,13 +1033,16 @@ pub const DirectOrderBook = struct {
         self: *DirectOrderBook,
         command: *cmd.OrderCommand,
         event_chain: ?*events.EventChain,
-    ) std.mem.Allocator.Error!void {
+    ) ProcessError!void {
         const order_type = command.order_type orelse return;
         return switch (order_type) {
             .gtc => try self.newOrderPlaceGtc(command, event_chain),
             .ioc => try self.newOrderMatchIoc(command, event_chain),
             .fok_budget => try self.newOrderMatchFokBudget(command, event_chain),
-            else => {},
+            .ioc_budget, .fok => {
+                const taker = ActiveOrder.fromCommand(command) orelse return;
+                try appendRejectEvent(event_chain, taker, taker.remaining(), order_type, command.price);
+            },
         };
     }
 
@@ -1012,10 +1052,37 @@ pub const DirectOrderBook = struct {
         event_chain: ?*events.EventChain,
     ) std.mem.Allocator.Error!void {
         var taker = ActiveOrder.fromCommand(command) orelse return;
+
+        // Java checks for duplicates after matching, because matching can remove
+        // the pre-existing order with this id. Reserve the possible rejection
+        // node before any maker mutation so that its allocation failure is
+        // atomic, then either prepend it to the trade chain or release it.
+        const duplicate_before_matching = self.order_id_index.contains(command.order_id);
+        const reserved_reject = if (duplicate_before_matching)
+            if (event_chain) |chain| try chain.allocator.create(events.MatcherTradeEvent) else null
+        else
+            null;
+        var reject_attached = false;
+        defer if (reserved_reject) |node| {
+            if (!reject_attached) event_chain.?.allocator.destroy(node);
+        };
+
         try self.tryMatchInstantly(&taker, taker.price, event_chain);
         if (taker.filled == taker.size) return;
 
         if (self.order_id_index.contains(command.order_id)) {
+            if (event_chain) |chain| {
+                const node = reserved_reject orelse unreachable;
+                prependReservedRejectEvent(
+                    chain,
+                    node,
+                    taker,
+                    taker.remaining(),
+                    .gtc,
+                    command.price,
+                );
+                reject_attached = true;
+            }
             return;
         }
 
@@ -1059,9 +1126,9 @@ pub const DirectOrderBook = struct {
         self: *DirectOrderBook,
         command: *cmd.OrderCommand,
         event_chain: ?*events.EventChain,
-    ) std.mem.Allocator.Error!void {
+    ) ProcessError!void {
         var taker = ActiveOrder.fromCommand(command) orelse return;
-        const budget = self.checkBudgetToFill(taker.action, taker.size) orelse {
+        const budget = (try self.checkBudgetToFill(taker.action, taker.size)) orelse {
             try appendRejectEvent(event_chain, taker, taker.remaining(), .fok_budget, command.price);
             return;
         };
@@ -1071,9 +1138,8 @@ pub const DirectOrderBook = struct {
         }
         const limit_price = if (taker.action == .ask) 0 else taker.price;
         try self.tryMatchInstantly(&taker, limit_price, event_chain);
-        const reject_size = taker.remaining();
-        if (reject_size > 0) {
-            try appendRejectEvent(event_chain, taker, reject_size, .fok_budget, command.price);
+        if (taker.filled != taker.size) {
+            return error.OrderBookInvariantViolation;
         }
     }
 
@@ -1086,7 +1152,7 @@ pub const DirectOrderBook = struct {
         if (order.uid != command.uid) return .matching_unknown_order_id;
 
         command.action = order.action;
-        try appendReduceEvent(event_chain, order.action, order.price, order.reserve_bid_price, order.remaining());
+        try appendReduceEvent(event_chain, order.action, order.price, order.reserve_bid_price, order.remaining(), true);
         self.removeOrderAndFree(order);
         return .success;
     }
@@ -1102,9 +1168,14 @@ pub const DirectOrderBook = struct {
         if (order.uid != command.uid) return .matching_unknown_order_id;
 
         const reduce_by: i64 = @min(order.remaining(), command.size);
-        if (reduce_by == order.remaining()) {
+        const completed = reduce_by == order.remaining();
+
+        // Event allocation is fallible in Zig. Allocate before mutating the
+        // book so an OOM cannot reduce or remove the order without an event.
+        try appendReduceEvent(event_chain, order.action, order.price, order.reserve_bid_price, reduce_by, completed);
+
+        if (completed) {
             command.action = order.action;
-            try appendReduceEvent(event_chain, order.action, order.price, order.reserve_bid_price, reduce_by);
             self.removeOrderAndFree(order);
             return .success;
         }
@@ -1114,7 +1185,6 @@ pub const DirectOrderBook = struct {
         std.debug.assert(order.parent.volume >= 0);
 
         command.action = order.action;
-        try appendReduceEvent(event_chain, order.action, order.price, order.reserve_bid_price, reduce_by);
         return .success;
     }
 
@@ -1185,6 +1255,18 @@ fn checkedMul(a: i64, b: i64) ?i64 {
 fn checkedAdd(a: i64, b: i64) ?i64 {
     const pair = @addWithOverflow(a, b);
     return if (pair[1] == 0) pair[0] else null;
+}
+
+fn invalidPlaceOrderResult(command: *const cmd.OrderCommand) ?cmd.CommandResultCode {
+    const action = command.action orelse return .matching_unsupported_command;
+    _ = command.order_type orelse return .matching_unsupported_command;
+
+    if (command.size <= 0) return .matching_unsupported_command;
+    if (command.price < 0) return .invalid_price_step;
+    if (action == .bid and command.reserve_bid_price < 0) {
+        return .risk_invalid_reserve_bid_price;
+    }
+    return null;
 }
 
 fn calcAmountBidTakerFee(size: i64, price: i64, spec: common.CoreSymbolSpecification) ?i64 {
@@ -1328,6 +1410,413 @@ test "direct book fixed-flow parity with naive" {
     try expectSameL2(allocator, &naive_book, &direct_book, 64);
     naive_book.validateInternalState();
     direct_book.validateInternalState();
+}
+
+test "direct exact multi-maker fill marks only final trade active order completed" {
+    const allocator = std.testing.allocator;
+    var book = try DirectOrderBook.init(allocator, try makeTestSpec());
+    defer book.deinit();
+
+    var maker_three = cmd.OrderCommand.newOrder(.gtc, 31, 501, 100, 0, 3, .ask);
+    var maker_seven = cmd.OrderCommand.newOrder(.gtc, 32, 502, 100, 0, 7, .ask);
+    _ = try book.processCommand(&maker_three);
+    _ = try book.processCommand(&maker_seven);
+
+    const state_before_oom = try book.stateHash();
+    var failing_allocator = std.testing.FailingAllocator.init(allocator, .{ .fail_index = 0 });
+    var failing_events = events.EventChain.init(failing_allocator.allocator());
+    defer failing_events.deinit();
+    var failing_taker = cmd.OrderCommand.newOrder(.ioc, 33, 503, 100, 120, 10, .bid);
+    try std.testing.expectError(
+        error.OutOfMemory,
+        book.processCommandWithEvents(&failing_taker, &failing_events),
+    );
+    try std.testing.expectEqual(@as(usize, 0), failing_events.len);
+    try std.testing.expectEqual(state_before_oom, try book.stateHash());
+
+    var taker = cmd.OrderCommand.newOrder(.ioc, 33, 503, 100, 120, 10, .bid);
+    var event_chain = events.EventChain.init(allocator);
+    defer event_chain.deinit();
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.success,
+        try book.processCommandWithEvents(&taker, &event_chain),
+    );
+
+    try std.testing.expectEqual(@as(usize, 2), event_chain.len);
+    const first = event_chain.head orelse return error.TestExpectedFirstTradeEvent;
+    try std.testing.expectEqual(events.MatcherEventType.trade, first.event_type);
+    try std.testing.expectEqual(@as(i64, 31), first.matched_order_id);
+    try std.testing.expectEqual(@as(i64, 3), first.size);
+    try std.testing.expect(first.matched_order_completed);
+    try std.testing.expect(!first.active_order_completed);
+
+    const final = first.next_event orelse return error.TestExpectedFinalTradeEvent;
+    try std.testing.expectEqual(events.MatcherEventType.trade, final.event_type);
+    try std.testing.expectEqual(@as(i64, 32), final.matched_order_id);
+    try std.testing.expectEqual(@as(i64, 7), final.size);
+    try std.testing.expect(final.matched_order_completed);
+    try std.testing.expect(final.active_order_completed);
+    try std.testing.expect(final.next_event == null);
+
+    try std.testing.expectEqual(@as(usize, 0), book.ordersNum(.ask));
+    book.validateInternalState();
+}
+
+test "direct unfilled duplicate GTC emits Java-equivalent rejection" {
+    const allocator = std.testing.allocator;
+    var book = try DirectOrderBook.init(allocator, try makeTestSpec());
+    defer book.deinit();
+
+    var first = cmd.OrderCommand.newOrder(.gtc, 41, 501, 90, 120, 5, .bid);
+    _ = try book.processCommand(&first);
+
+    var duplicate = cmd.OrderCommand.newOrder(.gtc, 41, 502, 80, 120, 30, .bid);
+    var event_chain = events.EventChain.init(allocator);
+    defer event_chain.deinit();
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.success,
+        try book.processCommandWithEvents(&duplicate, &event_chain),
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), event_chain.len);
+    const reject = event_chain.head orelse return error.TestExpectedDuplicateRejectEvent;
+    try std.testing.expectEqual(events.MatcherEventType.reject, reject.event_type);
+    try std.testing.expect(reject.active_order_completed);
+    try std.testing.expectEqual(@as(i64, 0), reject.matched_order_id);
+    try std.testing.expectEqual(@as(i64, 0), reject.matched_order_uid);
+    try std.testing.expect(!reject.matched_order_completed);
+    try std.testing.expectEqual(@as(i64, 80), reject.price);
+    try std.testing.expectEqual(@as(i64, 30), reject.size);
+    try std.testing.expectEqual(@as(i64, 120), reject.bidder_hold_price);
+    try std.testing.expect(reject.next_event == null);
+
+    try std.testing.expectEqual(@as(usize, 1), book.ordersNum(.bid));
+    try std.testing.expectEqual(@as(i64, 5), book.totalOrdersVolume(.bid));
+    book.validateInternalState();
+}
+
+test "direct partially matched duplicate GTC prepends remainder rejection before trade" {
+    const allocator = std.testing.allocator;
+    var book = try DirectOrderBook.init(allocator, try makeTestSpec());
+    defer book.deinit();
+
+    var original = cmd.OrderCommand.newOrder(.gtc, 41, 501, 90, 120, 5, .bid);
+    var maker = cmd.OrderCommand.newOrder(.gtc, 40, 500, 100, 0, 3, .ask);
+    _ = try book.processCommand(&original);
+    _ = try book.processCommand(&maker);
+
+    var duplicate = cmd.OrderCommand.newOrder(.gtc, 41, 502, 110, 150, 7, .bid);
+    var event_chain = events.EventChain.init(allocator);
+    defer event_chain.deinit();
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.success,
+        try book.processCommandWithEvents(&duplicate, &event_chain),
+    );
+
+    try std.testing.expectEqual(@as(usize, 2), event_chain.len);
+    const reject = event_chain.head orelse return error.TestExpectedDuplicateRejectEvent;
+    try std.testing.expectEqual(events.MatcherEventType.reject, reject.event_type);
+    try std.testing.expect(reject.active_order_completed);
+    try std.testing.expectEqual(@as(i64, 4), reject.size);
+    try std.testing.expectEqual(@as(i64, 110), reject.price);
+    try std.testing.expectEqual(@as(i64, 150), reject.bidder_hold_price);
+
+    const trade = reject.next_event orelse return error.TestExpectedDuplicateTradeEvent;
+    try std.testing.expectEqual(events.MatcherEventType.trade, trade.event_type);
+    try std.testing.expect(!trade.active_order_completed);
+    try std.testing.expectEqual(@as(i64, 40), trade.matched_order_id);
+    try std.testing.expectEqual(@as(i64, 500), trade.matched_order_uid);
+    try std.testing.expect(trade.matched_order_completed);
+    try std.testing.expectEqual(@as(i64, 100), trade.price);
+    try std.testing.expectEqual(@as(i64, 3), trade.size);
+    try std.testing.expectEqual(@as(i64, 150), trade.bidder_hold_price);
+    try std.testing.expect(trade.next_event == null);
+
+    try std.testing.expectEqual(@as(usize, 0), book.ordersNum(.ask));
+    try std.testing.expectEqual(@as(usize, 1), book.ordersNum(.bid));
+    try std.testing.expectEqual(@as(i64, 5), book.totalOrdersVolume(.bid));
+
+    var holds: std.AutoHashMapUnmanaged(i32, i64) = .empty;
+    defer holds.deinit(allocator);
+    try book.accumulateOrderHolds(allocator, &holds);
+    try std.testing.expectEqual(@as(i64, 6_009_500), holds.get(15) orelse 0);
+
+    book.validateInternalState();
+}
+
+test "direct duplicate GTC can rest remainder when matching removes original id" {
+    const allocator = std.testing.allocator;
+    var book = try DirectOrderBook.init(allocator, try makeTestSpec());
+    defer book.deinit();
+
+    var original = cmd.OrderCommand.newOrder(.gtc, 51, 501, 100, 0, 3, .ask);
+    _ = try book.processCommand(&original);
+
+    var replacement = cmd.OrderCommand.newOrder(.gtc, 51, 502, 110, 150, 7, .bid);
+    var event_chain = events.EventChain.init(allocator);
+    defer event_chain.deinit();
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.success,
+        try book.processCommandWithEvents(&replacement, &event_chain),
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), event_chain.len);
+    const trade = event_chain.head orelse return error.TestExpectedDuplicateTradeEvent;
+    try std.testing.expectEqual(events.MatcherEventType.trade, trade.event_type);
+    try std.testing.expect(!trade.active_order_completed);
+    try std.testing.expectEqual(@as(i64, 51), trade.matched_order_id);
+    try std.testing.expectEqual(@as(i64, 3), trade.size);
+    try std.testing.expect(trade.next_event == null);
+    try std.testing.expectEqual(@as(usize, 0), book.ordersNum(.ask));
+    try std.testing.expectEqual(@as(usize, 1), book.ordersNum(.bid));
+    try std.testing.expectEqual(@as(i64, 4), book.totalOrdersVolume(.bid));
+
+    book.validateInternalState();
+}
+
+test "direct reduce completion flag distinguishes partial and full removal" {
+    const allocator = std.testing.allocator;
+    var book = try DirectOrderBook.init(allocator, try makeTestSpec());
+    defer book.deinit();
+
+    var bid = cmd.OrderCommand.newOrder(.gtc, 20, 300, 100, 120, 10, .bid);
+    _ = try book.processCommand(&bid);
+
+    var reduce_partial = cmd.OrderCommand.reduce(20, 300, 3);
+    var partial_events = events.EventChain.init(allocator);
+    defer partial_events.deinit();
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.success,
+        try book.processCommandWithEvents(&reduce_partial, &partial_events),
+    );
+    try std.testing.expectEqual(@as(?common.OrderAction, .bid), reduce_partial.action);
+    try std.testing.expectEqual(@as(i64, 7), book.totalOrdersVolume(.bid));
+    try std.testing.expectEqual(@as(usize, 1), partial_events.len);
+    const partial = partial_events.head orelse return error.TestExpectedPartialReduceEvent;
+    try std.testing.expectEqual(events.MatcherEventType.reduce, partial.event_type);
+    try std.testing.expect(!partial.active_order_completed);
+    try std.testing.expectEqual(@as(i64, 3), partial.size);
+    try std.testing.expectEqual(@as(i64, 100), partial.price);
+    try std.testing.expectEqual(@as(i64, 120), partial.bidder_hold_price);
+    try std.testing.expect(partial.next_event == null);
+
+    var reduce_full = cmd.OrderCommand.reduce(20, 300, 100);
+    var full_events = events.EventChain.init(allocator);
+    defer full_events.deinit();
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.success,
+        try book.processCommandWithEvents(&reduce_full, &full_events),
+    );
+    try std.testing.expectEqual(@as(usize, 0), book.ordersNum(.bid));
+    try std.testing.expectEqual(@as(usize, 1), full_events.len);
+    const full = full_events.head orelse return error.TestExpectedFullReduceEvent;
+    try std.testing.expectEqual(events.MatcherEventType.reduce, full.event_type);
+    try std.testing.expect(full.active_order_completed);
+    try std.testing.expectEqual(@as(i64, 7), full.size);
+    try std.testing.expectEqual(@as(i64, 100), full.price);
+    try std.testing.expectEqual(@as(i64, 120), full.bidder_hold_price);
+    try std.testing.expect(full.next_event == null);
+
+    book.validateInternalState();
+}
+
+test "duplicate rejection and reduce event OOM leave direct book unchanged" {
+    const allocator = std.testing.allocator;
+    var book = try DirectOrderBook.init(allocator, try makeTestSpec());
+    defer book.deinit();
+
+    var original = cmd.OrderCommand.newOrder(.gtc, 61, 601, 90, 120, 5, .bid);
+    var maker = cmd.OrderCommand.newOrder(.gtc, 60, 600, 100, 0, 3, .ask);
+    _ = try book.processCommand(&original);
+    _ = try book.processCommand(&maker);
+
+    const before_duplicate = try book.stateHash();
+    var duplicate_failing = std.testing.FailingAllocator.init(allocator, .{ .fail_index = 0 });
+    var duplicate_events = events.EventChain.init(duplicate_failing.allocator());
+    defer duplicate_events.deinit();
+    var duplicate = cmd.OrderCommand.newOrder(.gtc, 61, 602, 110, 150, 7, .bid);
+    try std.testing.expectError(
+        error.OutOfMemory,
+        book.processCommandWithEvents(&duplicate, &duplicate_events),
+    );
+    try std.testing.expectEqual(@as(usize, 0), duplicate_events.len);
+    try std.testing.expectEqual(before_duplicate, try book.stateHash());
+
+    const before_reduce = try book.stateHash();
+    var reduce_failing = std.testing.FailingAllocator.init(allocator, .{ .fail_index = 0 });
+    var reduce_events = events.EventChain.init(reduce_failing.allocator());
+    defer reduce_events.deinit();
+    var reduce = cmd.OrderCommand.reduce(61, 601, 2);
+    try std.testing.expectError(
+        error.OutOfMemory,
+        book.processCommandWithEvents(&reduce, &reduce_events),
+    );
+    try std.testing.expectEqual(@as(usize, 0), reduce_events.len);
+    try std.testing.expectEqual(before_reduce, try book.stateHash());
+    try std.testing.expectEqual(@as(i64, 5), book.totalOrdersVolume(.bid));
+    try std.testing.expectEqual(@as(i64, 3), book.totalOrdersVolume(.ask));
+
+    book.validateInternalState();
+}
+
+test "malformed place orders are rejected before direct book mutation" {
+    const allocator = std.testing.allocator;
+    var book = try DirectOrderBook.init(allocator, try makeTestSpec());
+    defer book.deinit();
+
+    var resting = cmd.OrderCommand.newOrder(.gtc, 9_000, 500, 100, 0, 5, .ask);
+    _ = try book.processCommand(&resting);
+    const state_before = try book.stateHash();
+
+    var cases = [_]struct {
+        order: cmd.OrderCommand,
+        expected: cmd.CommandResultCode,
+    }{
+        .{
+            .order = cmd.OrderCommand.newOrder(.gtc, 9_101, 501, 90, 100, 0, .bid),
+            .expected = .matching_unsupported_command,
+        },
+        .{
+            .order = cmd.OrderCommand.newOrder(.gtc, 9_102, 502, 110, 0, -1, .ask),
+            .expected = .matching_unsupported_command,
+        },
+        .{
+            .order = cmd.OrderCommand.newOrder(.gtc, 9_103, 503, -1, 0, 1, .ask),
+            .expected = .invalid_price_step,
+        },
+        .{
+            .order = cmd.OrderCommand.newOrder(.fok_budget, 9_104, 504, -1, -1, 1, .bid),
+            .expected = .invalid_price_step,
+        },
+        .{
+            .order = cmd.OrderCommand.newOrder(.gtc, 9_105, 505, 90, -1, 1, .bid),
+            .expected = .risk_invalid_reserve_bid_price,
+        },
+    };
+
+    for (&cases) |*case| {
+        var event_chain = events.EventChain.init(allocator);
+        defer event_chain.deinit();
+        try std.testing.expectEqual(
+            case.expected,
+            try book.processCommandWithEvents(&case.order, &event_chain),
+        );
+        try std.testing.expectEqual(@as(usize, 0), event_chain.len);
+        try std.testing.expectEqual(state_before, try book.stateHash());
+    }
+
+    book.validateInternalState();
+}
+
+test "FOK budget rejects atomically when aggregate volume overstates makers in direct book" {
+    const allocator = std.testing.allocator;
+    var book = try DirectOrderBook.init(allocator, try makeTestSpec());
+    defer book.deinit();
+
+    var resting = cmd.OrderCommand.newOrder(.gtc, 9_201, 510, 100, 0, 2, .ask);
+    _ = try book.processCommand(&resting);
+    const maker = book.order_id_index.get(9_201) orelse return error.TestExpectedMakerOrder;
+    const bucket = maker.parent;
+
+    // Simulate a stale aggregate counter. The prescan must derive fillability
+    // from actual maker orders, otherwise this produces a partial trade plus
+    // a financially invalid one-lot FOK reject.
+    bucket.volume = 3;
+
+    var event_chain = events.EventChain.init(allocator);
+    defer event_chain.deinit();
+    var fok = cmd.OrderCommand.newOrder(.fok_budget, 9_202, 511, 300, 300, 3, .bid);
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.success,
+        try book.processCommandWithEvents(&fok, &event_chain),
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), event_chain.len);
+    const reject = event_chain.head orelse return error.TestExpectedRejectEvent;
+    try std.testing.expectEqual(events.MatcherEventType.reject, reject.event_type);
+    try std.testing.expectEqual(@as(i64, 3), reject.size);
+    try std.testing.expect(reject.next_event == null);
+    try std.testing.expectEqual(@as(usize, 1), book.ordersNum(.ask));
+    try std.testing.expectEqual(@as(i64, 0), maker.filled);
+
+    bucket.volume = 2;
+    maker.filled = 2;
+    var corrupt_chain = events.EventChain.init(allocator);
+    defer corrupt_chain.deinit();
+    var corrupt_fok = cmd.OrderCommand.newOrder(.fok_budget, 9_203, 512, 100, 100, 1, .bid);
+    try std.testing.expectError(
+        error.OrderBookInvariantViolation,
+        book.processCommandWithEvents(&corrupt_fok, &corrupt_chain),
+    );
+    try std.testing.expectEqual(@as(usize, 0), corrupt_chain.len);
+    maker.filled = 0;
+    book.validateInternalState();
+}
+
+test "unsupported ioc-budget and fok orders emit full reject without mutating direct book" {
+    const allocator = std.testing.allocator;
+    var book = try DirectOrderBook.init(allocator, try makeTestSpec());
+    defer book.deinit();
+
+    var resting_ask = cmd.OrderCommand.newOrder(.gtc, 9001, 501, 100, 0, 50, .ask);
+    var resting_bid = cmd.OrderCommand.newOrder(.gtc, 9002, 502, 90, 120, 50, .bid);
+    _ = try book.processCommand(&resting_ask);
+    _ = try book.processCommand(&resting_bid);
+    const state_before = try book.stateHash();
+
+    const Case = struct {
+        order_type: common.OrderType,
+        order_id: i64,
+        uid: i64,
+        price: i64,
+        reserve_bid_price: i64,
+        size: i64,
+        action: common.OrderAction,
+    };
+    const cases = [_]Case{
+        .{ .order_type = .ioc_budget, .order_id = 9101, .uid = 601, .price = 110, .reserve_bid_price = 140, .size = 7, .action = .bid },
+        .{ .order_type = .ioc_budget, .order_id = 9102, .uid = 602, .price = 80, .reserve_bid_price = 0, .size = 8, .action = .ask },
+        .{ .order_type = .fok, .order_id = 9103, .uid = 603, .price = 110, .reserve_bid_price = 145, .size = 9, .action = .bid },
+        .{ .order_type = .fok, .order_id = 9104, .uid = 604, .price = 80, .reserve_bid_price = 0, .size = 10, .action = .ask },
+    };
+
+    for (cases) |case| {
+        var event_chain = events.EventChain.init(allocator);
+        defer event_chain.deinit();
+
+        var command = cmd.OrderCommand.newOrder(
+            case.order_type,
+            case.order_id,
+            case.uid,
+            case.price,
+            case.reserve_bid_price,
+            case.size,
+            case.action,
+        );
+        try std.testing.expectEqual(
+            cmd.CommandResultCode.success,
+            try book.processCommandWithEvents(&command, &event_chain),
+        );
+
+        try std.testing.expectEqual(@as(usize, 1), event_chain.len);
+        const reject = event_chain.head orelse return error.TestExpectedRejectEvent;
+        try std.testing.expectEqual(events.MatcherEventType.reject, reject.event_type);
+        try std.testing.expect(reject.active_order_completed);
+        try std.testing.expectEqual(@as(i64, 0), reject.matched_order_id);
+        try std.testing.expectEqual(@as(i64, 0), reject.matched_order_uid);
+        try std.testing.expect(!reject.matched_order_completed);
+        try std.testing.expectEqual(case.price, reject.price);
+        try std.testing.expectEqual(case.size, reject.size);
+        try std.testing.expectEqual(case.reserve_bid_price, reject.bidder_hold_price);
+        try std.testing.expect(reject.next_event == null);
+
+        try std.testing.expectEqual(state_before, try book.stateHash());
+        try std.testing.expectEqual(@as(usize, 1), book.ordersNum(.ask));
+        try std.testing.expectEqual(@as(usize, 1), book.ordersNum(.bid));
+        try std.testing.expectEqual(@as(i64, 50), book.totalOrdersVolume(.ask));
+        try std.testing.expectEqual(@as(i64, 50), book.totalOrdersVolume(.bid));
+        book.validateInternalState();
+    }
 }
 
 test "direct book accumulateOrderHolds matches naive" {

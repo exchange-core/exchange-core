@@ -162,6 +162,7 @@ const DiffError = std.mem.Allocator.Error ||
     error{
         InvalidArgs,
         NoFixtureInputs,
+        FixtureManifestMismatch,
         InvalidFixtureLine,
         MissingRequiredField,
         InvalidFieldValue,
@@ -323,6 +324,8 @@ const SimpleEventsCollector = struct {
     }
 };
 
+const default_fixture_directory = "src/zig/fixtures";
+
 const SimpleEventsRuntime = struct {
     collector: SimpleEventsCollector,
     processor: simple_events.SimpleEventsProcessor,
@@ -370,6 +373,47 @@ pub fn main(init: std.process.Init) DiffError!void {
     if (total_mismatches != 0) {
         return error.ComparisonFailed;
     }
+}
+
+const ManifestValidation = struct {
+    missing: usize = 0,
+    unexpected: usize = 0,
+
+    fn isExact(self: ManifestValidation) bool {
+        return self.missing == 0 and self.unexpected == 0;
+    }
+};
+
+fn validateManifestNames(
+    expected_paths: []const []const u8,
+    actual_names: []const []const u8,
+) ManifestValidation {
+    var validation: ManifestValidation = .{};
+
+    for (expected_paths) |expected_path| {
+        const expected_name = std.fs.path.basename(expected_path);
+        var found = false;
+        for (actual_names) |actual_name| {
+            if (std.mem.eql(u8, expected_name, actual_name)) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) validation.missing += 1;
+    }
+
+    for (actual_names) |actual_name| {
+        var expected = false;
+        for (expected_paths) |expected_path| {
+            if (std.mem.eql(u8, std.fs.path.basename(expected_path), actual_name)) {
+                expected = true;
+                break;
+            }
+        }
+        if (!expected) validation.unexpected += 1;
+    }
+
+    return validation;
 }
 
 fn collectFixturePaths(
@@ -488,12 +532,69 @@ fn collectFixturePaths(
         "src/zig/fixtures/java_exchange_trade_reports_long_direct_full_low32.fixture",
         "src/zig/fixtures/java_exchange_trade_reports_long_direct_full_detailed_low32.fixture",
     };
-    for (defaults) |path| {
-        if (fileExists(io, path)) {
-            try appendOwnedPath(allocator, &paths, path);
-        }
-    }
+    try collectDefaultFixturePaths(io, allocator, &paths, &defaults);
     return paths;
+}
+
+fn collectDefaultFixturePaths(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    paths: *std.ArrayListUnmanaged([]u8),
+    expected_paths: []const []const u8,
+) DiffError!void {
+    var actual_names: std.ArrayListUnmanaged([]u8) = .empty;
+    defer deinitOwnedPaths(allocator, &actual_names);
+
+    var dir = std.Io.Dir.cwd().openDir(io, default_fixture_directory, .{ .iterate = true }) catch |err| {
+        std.debug.print("fixture manifest: unable to open {s}: {}\n", .{ default_fixture_directory, err });
+        return error.InvalidArgs;
+    };
+    defer dir.close(io);
+
+    var iterator = dir.iterate();
+    while (iterator.next(io) catch |err| {
+        std.debug.print("fixture manifest: unable to scan {s}: {}\n", .{ default_fixture_directory, err });
+        return error.InvalidArgs;
+    }) |entry| {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".fixture")) continue;
+        try appendOwnedPath(allocator, &actual_names, entry.name);
+    }
+
+    const validation = validateManifestNames(expected_paths, actual_names.items);
+    if (!validation.isExact()) {
+        for (expected_paths) |expected_path| {
+            const expected_name = std.fs.path.basename(expected_path);
+            if (!containsName(actual_names.items, expected_name)) {
+                std.debug.print("fixture manifest: missing {s}/{s}\n", .{ default_fixture_directory, expected_name });
+            }
+        }
+        for (actual_names.items) |actual_name| {
+            if (!containsExpectedPath(expected_paths, actual_name)) {
+                std.debug.print("fixture manifest: unexpected {s}/{s}\n", .{ default_fixture_directory, actual_name });
+            }
+        }
+        std.debug.print(
+            "fixture manifest: expected {d} exact files, missing={d} unexpected={d}\n",
+            .{ expected_paths.len, validation.missing, validation.unexpected },
+        );
+        return error.FixtureManifestMismatch;
+    }
+
+    for (expected_paths) |path| try appendOwnedPath(allocator, paths, path);
+}
+
+fn containsName(names: []const []const u8, needle: []const u8) bool {
+    for (names) |name| {
+        if (std.mem.eql(u8, name, needle)) return true;
+    }
+    return false;
+}
+
+fn containsExpectedPath(expected_paths: []const []const u8, actual_name: []const u8) bool {
+    for (expected_paths) |expected_path| {
+        if (std.mem.eql(u8, std.fs.path.basename(expected_path), actual_name)) return true;
+    }
+    return false;
 }
 
 fn appendOwnedPath(
@@ -510,11 +611,6 @@ fn deinitOwnedPaths(allocator: std.mem.Allocator, paths: *std.ArrayListUnmanaged
     for (paths.items) |path| allocator.free(path);
     paths.deinit(allocator);
     paths.* = .empty;
-}
-
-fn fileExists(io: std.Io, path: []const u8) bool {
-    std.Io.Dir.cwd().access(io, path, .{}) catch return false;
-    return true;
 }
 
 fn runFixtureDiff(io: std.Io, allocator: std.mem.Allocator, path: []const u8) DiffError!usize {
@@ -2043,6 +2139,52 @@ test "parse command result code from java enum name" {
         try parseCommandResultCode("MATCHING_INVALID_ORDER_BOOK_ID"),
     );
     try std.testing.expectError(error.UnknownCommandResult, parseCommandResultCode("NOT_A_RESULT"));
+}
+
+test "fixture manifest accepts exact complete names" {
+    const expected = [_][]const u8{
+        "src/zig/fixtures/java_a.fixture",
+        "src/zig/fixtures/java_b.fixture",
+    };
+    const actual = [_][]const u8{
+        "java_b.fixture",
+        "java_a.fixture",
+    };
+
+    const validation = validateManifestNames(&expected, &actual);
+    try std.testing.expect(validation.isExact());
+    try std.testing.expectEqual(@as(usize, 0), validation.missing);
+    try std.testing.expectEqual(@as(usize, 0), validation.unexpected);
+}
+
+test "fixture manifest reports missing expected names" {
+    const expected = [_][]const u8{
+        "src/zig/fixtures/java_a.fixture",
+        "src/zig/fixtures/java_b.fixture",
+    };
+    const actual = [_][]const u8{"java_a.fixture"};
+
+    const validation = validateManifestNames(&expected, &actual);
+    try std.testing.expect(!validation.isExact());
+    try std.testing.expectEqual(@as(usize, 1), validation.missing);
+    try std.testing.expectEqual(@as(usize, 0), validation.unexpected);
+}
+
+test "fixture manifest reports unexpected names" {
+    const expected = [_][]const u8{
+        "src/zig/fixtures/java_a.fixture",
+        "src/zig/fixtures/java_b.fixture",
+    };
+    const actual = [_][]const u8{
+        "java_a.fixture",
+        "java_b.fixture",
+        "java_extra.fixture",
+    };
+
+    const validation = validateManifestNames(&expected, &actual);
+    try std.testing.expect(!validation.isExact());
+    try std.testing.expectEqual(@as(usize, 0), validation.missing);
+    try std.testing.expectEqual(@as(usize, 1), validation.unexpected);
 }
 
 test "parse fixture mode and scenario enums" {

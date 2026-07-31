@@ -1,10 +1,32 @@
 const std = @import("std");
 const common = @import("common.zig");
 const cmd = @import("cmd.zig");
+const int_map_order = @import("eclipse_int_map_order.zig");
+const long_map_order = @import("eclipse_long_map_order.zig");
 
 pub const StateHashError = std.mem.Allocator.Error || error{
     StateHashCorrupted,
 };
+
+pub const MarginMathError = error{
+    ArithmeticOverflow,
+};
+
+fn checkedMarginAdd(a: i64, b: i64) MarginMathError!i64 {
+    return std.math.add(i64, a, b) catch error.ArithmeticOverflow;
+}
+
+fn checkedMarginSub(a: i64, b: i64) MarginMathError!i64 {
+    return std.math.sub(i64, a, b) catch error.ArithmeticOverflow;
+}
+
+fn checkedMarginMul(a: i64, b: i64) MarginMathError!i64 {
+    return std.math.mul(i64, a, b) catch error.ArithmeticOverflow;
+}
+
+fn narrowMarginI128(value: i128) MarginMathError!i64 {
+    return std.math.cast(i64, value) orelse error.ArithmeticOverflow;
+}
 
 fn invariantViolation(comptime message: []const u8) noreturn {
     @panic(message);
@@ -39,31 +61,73 @@ pub const SymbolPositionRecord = struct {
         return self.direction == .empty and self.pending_sell_size == 0 and self.pending_buy_size == 0;
     }
 
-    pub fn pendingHold(self: *SymbolPositionRecord, action: common.OrderAction, size: i64) void {
+    pub fn pendingHold(
+        self: *SymbolPositionRecord,
+        action: common.OrderAction,
+        size: i64,
+    ) MarginMathError!void {
         std.debug.assert(size >= 0);
         if (action == .ask) {
-            self.pending_sell_size += size;
+            self.pending_sell_size = try checkedMarginAdd(self.pending_sell_size, size);
         } else {
-            self.pending_buy_size += size;
+            self.pending_buy_size = try checkedMarginAdd(self.pending_buy_size, size);
         }
     }
 
-    pub fn pendingRelease(self: *SymbolPositionRecord, action: common.OrderAction, size: i64) void {
+    pub fn pendingRelease(
+        self: *SymbolPositionRecord,
+        action: common.OrderAction,
+        size: i64,
+    ) MarginMathError!void {
         std.debug.assert(size >= 0);
         if (action == .ask) {
-            self.pending_sell_size -= size;
+            self.pending_sell_size = try checkedMarginSub(self.pending_sell_size, size);
         } else {
-            self.pending_buy_size -= size;
+            self.pending_buy_size = try checkedMarginSub(self.pending_buy_size, size);
         }
     }
 
-    pub fn calculateRequiredMarginForFutures(self: SymbolPositionRecord, spec: common.CoreSymbolSpecification) i64 {
-        const signed_position = self.open_volume * @as(i64, self.direction.multiplier());
-        const current_risk_buy_size = self.pending_buy_size + signed_position;
-        const current_risk_sell_size = self.pending_sell_size - signed_position;
+    pub fn estimateProfit(
+        self: SymbolPositionRecord,
+        spec: common.CoreSymbolSpecification,
+        last_bid_price: ?i64,
+        last_ask_price: ?i64,
+    ) MarginMathError!i64 {
+        const estimated_profit: i128 = @as(i128, self.profit) + switch (self.direction) {
+            .empty => 0,
+            .long => if (last_bid_price) |bid_price|
+                if (bid_price != 0)
+                    @as(i128, self.open_volume) * @as(i128, bid_price) -
+                        @as(i128, self.open_price_sum)
+                else
+                    @as(i128, spec.margin_buy) * @as(i128, self.open_volume)
+            else
+                @as(i128, spec.margin_buy) * @as(i128, self.open_volume),
+            .short => if (last_ask_price) |ask_price|
+                if (ask_price != std.math.maxInt(i64))
+                    @as(i128, self.open_price_sum) -
+                        @as(i128, self.open_volume) * @as(i128, ask_price)
+                else
+                    @as(i128, spec.margin_sell) * @as(i128, self.open_volume)
+            else
+                @as(i128, spec.margin_sell) * @as(i128, self.open_volume),
+        };
+        return narrowMarginI128(estimated_profit);
+    }
 
-        const margin_buy = spec.margin_buy * current_risk_buy_size;
-        const margin_sell = spec.margin_sell * current_risk_sell_size;
+    pub fn calculateRequiredMarginForFutures(
+        self: SymbolPositionRecord,
+        spec: common.CoreSymbolSpecification,
+    ) MarginMathError!i64 {
+        const signed_position = try checkedMarginMul(
+            self.open_volume,
+            @as(i64, self.direction.multiplier()),
+        );
+        const current_risk_buy_size = try checkedMarginAdd(self.pending_buy_size, signed_position);
+        const current_risk_sell_size = try checkedMarginSub(self.pending_sell_size, signed_position);
+
+        const margin_buy = try checkedMarginMul(spec.margin_buy, current_risk_buy_size);
+        const margin_sell = try checkedMarginMul(spec.margin_sell, current_risk_sell_size);
         return @max(margin_buy, margin_sell);
     }
 
@@ -72,19 +136,28 @@ pub const SymbolPositionRecord = struct {
         spec: common.CoreSymbolSpecification,
         action: common.OrderAction,
         size: i64,
-    ) i64 {
-        const signed_position = self.open_volume * @as(i64, self.direction.multiplier());
-        const current_risk_buy_size = self.pending_buy_size + signed_position;
-        const current_risk_sell_size = self.pending_sell_size - signed_position;
+    ) MarginMathError!i64 {
+        const signed_position = try checkedMarginMul(
+            self.open_volume,
+            @as(i64, self.direction.multiplier()),
+        );
+        const current_risk_buy_size = try checkedMarginAdd(self.pending_buy_size, signed_position);
+        const current_risk_sell_size = try checkedMarginSub(self.pending_sell_size, signed_position);
 
-        var margin_buy = spec.margin_buy * current_risk_buy_size;
-        var margin_sell = spec.margin_sell * current_risk_sell_size;
+        var margin_buy = try checkedMarginMul(spec.margin_buy, current_risk_buy_size);
+        var margin_sell = try checkedMarginMul(spec.margin_sell, current_risk_sell_size);
         const current_margin = @max(margin_buy, margin_sell);
 
         if (action == .bid) {
-            margin_buy += spec.margin_buy * size;
+            margin_buy = try checkedMarginAdd(
+                margin_buy,
+                try checkedMarginMul(spec.margin_buy, size),
+            );
         } else {
-            margin_sell += spec.margin_sell * size;
+            margin_sell = try checkedMarginAdd(
+                margin_sell,
+                try checkedMarginMul(spec.margin_sell, size),
+            );
         }
         const new_margin = @max(margin_buy, margin_sell);
 
@@ -96,12 +169,14 @@ pub const SymbolPositionRecord = struct {
         action: common.OrderAction,
         size: i64,
         price: i64,
-    ) i64 {
-        self.pendingRelease(action, size);
-        const size_to_open = self.closeCurrentPositionFutures(action, size, price);
+    ) MarginMathError!i64 {
+        var next = self.*;
+        try next.pendingRelease(action, size);
+        const size_to_open = try next.closeCurrentPositionFutures(action, size, price);
         if (size_to_open > 0) {
-            self.openPositionMargin(action, size_to_open, price);
+            try next.openPositionMargin(action, size_to_open, price);
         }
+        self.* = next;
         return size_to_open;
     }
 
@@ -110,21 +185,29 @@ pub const SymbolPositionRecord = struct {
         action: common.OrderAction,
         trade_size: i64,
         trade_price: i64,
-    ) i64 {
+    ) MarginMathError!i64 {
         if (self.direction == .empty or self.direction == common.PositionDirection.fromAction(action)) {
             return trade_size;
         }
 
         if (self.open_volume > trade_size) {
-            self.open_volume -= trade_size;
-            self.open_price_sum -= trade_size * trade_price;
+            self.open_volume = try checkedMarginSub(self.open_volume, trade_size);
+            self.open_price_sum = try checkedMarginSub(
+                self.open_price_sum,
+                try checkedMarginMul(trade_size, trade_price),
+            );
             return 0;
         }
 
-        self.profit += (self.open_volume * trade_price - self.open_price_sum) * @as(i64, self.direction.multiplier());
+        const closing_value = try checkedMarginMul(self.open_volume, trade_price);
+        const closing_profit = try checkedMarginMul(
+            try checkedMarginSub(closing_value, self.open_price_sum),
+            @as(i64, self.direction.multiplier()),
+        );
+        self.profit = try checkedMarginAdd(self.profit, closing_profit);
         self.open_price_sum = 0;
         self.direction = .empty;
-        const size_to_open = trade_size - self.open_volume;
+        const size_to_open = try checkedMarginSub(trade_size, self.open_volume);
         self.open_volume = 0;
         return size_to_open;
     }
@@ -134,9 +217,12 @@ pub const SymbolPositionRecord = struct {
         action: common.OrderAction,
         size_to_open: i64,
         trade_price: i64,
-    ) void {
-        self.open_volume += size_to_open;
-        self.open_price_sum += trade_price * size_to_open;
+    ) MarginMathError!void {
+        self.open_volume = try checkedMarginAdd(self.open_volume, size_to_open);
+        self.open_price_sum = try checkedMarginAdd(
+            self.open_price_sum,
+            try checkedMarginMul(trade_price, size_to_open),
+        );
         self.direction = common.PositionDirection.fromAction(action);
     }
 
@@ -168,8 +254,10 @@ pub const SymbolPositionRecord = struct {
 pub const UserProfile = struct {
     uid: i64,
     positions: std.AutoHashMapUnmanaged(i32, SymbolPositionRecord) = .empty,
+    positions_history: int_map_order.History = int_map_order.History.init(),
     adjustments_counter: i64 = 0,
     accounts: std.AutoHashMapUnmanaged(i32, i64) = .empty,
+    accounts_history: int_map_order.History = int_map_order.History.init(),
     user_status: common.UserStatus,
 
     pub fn init(uid: i64, user_status: common.UserStatus) UserProfile {
@@ -181,8 +269,208 @@ pub const UserProfile = struct {
 
     pub fn deinit(self: *UserProfile, allocator: std.mem.Allocator) void {
         self.positions.deinit(allocator);
+        self.positions_history.deinit(allocator);
         self.accounts.deinit(allocator);
+        self.accounts_history.deinit(allocator);
         self.* = undefined;
+    }
+
+    pub const HistoryValidationError = int_map_order.HistoryError || error{
+        HistorySemanticKeySetMismatch,
+    };
+
+    fn validateHistoryKeys(
+        comptime Value: type,
+        allocator: std.mem.Allocator,
+        history: *const int_map_order.History,
+        map: *const std.AutoHashMapUnmanaged(i32, Value),
+    ) HistoryValidationError![]i32 {
+        const keys = try history.orderedKeys(allocator);
+        errdefer allocator.free(keys);
+        if (keys.len != map.count()) return error.HistorySemanticKeySetMismatch;
+        for (keys) |key| {
+            if (!map.contains(key)) return error.HistorySemanticKeySetMismatch;
+        }
+        return keys;
+    }
+
+    pub fn accountKeysInHistoryOrder(
+        self: *const UserProfile,
+        allocator: std.mem.Allocator,
+    ) HistoryValidationError![]i32 {
+        return validateHistoryKeys(i64, allocator, &self.accounts_history, &self.accounts);
+    }
+
+    pub fn positionKeysInHistoryOrder(
+        self: *const UserProfile,
+        allocator: std.mem.Allocator,
+    ) HistoryValidationError![]i32 {
+        return validateHistoryKeys(
+            SymbolPositionRecord,
+            allocator,
+            &self.positions_history,
+            &self.positions,
+        );
+    }
+
+    pub fn validatedAccountsHistory(
+        self: *const UserProfile,
+        allocator: std.mem.Allocator,
+    ) HistoryValidationError!*const int_map_order.History {
+        const keys = try self.accountKeysInHistoryOrder(allocator);
+        allocator.free(keys);
+        return &self.accounts_history;
+    }
+
+    pub fn validatedPositionsHistory(
+        self: *const UserProfile,
+        allocator: std.mem.Allocator,
+    ) HistoryValidationError!*const int_map_order.History {
+        const keys = try self.positionKeysInHistoryOrder(allocator);
+        allocator.free(keys);
+        return &self.positions_history;
+    }
+
+    pub fn cloneAccountsHistory(
+        self: *const UserProfile,
+        allocator: std.mem.Allocator,
+    ) HistoryValidationError!int_map_order.History {
+        if (self.accounts_history.isKnown()) {
+            _ = try self.validatedAccountsHistory(allocator);
+        }
+        return self.accounts_history.clone(allocator);
+    }
+
+    pub fn clonePositionsHistory(
+        self: *const UserProfile,
+        allocator: std.mem.Allocator,
+    ) HistoryValidationError!int_map_order.History {
+        if (self.positions_history.isKnown()) {
+            _ = try self.validatedPositionsHistory(allocator);
+        }
+        return self.positions_history.clone(allocator);
+    }
+
+    /// Replaces the exact EC sidecar only after proving that it describes the
+    /// current semantic account key set. Ownership of `next` moves on success.
+    pub fn replaceAccountsHistory(
+        self: *UserProfile,
+        allocator: std.mem.Allocator,
+        next: *int_map_order.History,
+    ) HistoryValidationError!void {
+        const keys = try validateHistoryKeys(i64, allocator, next, &self.accounts);
+        allocator.free(keys);
+        var old = self.accounts_history;
+        self.accounts_history = next.*;
+        next.* = int_map_order.History.initUnavailable();
+        old.deinit(allocator);
+    }
+
+    /// Replaces the exact EC sidecar only after proving that it describes the
+    /// current semantic position key set. Ownership of `next` moves on success.
+    pub fn replacePositionsHistory(
+        self: *UserProfile,
+        allocator: std.mem.Allocator,
+        next: *int_map_order.History,
+    ) HistoryValidationError!void {
+        const keys = try validateHistoryKeys(
+            SymbolPositionRecord,
+            allocator,
+            next,
+            &self.positions,
+        );
+        allocator.free(keys);
+        var old = self.positions_history;
+        self.positions_history = next.*;
+        next.* = int_map_order.History.initUnavailable();
+        old.deinit(allocator);
+    }
+
+    pub fn markAccountsHistoryUnavailable(
+        self: *UserProfile,
+        allocator: std.mem.Allocator,
+    ) void {
+        if (!self.accounts_history.isKnown()) return;
+        self.accounts_history.deinit(allocator);
+        self.accounts_history = int_map_order.History.initUnavailable();
+    }
+
+    pub fn markPositionsHistoryUnavailable(
+        self: *UserProfile,
+        allocator: std.mem.Allocator,
+    ) void {
+        if (!self.positions_history.isKnown()) return;
+        self.positions_history.deinit(allocator);
+        self.positions_history = int_map_order.History.initUnavailable();
+    }
+
+    pub fn putAccount(
+        self: *UserProfile,
+        allocator: std.mem.Allocator,
+        currency: i32,
+        value: i64,
+    ) int_map_order.LayoutError!void {
+        if (self.accounts.getPtr(currency)) |balance| {
+            balance.* = value;
+            return;
+        }
+        var next_history = try self.accounts_history.clone(allocator);
+        errdefer next_history.deinit(allocator);
+        try next_history.recordPut(allocator, currency);
+        try self.accounts.ensureUnusedCapacity(allocator, 1);
+        self.accounts.putAssumeCapacityNoClobber(currency, value);
+        var old_history = self.accounts_history;
+        self.accounts_history = next_history;
+        old_history.deinit(allocator);
+    }
+
+    pub fn addToAccountValue(
+        self: *UserProfile,
+        allocator: std.mem.Allocator,
+        currency: i32,
+        delta: i64,
+    ) int_map_order.LayoutError!void {
+        if (self.accounts.getPtr(currency)) |balance| {
+            balance.* += delta;
+            return;
+        }
+        try self.putAccount(allocator, currency, delta);
+    }
+
+    pub fn putPosition(
+        self: *UserProfile,
+        allocator: std.mem.Allocator,
+        symbol: i32,
+        position: SymbolPositionRecord,
+    ) int_map_order.LayoutError!void {
+        if (self.positions.getPtr(symbol)) |existing| {
+            existing.* = position;
+            return;
+        }
+        var next_history = try self.positions_history.clone(allocator);
+        errdefer next_history.deinit(allocator);
+        try next_history.recordPut(allocator, symbol);
+        try self.positions.ensureUnusedCapacity(allocator, 1);
+        self.positions.putAssumeCapacityNoClobber(symbol, position);
+        var old_history = self.positions_history;
+        self.positions_history = next_history;
+        old_history.deinit(allocator);
+    }
+
+    pub fn removePosition(self: *UserProfile, symbol: i32) ?SymbolPositionRecord {
+        const removed = self.positions.fetchRemove(symbol) orelse return null;
+        self.positions_history.recordRemove(symbol);
+        return removed.value;
+    }
+
+    pub fn clearAccountsRetainingCapacity(self: *UserProfile) void {
+        self.accounts.clearRetainingCapacity();
+        self.accounts_history.clear();
+    }
+
+    pub fn clearPositionsRetainingCapacity(self: *UserProfile) void {
+        self.positions.clearRetainingCapacity();
+        self.positions_history.clear();
     }
 
     pub fn accountBalance(self: *const UserProfile, currency: i32) i64 {
@@ -226,10 +514,13 @@ pub const UserProfile = struct {
 pub const UserProfileService = struct {
     allocator: std.mem.Allocator,
     user_profiles: std.AutoHashMapUnmanaged(i64, UserProfile) = .empty,
+    user_profiles_history: long_map_order.History,
 
     pub fn init(allocator: std.mem.Allocator) UserProfileService {
         return .{
             .allocator = allocator,
+            .user_profiles_history = long_map_order.History.initWithExpectedSize(1024) catch
+                unreachable,
         };
     }
 
@@ -239,7 +530,99 @@ pub const UserProfileService = struct {
             profile.deinit(self.allocator);
         }
         self.user_profiles.deinit(self.allocator);
+        self.user_profiles_history.deinit(self.allocator);
         self.* = undefined;
+    }
+
+    pub const HistoryValidationError = long_map_order.HistoryError || error{
+        HistorySemanticKeySetMismatch,
+    };
+
+    pub fn userProfileKeysInHistoryOrder(
+        self: *const UserProfileService,
+    ) HistoryValidationError![]i64 {
+        const keys = try self.user_profiles_history.orderedKeys(self.allocator);
+        errdefer self.allocator.free(keys);
+        if (keys.len != self.user_profiles.count()) {
+            return error.HistorySemanticKeySetMismatch;
+        }
+        for (keys) |uid| {
+            if (!self.user_profiles.contains(uid)) {
+                return error.HistorySemanticKeySetMismatch;
+            }
+        }
+        return keys;
+    }
+
+    pub fn validatedUserProfilesHistory(
+        self: *const UserProfileService,
+    ) HistoryValidationError!*const long_map_order.History {
+        const keys = try self.userProfileKeysInHistoryOrder();
+        self.allocator.free(keys);
+        return &self.user_profiles_history;
+    }
+
+    pub fn cloneUserProfilesHistory(
+        self: *const UserProfileService,
+        allocator: std.mem.Allocator,
+    ) HistoryValidationError!long_map_order.History {
+        if (self.user_profiles_history.isKnown()) {
+            const keys = try self.user_profiles_history.orderedKeys(allocator);
+            defer allocator.free(keys);
+            if (keys.len != self.user_profiles.count()) {
+                return error.HistorySemanticKeySetMismatch;
+            }
+            for (keys) |uid| {
+                if (!self.user_profiles.contains(uid)) {
+                    return error.HistorySemanticKeySetMismatch;
+                }
+            }
+        }
+        return self.user_profiles_history.clone(allocator);
+    }
+
+    /// Ownership of `next` moves on success. On error both values are unchanged.
+    pub fn replaceUserProfilesHistory(
+        self: *UserProfileService,
+        next: *long_map_order.History,
+    ) HistoryValidationError!void {
+        const keys = try next.orderedKeys(self.allocator);
+        defer self.allocator.free(keys);
+        if (keys.len != self.user_profiles.count()) {
+            return error.HistorySemanticKeySetMismatch;
+        }
+        for (keys) |uid| {
+            if (!self.user_profiles.contains(uid)) {
+                return error.HistorySemanticKeySetMismatch;
+            }
+        }
+        var old = self.user_profiles_history;
+        self.user_profiles_history = next.*;
+        next.* = long_map_order.History.initUnavailable();
+        old.deinit(self.allocator);
+    }
+
+    pub fn markUserProfilesHistoryUnavailable(self: *UserProfileService) void {
+        if (!self.user_profiles_history.isKnown()) return;
+        self.user_profiles_history.deinit(self.allocator);
+        self.user_profiles_history = long_map_order.History.initUnavailable();
+    }
+
+    fn addProfile(
+        self: *UserProfileService,
+        uid: i64,
+        status: common.UserStatus,
+    ) (std.mem.Allocator.Error || long_map_order.LayoutError)!*UserProfile {
+        var next_history = try self.user_profiles_history.clone(self.allocator);
+        errdefer next_history.deinit(self.allocator);
+        try next_history.recordPut(self.allocator, uid);
+        try self.user_profiles.ensureUnusedCapacity(self.allocator, 1);
+        self.user_profiles.putAssumeCapacityNoClobber(uid, UserProfile.init(uid, status));
+        var old_history = self.user_profiles_history;
+        self.user_profiles_history = next_history;
+        old_history.deinit(self.allocator);
+        return self.user_profiles.getPtr(uid) orelse
+            invariantViolation("user profile map missing inserted profile");
     }
 
     pub fn getUserProfile(self: *UserProfileService, uid: i64) ?*UserProfile {
@@ -249,20 +632,18 @@ pub const UserProfileService = struct {
     pub fn getUserProfileOrAddSuspended(
         self: *UserProfileService,
         uid: i64,
-    ) std.mem.Allocator.Error!*UserProfile {
+    ) long_map_order.LayoutError!*UserProfile {
         if (self.user_profiles.getPtr(uid)) |existing| {
             return existing;
         }
-        try self.user_profiles.put(self.allocator, uid, UserProfile.init(uid, .suspended));
-        return self.user_profiles.getPtr(uid) orelse
-            invariantViolation("user profile map missing inserted suspended profile");
+        return try self.addProfile(uid, .suspended);
     }
 
-    pub fn addEmptyUserProfile(self: *UserProfileService, uid: i64) std.mem.Allocator.Error!bool {
+    pub fn addEmptyUserProfile(self: *UserProfileService, uid: i64) long_map_order.LayoutError!bool {
         if (self.user_profiles.contains(uid)) {
             return false;
         }
-        try self.user_profiles.put(self.allocator, uid, UserProfile.init(uid, .active));
+        _ = try self.addProfile(uid, .active);
         return true;
     }
 
@@ -272,7 +653,7 @@ pub const UserProfileService = struct {
         currency: i32,
         amount: i64,
         funding_transaction_id: i64,
-    ) std.mem.Allocator.Error!cmd.CommandResultCode {
+    ) int_map_order.LayoutError!cmd.CommandResultCode {
         const profile = self.user_profiles.getPtr(uid) orelse return .auth_invalid_user;
 
         if (profile.adjustments_counter == funding_transaction_id) {
@@ -287,12 +668,8 @@ pub const UserProfileService = struct {
             return .user_mgmt_account_balance_adjustment_nsf;
         }
 
+        try profile.addToAccountValue(self.allocator, currency, amount);
         profile.adjustments_counter = funding_transaction_id;
-        if (profile.accounts.getPtr(currency)) |balance| {
-            balance.* += amount;
-        } else {
-            try profile.accounts.put(self.allocator, currency, amount);
-        }
 
         return .success;
     }
@@ -312,6 +689,7 @@ pub const UserProfileService = struct {
 
         const removed = self.user_profiles.fetchRemove(uid) orelse
             invariantViolation("user profile map missing removed suspended profile");
+        self.user_profiles_history.recordRemove(uid);
         var removed_profile = removed.value;
         removed_profile.deinit(self.allocator);
         return .success;
@@ -320,10 +698,10 @@ pub const UserProfileService = struct {
     pub fn resumeUserProfile(
         self: *UserProfileService,
         uid: i64,
-    ) std.mem.Allocator.Error!cmd.CommandResultCode {
+    ) long_map_order.LayoutError!cmd.CommandResultCode {
         const profile = self.user_profiles.getPtr(uid);
         if (profile == null) {
-            try self.user_profiles.put(self.allocator, uid, UserProfile.init(uid, .active));
+            _ = try self.addProfile(uid, .active);
             return .success;
         }
 
@@ -341,6 +719,7 @@ pub const UserProfileService = struct {
             profile.deinit(self.allocator);
         }
         self.user_profiles.clearRetainingCapacity();
+        self.user_profiles_history.clear();
     }
 
     pub fn stateHash(self: *const UserProfileService) StateHashError!u64 {
@@ -436,6 +815,21 @@ fn hashPositionsMap(
     }
 }
 
+fn marginTestSpecification() common.CoreSymbolSpecification.ValidationError!common.CoreSymbolSpecification {
+    return common.CoreSymbolSpecification.init(.{
+        .symbol_id = 241,
+        .symbol_type = .futures_contract,
+        .base_currency = 11,
+        .quote_currency = 15,
+        .base_scale_k = 1_000_000,
+        .quote_scale_k = 10_000,
+        .taker_fee = 1900,
+        .maker_fee = 700,
+        .margin_buy = 10,
+        .margin_sell = 20,
+    });
+}
+
 test "user profile service add and balance adjustment semantics" {
     const allocator = std.testing.allocator;
     var svc = UserProfileService.init(allocator);
@@ -498,7 +892,7 @@ test "user profile service suspend and resume constraints" {
     const profile = svc.getUserProfile(2001) orelse unreachable;
     try profile.positions.put(allocator, 241, SymbolPositionRecord.init(2001, 241, 7));
     const pos = profile.positions.getPtr(241) orelse unreachable;
-    pos.pendingHold(.bid, 2);
+    try pos.pendingHold(.bid, 2);
 
     try std.testing.expectEqual(
         cmd.CommandResultCode.user_mgmt_user_not_suspendable_has_positions,
@@ -525,6 +919,83 @@ test "getUserProfileOrAddSuspended creates suspended profile and resume activate
     try std.testing.expectEqual(common.UserStatus.suspended, suspended.user_status);
     try std.testing.expectEqual(cmd.CommandResultCode.success, try svc.resumeUserProfile(3001));
     try std.testing.expectEqual(common.UserStatus.active, suspended.user_status);
+}
+
+test "user profile Eclipse histories use Java capacities and validate raw state" {
+    const allocator = std.testing.allocator;
+    var svc = UserProfileService.init(allocator);
+    defer svc.deinit();
+
+    try std.testing.expectEqual(
+        @as(?usize, 2048),
+        svc.user_profiles_history.tableSizeIfKnown(),
+    );
+    try std.testing.expect(try svc.addEmptyUserProfile(41));
+    const profile = svc.getUserProfile(41) orelse unreachable;
+    try std.testing.expectEqual(@as(?usize, 16), profile.accounts_history.tableSizeIfKnown());
+    try std.testing.expectEqual(@as(?usize, 16), profile.positions_history.tableSizeIfKnown());
+
+    try profile.putAccount(allocator, 7, 0);
+    const account_keys = try profile.accountKeysInHistoryOrder(allocator);
+    defer allocator.free(account_keys);
+    try std.testing.expectEqualSlices(i32, &.{7}, account_keys);
+
+    try profile.accounts.put(allocator, 9, 0);
+    try std.testing.expectError(
+        error.HistorySemanticKeySetMismatch,
+        profile.accountKeysInHistoryOrder(allocator),
+    );
+}
+
+test "suspend resume reuses the outer tombstone and reset retains Java capacity" {
+    const allocator = std.testing.allocator;
+    var svc = UserProfileService.init(allocator);
+    defer svc.deinit();
+
+    try std.testing.expect(try svc.addEmptyUserProfile(42));
+    try std.testing.expectEqual(cmd.CommandResultCode.success, svc.suspendUserProfile(42));
+    try std.testing.expectEqual(cmd.CommandResultCode.success, try svc.resumeUserProfile(42));
+
+    const keys = try svc.userProfileKeysInHistoryOrder();
+    defer allocator.free(keys);
+    try std.testing.expectEqualSlices(i64, &.{42}, keys);
+    var raw = try svc.user_profiles_history.exportRaw(allocator);
+    defer raw.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 2048), raw.table_length);
+    var tombstones: usize = 0;
+    for (raw.slots) |key| tombstones += @intFromBool(key == 1);
+    try std.testing.expectEqual(@as(usize, 0), tombstones);
+
+    svc.reset();
+    try std.testing.expectEqual(@as(?usize, 2048), svc.user_profiles_history.tableSizeIfKnown());
+    const empty = try svc.userProfileKeysInHistoryOrder();
+    defer allocator.free(empty);
+    try std.testing.expectEqual(@as(usize, 0), empty.len);
+}
+
+test "profile clear retains grown Eclipse history capacities" {
+    const allocator = std.testing.allocator;
+    var profile = UserProfile.init(99, .active);
+    defer profile.deinit(allocator);
+
+    for (2..12) |key| {
+        const currency: i32 = @intCast(key);
+        try profile.putAccount(allocator, currency, 0);
+        try profile.putPosition(
+            allocator,
+            currency,
+            SymbolPositionRecord.init(99, currency, currency),
+        );
+    }
+    const accounts_capacity = profile.accounts_history.tableSizeIfKnown().?;
+    const positions_capacity = profile.positions_history.tableSizeIfKnown().?;
+    try std.testing.expect(accounts_capacity > 16);
+    try std.testing.expect(positions_capacity > 16);
+
+    profile.clearAccountsRetainingCapacity();
+    profile.clearPositionsRetainingCapacity();
+    try std.testing.expectEqual(accounts_capacity, profile.accounts_history.tableSizeIfKnown().?);
+    try std.testing.expectEqual(positions_capacity, profile.positions_history.tableSizeIfKnown().?);
 }
 
 test "user profile service state hash is order-independent and mutation-sensitive" {
@@ -555,26 +1026,163 @@ test "user profile service state hash is order-independent and mutation-sensitiv
 
 test "symbol position record margin math and transitions" {
     var record = SymbolPositionRecord.init(4001, 241, 15);
-    const spec = try common.CoreSymbolSpecification.init(.{
-        .symbol_id = 241,
-        .symbol_type = .futures_contract,
-        .base_currency = 11,
-        .quote_currency = 15,
-        .base_scale_k = 1_000_000,
-        .quote_scale_k = 10_000,
-        .taker_fee = 1900,
-        .maker_fee = 700,
-        .margin_buy = 10,
-        .margin_sell = 20,
-    });
+    const spec = try marginTestSpecification();
 
-    record.pendingHold(.bid, 5);
-    try std.testing.expectEqual(@as(i64, 50), record.calculateRequiredMarginForFutures(spec));
-    try std.testing.expectEqual(@as(i64, 80), record.calculateRequiredMarginForOrder(spec, .ask, 4));
+    try record.pendingHold(.bid, 5);
+    try std.testing.expectEqual(@as(i64, 50), try record.calculateRequiredMarginForFutures(spec));
+    try std.testing.expectEqual(@as(i64, 80), try record.calculateRequiredMarginForOrder(spec, .ask, 4));
 
-    _ = record.updatePositionForMarginTrade(.bid, 5, 100);
+    _ = try record.updatePositionForMarginTrade(.bid, 5, 100);
     try std.testing.expectEqual(common.PositionDirection.long, record.direction);
     try std.testing.expectEqual(@as(i64, 5), record.open_volume);
     try std.testing.expectEqual(@as(i64, 500), record.open_price_sum);
     try record.validateInternalState();
+}
+
+test "symbol position estimate profit preserves empty and long Java semantics" {
+    const spec = try marginTestSpecification();
+
+    var empty = SymbolPositionRecord.init(4002, 241, 15);
+    empty.profit = 55;
+    try std.testing.expectEqual(@as(i64, 55), try empty.estimateProfit(spec, null, null));
+
+    var long = SymbolPositionRecord.init(4002, 241, 15);
+    long.direction = .long;
+    long.open_volume = 3;
+    long.open_price_sum = 270;
+    long.profit = 7;
+
+    try std.testing.expectEqual(@as(i64, 97), try long.estimateProfit(spec, 120, null));
+    try std.testing.expectEqual(@as(i64, 37), try long.estimateProfit(spec, null, null));
+    try std.testing.expectEqual(@as(i64, 37), try long.estimateProfit(spec, 0, null));
+}
+
+test "symbol position estimate profit preserves short Java semantics" {
+    const spec = try marginTestSpecification();
+    var short = SymbolPositionRecord.init(4003, 241, 15);
+    short.direction = .short;
+    short.open_volume = 4;
+    short.open_price_sum = 520;
+    short.profit = -5;
+
+    try std.testing.expectEqual(@as(i64, 115), try short.estimateProfit(spec, null, 100));
+    try std.testing.expectEqual(@as(i64, 75), try short.estimateProfit(spec, null, null));
+    try std.testing.expectEqual(
+        @as(i64, 75),
+        try short.estimateProfit(spec, null, std.math.maxInt(i64)),
+    );
+}
+
+test "symbol position estimate profit narrows only the final wide result" {
+    var spec = try marginTestSpecification();
+    spec.margin_buy = 2;
+    spec.margin_sell = 2;
+
+    const max_i64 = std.math.maxInt(i64);
+    const min_i64 = std.math.minInt(i64);
+
+    var long_marked = SymbolPositionRecord.init(4004, 241, 15);
+    long_marked.direction = .long;
+    long_marked.open_volume = max_i64;
+    long_marked.open_price_sum = max_i64;
+    try std.testing.expectEqual(max_i64, try long_marked.estimateProfit(spec, 2, null));
+
+    var short_marked = SymbolPositionRecord.init(4005, 241, 15);
+    short_marked.direction = .short;
+    short_marked.open_volume = max_i64;
+    short_marked.open_price_sum = max_i64;
+    try std.testing.expectEqual(min_i64 + 1, try short_marked.estimateProfit(spec, null, 2));
+
+    var long_fallback = SymbolPositionRecord.init(4006, 241, 15);
+    long_fallback.direction = .long;
+    long_fallback.open_volume = max_i64;
+    long_fallback.open_price_sum = 1;
+    long_fallback.profit = min_i64;
+    try std.testing.expectEqual(max_i64 - 1, try long_fallback.estimateProfit(spec, null, null));
+    try std.testing.expectEqual(max_i64 - 1, try long_fallback.estimateProfit(spec, 0, null));
+
+    var short_fallback = SymbolPositionRecord.init(4007, 241, 15);
+    short_fallback.direction = .short;
+    short_fallback.open_volume = max_i64;
+    short_fallback.open_price_sum = 1;
+    short_fallback.profit = min_i64;
+    try std.testing.expectEqual(max_i64 - 1, try short_fallback.estimateProfit(spec, null, null));
+    try std.testing.expectEqual(
+        max_i64 - 1,
+        try short_fallback.estimateProfit(spec, null, max_i64),
+    );
+}
+
+test "margin calculation returns minus one for exposure-reducing order" {
+    const spec = try marginTestSpecification();
+    var record = SymbolPositionRecord.init(4004, 241, 15);
+    record.direction = .long;
+    record.open_volume = 10;
+    record.open_price_sum = 1_000;
+
+    try std.testing.expectEqual(
+        @as(i64, -1),
+        try record.calculateRequiredMarginForOrder(spec, .ask, 4),
+    );
+    try std.testing.expectEqual(
+        @as(i64, 110),
+        try record.calculateRequiredMarginForOrder(spec, .bid, 1),
+    );
+}
+
+test "margin math reports arithmetic overflow without partial pending mutation" {
+    const spec = try marginTestSpecification();
+
+    var pending = SymbolPositionRecord.init(4005, 241, 15);
+    pending.pending_buy_size = std.math.maxInt(i64);
+    try std.testing.expectError(error.ArithmeticOverflow, pending.pendingHold(.bid, 1));
+    try std.testing.expectEqual(std.math.maxInt(i64), pending.pending_buy_size);
+
+    var required = SymbolPositionRecord.init(4006, 241, 15);
+    required.direction = .long;
+    required.open_volume = std.math.maxInt(i64);
+    required.open_price_sum = 1;
+    try std.testing.expectError(
+        error.ArithmeticOverflow,
+        required.calculateRequiredMarginForFutures(spec),
+    );
+    try std.testing.expectError(
+        error.ArithmeticOverflow,
+        required.calculateRequiredMarginForOrder(spec, .bid, 1),
+    );
+    try std.testing.expectError(
+        error.ArithmeticOverflow,
+        required.estimateProfit(spec, 2, null),
+    );
+
+    var release = SymbolPositionRecord.init(4007, 241, 15);
+    release.pending_buy_size = std.math.minInt(i64);
+    try std.testing.expectError(error.ArithmeticOverflow, release.pendingRelease(.bid, 1));
+    try std.testing.expectEqual(std.math.minInt(i64), release.pending_buy_size);
+
+    var trade = SymbolPositionRecord.init(4008, 241, 15);
+    trade.direction = .long;
+    trade.open_volume = std.math.maxInt(i64);
+    trade.open_price_sum = 1;
+    trade.pending_buy_size = 1;
+    const before = trade;
+    try std.testing.expectError(
+        error.ArithmeticOverflow,
+        trade.updatePositionForMarginTrade(.bid, 1, 2),
+    );
+    try std.testing.expectEqualDeep(before, trade);
+
+    // Exercise an overflow after the close path has already computed a smaller
+    // open volume. The public operation must still leave the complete record intact.
+    var partial_close = SymbolPositionRecord.init(4009, 241, 15);
+    partial_close.direction = .long;
+    partial_close.open_volume = 3;
+    partial_close.open_price_sum = 300;
+    partial_close.pending_sell_size = 2;
+    const partial_close_before = partial_close;
+    try std.testing.expectError(
+        error.ArithmeticOverflow,
+        partial_close.updatePositionForMarginTrade(.ask, 2, std.math.maxInt(i64)),
+    );
+    try std.testing.expectEqualDeep(partial_close_before, partial_close);
 }

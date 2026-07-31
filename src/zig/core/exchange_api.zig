@@ -6,6 +6,7 @@ const orderbook_naive = @import("orderbook_naive.zig");
 const api_command_mod = @import("api_command.zig");
 const exchange_core_mod = @import("exchange_core.zig");
 const kernel_mod = @import("exchange_kernel.zig");
+const java_report_producer = @import("java_report_producer.zig");
 const runtime_mod = @import("exchange_runtime.zig");
 const simple_events_mod = @import("simple_events_processor.zig");
 const persistence_paths = @import("persistence_paths.zig");
@@ -17,14 +18,18 @@ pub const BinaryReportQuery = api_command_mod.BinaryReportQuery;
 pub const BinaryCurrencyBalance = api_command_mod.BinaryCurrencyBalance;
 pub const BinaryUserAccountsBatch = api_command_mod.BinaryUserAccountsBatch;
 pub const Config = exchange_core_mod.Config;
+pub const InitError = exchange_core_mod.InitError;
 pub const PersistenceModuleType = exchange_core_mod.PersistenceModuleType;
+pub const PersistenceFaultPoint = exchange_core_mod.PersistenceFaultPoint;
 pub const SnapshotRef = exchange_core_mod.SnapshotRef;
 pub const JournalRef = exchange_core_mod.JournalRef;
-pub const SnapshotDescriptor = exchange_core_mod.SnapshotDescriptor;
+pub const SnapshotDescriptorView = exchange_core_mod.SnapshotDescriptorView;
+pub const SnapshotDescriptor = SnapshotDescriptorView;
 pub const JournalDescriptor = exchange_core_mod.JournalDescriptor;
 pub const PersistenceFileNameError = persistence_paths.FileNameError;
 pub const PersistencePathError = exchange_core_mod.PersistencePathError;
 pub const ResultSink = runtime_mod.ResultSink;
+pub const RawResultSink = exchange_core_mod.RawResultSink;
 pub const SimpleEventsHandler = simple_events_mod.EventsHandler;
 pub const BatchResponse = kernel_mod.BatchResponse;
 
@@ -61,12 +66,23 @@ pub const TakeReportResponseError = TakeFullResponseError || error{
 pub const TakeTypedReportError = TakeReportResponseError || error{
     UnexpectedReportResponseType,
 };
+pub const TakeJavaReportResponseError = TakeFullResponseError || error{
+    MissingJavaReportResponse,
+};
+pub const TakeTypedJavaReportError = TakeJavaReportResponseError ||
+    java_report_producer.ProducerError ||
+    error{UnexpectedJavaReportResponseType};
 pub const ProcessReportError = SubmitCommandAsyncFullResponseError || DrainPendingError || TakeReportResponseError || error{
     MissingAsyncResult,
 };
 pub const ProcessTypedReportError = SubmitCommandAsyncFullResponseError || DrainPendingError || TakeTypedReportError || error{
     MissingAsyncResult,
 };
+pub const ProcessJavaReportError = SubmitCommandAsyncFullResponseError ||
+    DrainPendingError ||
+    TakeTypedJavaReportError ||
+    error{MissingAsyncResult};
+pub const ProcessTypedJavaReportError = ProcessJavaReportError;
 pub const ProcessOrderBookError = SubmitCommandAsyncFullResponseError || DrainPendingError || TakeOrderBookSnapshotError || error{
     MissingAsyncResult,
 };
@@ -75,6 +91,11 @@ pub const QueryTypedReportError = QueryReportError || error{
     UnexpectedReportResponseType,
 };
 pub const LifecycleError = exchange_core_mod.LifecycleError;
+pub const ShutdownState = exchange_core_mod.ShutdownState;
+pub const ShutdownOutcome = exchange_core_mod.ShutdownOutcome;
+pub const ShutdownError = exchange_core_mod.ShutdownError;
+pub const CallbackConfigError = exchange_core_mod.CallbackConfigError;
+pub const StartError = exchange_core_mod.StartError;
 pub const InitFromJavaConfigError = exchange_core_mod.InitFromJavaConfigError;
 pub const BootstrapError = exchange_core_mod.BootstrapError;
 pub const StartupError = exchange_core_mod.StartupError;
@@ -84,7 +105,7 @@ pub const JournalApiError = exchange_core_mod.JournalApiError;
 pub const JournalReplayError = exchange_core_mod.JournalReplayError;
 pub const SnapshotWriteError = exchange_core_mod.SnapshotWriteError;
 pub const SnapshotValidateError = exchange_core_mod.SnapshotValidateError;
-pub const EnqueueRuntimeError = exchange_core_mod.LifecycleError || std.mem.Allocator.Error;
+pub const EnqueueRuntimeError = exchange_core_mod.EnqueueRuntimeError;
 pub const RuntimeDrainError = exchange_core_mod.RuntimeDrainError;
 pub const RuntimeDrainOutcome = runtime_mod.DrainOutcome;
 pub const DefaultJournalApiError = exchange_core_mod.DefaultJournalApiError;
@@ -104,13 +125,26 @@ pub const CallbackRegistrationError = error{
     UnsupportedPersistStateHandle,
     CallbackRegistryFull,
 };
-pub const SubmitCommandWithCallbackError = SubmitCommandAsyncFullResponseError || CallbackRegistrationError;
+pub const SubmitCommandWithCallbackError = exchange_core_mod.SubmitApiCommandWithCallbackError;
 pub const ProcessRegisteredCallbackError = ProcessResultError || CallbackRegistrationError;
 
-pub const CommandResponseCallback = struct {
-    context: ?*anyopaque = null,
-    callback: *const fn (?*anyopaque, *const kernel_mod.CommandResponse) void,
-};
+pub const CallbackFailureKind = exchange_core_mod.CallbackFailureKind;
+pub const CallbackFailure = exchange_core_mod.CallbackFailure;
+pub const CommandResponseCallback = exchange_core_mod.CommandResponseCallback;
+pub const CoreFatalInfo = exchange_core_mod.CoreFatalInfo;
+
+fn invokeLegacyCallback(
+    callback: CommandResponseCallback,
+    response: *const kernel_mod.CommandResponse,
+) void {
+    var callback_scope = runtime_mod.CallbackExecutionScope.enter();
+    defer callback_scope.leave();
+    callback.callback(callback.context, response);
+}
+
+fn ensureCompositeBlockingCallAllowed() error{CoreReentrantCall}!void {
+    if (runtime_mod.isCallbackExecutionActive()) return error.CoreReentrantCall;
+}
 
 const MaxCallbackRegistrations = 2048;
 const CallbackRegistration = struct {
@@ -121,6 +155,7 @@ const CallbackRegistration = struct {
 pub const ExchangeApi = struct {
     allocator: std.mem.Allocator,
     core: *exchange_core_mod.ExchangeCore,
+    callback_registrations_mutex: std.Io.Mutex = .init,
     callback_registrations_len: usize = 0,
     callback_registrations: [MaxCallbackRegistrations]CallbackRegistration = undefined,
 
@@ -132,6 +167,45 @@ pub const ExchangeApi = struct {
             .allocator = allocator,
             .core = core,
         };
+    }
+
+    pub fn initWithIo(
+        allocator: std.mem.Allocator,
+        io: std.Io,
+        config: Config,
+    ) InitError!exchange_core_mod.ExchangeCore {
+        return exchange_core_mod.ExchangeCore.initWithIo(allocator, io, config);
+    }
+
+    /// Constructs an owning core whose disk artifacts are rooted under an
+    /// independently opened handle for `persistence_root`.
+    pub fn initWithPersistenceRoot(
+        allocator: std.mem.Allocator,
+        persistence_root: std.Io.Dir,
+        config: Config,
+    ) InitError!exchange_core_mod.ExchangeCore {
+        return exchange_core_mod.ExchangeCore.initWithPersistenceRoot(
+            allocator,
+            persistence_root,
+            config,
+        );
+    }
+
+    /// Constructs an owning core with explicit runtime I/O and persistence
+    /// root. The root is borrowed only for this call; the I/O must remain
+    /// valid until the returned core is deinitialized.
+    pub fn initWithIoAndPersistenceRoot(
+        allocator: std.mem.Allocator,
+        io: std.Io,
+        persistence_root: std.Io.Dir,
+        config: Config,
+    ) InitError!exchange_core_mod.ExchangeCore {
+        return exchange_core_mod.ExchangeCore.initWithIoAndPersistenceRoot(
+            allocator,
+            io,
+            persistence_root,
+            config,
+        );
     }
 
     pub fn initFromJavaConfig(
@@ -155,6 +229,10 @@ pub const ExchangeApi = struct {
         return self.core.configRef();
     }
 
+    pub fn ioContext(self: *const ExchangeApi) std.Io {
+        return self.core.ioContext();
+    }
+
     pub fn isStarted(self: *const ExchangeApi) bool {
         return self.core.isStarted();
     }
@@ -167,7 +245,7 @@ pub const ExchangeApi = struct {
         return self.core.journalingEnabled();
     }
 
-    pub fn journalLen(self: *const ExchangeApi) usize {
+    pub fn journalLen(self: *const ExchangeApi) LifecycleError!usize {
         return self.core.journalLen();
     }
 
@@ -181,6 +259,10 @@ pub const ExchangeApi = struct {
 
     pub fn runtimePendingCount(self: *const ExchangeApi) usize {
         return self.core.runtimePendingCount();
+    }
+
+    pub fn fatalInfo(self: *const ExchangeApi) ?CoreFatalInfo {
+        return self.core.fatalInfo();
     }
 
     pub fn enqueueRuntime(
@@ -244,6 +326,14 @@ pub const ExchangeApi = struct {
         );
     }
 
+    pub fn defaultPersistenceSnapshotManifestPath(
+        self: *const ExchangeApi,
+        allocator: std.mem.Allocator,
+        snapshot_id: u64,
+    ) PersistencePathError![]u8 {
+        return self.core.defaultPersistenceSnapshotManifestPath(allocator, snapshot_id);
+    }
+
     pub fn defaultPersistenceJournalPath(
         self: *const ExchangeApi,
         allocator: std.mem.Allocator,
@@ -268,8 +358,16 @@ pub const ExchangeApi = struct {
         self: *ExchangeApi,
         command: ApiCommand,
     ) SubmitCommandError!void {
-        var result = try self.core.submitApiCommand(command);
-        defer result.deinit(self.allocator);
+        try self.core.submitApiCommandDetached(command);
+    }
+
+    /// Explicit settlement-safe counterpart to Java's detached
+    /// `submitCommand`. The returned result is owned by the caller.
+    pub fn submitCommandSync(
+        self: *ExchangeApi,
+        command: ApiCommand,
+    ) SubmitCommandError!ApiCommandResult {
+        return self.core.submitApiCommand(command);
     }
 
     pub fn addUser(
@@ -326,6 +424,20 @@ pub const ExchangeApi = struct {
         command: ApiCommand,
     ) SubmitCommandError!void {
         return self.submitCommand(command);
+    }
+
+    pub fn submitApiCommandDetached(
+        self: *ExchangeApi,
+        command: ApiCommand,
+    ) SubmitCommandError!void {
+        return self.submitCommand(command);
+    }
+
+    pub fn submitApiCommandSync(
+        self: *ExchangeApi,
+        command: ApiCommand,
+    ) SubmitCommandError!ApiCommandResult {
+        return self.submitCommandSync(command);
     }
 
     pub fn submitCommandAsync(
@@ -476,6 +588,7 @@ pub const ExchangeApi = struct {
         self: *ExchangeApi,
         command: ApiCommand,
     ) ProcessCommandResultCodeError!cmd.CommandResultCode {
+        try ensureCompositeBlockingCallAllowed();
         const handle = try self.submitCommandAsyncResultCode(command);
         _ = try self.drainPending();
         return self.takeResultCode(handle) orelse error.MissingAsyncResult;
@@ -485,6 +598,7 @@ pub const ExchangeApi = struct {
         self: *ExchangeApi,
         command: ApiCommand,
     ) ProcessCommandFullResponseError!kernel_mod.CommandResponse {
+        try ensureCompositeBlockingCallAllowed();
         const handle = try self.submitCommandAsyncFullResponse(command);
         _ = try self.drainPending();
         return (try self.takeFullResponse(handle)) orelse error.MissingAsyncResult;
@@ -666,7 +780,7 @@ pub const ExchangeApi = struct {
         user_id: i64,
         callback: CommandResponseCallback,
     ) SubmitCommandWithCallbackError!void {
-        try self.submitCommandAsyncWithCallback(.{ .add_user = user_id }, callback);
+        try self.submitApiCommandWithCallback(.{ .add_user = user_id }, callback);
     }
 
     pub fn suspendUserWithCallback(
@@ -674,7 +788,7 @@ pub const ExchangeApi = struct {
         user_id: i64,
         callback: CommandResponseCallback,
     ) SubmitCommandWithCallbackError!void {
-        try self.submitCommandAsyncWithCallback(.{ .suspend_user = user_id }, callback);
+        try self.submitApiCommandWithCallback(.{ .suspend_user = user_id }, callback);
     }
 
     pub fn resumeUserWithCallback(
@@ -682,7 +796,7 @@ pub const ExchangeApi = struct {
         user_id: i64,
         callback: CommandResponseCallback,
     ) SubmitCommandWithCallbackError!void {
-        try self.submitCommandAsyncWithCallback(.{ .resume_user = user_id }, callback);
+        try self.submitApiCommandWithCallback(.{ .resume_user = user_id }, callback);
     }
 
     pub fn balanceAdjustmentWithCallback(
@@ -694,7 +808,7 @@ pub const ExchangeApi = struct {
         adjustment_type: common.BalanceAdjustmentType,
         callback: CommandResponseCallback,
     ) SubmitCommandWithCallbackError!void {
-        try self.submitCommandAsyncWithCallback(.{
+        try self.submitApiCommandWithCallback(.{
             .adjust_user_balance = .{
                 .uid = uid,
                 .transaction_id = transaction_id,
@@ -711,7 +825,7 @@ pub const ExchangeApi = struct {
         depth: usize,
         callback: CommandResponseCallback,
     ) SubmitCommandWithCallbackError!void {
-        try self.submitCommandAsyncWithCallback(.{
+        try self.submitApiCommandWithCallback(.{
             .request_order_book = .{
                 .symbol = symbol_id,
                 .depth = depth,
@@ -732,7 +846,7 @@ pub const ExchangeApi = struct {
         uid: i64,
         callback: CommandResponseCallback,
     ) SubmitCommandWithCallbackError!void {
-        try self.submitCommandAsyncWithCallback(.{
+        try self.submitApiCommandWithCallback(.{
             .place_order = .{
                 .order_id = order_id,
                 .uid = uid,
@@ -747,6 +861,31 @@ pub const ExchangeApi = struct {
         }, callback);
     }
 
+    pub fn placeNewOrderGeneratedIdWithCallback(
+        self: *ExchangeApi,
+        user_cookie: i32,
+        price: i64,
+        reserve_bid_price: i64,
+        size: i64,
+        action: common.OrderAction,
+        order_type: common.OrderType,
+        symbol: i32,
+        uid: i64,
+        callback: CommandResponseCallback,
+    ) SubmitCommandWithCallbackError!u64 {
+        return self.core.placeNewOrderGeneratedIdWithCallback(
+            user_cookie,
+            price,
+            reserve_bid_price,
+            size,
+            action,
+            order_type,
+            symbol,
+            uid,
+            callback,
+        );
+    }
+
     pub fn moveOrderWithCallback(
         self: *ExchangeApi,
         price: i64,
@@ -755,7 +894,7 @@ pub const ExchangeApi = struct {
         uid: i64,
         callback: CommandResponseCallback,
     ) SubmitCommandWithCallbackError!void {
-        try self.submitCommandAsyncWithCallback(.{
+        try self.submitApiCommandWithCallback(.{
             .move_order = .{
                 .order_id = order_id,
                 .uid = uid,
@@ -772,7 +911,7 @@ pub const ExchangeApi = struct {
         uid: i64,
         callback: CommandResponseCallback,
     ) SubmitCommandWithCallbackError!void {
-        try self.submitCommandAsyncWithCallback(.{
+        try self.submitApiCommandWithCallback(.{
             .cancel_order = .{
                 .order_id = order_id,
                 .uid = uid,
@@ -789,7 +928,7 @@ pub const ExchangeApi = struct {
         uid: i64,
         callback: CommandResponseCallback,
     ) SubmitCommandWithCallbackError!void {
-        try self.submitCommandAsyncWithCallback(.{
+        try self.submitApiCommandWithCallback(.{
             .reduce_order = .{
                 .order_id = order_id,
                 .uid = uid,
@@ -805,13 +944,29 @@ pub const ExchangeApi = struct {
         timestamp: i64,
         query: BinaryReportQuery,
     ) SubmitCommandAsyncFullResponseError!ApiCommandAsyncHandle {
-        return self.submitCommandAsyncFullResponse(.{
+        return self.submitCommandAsync(.{
             .binary_report_query = .{
                 .transfer_id = transfer_id,
                 .timestamp = timestamp,
                 .query = query,
             },
         });
+    }
+
+    /// Queues the exact Java report and explicitly opts the terminal carrier
+    /// frame into an additional Zig-native projection.
+    pub fn submitNativeReportQueryAsync(
+        self: *ExchangeApi,
+        transfer_id: i32,
+        timestamp: i64,
+        query: BinaryReportQuery,
+    ) SubmitCommandAsyncFullResponseError!ApiCommandAsyncHandle {
+        const request_id = try self.core.submitNativeReportQueryAsync(
+            transfer_id,
+            timestamp,
+            query,
+        );
+        return .{ .request_id = request_id };
     }
 
     pub fn submitBinaryDataPayloadAsync(
@@ -894,7 +1049,7 @@ pub const ExchangeApi = struct {
         transfer_id: i32,
         timestamp: i64,
     ) SubmitCommandAsyncFullResponseError!ApiCommandAsyncHandle {
-        return self.submitBinaryReportQueryAsync(transfer_id, timestamp, .state_hash);
+        return self.submitNativeReportQueryAsync(transfer_id, timestamp, .state_hash);
     }
 
     pub fn requestSingleUserReportAsync(
@@ -903,7 +1058,7 @@ pub const ExchangeApi = struct {
         timestamp: i64,
         uid: i64,
     ) SubmitCommandAsyncFullResponseError!ApiCommandAsyncHandle {
-        return self.submitBinaryReportQueryAsync(transfer_id, timestamp, .{ .single_user = uid });
+        return self.submitNativeReportQueryAsync(transfer_id, timestamp, .{ .single_user = uid });
     }
 
     pub fn requestTotalCurrencyBalanceAsync(
@@ -911,7 +1066,7 @@ pub const ExchangeApi = struct {
         transfer_id: i32,
         timestamp: i64,
     ) SubmitCommandAsyncFullResponseError!ApiCommandAsyncHandle {
-        return self.submitBinaryReportQueryAsync(transfer_id, timestamp, .total_currency_balance);
+        return self.submitNativeReportQueryAsync(transfer_id, timestamp, .total_currency_balance);
     }
 
     pub fn isResultReady(
@@ -928,6 +1083,13 @@ pub const ExchangeApi = struct {
         return self.core.isAsyncResultReady(request_id);
     }
 
+    pub fn isAsyncResultReadyChecked(
+        self: *const ExchangeApi,
+        request_id: u64,
+    ) LifecycleError!bool {
+        return self.core.isAsyncResultReadyChecked(request_id);
+    }
+
     pub fn isApiCommandAsyncResultReady(
         self: *const ExchangeApi,
         handle: ApiCommandAsyncHandle,
@@ -935,10 +1097,21 @@ pub const ExchangeApi = struct {
         return self.isResultReady(handle);
     }
 
+    pub fn isApiCommandAsyncResultReadyChecked(
+        self: *const ExchangeApi,
+        handle: ApiCommandAsyncHandle,
+    ) LifecycleError!bool {
+        return self.core.isApiCommandAsyncResultReadyChecked(handle);
+    }
+
     pub fn takeResult(
         self: *ExchangeApi,
         handle: ApiCommandAsyncHandle,
     ) ?ApiCommandResult {
+        const io = self.core.ioContext();
+        self.callback_registrations_mutex.lockUncancelable(io);
+        defer self.callback_registrations_mutex.unlock(io);
+        if (self.handleHasCallbackRegistrationLocked(handle)) return null;
         return self.core.takeApiCommandAsyncResult(handle);
     }
 
@@ -946,7 +1119,22 @@ pub const ExchangeApi = struct {
         self: *ExchangeApi,
         request_id: u64,
     ) ?kernel_mod.CommandResponse {
+        const io = self.core.ioContext();
+        self.callback_registrations_mutex.lockUncancelable(io);
+        defer self.callback_registrations_mutex.unlock(io);
+        if (self.callbackRegistrationIndex(request_id) != null) return null;
         return self.core.takeAsyncResult(request_id);
+    }
+
+    pub fn takeAsyncResultChecked(
+        self: *ExchangeApi,
+        request_id: u64,
+    ) LifecycleError!?kernel_mod.CommandResponse {
+        const io = self.core.ioContext();
+        self.callback_registrations_mutex.lockUncancelable(io);
+        defer self.callback_registrations_mutex.unlock(io);
+        if (self.callbackRegistrationIndex(request_id) != null) return null;
+        return self.core.takeAsyncResultChecked(request_id);
     }
 
     pub fn takeApiCommandAsyncResult(
@@ -956,16 +1144,35 @@ pub const ExchangeApi = struct {
         return self.takeResult(handle);
     }
 
+    pub fn takeApiCommandAsyncResultChecked(
+        self: *ExchangeApi,
+        handle: ApiCommandAsyncHandle,
+    ) LifecycleError!?ApiCommandResult {
+        const io = self.core.ioContext();
+        self.callback_registrations_mutex.lockUncancelable(io);
+        defer self.callback_registrations_mutex.unlock(io);
+        if (self.handleHasCallbackRegistrationLocked(handle)) return null;
+        return self.core.takeApiCommandAsyncResultChecked(handle);
+    }
+
     pub fn registerResultCallback(
         self: *ExchangeApi,
         handle: ApiCommandAsyncHandle,
         callback: CommandResponseCallback,
     ) CallbackRegistrationError!void {
+        const io = self.core.ioContext();
+        self.callback_registrations_mutex.lockUncancelable(io);
+        defer self.callback_registrations_mutex.unlock(io);
         try self.registerCallbackForHandle(handle, callback);
     }
 
     pub fn pendingCallbackCount(self: *const ExchangeApi) usize {
-        return self.callback_registrations_len;
+        const mutable: *ExchangeApi = @constCast(self);
+        const io = self.core.ioContext();
+        mutable.callback_registrations_mutex.lockUncancelable(io);
+        const legacy_pending = self.callback_registrations_len;
+        mutable.callback_registrations_mutex.unlock(io);
+        return legacy_pending + self.core.pendingCallbackCount();
     }
 
     pub fn processResult(
@@ -973,10 +1180,14 @@ pub const ExchangeApi = struct {
         handle: ApiCommandAsyncHandle,
         callback: CommandResponseCallback,
     ) ProcessResultError!bool {
+        switch (handle) {
+            .persist_state => return error.UnexpectedPersistStateResult,
+            .request_id => {},
+        }
         var result = self.takeResult(handle) orelse return false;
         defer result.deinit(self.allocator);
         switch (result) {
-            .response => |*response| callback.callback(callback.context, response),
+            .response => |*response| invokeLegacyCallback(callback, response),
             .persist_state => return error.UnexpectedPersistStateResult,
         }
         return true;
@@ -987,27 +1198,54 @@ pub const ExchangeApi = struct {
         handle: ApiCommandAsyncHandle,
     ) ProcessRegisteredCallbackError!bool {
         const request_id = try requestIdFromHandle(handle);
-        const idx = self.callbackRegistrationIndex(request_id) orelse return false;
+        const io = self.core.ioContext();
+        self.callback_registrations_mutex.lockUncancelable(io);
+        const idx = self.callbackRegistrationIndex(request_id) orelse {
+            self.callback_registrations_mutex.unlock(io);
+            return false;
+        };
         const callback = self.callback_registrations[idx].callback;
-        const consumed = try self.processResult(handle, callback);
-        if (consumed) {
-            self.removeCallbackRegistrationAt(idx);
+        var result = self.core.takeApiCommandAsyncResult(handle) orelse {
+            self.callback_registrations_mutex.unlock(io);
+            return false;
+        };
+        self.removeCallbackRegistrationAt(idx);
+        self.callback_registrations_mutex.unlock(io);
+        defer result.deinit(self.allocator);
+        switch (result) {
+            .response => |*response| invokeLegacyCallback(callback, response),
+            .persist_state => return error.UnexpectedPersistStateResult,
         }
-        return consumed;
+        return true;
     }
 
     pub fn processPendingCallbacks(self: *ExchangeApi) ProcessRegisteredCallbackError!usize {
         var processed: usize = 0;
         var idx: usize = 0;
-        while (idx < self.callback_registrations_len) {
-            const registration = self.callback_registrations[idx];
-            const consumed = try self.processResult(.{ .request_id = registration.request_id }, registration.callback);
-            if (consumed) {
-                self.removeCallbackRegistrationAt(idx);
-                processed += 1;
-            } else {
-                idx += 1;
+        const io = self.core.ioContext();
+        while (true) {
+            self.callback_registrations_mutex.lockUncancelable(io);
+            if (idx >= self.callback_registrations_len) {
+                self.callback_registrations_mutex.unlock(io);
+                break;
             }
+            const registration = self.callback_registrations[idx];
+            var result = self.core.takeApiCommandAsyncResult(.{ .request_id = registration.request_id }) orelse {
+                idx += 1;
+                self.callback_registrations_mutex.unlock(io);
+                continue;
+            };
+            self.removeCallbackRegistrationAt(idx);
+            self.callback_registrations_mutex.unlock(io);
+            switch (result) {
+                .response => |*response| invokeLegacyCallback(registration.callback, response),
+                .persist_state => {
+                    result.deinit(self.allocator);
+                    return error.UnexpectedPersistStateResult;
+                },
+            }
+            result.deinit(self.allocator);
+            processed += 1;
         }
         return processed;
     }
@@ -1061,6 +1299,88 @@ pub const ExchangeApi = struct {
         return report;
     }
 
+    pub fn takeJavaReportResponse(
+        self: *ExchangeApi,
+        handle: ApiCommandAsyncHandle,
+    ) TakeJavaReportResponseError!?kernel_mod.JavaReportResponse {
+        var response = (try self.takeFullResponse(handle)) orelse return null;
+        errdefer response.deinit(self.allocator);
+
+        const report = response.java_report_response orelse return error.MissingJavaReportResponse;
+        response.java_report_response = null;
+        response.deinit(self.allocator);
+        return report;
+    }
+
+    fn takeJavaReportResponseOrEmpty(
+        self: *ExchangeApi,
+        handle: ApiCommandAsyncHandle,
+        query: binary_payload.DecodedReportQuery,
+    ) TakeTypedJavaReportError!?kernel_mod.JavaReportResponse {
+        var response = (try self.takeFullResponse(handle)) orelse return null;
+        errdefer response.deinit(self.allocator);
+
+        if (response.java_report_response) |report| {
+            response.java_report_response = null;
+            response.deinit(self.allocator);
+            return report;
+        }
+        const missing_identity_context = switch (query) {
+            .state_hash => self.configRef().reports_queries.enable_state_hash_report and
+                self.kernelRef().java_identity_hash_context == null,
+            .single_user, .total_currency_balance, .unknown => false,
+        };
+        if (missing_identity_context) {
+            response.deinit(self.allocator);
+            return error.MissingJavaIdentityHashContext;
+        }
+        if (response.result_code != .success) return error.MissingJavaReportResponse;
+        response.deinit(self.allocator);
+        return try java_report_producer.emptyResponse(self.allocator, query, null, .{});
+    }
+
+    pub fn takeJavaStateHashReport(
+        self: *ExchangeApi,
+        handle: ApiCommandAsyncHandle,
+    ) TakeTypedJavaReportError!?kernel_mod.JavaStateHashReport {
+        var report = (try self.takeJavaReportResponseOrEmpty(handle, .state_hash)) orelse return null;
+        errdefer report.deinit(self.allocator);
+        return switch (report) {
+            .state_hash => |state_hash| state_hash,
+            else => error.UnexpectedJavaReportResponseType,
+        };
+    }
+
+    pub fn takeJavaSingleUserReport(
+        self: *ExchangeApi,
+        handle: ApiCommandAsyncHandle,
+    ) TakeTypedJavaReportError!?kernel_mod.JavaSingleUserReport {
+        var report = (try self.takeJavaReportResponseOrEmpty(
+            handle,
+            .{ .single_user = 0 },
+        )) orelse return null;
+        errdefer report.deinit(self.allocator);
+        return switch (report) {
+            .single_user => |single_user| single_user,
+            else => error.UnexpectedJavaReportResponseType,
+        };
+    }
+
+    pub fn takeJavaTotalCurrencyBalanceReport(
+        self: *ExchangeApi,
+        handle: ApiCommandAsyncHandle,
+    ) TakeTypedJavaReportError!?kernel_mod.JavaTotalCurrencyBalanceReport {
+        var report = (try self.takeJavaReportResponseOrEmpty(
+            handle,
+            .total_currency_balance,
+        )) orelse return null;
+        errdefer report.deinit(self.allocator);
+        return switch (report) {
+            .total_currency_balance => |balance| balance,
+            else => error.UnexpectedJavaReportResponseType,
+        };
+    }
+
     pub fn takeStateHashDetailed(
         self: *ExchangeApi,
         handle: ApiCommandAsyncHandle,
@@ -1097,15 +1417,27 @@ pub const ExchangeApi = struct {
         };
     }
 
+    pub fn processNativeReport(
+        self: *ExchangeApi,
+        transfer_id: i32,
+        timestamp: i64,
+        query: BinaryReportQuery,
+    ) ProcessReportError!kernel_mod.ReportResponse {
+        try ensureCompositeBlockingCallAllowed();
+        const handle = try self.submitNativeReportQueryAsync(transfer_id, timestamp, query);
+        _ = try self.drainPending();
+        return (try self.takeReportResponse(handle)) orelse error.MissingAsyncResult;
+    }
+
+    /// Compatibility alias for the historical Zig-native report API. Exact
+    /// Java reduction is exposed by `processJavaReport`.
     pub fn processReport(
         self: *ExchangeApi,
         transfer_id: i32,
         timestamp: i64,
         query: BinaryReportQuery,
     ) ProcessReportError!kernel_mod.ReportResponse {
-        const handle = try self.submitBinaryReportQueryAsync(transfer_id, timestamp, query);
-        _ = try self.drainPending();
-        return (try self.takeReportResponse(handle)) orelse error.MissingAsyncResult;
+        return self.processNativeReport(transfer_id, timestamp, query);
     }
 
     pub fn processStateHashReport(
@@ -1113,6 +1445,7 @@ pub const ExchangeApi = struct {
         transfer_id: i32,
         timestamp: i64,
     ) ProcessTypedReportError!kernel_mod.DetailedStateHashReport {
+        try ensureCompositeBlockingCallAllowed();
         const handle = try self.requestStateHashAsync(transfer_id, timestamp);
         _ = try self.drainPending();
         return (try self.takeStateHashDetailed(handle)) orelse error.MissingAsyncResult;
@@ -1124,6 +1457,7 @@ pub const ExchangeApi = struct {
         timestamp: i64,
         uid: i64,
     ) ProcessTypedReportError!kernel_mod.SingleUserReport {
+        try ensureCompositeBlockingCallAllowed();
         const handle = try self.requestSingleUserReportAsync(transfer_id, timestamp, uid);
         _ = try self.drainPending();
         return (try self.takeSingleUserReport(handle)) orelse error.MissingAsyncResult;
@@ -1134,9 +1468,64 @@ pub const ExchangeApi = struct {
         transfer_id: i32,
         timestamp: i64,
     ) ProcessTypedReportError!kernel_mod.TotalCurrencyBalanceReport {
+        try ensureCompositeBlockingCallAllowed();
         const handle = try self.requestTotalCurrencyBalanceAsync(transfer_id, timestamp);
         _ = try self.drainPending();
         return (try self.takeTotalCurrencyBalanceReport(handle)) orelse error.MissingAsyncResult;
+    }
+
+    pub fn processJavaReport(
+        self: *ExchangeApi,
+        transfer_id: i32,
+        timestamp: i64,
+        query: BinaryReportQuery,
+    ) ProcessJavaReportError!kernel_mod.JavaReportResponse {
+        try ensureCompositeBlockingCallAllowed();
+        const handle = try self.submitBinaryReportQueryAsync(transfer_id, timestamp, query);
+        _ = try self.drainPending();
+        return (try self.takeJavaReportResponseOrEmpty(handle, query)) orelse error.MissingAsyncResult;
+    }
+
+    pub fn processJavaStateHashReport(
+        self: *ExchangeApi,
+        transfer_id: i32,
+        timestamp: i64,
+    ) ProcessTypedJavaReportError!kernel_mod.JavaStateHashReport {
+        try ensureCompositeBlockingCallAllowed();
+        const handle = try self.submitBinaryReportQueryAsync(transfer_id, timestamp, .state_hash);
+        _ = try self.drainPending();
+        return (try self.takeJavaStateHashReport(handle)) orelse error.MissingAsyncResult;
+    }
+
+    pub fn processJavaSingleUserReport(
+        self: *ExchangeApi,
+        transfer_id: i32,
+        timestamp: i64,
+        uid: i64,
+    ) ProcessTypedJavaReportError!kernel_mod.JavaSingleUserReport {
+        try ensureCompositeBlockingCallAllowed();
+        const handle = try self.submitBinaryReportQueryAsync(
+            transfer_id,
+            timestamp,
+            .{ .single_user = uid },
+        );
+        _ = try self.drainPending();
+        return (try self.takeJavaSingleUserReport(handle)) orelse error.MissingAsyncResult;
+    }
+
+    pub fn processJavaTotalCurrencyBalanceReport(
+        self: *ExchangeApi,
+        transfer_id: i32,
+        timestamp: i64,
+    ) ProcessTypedJavaReportError!kernel_mod.JavaTotalCurrencyBalanceReport {
+        try ensureCompositeBlockingCallAllowed();
+        const handle = try self.submitBinaryReportQueryAsync(
+            transfer_id,
+            timestamp,
+            .total_currency_balance,
+        );
+        _ = try self.drainPending();
+        return (try self.takeJavaTotalCurrencyBalanceReport(handle)) orelse error.MissingAsyncResult;
     }
 
     pub fn processOrderBookRequest(
@@ -1144,6 +1533,7 @@ pub const ExchangeApi = struct {
         symbol: i32,
         depth: usize,
     ) ProcessOrderBookError!orderbook_naive.L2MarketData {
+        try ensureCompositeBlockingCallAllowed();
         const handle = try self.requestOrderBookAsync(symbol, depth);
         _ = try self.drainPending();
         return (try self.takeOrderBookSnapshot(handle)) orelse error.MissingAsyncResult;
@@ -1226,6 +1616,7 @@ pub const ExchangeApi = struct {
         commands: []const ApiCommand,
     ) SubmitCommandsSyncError!void {
         if (commands.len == 0) return;
+        try ensureCompositeBlockingCallAllowed();
         var result = try self.core.submitApiCommandsSync(commands);
         defer result.deinit(self.allocator);
     }
@@ -1241,6 +1632,7 @@ pub const ExchangeApi = struct {
         self: *ExchangeApi,
         commands: []const ApiCommand,
     ) SubmitCommandsSyncError!kernel_mod.CommandResponse {
+        try ensureCompositeBlockingCallAllowed();
         return self.core.submitApiCommandsSyncWithNop(commands);
     }
 
@@ -1257,6 +1649,13 @@ pub const ExchangeApi = struct {
         timestamp_ns: i64,
     ) ExecuteError!cmd.CommandResultCode {
         return self.core.persistState(snapshot_id, timestamp_ns);
+    }
+
+    pub fn setPersistenceFaultForTesting(
+        self: *ExchangeApi,
+        fault: ?PersistenceFaultPoint,
+    ) void {
+        self.core.setPersistenceFaultForTesting(fault);
     }
 
     pub fn submitCommandBatch(
@@ -1296,6 +1695,41 @@ pub const ExchangeApi = struct {
         );
     }
 
+    /// Publishes a raw binary command or query with one terminal callback.
+    /// Intermediate carrier-frame responses are not delivered.
+    pub fn submitBinaryPayloadAsyncWithCallback(
+        self: *ExchangeApi,
+        command_type: cmd.OrderCommandType,
+        transfer_id: i32,
+        timestamp: i64,
+        payload: []const u8,
+        callback: CommandResponseCallback,
+    ) BinaryPayloadAsyncSubmitError!void {
+        return self.core.submitBinaryPayloadAsyncWithCallback(
+            command_type,
+            transfer_id,
+            timestamp,
+            payload,
+            callback,
+        );
+    }
+
+    /// Publishes a raw binary command or query without retaining a response.
+    pub fn submitBinaryPayloadDetached(
+        self: *ExchangeApi,
+        command_type: cmd.OrderCommandType,
+        transfer_id: i32,
+        timestamp: i64,
+        payload: []const u8,
+    ) BinaryPayloadAsyncSubmitError!void {
+        return self.core.submitBinaryPayloadDetached(
+            command_type,
+            transfer_id,
+            timestamp,
+            payload,
+        );
+    }
+
     pub fn submitBinaryReportQuery(
         self: *ExchangeApi,
         transfer_id: i32,
@@ -1303,6 +1737,15 @@ pub const ExchangeApi = struct {
         query: BinaryReportQuery,
     ) BinaryReportQuerySubmitError!kernel_mod.CommandResponse {
         return self.core.submitBinaryReportQuery(transfer_id, timestamp, query);
+    }
+
+    pub fn submitNativeReportQuery(
+        self: *ExchangeApi,
+        transfer_id: i32,
+        timestamp: i64,
+        query: BinaryReportQuery,
+    ) BinaryReportQuerySubmitError!kernel_mod.CommandResponse {
+        return self.core.submitNativeReportQuery(transfer_id, timestamp, query);
     }
 
     pub fn persistStateAsync(
@@ -1320,11 +1763,25 @@ pub const ExchangeApi = struct {
         return self.core.isPersistStateResultReady(requests);
     }
 
+    pub fn isPersistStateResultReadyChecked(
+        self: *const ExchangeApi,
+        requests: PersistStateRequestPair,
+    ) LifecycleError!bool {
+        return self.core.isPersistStateResultReadyChecked(requests);
+    }
+
     pub fn takePersistStateResult(
         self: *ExchangeApi,
         requests: PersistStateRequestPair,
     ) ?cmd.CommandResultCode {
         return self.core.takePersistStateResult(requests);
+    }
+
+    pub fn takePersistStateResultChecked(
+        self: *ExchangeApi,
+        requests: PersistStateRequestPair,
+    ) LifecycleError!?cmd.CommandResultCode {
+        return self.core.takePersistStateResultChecked(requests);
     }
 
     pub fn setResultSink(
@@ -1334,6 +1791,35 @@ pub const ExchangeApi = struct {
         self.core.setResultSink(sink);
     }
 
+    pub fn setResultSinkChecked(
+        self: *ExchangeApi,
+        sink: ResultSink,
+    ) CallbackConfigError!void {
+        return self.core.setResultSinkChecked(sink);
+    }
+
+    pub fn setRawResultSink(
+        self: *ExchangeApi,
+        sink: RawResultSink,
+    ) void {
+        self.core.setRawResultSink(sink);
+    }
+
+    pub fn setRawResultSinkChecked(
+        self: *ExchangeApi,
+        sink: RawResultSink,
+    ) CallbackConfigError!void {
+        return self.core.setRawResultSinkChecked(sink);
+    }
+
+    pub fn clearRawResultSink(self: *ExchangeApi) void {
+        self.core.clearRawResultSink();
+    }
+
+    pub fn clearRawResultSinkChecked(self: *ExchangeApi) CallbackConfigError!void {
+        return self.core.clearRawResultSinkChecked();
+    }
+
     pub fn setSimpleEventsHandler(
         self: *ExchangeApi,
         handler: SimpleEventsHandler,
@@ -1341,8 +1827,19 @@ pub const ExchangeApi = struct {
         self.core.setSimpleEventsHandler(handler);
     }
 
+    pub fn setSimpleEventsHandlerChecked(
+        self: *ExchangeApi,
+        handler: SimpleEventsHandler,
+    ) CallbackConfigError!void {
+        return self.core.setSimpleEventsHandlerChecked(handler);
+    }
+
     pub fn clearSimpleEventsHandler(self: *ExchangeApi) void {
         self.core.clearSimpleEventsHandler();
+    }
+
+    pub fn clearSimpleEventsHandlerChecked(self: *ExchangeApi) CallbackConfigError!void {
+        return self.core.clearSimpleEventsHandlerChecked();
     }
 
     pub fn submitAddSymbolsBinary(
@@ -1405,8 +1902,19 @@ pub const ExchangeApi = struct {
         });
     }
 
-    pub fn startup(self: *ExchangeApi) LifecycleError!void {
+    pub fn startup(self: *ExchangeApi) StartError!void {
         return self.core.startup();
+    }
+
+    pub fn shutdownState(self: *const ExchangeApi) ShutdownState {
+        return self.core.shutdownState();
+    }
+
+    pub fn shutdownTimeout(
+        self: *ExchangeApi,
+        timeout: std.Io.Timeout,
+    ) ShutdownError!ShutdownOutcome {
+        return self.core.shutdownTimeout(timeout);
     }
 
     pub fn shutdown(self: *ExchangeApi) LifecycleError!void {
@@ -1596,6 +2104,21 @@ pub const ExchangeApi = struct {
         );
     }
 
+    pub fn persistStateWithConfiguredMainLog(
+        self: *ExchangeApi,
+        snapshot_id: i64,
+        timestamp_ns: i64,
+        module_type: PersistenceModuleType,
+        instance_id: u32,
+    ) PersistStateWithMainLogError!cmd.CommandResultCode {
+        return self.core.persistStateWithConfiguredMainLog(
+            snapshot_id,
+            timestamp_ns,
+            module_type,
+            instance_id,
+        );
+    }
+
     pub fn startupFromDiscoveredConfiguredPersistence(
         self: *ExchangeApi,
         dir: std.Io.Dir,
@@ -1626,35 +2149,47 @@ pub const ExchangeApi = struct {
         );
     }
 
-    pub fn persistenceSnapshotCount(self: *const ExchangeApi) usize {
+    pub fn persistenceSnapshotCount(self: *const ExchangeApi) LifecycleError!usize {
         return self.core.persistenceSnapshotCount();
     }
 
-    pub fn persistenceJournalCount(self: *const ExchangeApi) usize {
+    pub fn persistenceJournalCount(self: *const ExchangeApi) LifecycleError!usize {
         return self.core.persistenceJournalCount();
     }
 
-    pub fn persistenceCurrentSnapshot(self: *const ExchangeApi) *const SnapshotDescriptor {
+    pub fn persistenceCurrentSnapshot(self: *const ExchangeApi) LifecycleError!SnapshotDescriptorView {
         return self.core.persistenceCurrentSnapshot();
     }
 
-    pub fn persistenceCurrentSnapshotRef(self: *const ExchangeApi) SnapshotRef {
+    pub fn persistenceCurrentSnapshotRef(self: *const ExchangeApi) LifecycleError!SnapshotRef {
         return self.core.persistenceCurrentSnapshotRef();
     }
 
-    pub fn persistenceJournalByRef(self: *const ExchangeApi, journal_ref: JournalRef) *const JournalDescriptor {
+    pub fn persistenceJournalByRef(
+        self: *const ExchangeApi,
+        journal_ref: JournalRef,
+    ) LifecycleError!JournalDescriptor {
         return self.core.persistenceJournalByRef(journal_ref);
     }
 
-    pub fn persistenceFindJournalForSequence(self: *const ExchangeApi, sequence: u64) ?JournalRef {
+    pub fn persistenceFindJournalForSequence(
+        self: *const ExchangeApi,
+        sequence: u64,
+    ) LifecycleError!?JournalRef {
         return self.core.persistenceFindJournalForSequence(sequence);
     }
 
-    pub fn persistenceFindSnapshotById(self: *const ExchangeApi, snapshot_id: u64) ?SnapshotRef {
+    pub fn persistenceFindSnapshotById(
+        self: *const ExchangeApi,
+        snapshot_id: u64,
+    ) LifecycleError!?SnapshotRef {
         return self.core.persistenceFindSnapshotById(snapshot_id);
     }
 
-    pub fn persistenceSnapshotById(self: *const ExchangeApi, snapshot_id: u64) ?*const SnapshotDescriptor {
+    pub fn persistenceSnapshotById(
+        self: *const ExchangeApi,
+        snapshot_id: u64,
+    ) LifecycleError!?SnapshotDescriptorView {
         return self.core.persistenceSnapshotById(snapshot_id);
     }
 
@@ -1958,6 +2493,16 @@ pub const ExchangeApi = struct {
         self.callback_registrations_len += 1;
     }
 
+    fn handleHasCallbackRegistrationLocked(
+        self: *const ExchangeApi,
+        handle: ApiCommandAsyncHandle,
+    ) bool {
+        return switch (handle) {
+            .request_id => |request_id| self.callbackRegistrationIndex(request_id) != null,
+            .persist_state => false,
+        };
+    }
+
     fn callbackRegistrationIndex(
         self: *const ExchangeApi,
         request_id: u64,
@@ -1983,13 +2528,20 @@ pub const ExchangeApi = struct {
         self.callback_registrations_len = len - 1;
     }
 
-    fn submitCommandAsyncWithCallback(
+    pub fn submitApiCommandWithCallback(
         self: *ExchangeApi,
         command: ApiCommand,
         callback: CommandResponseCallback,
     ) SubmitCommandWithCallbackError!void {
-        const handle = try self.submitCommandAsyncFullResponse(command);
-        try self.registerResultCallback(handle, callback);
+        try self.core.submitApiCommandWithCallback(command, callback);
+    }
+
+    pub fn submitCommandAsyncWithCallback(
+        self: *ExchangeApi,
+        command: *const cmd.OrderCommand,
+        callback: CommandResponseCallback,
+    ) AsyncSubmitError!void {
+        try self.core.submitCommandAsyncWithCallback(command, callback);
     }
 };
 
@@ -2001,13 +2553,7 @@ fn requestIdFromHandle(handle: ApiCommandAsyncHandle) error{UnsupportedPersistSt
 }
 
 fn supportsAsyncFullResponse(command: ApiCommand) bool {
-    return switch (command) {
-        .persist_state,
-        .binary_add_symbols,
-        .binary_add_accounts,
-        => false,
-        else => true,
-    };
+    return api_command_mod.supportsAsyncFullResponse(command);
 }
 
 fn makeExchangeSpecForSymbol(symbol_id: i32) !common.CoreSymbolSpecification {
@@ -2023,10 +2569,38 @@ fn makeExchangeSpecForSymbol(symbol_id: i32) !common.CoreSymbolSpecification {
     });
 }
 
+fn testJavaIdentityHashContext() kernel_mod.JavaIdentityHashContext {
+    return .{
+        .order_action_ask = 0x101,
+        .order_action_bid = 0x102,
+        .user_status_active = 0x201,
+        .user_status_suspended = 0x202,
+        .risk_symbol_spec_provider = 0x301,
+        .risk_user_profile_service = 0x302,
+        .risk_binary_cmd_processor = 0x303,
+        .risk_last_price_cache = 0x304,
+        .risk_fees = 0x305,
+        .risk_adjustments = 0x306,
+        .risk_suspends = 0x307,
+        .risk_shard_mask = 0x308,
+        .matching_binary_cmd_processor = 0x309,
+        .matching_order_books = 0x30a,
+        .matching_shard_mask = 0x30b,
+    };
+}
+
+fn javaMapValue(entries: ?[]const @import("java_report_wire.zig").IntLongEntry, key: i32) ?i64 {
+    for (entries orelse return null) |entry| {
+        if (entry.key == key) return entry.value;
+    }
+    return null;
+}
+
 const CallbackCollector = struct {
     count: usize = 0,
     last_result: ?cmd.CommandResultCode = null,
     last_sequence: u64 = 0,
+    last_command: ?cmd.OrderCommand = null,
     last_snapshot_present: bool = false,
     last_ask_levels: usize = 0,
     last_bid_levels: usize = 0,
@@ -2036,6 +2610,7 @@ const CallbackCollector = struct {
         self.count += 1;
         self.last_result = response.result_code;
         self.last_sequence = response.sequence;
+        self.last_command = response.command;
         if (response.l2_snapshot) |snapshot| {
             self.last_snapshot_present = true;
             self.last_ask_levels = snapshot.asks.items.len;
@@ -2045,6 +2620,28 @@ const CallbackCollector = struct {
             self.last_ask_levels = 0;
             self.last_bid_levels = 0;
         }
+    }
+};
+
+const OrderedCallbackCollector = struct {
+    count: usize = 0,
+    failure_count: usize = 0,
+    sequences: [16]u64 = undefined,
+    results: [16]cmd.CommandResultCode = undefined,
+    snapshot_present: [16]bool = undefined,
+
+    fn onResponse(context: ?*anyopaque, response: *const kernel_mod.CommandResponse) void {
+        const self: *OrderedCallbackCollector = @ptrCast(@alignCast(context.?));
+        std.debug.assert(self.count < self.sequences.len);
+        self.sequences[self.count] = response.sequence;
+        self.results[self.count] = response.result_code;
+        self.snapshot_present[self.count] = response.l2_snapshot != null;
+        self.count += 1;
+    }
+
+    fn onFailure(context: ?*anyopaque, _: CallbackFailure) void {
+        const self: *OrderedCallbackCollector = @ptrCast(@alignCast(context.?));
+        self.failure_count += 1;
     }
 };
 
@@ -2267,6 +2864,213 @@ test "exchange api sync path supports submitCommand and list sync semantics" {
     try std.testing.expectEqual(@as(?i64, 42_000), balance.user_balance);
 }
 
+test "exchange api detached submit and Java list and stream barriers preserve timing" {
+    const allocator = std.testing.allocator;
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    defer core.deinit();
+    var api = ExchangeApi.init(allocator, &core);
+
+    const detached_uid: i64 = 95_020;
+    const sequence_before = core.driver.publication_sequencer.highWater();
+    try api.submitCommand(.{ .add_user = detached_uid });
+    try std.testing.expectEqual(
+        sequence_before + 1,
+        core.driver.publication_sequencer.highWater(),
+    );
+    try std.testing.expect(core.kernelRef().risk_engine.getUserProfile(detached_uid) == null);
+    try std.testing.expectEqual(@as(usize, 0), core.asyncPendingCount());
+    try std.testing.expectEqual(@as(usize, 0), core.runtimePendingCount());
+    try std.testing.expectEqual(@as(usize, 0), core.asyncReadyCount());
+    try std.testing.expectEqual(@as(usize, 0), core.driver.completion_slots_used);
+
+    const empty: [0]ApiCommand = .{};
+    try api.submitCommandsSync(empty[0..]);
+    try std.testing.expectEqual(
+        sequence_before + 1,
+        core.driver.publication_sequencer.highWater(),
+    );
+    try std.testing.expect(core.kernelRef().risk_engine.getUserProfile(detached_uid) == null);
+
+    const list_uid: i64 = 95_021;
+    const list_commands = [_]ApiCommand{
+        .{ .add_user = list_uid },
+        .{ .adjust_user_balance = .{
+            .uid = list_uid,
+            .transaction_id = 1,
+            .currency = 15,
+            .amount = 21_000,
+            .adjustment_type = .adjustment,
+        } },
+    };
+    try api.submitCommandsSync(list_commands[0..]);
+    try std.testing.expect(core.kernelRef().risk_engine.getUserProfile(detached_uid) != null);
+    try std.testing.expectEqual(
+        @as(?i64, 21_000),
+        core.kernelRef().risk_engine.getUserProfile(list_uid).?.accountBalance(15),
+    );
+    try std.testing.expectEqual(@as(usize, 0), core.asyncPendingCount());
+    try std.testing.expectEqual(@as(usize, 0), core.asyncReadyCount());
+    try std.testing.expectEqual(@as(usize, 0), core.driver.completion_slots_used);
+
+    const stream_uid: i64 = 95_022;
+    var stream_barrier = try api.submitCommandsSyncWithNop(&.{
+        .{ .add_user = stream_uid },
+        .{ .adjust_user_balance = .{
+            .uid = stream_uid,
+            .transaction_id = 1,
+            .currency = 11,
+            .amount = 22_000,
+            .adjustment_type = .adjustment,
+        } },
+    });
+    stream_barrier.deinit(allocator);
+    try std.testing.expectEqual(
+        @as(?i64, 22_000),
+        core.kernelRef().risk_engine.getUserProfile(stream_uid).?.accountBalance(11),
+    );
+
+    const before_empty_stream = core.driver.publication_sequencer.highWater();
+    var empty_stream_barrier = try api.submitCommandsSyncWithNop(empty[0..]);
+    defer empty_stream_barrier.deinit(allocator);
+    try std.testing.expectEqual(
+        before_empty_stream + 1,
+        core.driver.publication_sequencer.highWater(),
+    );
+    try std.testing.expectEqual(@as(usize, 0), core.driver.completion_slots_used);
+}
+
+test "exchange api detached typed commands receive live grouping metadata while raw commands preserve caller metadata" {
+    const allocator = std.testing.allocator;
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{
+        .runtime = .{
+            .max_batch_size = 1,
+        },
+        .serialization = .{
+            .enable_journaling = true,
+            .backend = .disk,
+        },
+    });
+    defer core.deinit();
+
+    var api = ExchangeApi.init(allocator, &core);
+    try api.submitCommand(.{ .add_user = 95_110 });
+    try api.submitCommand(.{ .add_user = 95_111 });
+    try api.createUser(31, 701, 123_456, 95_112);
+    const raw_async = try api.submitCommandAsync(.{ .raw_command = .{
+        .command = .add_user,
+        .uid = 95_113,
+        .events_group = 702,
+        .service_flags = 32,
+        .timestamp = 123_457,
+    } });
+    _ = try api.drainPending();
+    var raw_async_result = api.takeResult(raw_async) orelse return error.MissingAsyncResult;
+    defer raw_async_result.deinit(allocator);
+    try core.startup();
+    var raw_sync_result = try api.submitCommandSync(.{ .raw_command = .{
+        .command = .add_user,
+        .uid = 95_114,
+        .events_group = 703,
+        .service_flags = 33,
+        .timestamp = 123_458,
+    } });
+    defer raw_sync_result.deinit(allocator);
+    core.shutdown();
+
+    const journal = core.journal orelse return error.ExpectedJournal;
+    try std.testing.expectEqual(@as(usize, 5), journal.entries.items.len);
+    try std.testing.expectEqual(@as(i64, 0), journal.entries.items[0].input.events_group);
+    try std.testing.expectEqual(@as(i64, 1), journal.entries.items[1].input.events_group);
+    try std.testing.expectEqual(@as(i64, 701), journal.entries.items[2].input.events_group);
+    try std.testing.expectEqual(@as(i32, 31), journal.entries.items[2].input.service_flags);
+    try std.testing.expectEqual(@as(i64, 123_456), journal.entries.items[2].input.timestamp);
+    try std.testing.expectEqual(@as(i64, 702), journal.entries.items[3].input.events_group);
+    try std.testing.expectEqual(@as(i32, 32), journal.entries.items[3].input.service_flags);
+    try std.testing.expectEqual(@as(i64, 123_457), journal.entries.items[3].input.timestamp);
+    try std.testing.expectEqual(@as(i64, 703), journal.entries.items[4].input.events_group);
+    try std.testing.expectEqual(@as(i32, 33), journal.entries.items[4].input.service_flags);
+    try std.testing.expectEqual(@as(i64, 123_458), journal.entries.items[4].input.timestamp);
+}
+
+test "exchange api full-response submission enforces the exact Java allowlist" {
+    const allocator = std.testing.allocator;
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    defer core.deinit();
+    var api = ExchangeApi.init(allocator, &core);
+
+    const unsupported = [_]ApiCommand{
+        .{ .raw_command = .{ .command = .nop } },
+        .{ .grouping_control = .{ .timestamp_ns = 1, .mode = 0 } },
+        .{ .persist_state = .{ .snapshot_id = 1, .timestamp_ns = 2 } },
+        .{ .binary_add_symbols = .{ .transfer_id = 1, .timestamp = 2, .symbols = &.{} } },
+        .{ .binary_add_accounts = .{ .transfer_id = 1, .timestamp = 2, .users = &.{} } },
+        .{ .binary_report_query = .{ .transfer_id = 1, .timestamp = 2, .query = .state_hash } },
+    };
+    for (unsupported) |command| {
+        try std.testing.expectError(
+            error.UnsupportedAsyncFullResponseCommand,
+            api.submitCommandAsyncFullResponse(command),
+        );
+    }
+    try std.testing.expectEqual(@as(usize, 0), core.driver.completion_slots_used);
+    try std.testing.expectEqual(@as(u64, 0), core.driver.publication_sequencer.highWater());
+}
+
+test "exchange api detached persist and typed binary batches allocate no result slots" {
+    const allocator = std.testing.allocator;
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{
+        .matching = .{ .orderbook_kind = .direct },
+    });
+    defer core.deinit();
+    var api = ExchangeApi.init(allocator, &core);
+
+    const symbol = try makeExchangeSpecForSymbol(9_210);
+    try api.submitCommand(.{ .binary_add_symbols = .{
+        .transfer_id = 5_210,
+        .timestamp = 9_210_000_001,
+        .symbols = &.{symbol},
+    } });
+    const accounts = [_]BinaryCurrencyBalance{.{ .currency = 15, .balance = 31_000 }};
+    const users = [_]BinaryUserAccountsBatch{.{
+        .uid = 95_023,
+        .accounts = accounts[0..],
+    }};
+    try api.submitCommand(.{ .binary_add_accounts = .{
+        .transfer_id = 5_211,
+        .timestamp = 9_210_000_002,
+        .users = users[0..],
+    } });
+    try api.submitCommand(.{ .binary_report_query = .{
+        .transfer_id = 5_212,
+        .timestamp = 9_210_000_003,
+        .query = .state_hash,
+    } });
+    const before_persist = core.driver.publication_sequencer.highWater();
+    try api.submitCommand(.{ .persist_state = .{
+        .snapshot_id = 95_024,
+        .timestamp_ns = 9_210_000_004,
+    } });
+    try std.testing.expectEqual(
+        before_persist + 2,
+        core.driver.publication_sequencer.highWater(),
+    );
+    try std.testing.expectEqual(@as(usize, 0), core.asyncPendingCount());
+    try std.testing.expectEqual(@as(usize, 0), core.runtimePendingCount());
+    try std.testing.expectEqual(@as(usize, 0), core.asyncReadyCount());
+    try std.testing.expectEqual(@as(usize, 0), core.driver.completion_slots_used);
+
+    var barrier = try api.submitCommandsSyncWithNop(&.{});
+    defer barrier.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 0), core.driver.completion_slots_used);
+    try std.testing.expect(
+        core.kernelRef().risk_engine.symbol_spec_provider.getSymbolSpecification(9_210) != null,
+    );
+    try std.testing.expectEqual(
+        @as(?i64, 31_000),
+        core.kernelRef().risk_engine.getUserProfile(95_023).?.accountBalance(15),
+    );
+}
+
 test "exchange api core-style alias wrappers mirror submit/async helper behavior" {
     const allocator = std.testing.allocator;
     var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
@@ -2307,7 +3111,15 @@ test "exchange api core-style alias wrappers mirror submit/async helper behavior
 
 test "exchange api persist-state pair wrappers expose readiness and result consumption" {
     const allocator = std.testing.allocator;
-    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var core = try ExchangeApi.initWithPersistenceRoot(
+        allocator,
+        tmp.dir,
+        .{
+            .serialization = .{ .backend = .disk, .storage_folder = "store" },
+        },
+    );
     defer core.deinit();
 
     var api = ExchangeApi.init(allocator, &core);
@@ -2380,7 +3192,9 @@ test "exchange api low-level core wrappers forward request-id async and batch fl
 
 test "exchange api low-level binary payload wrappers and result sink forwarding" {
     const allocator = std.testing.allocator;
-    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{
+        .java_identity_hash_context = testJavaIdentityHashContext(),
+    });
     defer core.deinit();
 
     const Collector = struct {
@@ -2398,7 +3212,7 @@ test "exchange api low-level binary payload wrappers and result sink forwarding"
 
     var api = ExchangeApi.init(allocator, &core);
     var collector: Collector = .{};
-    api.setResultSink(.{
+    try api.setResultSinkChecked(.{
         .context = &collector,
         .on_result = Collector.onResult,
     });
@@ -2416,19 +3230,181 @@ test "exchange api low-level binary payload wrappers and result sink forwarding"
     var sync_response = try api.submitBinaryPayload(.binary_data_query, 4_801, 9_301_100_001, payload);
     defer sync_response.deinit(allocator);
     try std.testing.expectEqual(cmd.CommandResultCode.success, sync_response.result_code);
-    try std.testing.expect(sync_response.report_response != null);
+    try std.testing.expect(sync_response.report_response == null);
+    try std.testing.expect(sync_response.java_report_response != null);
 
     const async_request_id = try api.submitBinaryPayloadAsync(.binary_data_query, 4_802, 9_301_100_002, payload);
     _ = try api.drainAsyncPending();
     var async_payload_response = api.takeAsyncResult(async_request_id) orelse return error.MissingAsyncResult;
     defer async_payload_response.deinit(allocator);
     try std.testing.expectEqual(cmd.CommandResultCode.success, async_payload_response.result_code);
-    try std.testing.expect(async_payload_response.report_response != null);
+    try std.testing.expect(async_payload_response.report_response == null);
+    try std.testing.expect(async_payload_response.java_report_response != null);
 
     var query_response = try api.submitBinaryReportQuery(4_803, 9_301_100_003, .state_hash);
     defer query_response.deinit(allocator);
     try std.testing.expectEqual(cmd.CommandResultCode.success, query_response.result_code);
-    try std.testing.expect(query_response.report_response != null);
+    try std.testing.expect(query_response.report_response == null);
+    try std.testing.expect(query_response.java_report_response != null);
+}
+
+test "exchange api binary payload callback observes only the terminal frame" {
+    const allocator = std.testing.allocator;
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{
+        .matching = .{ .orderbook_kind = .direct },
+    });
+    defer core.deinit();
+
+    var api = ExchangeApi.init(allocator, &core);
+    const spec = try makeExchangeSpecForSymbol(9_314);
+    const payload = try binary_payload.encodeAddSymbolsToBytes(allocator, &.{spec});
+    defer allocator.free(payload);
+
+    const frame_bytes = @import("binary_frames.zig").FrameWordsPerCommand * @sizeOf(i64);
+    const expected_frames = std.math.divCeil(usize, payload.len, frame_bytes) catch unreachable;
+    try std.testing.expect(expected_frames > 1);
+
+    var collector: CallbackCollector = .{};
+    try api.submitBinaryPayloadAsyncWithCallback(
+        .binary_data_command,
+        4_804,
+        9_301_100_004,
+        payload,
+        .{
+            .context = &collector,
+            .callback = CallbackCollector.onResponse,
+        },
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), api.pendingCallbackCount());
+    try std.testing.expectEqual(@as(usize, 0), collector.count);
+    try std.testing.expect(
+        core.kernelRef().risk_engine.symbol_spec_provider.getSymbolSpecification(spec.symbol_id) == null,
+    );
+
+    try std.testing.expectEqual(expected_frames, try api.drainPending());
+    try std.testing.expectEqual(@as(usize, 1), collector.count);
+    try std.testing.expectEqual(@as(?cmd.CommandResultCode, .success), collector.last_result);
+    const terminal = collector.last_command orelse return error.MissingCallbackCommand;
+    try std.testing.expectEqual(cmd.OrderCommandType.binary_data_command, terminal.command);
+    try std.testing.expectEqual(@as(i32, 4_804), terminal.user_cookie);
+    try std.testing.expectEqual(@as(i32, -1), terminal.symbol);
+    try std.testing.expectEqual(@as(usize, 0), api.pendingCallbackCount());
+    try std.testing.expectEqual(@as(usize, 0), core.asyncReadyCount());
+    try std.testing.expect(
+        core.kernelRef().risk_engine.symbol_spec_provider.getSymbolSpecification(spec.symbol_id) != null,
+    );
+}
+
+test "exchange api detached binary payload applies without retaining async result" {
+    const allocator = std.testing.allocator;
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{
+        .matching = .{ .orderbook_kind = .direct },
+    });
+    defer core.deinit();
+
+    var api = ExchangeApi.init(allocator, &core);
+    const spec = try makeExchangeSpecForSymbol(9_315);
+    const payload = try binary_payload.encodeAddSymbolsToBytes(allocator, &.{spec});
+    defer allocator.free(payload);
+
+    const frame_bytes = @import("binary_frames.zig").FrameWordsPerCommand * @sizeOf(i64);
+    const expected_frames = std.math.divCeil(usize, payload.len, frame_bytes) catch unreachable;
+    try std.testing.expect(expected_frames > 1);
+
+    const sequence_before = core.driver.publication_sequencer.highWater();
+    try api.submitBinaryPayloadDetached(
+        .binary_data_command,
+        4_805,
+        9_301_100_005,
+        payload,
+    );
+
+    try std.testing.expectEqual(
+        sequence_before + @as(u64, @intCast(expected_frames)),
+        core.driver.publication_sequencer.highWater(),
+    );
+    try std.testing.expectEqual(@as(usize, 0), core.asyncPendingCount());
+    try std.testing.expectEqual(@as(usize, 0), core.asyncReadyCount());
+    try std.testing.expectEqual(@as(usize, 0), core.driver.completion_slots_used);
+    try std.testing.expect(
+        core.kernelRef().risk_engine.symbol_spec_provider.getSymbolSpecification(spec.symbol_id) == null,
+    );
+
+    var barrier = try api.submitCommandsSyncWithNop(&.{});
+    defer barrier.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, barrier.result_code);
+    try std.testing.expectEqual(@as(usize, 0), core.asyncPendingCount());
+    try std.testing.expectEqual(@as(usize, 0), core.asyncReadyCount());
+    try std.testing.expectEqual(@as(usize, 0), core.driver.completion_slots_used);
+    try std.testing.expect(
+        core.kernelRef().risk_engine.symbol_spec_provider.getSymbolSpecification(spec.symbol_id) != null,
+    );
+}
+
+test "exchange api checked simple-events configuration forwards set and clear behavior" {
+    const allocator = std.testing.allocator;
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    defer core.deinit();
+
+    const Collector = struct {
+        count: usize = 0,
+
+        fn onCommandResult(context: ?*anyopaque, _: simple_events_mod.ApiCommandResult) void {
+            const self: *@This() = @ptrCast(@alignCast(context.?));
+            self.count += 1;
+        }
+    };
+
+    var api = ExchangeApi.init(allocator, &core);
+    var collector: Collector = .{};
+    try api.setSimpleEventsHandlerChecked(.{
+        .context = &collector,
+        .on_command_result = Collector.onCommandResult,
+    });
+
+    var first = try api.addUser(95_312);
+    defer first.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 1), collector.count);
+
+    try api.clearSimpleEventsHandlerChecked();
+    var second = try api.addUser(95_313);
+    defer second.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 1), collector.count);
+}
+
+test "exchange api checked raw-result configuration forwards full response and clear behavior" {
+    const allocator = std.testing.allocator;
+    const symbol: i32 = 9_532;
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{
+        .matching = .{ .orderbook_kind = .direct },
+    });
+    defer core.deinit();
+    try std.testing.expect(try core.kernelRef().addSymbol(try makeExchangeSpecForSymbol(symbol)));
+
+    var api = ExchangeApi.init(allocator, &core);
+    var collector: CallbackCollector = .{};
+    try api.setRawResultSinkChecked(.{
+        .context = &collector,
+        .on_result = CallbackCollector.onResponse,
+    });
+
+    var first = try api.addUser(95_314);
+    defer first.deinit(allocator);
+    var order_book = try api.requestOrderBook(symbol, 4);
+    defer order_book.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 2), collector.count);
+    try std.testing.expectEqual(order_book.sequence, collector.last_sequence);
+    try std.testing.expectEqual(
+        @as(?cmd.OrderCommandType, .order_book_request),
+        if (collector.last_command) |command| command.command else null,
+    );
+    try std.testing.expect(collector.last_snapshot_present);
+
+    try api.clearRawResultSinkChecked();
+    var second = try api.addUser(95_315);
+    defer second.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 2), collector.count);
 }
 
 test "exchange api async handle flow drains and returns result payload" {
@@ -2448,6 +3424,37 @@ test "exchange api async handle flow drains and returns result payload" {
     defer result.deinit(allocator);
     switch (result) {
         .response => |response| try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code),
+        .persist_state => return error.UnexpectedPersistStateResult,
+    }
+    try std.testing.expect(api.takeResult(handle) == null);
+}
+
+test "exchange api by-value typed forwarding preserves explicit timestamp" {
+    const allocator = std.testing.allocator;
+    const uid: i64 = 95_316;
+    const timestamp: i64 = 9_500_316_001;
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    defer core.deinit();
+    var api = ExchangeApi.init(allocator, &core);
+
+    var add_user = try api.submitCommandSync(.{ .add_user = uid });
+    defer add_user.deinit(allocator);
+    var balance = try api.submitCommandSync(.{
+        .adjust_user_balance = .{
+            .uid = uid,
+            .transaction_id = 1,
+            .currency = 15,
+            .amount = 1_000,
+            .adjustment_type = .adjustment,
+            .timestamp = timestamp,
+        },
+    });
+    defer balance.deinit(allocator);
+    switch (balance) {
+        .response => |response| {
+            try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+            try std.testing.expectEqual(timestamp, response.command.timestamp);
+        },
         .persist_state => return error.UnexpectedPersistStateResult,
     }
 }
@@ -2856,11 +3863,122 @@ test "exchange api callback wrappers invoke callbacks for user lifecycle command
 
     const drained = try api.drainPending();
     try std.testing.expectEqual(@as(usize, 3), drained);
-    try std.testing.expectEqual(@as(usize, 3), try api.processPendingCallbacks());
+    try std.testing.expectEqual(@as(usize, 0), try api.processPendingCallbacks());
 
     try std.testing.expectEqual(@as(usize, 0), api.pendingCallbackCount());
     try std.testing.expectEqual(@as(usize, 3), collector.count);
     try std.testing.expectEqual(@as(?cmd.CommandResultCode, .success), collector.last_result);
+    const completed = collector.last_command orelse return error.MissingCallbackCommand;
+    try std.testing.expectEqual(cmd.OrderCommandType.resume_user, completed.command);
+    try std.testing.expectEqual(@as(i64, 96_001), completed.uid);
+    try std.testing.expectEqual(@as(i64, -1), completed.order_id);
+    try std.testing.expectEqual(@as(i32, -1), completed.symbol);
+    try std.testing.expect(completed.timestamp > 0);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, completed.result_code);
+}
+
+test "exchange api public typed and raw callback entrypoints preserve callback ownership" {
+    const allocator = std.testing.allocator;
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    defer core.deinit();
+
+    var api = ExchangeApi.init(allocator, &core);
+    var collector: CallbackCollector = .{};
+    const callback: CommandResponseCallback = .{
+        .context = &collector,
+        .callback = CallbackCollector.onResponse,
+    };
+
+    try api.submitApiCommandWithCallback(.{ .add_user = 96_002 }, callback);
+    var raw: cmd.OrderCommand = .{
+        .command = .add_user,
+        .order_id = -1,
+        .symbol = -1,
+        .uid = 96_003,
+        .timestamp = 44_001,
+        .result_code = .new,
+    };
+    try api.submitCommandAsyncWithCallback(&raw, callback);
+
+    try std.testing.expectEqual(@as(usize, 2), api.pendingCallbackCount());
+    try std.testing.expectEqual(@as(usize, 2), try api.drainPending());
+    try std.testing.expectEqual(@as(usize, 2), collector.count);
+    try std.testing.expectEqual(@as(usize, 0), api.pendingCallbackCount());
+    try std.testing.expectEqual(@as(?cmd.CommandResultCode, .success), collector.last_result);
+    const completed = collector.last_command orelse return error.MissingCallbackCommand;
+    try std.testing.expectEqual(@as(i64, 96_003), completed.uid);
+    try std.testing.expectEqual(@as(i64, 44_001), completed.timestamp);
+}
+
+test "exchange api running worker automatically delivers all Java callback wrappers in FIFO order" {
+    const allocator = std.testing.allocator;
+    const symbol: i32 = 9_365;
+    const uid: i64 = 96_050;
+    const order_id: i64 = 77_050;
+
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{
+        .matching = .{ .orderbook_kind = .direct },
+    });
+    defer core.deinit();
+    var api = ExchangeApi.init(allocator, &core);
+
+    const spec = try makeExchangeSpecForSymbol(symbol);
+    var add_symbol = try api.submitCommandSync(.{ .binary_add_symbols = .{
+        .transfer_id = 5_305,
+        .timestamp = 9_600_100_005,
+        .symbols = &.{spec},
+    } });
+    add_symbol.deinit(allocator);
+    try core.startup();
+
+    var collector: OrderedCallbackCollector = .{};
+    const callback: CommandResponseCallback = .{
+        .context = &collector,
+        .callback = OrderedCallbackCollector.onResponse,
+        .failure_callback = OrderedCallbackCollector.onFailure,
+    };
+
+    try api.createUserWithCallback(uid, callback);
+    try api.suspendUserWithCallback(uid, callback);
+    try api.resumeUserWithCallback(uid, callback);
+    try api.balanceAdjustmentWithCallback(uid, 1, 15, 100_000, .adjustment, callback);
+    try api.placeNewOrderWithCallback(
+        order_id,
+        7,
+        100,
+        120,
+        5,
+        .bid,
+        .gtc,
+        symbol,
+        uid,
+        callback,
+    );
+    try api.moveOrderWithCallback(101, order_id, symbol, uid, callback);
+    try api.reduceOrderWithCallback(2, order_id, symbol, uid, callback);
+    try api.cancelOrderWithCallback(order_id, symbol, uid, callback);
+    try api.orderBookRequest(symbol, 16, callback);
+
+    // The explicit synchronous publication is a deterministic barrier for
+    // every earlier queue item, including callback delivery itself.
+    var barrier = try api.submitCommandSync(.nop);
+    barrier.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 9), collector.count);
+    try std.testing.expectEqual(@as(usize, 0), collector.failure_count);
+    for (collector.results[0..collector.count]) |result| {
+        try std.testing.expectEqual(cmd.CommandResultCode.success, result);
+    }
+    for (collector.sequences[1..collector.count], 1..) |sequence, index| {
+        try std.testing.expect(sequence > collector.sequences[index - 1]);
+    }
+    for (collector.snapshot_present[0 .. collector.count - 1]) |present| {
+        try std.testing.expect(!present);
+    }
+    try std.testing.expect(collector.snapshot_present[collector.count - 1]);
+    try std.testing.expectEqual(@as(usize, 0), api.pendingCallbackCount());
+    try std.testing.expectEqual(@as(usize, 0), core.asyncReadyCount());
+    try std.testing.expectEqual(@as(usize, 0), try api.processPendingCallbacks());
 }
 
 test "exchange api processResult consumes callback result after drain" {
@@ -2943,7 +4061,7 @@ test "exchange api orderBookRequest callback wrapper exposes snapshot response" 
 
     const drained = try api.drainPending();
     try std.testing.expectEqual(@as(usize, 1), drained);
-    try std.testing.expectEqual(@as(usize, 1), try api.processPendingCallbacks());
+    try std.testing.expectEqual(@as(usize, 0), try api.processPendingCallbacks());
 
     try std.testing.expectEqual(@as(usize, 0), api.pendingCallbackCount());
     try std.testing.expectEqual(@as(usize, 1), collector.count);
@@ -2980,6 +4098,40 @@ test "exchange api registered callback can be processed per handle after drain" 
     try std.testing.expectEqual(@as(?cmd.CommandResultCode, .success), collector.last_result);
 
     try std.testing.expect(!(try api.processRegisteredCallback(handle)));
+}
+
+test "exchange api late callback registration owns the ready result" {
+    const allocator = std.testing.allocator;
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    defer core.deinit();
+
+    var api = ExchangeApi.init(allocator, &core);
+    const handle = try api.submitCreateUserAsync(96_202);
+    const request_id = try requestIdFromHandle(handle);
+
+    try std.testing.expectEqual(@as(usize, 1), try api.drainPending());
+    try std.testing.expect(api.isResultReady(handle));
+
+    var collector: CallbackCollector = .{};
+    try api.registerResultCallback(handle, .{
+        .context = &collector,
+        .callback = CallbackCollector.onResponse,
+    });
+
+    // Once the facade accepts callback ownership, none of its polling entry
+    // points may steal the already-ready response.
+    try std.testing.expect(api.takeResult(handle) == null);
+    try std.testing.expect(api.takeApiCommandAsyncResult(handle) == null);
+    try std.testing.expect(api.takeAsyncResult(request_id) == null);
+    try std.testing.expect((try api.takeAsyncResultChecked(request_id)) == null);
+    try std.testing.expect((try api.takeApiCommandAsyncResultChecked(handle)) == null);
+
+    try std.testing.expectEqual(@as(usize, 1), api.pendingCallbackCount());
+    try std.testing.expect(try api.processRegisteredCallback(handle));
+    try std.testing.expectEqual(@as(usize, 1), collector.count);
+    try std.testing.expectEqual(@as(?cmd.CommandResultCode, .success), collector.last_result);
+    try std.testing.expectEqual(@as(usize, 0), api.pendingCallbackCount());
+    try std.testing.expect(api.takeResult(handle) == null);
 }
 
 test "exchange api processResult callback path converges with polled full-response path" {
@@ -4291,7 +5443,12 @@ test "exchange api typed binary add-symbols sync helper makes symbol queryable" 
 
     var api = ExchangeApi.init(allocator, &core);
     const spec = try makeExchangeSpecForSymbol(9_241);
-    try api.submitAddSymbolsBinary(5_001, 9_300_100_001, &.{spec});
+    var add_symbol = try api.submitCommandSync(.{ .binary_add_symbols = .{
+        .transfer_id = 5_001,
+        .timestamp = 9_300_100_001,
+        .symbols = &.{spec},
+    } });
+    add_symbol.deinit(allocator);
 
     var report = try core.queryReport(.{
         .order_book = .{
@@ -4386,7 +5543,9 @@ test "exchange api raw binary command payload async wrapper applies add-symbols 
 
 test "exchange api raw binary query payload async wrapper returns report payload" {
     const allocator = std.testing.allocator;
-    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{
+        .java_identity_hash_context = testJavaIdentityHashContext(),
+    });
     defer core.deinit();
 
     var api = ExchangeApi.init(allocator, &core);
@@ -4397,13 +5556,11 @@ test "exchange api raw binary query payload async wrapper returns report payload
     const processed = try api.drainPending();
     try std.testing.expect(processed >= 1);
 
-    var report = (try api.takeReportResponse(handle)) orelse return error.MissingAsyncResult;
+    var report = (try api.takeJavaReportResponse(handle)) orelse return error.MissingAsyncResult;
     defer report.deinit(allocator);
     switch (report) {
-        .state_hash_detailed => |detailed| {
-            try std.testing.expect(detailed.submodules.items.len > 0);
-        },
-        else => return error.UnexpectedReportResponseType,
+        .state_hash => |state_hash| try std.testing.expect(state_hash.report.entries.len > 0),
+        else => return error.UnexpectedJavaReportResponseType,
     }
 }
 
@@ -4440,13 +5597,43 @@ test "exchange api generic submitBinaryCommandAsync alias resolves encoded add-s
 
     const handle = try api.submitBinaryCommandAsync(5_105, 9_400_100_005, payload);
     const processed = try api.drainPending();
-    try std.testing.expect(processed >= 1);
+    try std.testing.expect(processed > 1);
     try std.testing.expectEqual(@as(?cmd.CommandResultCode, .success), api.takeResultCode(handle));
+    try std.testing.expect(api.takeResultCode(handle) == null);
+    try std.testing.expect(
+        core.kernelRef().risk_engine.symbol_spec_provider.getSymbolSpecification(spec.symbol_id) != null,
+    );
+}
+
+test "exchange api submitBinaryDataAsync entrypoint resolves encoded add-symbols payload" {
+    const allocator = std.testing.allocator;
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{
+        .matching = .{
+            .orderbook_kind = .direct,
+        },
+    });
+    defer core.deinit();
+
+    var api = ExchangeApi.init(allocator, &core);
+    const spec = try makeExchangeSpecForSymbol(9_304);
+    const payload = try binary_payload.encodeAddSymbolsToBytes(allocator, &.{spec});
+    defer allocator.free(payload);
+
+    const handle = try api.submitBinaryDataAsync(5_109, 9_400_100_009, payload);
+    const processed = try api.drainPending();
+    try std.testing.expect(processed > 1);
+    try std.testing.expectEqual(@as(?cmd.CommandResultCode, .success), api.takeResultCode(handle));
+    try std.testing.expect(api.takeResultCode(handle) == null);
+    try std.testing.expect(
+        core.kernelRef().risk_engine.symbol_spec_provider.getSymbolSpecification(spec.symbol_id) != null,
+    );
 }
 
 test "exchange api generic submitQueryAsync alias resolves report payload" {
     const allocator = std.testing.allocator;
-    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{
+        .java_identity_hash_context = testJavaIdentityHashContext(),
+    });
     defer core.deinit();
 
     var api = ExchangeApi.init(allocator, &core);
@@ -4454,14 +5641,13 @@ test "exchange api generic submitQueryAsync alias resolves report payload" {
     const processed = try api.drainPending();
     try std.testing.expectEqual(@as(usize, 1), processed);
 
-    var report = (try api.takeReportResponse(handle)) orelse return error.MissingAsyncResult;
+    var report = (try api.takeJavaReportResponse(handle)) orelse return error.MissingAsyncResult;
     defer report.deinit(allocator);
     switch (report) {
-        .state_hash_detailed => |detailed| {
-            try std.testing.expect(detailed.submodules.items.len > 0);
-        },
-        else => return error.UnexpectedReportResponseType,
+        .state_hash => |state_hash| try std.testing.expect(state_hash.report.entries.len > 0),
+        else => return error.UnexpectedJavaReportResponseType,
     }
+    try std.testing.expect((try api.takeJavaReportResponse(handle)) == null);
 }
 
 test "exchange api publishBinaryData alias resolves encoded add-symbols payload" {
@@ -4480,13 +5666,19 @@ test "exchange api publishBinaryData alias resolves encoded add-symbols payload"
 
     const handle = try api.publishBinaryData(5_107, 9_400_100_007, payload);
     const processed = try api.drainPending();
-    try std.testing.expect(processed >= 1);
+    try std.testing.expect(processed > 1);
     try std.testing.expectEqual(@as(?cmd.CommandResultCode, .success), api.takeResultCode(handle));
+    try std.testing.expect(api.takeResultCode(handle) == null);
+    try std.testing.expect(
+        core.kernelRef().risk_engine.symbol_spec_provider.getSymbolSpecification(spec.symbol_id) != null,
+    );
 }
 
 test "exchange api publishQuery alias resolves report payload" {
     const allocator = std.testing.allocator;
-    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{
+        .java_identity_hash_context = testJavaIdentityHashContext(),
+    });
     defer core.deinit();
 
     var api = ExchangeApi.init(allocator, &core);
@@ -4494,14 +5686,13 @@ test "exchange api publishQuery alias resolves report payload" {
     const processed = try api.drainPending();
     try std.testing.expectEqual(@as(usize, 1), processed);
 
-    var report = (try api.takeReportResponse(handle)) orelse return error.MissingAsyncResult;
+    var report = (try api.takeJavaReportResponse(handle)) orelse return error.MissingAsyncResult;
     defer report.deinit(allocator);
     switch (report) {
-        .state_hash_detailed => |detailed| {
-            try std.testing.expect(detailed.submodules.items.len > 0);
-        },
-        else => return error.UnexpectedReportResponseType,
+        .state_hash => |state_hash| try std.testing.expect(state_hash.report.entries.len > 0),
+        else => return error.UnexpectedJavaReportResponseType,
     }
+    try std.testing.expect((try api.takeJavaReportResponse(handle)) == null);
 }
 
 test "exchange api metadata entrypoints map to raw command fields in journaled input" {
@@ -4528,6 +5719,11 @@ test "exchange api metadata entrypoints map to raw command fields in journaled i
     try api.reset(1_010);
     try api.nop(1_011);
 
+    // These Java-style entrypoints are detached. Cold shutdown is a
+    // settlement barrier that drains the accepted prefix without publishing
+    // an extra command into the journal under inspection.
+    core.shutdown();
+
     const journal = core.journal orelse return error.ExpectedJournal;
     try std.testing.expectEqual(@as(usize, 12), journal.entries.items.len);
 
@@ -4538,6 +5734,18 @@ test "exchange api metadata entrypoints map to raw command fields in journaled i
     try std.testing.expectEqual(@as(i32, 11), journal.entries.items[0].input.service_flags);
     try std.testing.expectEqual(@as(i64, 101), journal.entries.items[0].input.events_group);
     try std.testing.expectEqual(@as(i64, 1_001), journal.entries.items[0].input.timestamp);
+
+    try std.testing.expectEqual(cmd.OrderCommandType.suspend_user, journal.entries.items[1].input.command);
+    try std.testing.expectEqual(@as(i64, 96_001), journal.entries.items[1].input.uid);
+    try std.testing.expectEqual(@as(i32, 12), journal.entries.items[1].input.service_flags);
+    try std.testing.expectEqual(@as(i64, 102), journal.entries.items[1].input.events_group);
+    try std.testing.expectEqual(@as(i64, 1_002), journal.entries.items[1].input.timestamp);
+
+    try std.testing.expectEqual(cmd.OrderCommandType.resume_user, journal.entries.items[2].input.command);
+    try std.testing.expectEqual(@as(i64, 96_001), journal.entries.items[2].input.uid);
+    try std.testing.expectEqual(@as(i32, 13), journal.entries.items[2].input.service_flags);
+    try std.testing.expectEqual(@as(i64, 103), journal.entries.items[2].input.events_group);
+    try std.testing.expectEqual(@as(i64, 1_003), journal.entries.items[2].input.timestamp);
 
     try std.testing.expectEqual(cmd.OrderCommandType.balance_adjustment, journal.entries.items[3].input.command);
     try std.testing.expectEqual(@as(i64, 77), journal.entries.items[3].input.order_id);
@@ -4561,6 +5769,32 @@ test "exchange api metadata entrypoints map to raw command fields in journaled i
     try std.testing.expectEqual(@as(i32, 15), journal.entries.items[4].input.service_flags);
     try std.testing.expectEqual(@as(i64, 105), journal.entries.items[4].input.events_group);
     try std.testing.expectEqual(@as(i64, 1_005), journal.entries.items[4].input.timestamp);
+
+    try std.testing.expectEqual(cmd.OrderCommandType.move_order, journal.entries.items[5].input.command);
+    try std.testing.expectEqual(@as(i64, 103), journal.entries.items[5].input.price);
+    try std.testing.expectEqual(@as(i64, 70_001), journal.entries.items[5].input.order_id);
+    try std.testing.expectEqual(@as(i32, 241), journal.entries.items[5].input.symbol);
+    try std.testing.expectEqual(@as(i64, 96_001), journal.entries.items[5].input.uid);
+    try std.testing.expectEqual(@as(i32, 16), journal.entries.items[5].input.service_flags);
+    try std.testing.expectEqual(@as(i64, 106), journal.entries.items[5].input.events_group);
+    try std.testing.expectEqual(@as(i64, 1_006), journal.entries.items[5].input.timestamp);
+
+    try std.testing.expectEqual(cmd.OrderCommandType.cancel_order, journal.entries.items[6].input.command);
+    try std.testing.expectEqual(@as(i64, 70_001), journal.entries.items[6].input.order_id);
+    try std.testing.expectEqual(@as(i32, 241), journal.entries.items[6].input.symbol);
+    try std.testing.expectEqual(@as(i64, 96_001), journal.entries.items[6].input.uid);
+    try std.testing.expectEqual(@as(i32, 17), journal.entries.items[6].input.service_flags);
+    try std.testing.expectEqual(@as(i64, 107), journal.entries.items[6].input.events_group);
+    try std.testing.expectEqual(@as(i64, 1_007), journal.entries.items[6].input.timestamp);
+
+    try std.testing.expectEqual(cmd.OrderCommandType.reduce_order, journal.entries.items[7].input.command);
+    try std.testing.expectEqual(@as(i64, 2), journal.entries.items[7].input.size);
+    try std.testing.expectEqual(@as(i64, 70_001), journal.entries.items[7].input.order_id);
+    try std.testing.expectEqual(@as(i32, 241), journal.entries.items[7].input.symbol);
+    try std.testing.expectEqual(@as(i64, 96_001), journal.entries.items[7].input.uid);
+    try std.testing.expectEqual(@as(i32, 18), journal.entries.items[7].input.service_flags);
+    try std.testing.expectEqual(@as(i64, 108), journal.entries.items[7].input.events_group);
+    try std.testing.expectEqual(@as(i64, 1_008), journal.entries.items[7].input.timestamp);
 
     try std.testing.expectEqual(cmd.OrderCommandType.binary_data_command, journal.entries.items[8].input.command);
     try std.testing.expectEqual(@as(i32, -1), journal.entries.items[8].input.symbol);
@@ -4590,6 +5824,47 @@ test "exchange api metadata entrypoints map to raw command fields in journaled i
     try std.testing.expectEqual(@as(i64, 0), journal.entries.items[11].input.events_group);
 }
 
+test "exchange api reset entrypoint clears live state and in-flight binary assembly" {
+    const allocator = std.testing.allocator;
+    const symbol: i32 = 9_305;
+    const uid: i64 = 96_005;
+
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{
+        .matching = .{ .orderbook_kind = .direct },
+    });
+    defer core.deinit();
+    var api = ExchangeApi.init(allocator, &core);
+
+    const spec = try makeExchangeSpecForSymbol(symbol);
+    var add_symbol = try api.submitCommandSync(.{ .binary_add_symbols = .{
+        .transfer_id = 5_110,
+        .timestamp = 9_400_100_010,
+        .symbols = &.{spec},
+    } });
+    add_symbol.deinit(allocator);
+    try core.startup();
+
+    try api.createUser(0, 1, 9_400_100_011, uid);
+    try api.balanceAdjustment(0, 1, 9_400_100_012, uid, 1, 15, 100_000, .adjustment);
+    try api.placeNewOrder(0, 1, 9_400_100_013, 70_005, 0, 100, 110, 5, .bid, .gtc, symbol, uid);
+    try api.binaryData(0, 1, 9_400_100_014, 0, 11, 12, 13, 14, 15);
+    var settle_seed = try api.submitCommandSync(.nop);
+    settle_seed.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 1), core.kernelRef().books.count());
+    try std.testing.expectEqual(@as(usize, 1), core.kernelRef().risk_engine.symbol_spec_provider.symbols.count());
+    try std.testing.expectEqual(@as(usize, 1), core.kernelRef().risk_engine.user_profile_service.user_profiles.count());
+    try std.testing.expectEqual(@as(usize, 1), core.kernelRef().binary_frame_assembler.pendingTransfers());
+
+    try api.reset(9_400_100_015);
+    core.shutdown();
+
+    try std.testing.expectEqual(@as(usize, 0), core.kernelRef().books.count());
+    try std.testing.expectEqual(@as(usize, 0), core.kernelRef().risk_engine.symbol_spec_provider.symbols.count());
+    try std.testing.expectEqual(@as(usize, 0), core.kernelRef().risk_engine.user_profile_service.user_profiles.count());
+    try std.testing.expectEqual(@as(usize, 0), core.kernelRef().binary_frame_assembler.pendingTransfers());
+}
+
 test "exchange api async full-response helper returns command response" {
     const allocator = std.testing.allocator;
     var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
@@ -4606,6 +5881,9 @@ test "exchange api async full-response helper returns command response" {
     var response = (try api.takeFullResponse(handle)) orelse return error.MissingAsyncResult;
     defer response.deinit(allocator);
     try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    try std.testing.expectEqual(cmd.OrderCommandType.add_user, response.command.command);
+    try std.testing.expectEqual(@as(i64, 97_001), response.command.uid);
+    try std.testing.expect((try api.takeFullResponse(handle)) == null);
 }
 
 test "exchange api typed grouping-control async command resolves and preserves journal metadata" {
@@ -4619,7 +5897,7 @@ test "exchange api typed grouping-control async command resolves and preserves j
     defer core.deinit();
 
     var api = ExchangeApi.init(allocator, &core);
-    const handle = try api.submitCommandAsyncFullResponse(.{
+    const handle = try api.submitCommandAsyncResultCode(.{
         .grouping_control = .{
             .timestamp_ns = 1_020_333,
             .mode = 0,
@@ -4628,9 +5906,10 @@ test "exchange api typed grouping-control async command resolves and preserves j
     const processed = try api.drainPending();
     try std.testing.expectEqual(@as(usize, 1), processed);
 
-    var response = (try api.takeFullResponse(handle)) orelse return error.MissingAsyncResult;
-    defer response.deinit(allocator);
-    try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    try std.testing.expectEqual(
+        @as(?cmd.CommandResultCode, .success),
+        api.takeResultCode(handle),
+    );
 
     const journal = core.journal orelse return error.ExpectedJournal;
     try std.testing.expectEqual(@as(usize, 1), journal.entries.items.len);
@@ -4663,7 +5942,15 @@ test "exchange api async result-code helper handles duplicate add-user determini
 
 test "exchange api async helpers keep persist-state behavior explicit" {
     const allocator = std.testing.allocator;
-    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var core = try ExchangeApi.initWithPersistenceRoot(
+        allocator,
+        tmp.dir,
+        .{
+            .serialization = .{ .backend = .disk, .storage_folder = "store" },
+        },
+    );
     defer core.deinit();
 
     var api = ExchangeApi.init(allocator, &core);
@@ -4713,7 +6000,7 @@ test "exchange api observability wrappers forward lifecycle and queue counters" 
     try std.testing.expect(!api.isStarted());
     try std.testing.expect(!api.isStopped());
     try std.testing.expect(api.journalingEnabled());
-    try std.testing.expectEqual(@as(usize, 0), api.journalLen());
+    try std.testing.expectEqual(@as(usize, 0), try api.journalLen());
     try std.testing.expectEqual(@as(usize, 0), api.asyncPendingCount());
     try std.testing.expectEqual(@as(usize, 0), api.asyncReadyCount());
     try std.testing.expectEqual(@as(usize, 0), api.runtimePendingCount());
@@ -4813,6 +6100,12 @@ test "exchange api default persistence file-name and path wrappers match core bu
     defer allocator.free(core_snapshot_path);
     try std.testing.expectEqualStrings(core_snapshot_path, api_snapshot_path);
 
+    const api_manifest_path = try api.defaultPersistenceSnapshotManifestPath(allocator, snapshot_id);
+    defer allocator.free(api_manifest_path);
+    const core_manifest_path = try core.defaultPersistenceSnapshotManifestPath(allocator, snapshot_id);
+    defer allocator.free(core_manifest_path);
+    try std.testing.expectEqualStrings(core_manifest_path, api_manifest_path);
+
     const api_journal_path = try api.defaultPersistenceJournalPath(allocator, snapshot_id, 7);
     defer allocator.free(api_journal_path);
     const core_journal_path = try core.defaultPersistenceJournalPath(allocator, snapshot_id, 7);
@@ -4826,23 +6119,64 @@ test "exchange api default persistence file-name and path wrappers match core bu
     try std.testing.expectEqualStrings(core_main_log_path, api_main_log_path);
 }
 
-test "exchange api persist-state main-log wrapper appends entries using provided dir" {
+test "exchange api persistence fault forwarding remains one-shot" {
     const allocator = std.testing.allocator;
-    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{
-        .serialization = .{
-            .enable_journaling = true,
-            .backend = .disk,
-            .storage_folder = "persist-main-log",
-        },
-    });
-    defer core.deinit();
-
-    var api = ExchangeApi.init(allocator, &core);
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const first = try api.persistStateWithDefaultMainLog(
+    var core = try ExchangeApi.initWithPersistenceRoot(
+        allocator,
         tmp.dir,
+        .{
+            .initial_state = .{
+                .exchange_id = "EXAPIFAULT",
+                .snapshot_id = 0,
+                .snapshot_base_seq = 0,
+                .journal_timestamp_ns = 0,
+                .throw_if_snapshot_not_found = false,
+            },
+            .serialization = .{
+                .backend = .disk,
+                .storage_folder = "store",
+            },
+        },
+    );
+    defer core.deinit();
+    var api = ExchangeApi.init(allocator, &core);
+
+    api.setPersistenceFaultForTesting(.matching_before_write);
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.state_persist_matching_engine_failed,
+        try api.persistState(55_201, 88_201),
+    );
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.success,
+        try api.persistState(55_201, 88_201),
+    );
+}
+
+test "exchange api persist-state main-log wrapper appends entries using provided dir" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const storage_folder = "api-persist-main-log";
+    var core = try ExchangeApi.initWithIoAndPersistenceRoot(
+        allocator,
+        std.testing.io,
+        tmp.dir,
+        .{
+            .serialization = .{
+                .enable_journaling = true,
+                .backend = .disk,
+                .storage_folder = storage_folder,
+            },
+        },
+    );
+    defer core.deinit();
+
+    var api = ExchangeApi.init(allocator, &core);
+
+    const first = try api.persistStateWithConfiguredMainLog(
         91_001,
         5_111_222,
         .risk_engine,
@@ -4866,6 +6200,16 @@ test "exchange api persist-state main-log wrapper appends entries using provided
     const main_log_contents = try test_io_context.readToEndAlloc(main_log_file, allocator, 8192);
     defer allocator.free(main_log_contents);
 
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        main_log_contents,
+        "seq=2 timestampNs=5111222 snapshotId=91001 type=RE instance=0",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        main_log_contents,
+        "seq=3 timestampNs=5111333 snapshotId=91002 type=ME instance=1",
+    ) != null);
     try std.testing.expect(std.mem.indexOf(u8, main_log_contents, "snapshotId=91001") != null);
     try std.testing.expect(std.mem.indexOf(u8, main_log_contents, "timestampNs=5111222") != null);
     try std.testing.expect(std.mem.indexOf(u8, main_log_contents, "type=RE") != null);
@@ -4890,6 +6234,19 @@ test "exchange api initFromJavaConfig helper returns usable core instance" {
     var api = ExchangeApi.init(allocator, &core);
 
     try api.submitCommand(.{ .add_user = 98_601 });
+}
+
+test "exchange api initWithIo and ioContext preserve the supplied I/O and healthy fatal state" {
+    const allocator = std.testing.allocator;
+
+    var core = try ExchangeApi.initWithIo(allocator, std.testing.io, .{});
+    defer core.deinit();
+    var api = ExchangeApi.init(allocator, &core);
+
+    const actual_io = api.ioContext();
+    try std.testing.expectEqual(std.testing.io.userdata, actual_io.userdata);
+    try std.testing.expect(std.testing.io.vtable == actual_io.vtable);
+    try std.testing.expect(api.fatalInfo() == null);
 }
 
 test "exchange api deinit remains non-owning over core lifecycle" {
@@ -4917,14 +6274,38 @@ test "exchange api lifecycle startup/shutdown wrappers forward core state transi
 
     try std.testing.expect(!core.isStarted());
     try std.testing.expect(!core.isStopped());
+    try std.testing.expectEqual(ShutdownState.open, api.shutdownState());
 
     try api.startup();
     try std.testing.expect(core.isStarted());
     try std.testing.expect(!core.isStopped());
+    try std.testing.expectEqual(ShutdownState.open, api.shutdownState());
 
     try api.shutdown();
     try std.testing.expect(core.isStopped());
+    try std.testing.expectEqual(ShutdownState.complete, api.shutdownState());
     try std.testing.expectError(error.CoreStopped, api.startup());
+}
+
+test "exchange api bounded shutdown wrapper forwards outcome and state" {
+    const allocator = std.testing.allocator;
+
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    defer core.deinit();
+    var api = ExchangeApi.init(allocator, &core);
+
+    const immediate: std.Io.Timeout = .{
+        .duration = .{ .raw = .zero, .clock = .awake },
+    };
+    try std.testing.expectEqual(
+        ShutdownOutcome.complete,
+        try api.shutdownTimeout(immediate),
+    );
+    try std.testing.expectEqual(ShutdownState.complete, api.shutdownState());
+    try std.testing.expectError(
+        error.CoreStopped,
+        api.submitCommand(.{ .add_user = 98_603 }),
+    );
 }
 
 test "exchange api bootstrapFromPersistence wrapper forwards clean-start bootstrap without startup side effects" {
@@ -5009,7 +6390,7 @@ test "exchange api startupFromConfiguredPersistence wrapper forwards configured 
     try std.testing.expect(outcome.snapshot_requested);
     try std.testing.expect(outcome.snapshot_found);
     try std.testing.expectEqual(@as(usize, 0), outcome.journal_replayed_commands);
-    try std.testing.expectEqual(@as(u64, 201), target.persistenceCurrentSnapshot().snapshot_id);
+    try std.testing.expectEqual(@as(u64, 201), (try target.persistenceCurrentSnapshot()).snapshot_id);
 }
 
 test "exchange api discovered startup helper forwards success path and latest snapshot selection" {
@@ -5062,7 +6443,7 @@ test "exchange api discovered startup helper forwards success path and latest sn
     try std.testing.expect(outcome.snapshot_requested);
     try std.testing.expect(outcome.snapshot_found);
     try std.testing.expectEqual(@as(usize, 0), outcome.journal_replayed_commands);
-    try std.testing.expectEqual(@as(u64, 42), target.persistenceCurrentSnapshot().snapshot_id);
+    try std.testing.expectEqual(@as(u64, 42), (try target.persistenceCurrentSnapshot()).snapshot_id);
 }
 
 test "exchange api strict discovered startup helper propagates malformed main-log entries" {
@@ -5122,7 +6503,15 @@ test "exchange api strict discovered startup helper propagates malformed main-lo
 
 test "exchange api persist-state async handles reject callback registration and preserve polling path" {
     const allocator = std.testing.allocator;
-    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var core = try ExchangeApi.initWithPersistenceRoot(
+        allocator,
+        tmp.dir,
+        .{
+            .serialization = .{ .backend = .disk, .storage_folder = "store" },
+        },
+    );
     defer core.deinit();
 
     var api = ExchangeApi.init(allocator, &core);
@@ -5154,7 +6543,10 @@ test "exchange api persist-state async handles reject callback registration and 
         error.UnsupportedPersistStateHandle,
         api.processRegisteredCallback(persist_poll_handle),
     );
-    try std.testing.expect(!(try api.processResult(persist_process_handle, callback)));
+    try std.testing.expectError(
+        error.UnexpectedPersistStateResult,
+        api.processResult(persist_process_handle, callback),
+    );
     try std.testing.expectEqual(@as(usize, 0), api.pendingCallbackCount());
 
     const processed = try api.drainPending();
@@ -5166,11 +6558,20 @@ test "exchange api persist-state async handles reject callback registration and 
     try std.testing.expectEqual(@as(usize, 0), try api.processPendingCallbacks());
     try std.testing.expectEqual(@as(usize, 0), collector.count);
     try std.testing.expectEqual(@as(?cmd.CommandResultCode, .success), api.takeResultCode(persist_poll_handle));
+    try std.testing.expectEqual(@as(?cmd.CommandResultCode, .success), api.takeResultCode(persist_process_handle));
 }
 
 test "exchange api typed persist-state async helper matches manual persist-state handle path" {
     const allocator = std.testing.allocator;
-    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var core = try ExchangeApi.initWithPersistenceRoot(
+        allocator,
+        tmp.dir,
+        .{
+            .serialization = .{ .backend = .disk, .storage_folder = "store" },
+        },
+    );
     defer core.deinit();
 
     var api = ExchangeApi.init(allocator, &core);
@@ -5190,7 +6591,15 @@ test "exchange api typed persist-state async helper matches manual persist-state
 
 test "exchange api typed persist-state one-shot helper matches manual process path" {
     const allocator = std.testing.allocator;
-    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var core = try ExchangeApi.initWithPersistenceRoot(
+        allocator,
+        tmp.dir,
+        .{
+            .serialization = .{ .backend = .disk, .storage_folder = "store" },
+        },
+    );
     defer core.deinit();
 
     var api = ExchangeApi.init(allocator, &core);
@@ -5207,17 +6616,25 @@ test "exchange api typed persist-state one-shot helper matches manual process pa
 
 test "exchange api forwards persistence snapshot-id lookup helpers" {
     const allocator = std.testing.allocator;
-    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var core = try ExchangeApi.initWithPersistenceRoot(
+        allocator,
+        tmp.dir,
+        .{
+            .serialization = .{ .backend = .disk, .storage_folder = "store" },
+        },
+    );
     defer core.deinit();
 
     var api = ExchangeApi.init(allocator, &core);
-    try std.testing.expectEqual(@as(usize, 1), api.persistenceSnapshotCount());
-    try std.testing.expectEqual(@as(usize, 0), api.persistenceJournalCount());
-    const root_ref = api.persistenceFindSnapshotById(0) orelse return error.ExpectedSnapshot;
-    const root_snapshot = api.persistenceSnapshotById(0) orelse return error.ExpectedSnapshot;
-    const current_snapshot = api.persistenceCurrentSnapshot();
-    try std.testing.expectEqual(root_ref, api.persistenceCurrentSnapshotRef());
-    try std.testing.expectEqual(root_ref, core.persistenceCurrentSnapshotRef());
+    try std.testing.expectEqual(@as(usize, 1), try api.persistenceSnapshotCount());
+    try std.testing.expectEqual(@as(usize, 0), try api.persistenceJournalCount());
+    const root_ref = (try api.persistenceFindSnapshotById(0)) orelse return error.ExpectedSnapshot;
+    const root_snapshot = (try api.persistenceSnapshotById(0)) orelse return error.ExpectedSnapshot;
+    const current_snapshot = try api.persistenceCurrentSnapshot();
+    try std.testing.expectEqual(root_ref, try api.persistenceCurrentSnapshotRef());
+    try std.testing.expectEqual(root_ref, try core.persistenceCurrentSnapshotRef());
     try std.testing.expectEqual(@as(u64, 0), root_snapshot.snapshot_id);
     try std.testing.expectEqual(@as(u64, 0), current_snapshot.snapshot_id);
 
@@ -5225,14 +6642,14 @@ test "exchange api forwards persistence snapshot-id lookup helpers" {
         cmd.CommandResultCode.success,
         try api.processPersistStateResultCode(120_001, 9_120_111_222),
     );
-    try std.testing.expectEqual(@as(usize, 2), api.persistenceSnapshotCount());
-    try std.testing.expectEqual(@as(u64, 120_001), api.persistenceCurrentSnapshot().snapshot_id);
-    try std.testing.expectEqual(core.persistenceCurrentSnapshotRef(), api.persistenceCurrentSnapshotRef());
-    const persisted = api.persistenceSnapshotById(120_001) orelse return error.ExpectedSnapshot;
+    try std.testing.expectEqual(@as(usize, 2), try api.persistenceSnapshotCount());
+    try std.testing.expectEqual(@as(u64, 120_001), (try api.persistenceCurrentSnapshot()).snapshot_id);
+    try std.testing.expectEqual(try core.persistenceCurrentSnapshotRef(), try api.persistenceCurrentSnapshotRef());
+    const persisted = (try api.persistenceSnapshotById(120_001)) orelse return error.ExpectedSnapshot;
     try std.testing.expectEqual(@as(u64, 120_001), persisted.snapshot_id);
 
-    try std.testing.expectEqual(@as(?SnapshotRef, null), api.persistenceFindSnapshotById(999_999));
-    try std.testing.expectEqual(@as(?*const SnapshotDescriptor, null), api.persistenceSnapshotById(999_999));
+    try std.testing.expectEqual(@as(?SnapshotRef, null), try api.persistenceFindSnapshotById(999_999));
+    try std.testing.expectEqual(@as(?SnapshotDescriptorView, null), try api.persistenceSnapshotById(999_999));
 }
 
 test "exchange api forwards persistence journal lookup helpers" {
@@ -5246,17 +6663,18 @@ test "exchange api forwards persistence journal lookup helpers" {
     defer core.deinit();
 
     var api = ExchangeApi.init(allocator, &core);
-    try api.submitCommand(.{ .add_user = 120_101 });
+    var add_user = try api.submitCommandSync(.{ .add_user = 120_101 });
+    add_user.deinit(allocator);
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     try core.writeJournalToDefaultPath(tmp.dir, 0, 1);
 
-    const journal_ref = api.persistenceFindJournalForSequence(1) orelse return error.ExpectedJournal;
-    const journal = api.persistenceJournalByRef(journal_ref);
+    const journal_ref = (try api.persistenceFindJournalForSequence(1)) orelse return error.ExpectedJournal;
+    const journal = try api.persistenceJournalByRef(journal_ref);
     try std.testing.expectEqual(@as(u64, 1), journal.seq_first);
     const seq_last = journal.seq_last orelse return error.ExpectedJournalSequenceEnd;
     try std.testing.expect(seq_last >= journal.seq_first);
-    try std.testing.expectEqual(@as(?JournalRef, null), api.persistenceFindJournalForSequence(std.math.maxInt(u64)));
+    try std.testing.expectEqual(@as(?JournalRef, null), try api.persistenceFindJournalForSequence(std.math.maxInt(u64)));
 }
 
 test "exchange api forwards snapshot existence helpers" {
@@ -5335,7 +6753,7 @@ test "exchange api forwards default journal path wrappers for write/load/replay 
     defer load_only.deinit();
     var load_api = ExchangeApi.init(allocator, &load_only);
     try load_api.loadJournalFromDefaultPath(tmp.dir, 0, 1);
-    try std.testing.expectEqual(@as(usize, 1), load_only.journalLen());
+    try std.testing.expectEqual(@as(usize, 1), try load_only.journalLen());
 
     var replay_single = try exchange_core_mod.ExchangeCore.init(allocator, .{
         .initial_state = .{
@@ -5430,7 +6848,7 @@ test "exchange api forwards explicit journal file wrappers" {
     defer load_only.deinit();
     var load_api = ExchangeApi.init(allocator, &load_only);
     try load_api.loadJournalFromFile(tmp.dir, journal_path);
-    try std.testing.expectEqual(@as(usize, 1), load_only.journalLen());
+    try std.testing.expectEqual(@as(usize, 1), try load_only.journalLen());
 
     var replay_core = try exchange_core_mod.ExchangeCore.init(allocator, .{
         .serialization = .{
@@ -5465,9 +6883,11 @@ test "exchange api forwards explicit snapshot file wrappers" {
     try std.testing.expect(try api.snapshotExistsFile(tmp.dir, snapshot_path));
 }
 
-test "exchange api async binary report-query helper returns typed report response" {
+test "exchange api binary report-query helper remains exact Java only" {
     const allocator = std.testing.allocator;
-    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{
+        .java_identity_hash_context = testJavaIdentityHashContext(),
+    });
     defer core.deinit();
 
     var api = ExchangeApi.init(allocator, &core);
@@ -5475,14 +6895,10 @@ test "exchange api async binary report-query helper returns typed report respons
     const processed = try api.drainPending();
     try std.testing.expectEqual(@as(usize, 1), processed);
 
-    var report = (try api.takeReportResponse(handle)) orelse return error.MissingAsyncResult;
-    defer report.deinit(allocator);
-    switch (report) {
-        .state_hash_detailed => |detailed| {
-            try std.testing.expect(detailed.submodules.items.len > 0);
-        },
-        else => return error.UnexpectedReportResponseType,
-    }
+    var response = (try api.takeFullResponse(handle)) orelse return error.MissingAsyncResult;
+    defer response.deinit(allocator);
+    try std.testing.expect(response.report_response == null);
+    try std.testing.expect(response.java_report_response != null);
 }
 
 test "exchange api typed state-hash async helper returns detailed report" {
@@ -5542,6 +6958,68 @@ test "exchange api typed total-currency-balance helper returns report payload" {
     try std.testing.expectEqual(@as(usize, 0), report.account_balances.count());
 }
 
+test "exchange api exact Java typed extraction and disabled empty identity" {
+    const allocator = std.testing.allocator;
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{
+        .java_identity_hash_context = testJavaIdentityHashContext(),
+    });
+    defer core.deinit();
+    var api = ExchangeApi.init(allocator, &core);
+
+    const state_handle = try api.submitBinaryReportQueryAsync(4_510, 9_200_100_342, .state_hash);
+    _ = try api.drainPending();
+    var state_hash = (try api.takeJavaStateHashReport(state_handle)) orelse
+        return error.MissingAsyncResult;
+    defer state_hash.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 11), state_hash.report.entries.len);
+
+    const single_handle = try api.submitBinaryReportQueryAsync(
+        4_511,
+        9_200_100_343,
+        .{ .single_user = 123_456 },
+    );
+    _ = try api.drainPending();
+    var single = (try api.takeJavaSingleUserReport(single_handle)) orelse
+        return error.MissingAsyncResult;
+    defer single.deinit(allocator);
+    try std.testing.expectEqual(@as(i64, 0), single.uid);
+    try std.testing.expectEqual(
+        @import("java_report_wire.zig").QueryExecutionStatus.user_not_found,
+        single.query_execution_status,
+    );
+
+    var disabled = try exchange_core_mod.ExchangeCore.init(allocator, .{
+        .reports_queries = .{ .enable_state_hash_report = false },
+    });
+    defer disabled.deinit();
+    var disabled_api = ExchangeApi.init(allocator, &disabled);
+    const disabled_handle = try disabled_api.submitBinaryReportQueryAsync(
+        4_512,
+        9_200_100_344,
+        .state_hash,
+    );
+    _ = try disabled_api.drainPending();
+    var empty = (try disabled_api.takeJavaStateHashReport(disabled_handle)) orelse
+        return error.MissingAsyncResult;
+    defer empty.deinit(allocator);
+    try std.testing.expectEqual(@as(i32, 1), empty.state_hash);
+    try std.testing.expectEqual(@as(usize, 0), empty.report.entries.len);
+}
+
+test "exchange api exact Java state hash requires explicit JVM identity context" {
+    const allocator = std.testing.allocator;
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    defer core.deinit();
+    var api = ExchangeApi.init(allocator, &core);
+
+    const handle = try api.submitBinaryReportQueryAsync(4_513, 9_200_100_345, .state_hash);
+    _ = try api.drainPending();
+    try std.testing.expectError(
+        error.MissingJavaIdentityHashContext,
+        api.takeJavaStateHashReport(handle),
+    );
+}
+
 test "exchange api processReport convenience returns report payload in one step" {
     const allocator = std.testing.allocator;
     var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
@@ -5555,6 +7033,22 @@ test "exchange api processReport convenience returns report payload in one step"
             try std.testing.expect(detailed.submodules.items.len > 0);
         },
         else => return error.UnexpectedReportResponseType,
+    }
+}
+
+test "exchange api processJavaReport returns exact Java report payload in one step" {
+    const allocator = std.testing.allocator;
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{
+        .java_identity_hash_context = testJavaIdentityHashContext(),
+    });
+    defer core.deinit();
+
+    var api = ExchangeApi.init(allocator, &core);
+    var report = try api.processJavaReport(4_514, 9_200_100_346, .state_hash);
+    defer report.deinit(allocator);
+    switch (report) {
+        .state_hash => |state_hash| try std.testing.expect(state_hash.report.entries.len > 0),
+        else => return error.UnexpectedJavaReportResponseType,
     }
 }
 
@@ -5695,8 +7189,9 @@ test "exchange api direct typed query helpers align with core report responses" 
     try std.testing.expect(try core.kernelRef().addSymbol(try makeExchangeSpecForSymbol(symbol)));
 
     var api = ExchangeApi.init(allocator, &core);
-    try api.submitCommand(.{ .add_user = uid });
-    try api.submitCommand(.{
+    var add_user = try api.submitCommandSync(.{ .add_user = uid });
+    add_user.deinit(allocator);
+    var adjust = try api.submitCommandSync(.{
         .adjust_user_balance = .{
             .uid = uid,
             .transaction_id = 1,
@@ -5705,6 +7200,7 @@ test "exchange api direct typed query helpers align with core report responses" 
             .adjustment_type = .adjustment,
         },
     });
+    adjust.deinit(allocator);
 
     var expected_hash_report = try core.queryReport(.risk_state_hash);
     defer expected_hash_report.deinit(allocator);
@@ -5774,4 +7270,122 @@ test "exchange api order-book typed take rejects responses without market data p
     _ = try api.drainPending();
 
     try std.testing.expectError(error.MissingOrderBookSnapshot, api.takeOrderBookSnapshot(handle));
+}
+
+test "exchange api generated-order callback forwards global publication identity" {
+    const allocator = std.testing.allocator;
+    const Collector = struct {
+        sequence: u64 = 0,
+        order_id: i64 = 0,
+
+        fn onResponse(context: ?*anyopaque, response: *const kernel_mod.CommandResponse) void {
+            const self: *@This() = @ptrCast(@alignCast(context.?));
+            self.sequence = response.sequence;
+            self.order_id = response.command.order_id;
+        }
+    };
+
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    defer core.deinit();
+    var api = ExchangeApi.init(allocator, &core);
+    try api.enqueueRuntime(.{ .command = .nop });
+
+    var collector: Collector = .{};
+    const sequence = try api.placeNewOrderGeneratedIdWithCallback(
+        9,
+        100,
+        100,
+        1,
+        .bid,
+        .gtc,
+        9_998,
+        330_001,
+        .{
+            .context = &collector,
+            .callback = Collector.onResponse,
+        },
+    );
+    try std.testing.expectEqual(@as(u64, 2), sequence);
+    try std.testing.expectEqual(@as(usize, 1), try api.drainPending());
+    try std.testing.expectEqual(sequence, collector.sequence);
+    try std.testing.expectEqual(@as(i64, @intCast(sequence)), collector.order_id);
+}
+
+test "exchange api callback context preflights composite helpers before enqueue" {
+    const allocator = std.testing.allocator;
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    defer core.deinit();
+    var api = ExchangeApi.init(allocator, &core);
+
+    var allowed_handle: ApiCommandAsyncHandle = undefined;
+    {
+        var callback_scope = runtime_mod.CallbackExecutionScope.enter();
+        defer callback_scope.leave();
+
+        // Immediate asynchronous publication remains valid from a callback.
+        allowed_handle = try api.submitCommandAsyncResultCode(.nop);
+        try std.testing.expectEqual(@as(usize, 1), api.asyncPendingCount());
+
+        const empty_batch: [0]ApiCommand = .{};
+        try api.submitCommandsSync(empty_batch[0..]);
+        try std.testing.expectError(
+            error.CoreReentrantCall,
+            api.submitCommandsSync(&.{.nop}),
+        );
+        try std.testing.expectError(
+            error.CoreReentrantCall,
+            api.submitCommandsSyncWithNop(empty_batch[0..]),
+        );
+        try std.testing.expectError(
+            error.CoreReentrantCall,
+            api.processCommandResultCode(.nop),
+        );
+        try std.testing.expectError(
+            error.CoreReentrantCall,
+            api.processCommandFullResponse(.{ .add_user = 140_001 }),
+        );
+        try std.testing.expectError(
+            error.CoreReentrantCall,
+            api.processNativeReport(1, 1, .state_hash),
+        );
+        try std.testing.expectError(
+            error.CoreReentrantCall,
+            api.processStateHashReport(2, 2),
+        );
+        try std.testing.expectError(
+            error.CoreReentrantCall,
+            api.processSingleUserReport(3, 3, 140_001),
+        );
+        try std.testing.expectError(
+            error.CoreReentrantCall,
+            api.processTotalCurrencyBalanceReport(4, 4),
+        );
+        try std.testing.expectError(
+            error.CoreReentrantCall,
+            api.processJavaReport(5, 5, .state_hash),
+        );
+        try std.testing.expectError(
+            error.CoreReentrantCall,
+            api.processJavaStateHashReport(6, 6),
+        );
+        try std.testing.expectError(
+            error.CoreReentrantCall,
+            api.processJavaSingleUserReport(7, 7, 140_001),
+        );
+        try std.testing.expectError(
+            error.CoreReentrantCall,
+            api.processJavaTotalCurrencyBalanceReport(8, 8),
+        );
+        try std.testing.expectError(
+            error.CoreReentrantCall,
+            api.processOrderBookRequest(140_001, 8),
+        );
+
+        // Every rejected composite returned before publishing its own request.
+        try std.testing.expectEqual(@as(usize, 1), api.asyncPendingCount());
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), try api.drainPending());
+    _ = api.takeResultCode(allowed_handle) orelse return error.MissingAsyncResult;
+    try std.testing.expectEqual(@as(usize, 0), api.asyncPendingCount());
 }

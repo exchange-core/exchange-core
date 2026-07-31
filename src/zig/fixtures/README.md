@@ -3,6 +3,40 @@
 This folder stores machine-readable fixture files exported from the Java engine
 for Zig parity comparison.
 
+## Persistence fixture (`java-persistence/v1`)
+
+`java-persistence/v1` contains a real 1ME/1RE
+`DiskSerializationProcessor` snapshot and raw journal:
+
+- `JAVAPERSISTV1_snapshot_4242424242_ME0.ecs`
+- `JAVAPERSISTV1_snapshot_4242424242_RE0.ecs`
+- `JAVAPERSISTV1_journal_4242424242_0001.ecj`
+- `manifest.json`, including byte lengths, SHA-256 checksums, topology,
+  sequences, and expected snapshot/post-journal business state
+
+The generator runs the same scenario twice, requires byte-identical source
+artifacts, verifies snapshot-only and snapshot-plus-journal recovery in Java,
+then publishes or compares the committed fixture. The committed manifest omits
+JVM enum/object identity hashes because they are process-local; each generator
+run still checks those hashes across its own snapshot and journal recovery:
+
+```sh
+mvn \
+  -Dtest=exchange.core2.tests.fixtures.GenerateJavaPersistenceFixtureTest#writeDeterministicDiskPersistenceFixture \
+  -Djava.persistence.fixture.write=true \
+  '-Dtest.jvm.addExports=--add-exports java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-exports java.base/jdk.internal.ref=ALL-UNNAMED' \
+  test
+```
+
+Chronicle 2.19.1 requires a compatible JDK; the committed v1 family was
+generated on Temurin 11.0.32+9. The `.eca` source log is deliberately excluded
+because its metadata contains wall-clock values; `manifest.json` records that
+policy. The writer was run successfully in two separate JVM processes to prove
+portable-manifest determinism. Zig converter tests embed the three source
+artifacts, convert them to XCM2/XCJ3, and assert native readback plus balances,
+fees, adjustments, positions, orders, L2 state, actual journal results, and
+sequence frontiers.
+
 ## Fixture format (`.fixture`)
 
 Current fixture key-value lines:
@@ -55,6 +89,9 @@ Current parity-diff normalization rules:
 - `state_hash` is compared for both deterministic kinds.
 - `state_hash_kind=java_report` is treated as a legacy alias of
   `zig_detailed_low32` in parity-diff.
+- `zig_risk_low32` and `zig_detailed_low32` fixture values are Zig low-32-bit
+  projections supplied to Java generation. They are not independent Java
+  identity hashes; exact StateHash requires `JavaIdentityHashContext`.
 - For `settlement_mode=pre_release`, parity-diff applies deterministic
   Java-aligned settlement normalization:
   - Per-user settlement-sensitive balances are compared against canonical
@@ -134,9 +171,10 @@ snapshot-enabled probe container) and records the merged persist command result
 returned by Java. On Java 25 runtimes where persistence initialization is still
 blocked (for example: Chronicle initialization failures such as
 `NoSuchFieldException: address`) or the persist command does not complete
-within the bounded timeout, fixture generation falls back to the deterministic
-synthetic merged result (`SUCCESS` from `mergeToFirstFailed(ACCEPTED, SUCCESS)`)
-so control-stream parity remains stable across environments.
+within the bounded timeout, the public writer fails closed. An internal
+fallback is available only for explicitly non-authoritative diagnostics when
+`-Dparity.fixture.diagnostic.allow_internal_fallback=true`; fallback output is
+marked and is not accepted as release evidence.
 
 Generate exchange control strict low32 fixtures (risk + detailed):
 
@@ -1026,16 +1064,21 @@ Long reports export properties:
 - `parity.fixture.trade.reports.long.settlement_mode`: `pre_release` or `full`
 - `parity.fixture.trade.reports.long.orderbook_mode`: `naive` (default) or `direct`
 
-Reports fixtures now query Java reports first via
+Reports fixtures query Java reports via
 `SingleUserReportQuery`/`TotalCurrencyBalanceReportQuery` to export canonical
-report fields. On Java 25 (current local baseline as of February 8, 2026),
-some runtimes still fail report-query marshalling due Chronicle `unmap0`
-incompatibility; fixture generation then takes a bounded fallback path and
-exports deterministic report-equivalent values from in-memory risk/matching
-state so parity coverage remains stable.
+report fields. Public report writers fail closed if that Java path is
+unavailable. The internal deterministic fallback is diagnostic-only, requires
+`-Dparity.fixture.diagnostic.allow_internal_fallback=true`, and marks its output
+as non-authoritative.
 
 ## Run Zig diff
 
 ```sh
 zig build parity-diff
 ```
+
+With no explicit paths, `parity-diff` enforces the exact committed 96-file
+manifest: missing and unexpected `.fixture` files both fail. The aggregate
+`zig build gate` always runs that default manifest and cannot be narrowed by
+arguments supplied to another build step. Explicit paths remain available only
+for focused standalone `parity-diff` diagnostics.

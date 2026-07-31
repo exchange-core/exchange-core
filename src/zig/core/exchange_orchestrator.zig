@@ -20,15 +20,37 @@ pub const ApiCommandAsyncHandle = api_command_mod.ApiCommandAsyncHandle;
 pub const ExecutionMode = exchange_api_sharded_mod.ExecutionMode;
 pub const PersistenceModuleType = exchange_core_mod.PersistenceModuleType;
 pub const ResultSink = runtime_mod.ResultSink;
+pub const RawResultSink = runtime_mod.RawResultSink;
 pub const RuntimeDrainOutcome = runtime_mod.DrainOutcome;
+pub const ShardedPipelineMode = config_mod.ShardedPipelineMode;
 pub const CommandResponseCallback = exchange_api_sharded_mod.CommandResponseCallback;
 pub const SimpleEventsHandler = simple_events_mod.EventsHandler;
 pub const BootstrapOutcome = exchange_core_mod.BootstrapOutcome;
+pub const CoreFatalInfo = runtime_mod.FatalRecord;
+pub const ShutdownState = runtime_mod.ShutdownState;
+pub const ShutdownOutcome = runtime_mod.ShutdownOutcome;
 
 pub const BackendKind = enum {
     single,
     sharded,
 };
+
+fn backendKindForPerformance(performance: config_mod.PerformanceConfig) BackendKind {
+    return if (performance.matching_engines_num > 1 or
+        performance.risk_engines_num > 1)
+        .sharded
+    else
+        .single;
+}
+
+fn backendKindForJavaConfig(java_config: JavaConfig) BackendKind {
+    if (java_config.sharded_pipeline_mode == .persistent_grouped) return .sharded;
+    return backendKindForPerformance(java_config.performance_cfg);
+}
+
+fn ensureCompositeBlockingCallAllowed() error{CoreReentrantCall}!void {
+    if (runtime_mod.isCallbackExecutionActive()) return error.CoreReentrantCall;
+}
 
 pub const ModeValidationError = error{
     SplitModeRequiresShardedBackend,
@@ -36,10 +58,18 @@ pub const ModeValidationError = error{
 
 pub const InitFromJavaConfigError = exchange_core_mod.InitFromJavaConfigError || exchange_api_sharded_mod.InitFromJavaConfigError;
 pub const LifecycleError = exchange_core_mod.LifecycleError || exchange_api_sharded_mod.LifecycleError;
+pub const CallbackConfigError = exchange_core_mod.CallbackConfigError || exchange_api_sharded_mod.CallbackConfigError;
+pub const StartError = exchange_core_mod.StartError || exchange_api_sharded_mod.StartError;
 pub const ExecuteError = exchange_core_mod.ExecuteError || exchange_api_sharded_mod.ExecuteError || ModeValidationError;
 pub const HelperError = exchange_core_mod.HelperError || exchange_api_sharded_mod.HelperError || ModeValidationError;
 pub const SubmitApiCommandError = exchange_core_mod.SubmitApiCommandError || exchange_api_sharded_mod.SubmitApiCommandError || ModeValidationError;
 pub const SubmitApiCommandAsyncError = exchange_core_mod.SubmitApiCommandAsyncError || exchange_api_sharded_mod.SubmitApiCommandAsyncError || ModeValidationError;
+pub const SubmitCommandAsyncFullResponseError = exchange_core_mod.SubmitApiCommandAsyncError ||
+    exchange_api_sharded_mod.SubmitCommandAsyncFullResponseError ||
+    ModeValidationError;
+pub const SubmitApiCommandBatchError = exchange_core_mod.SubmitApiCommandBatchError ||
+    exchange_api_sharded_mod.SubmitApiCommandBatchError ||
+    ModeValidationError;
 pub const QueryReportError = exchange_core_mod.ReportError || exchange_api_sharded_mod.QueryReportError;
 pub const DrainPendingError = exchange_core_mod.ExecuteError || exchange_api_sharded_mod.DrainPendingError;
 pub const PersistStateError = exchange_core_mod.ExecuteError || exchange_api_sharded_mod.PersistStateError || ModeValidationError;
@@ -50,9 +80,16 @@ pub const StartupFromConfiguredPersistenceError = exchange_core_mod.StartupFromC
 pub const StartupFromDiscoveredConfiguredPersistenceError = exchange_core_mod.StartupFromDiscoveredConfiguredPersistenceError || exchange_api_sharded_mod.StartupFromDiscoveredConfiguredPersistenceError;
 pub const StartupFromDiscoveredConfiguredPersistenceStrictError = exchange_core_mod.StartupFromDiscoveredConfiguredPersistenceStrictError || exchange_api_sharded_mod.StartupFromDiscoveredConfiguredPersistenceStrictError;
 pub const PersistStateWithMainLogError = exchange_core_mod.PersistStateWithMainLogError || exchange_api_sharded_mod.PersistStateWithMainLogError;
-pub const SubmitCommandWithCallbackError = exchange_api_sharded_mod.SubmitCommandWithCallbackError || ModeValidationError;
+pub const SubmitCommandWithCallbackError = exchange_core_mod.SubmitApiCommandWithCallbackError ||
+    exchange_api_sharded_mod.SubmitCommandWithCallbackError ||
+    ModeValidationError;
 pub const ProcessRegisteredCallbackError = exchange_api_sharded_mod.ProcessRegisteredCallbackError;
+pub const ShutdownError = exchange_core_mod.ShutdownError || exchange_api_sharded_mod.ShutdownError;
 
+/// Owns its selected backend inline. After any startup entrypoint succeeds,
+/// this value must remain at a stable address until shutdown is `.complete` or
+/// `deinit` returns because either backend worker can retain its payload
+/// address.
 pub const ExchangeOrchestrator = struct {
     allocator: std.mem.Allocator,
     backend: union(BackendKind) {
@@ -64,7 +101,7 @@ pub const ExchangeOrchestrator = struct {
         allocator: std.mem.Allocator,
         java_config: JavaConfig,
     ) InitFromJavaConfigError!ExchangeOrchestrator {
-        if (java_config.performance_cfg.matching_engines_num > 1) {
+        if (backendKindForJavaConfig(java_config) == .sharded) {
             return .{
                 .allocator = allocator,
                 .backend = .{
@@ -86,6 +123,50 @@ pub const ExchangeOrchestrator = struct {
         };
     }
 
+    /// Selects the single or sharded backend from the Java performance
+    /// configuration and gives that backend an independently owned handle to
+    /// `persistence_root`. The supplied directory is borrowed only during
+    /// initialization and may be closed immediately after this call returns.
+    pub fn initFromJavaConfigWithPersistenceRoot(
+        allocator: std.mem.Allocator,
+        persistence_root: std.Io.Dir,
+        java_config: JavaConfig,
+    ) InitFromJavaConfigError!ExchangeOrchestrator {
+        if (backendKindForJavaConfig(java_config) == .sharded) {
+            return .{
+                .allocator = allocator,
+                .backend = .{
+                    .sharded = try exchange_api_sharded_mod.ExchangeApiSharded.initFromJavaConfigWithPersistenceRoot(
+                        allocator,
+                        persistence_root,
+                        java_config,
+                    ),
+                },
+            };
+        }
+
+        if (java_config.performance_cfg.matching_engines_num != 1) {
+            return error.SingleCoreRequiresOneMatchingEngine;
+        }
+        if (java_config.performance_cfg.risk_engines_num != 1) {
+            return error.SingleCoreRequiresOneRiskEngine;
+        }
+        return .{
+            .allocator = allocator,
+            .backend = .{
+                .single = try exchange_core_mod.ExchangeCore.initWithPersistenceRoot(
+                    allocator,
+                    persistence_root,
+                    try java_config.toExchangeCoreConfig(),
+                ),
+            },
+        };
+    }
+
+    /// The caller must exclude concurrent public calls, including concurrent
+    /// shutdown waiters. Sequential deinit after a timed-out close is safe:
+    /// the selected backend's unbounded shutdown finishes or joins its
+    /// retained worker first.
     pub fn deinit(self: *ExchangeOrchestrator) void {
         switch (self.backend) {
             .single => |*single| single.deinit(),
@@ -102,9 +183,34 @@ pub const ExchangeOrchestrator = struct {
     }
 
     pub fn shardCount(self: *const ExchangeOrchestrator) usize {
+        return self.matchingShardCount();
+    }
+
+    pub fn matchingShardCount(self: *const ExchangeOrchestrator) usize {
         return switch (self.backend) {
             .single => 1,
-            .sharded => |sharded| sharded.shardCount(),
+            .sharded => |sharded| sharded.matchingShardCount(),
+        };
+    }
+
+    pub fn riskShardCount(self: *const ExchangeOrchestrator) usize {
+        return switch (self.backend) {
+            .single => 1,
+            .sharded => |sharded| sharded.riskShardCount(),
+        };
+    }
+
+    pub fn matchingShardMask(self: *const ExchangeOrchestrator) u64 {
+        return switch (self.backend) {
+            .single => 0,
+            .sharded => |sharded| sharded.matchingShardMask(),
+        };
+    }
+
+    pub fn riskShardMask(self: *const ExchangeOrchestrator) u64 {
+        return switch (self.backend) {
+            .single => 0,
+            .sharded => |sharded| sharded.riskShardMask(),
         };
     }
 
@@ -129,7 +235,10 @@ pub const ExchangeOrchestrator = struct {
         };
     }
 
-    pub fn startup(self: *ExchangeOrchestrator) LifecycleError!void {
+    /// On success, the selected worker may retain the address of its inline
+    /// union payload. Do not move this orchestrator until shutdown is
+    /// `.complete` or `deinit` returns.
+    pub fn startup(self: *ExchangeOrchestrator) StartError!void {
         return switch (self.backend) {
             .single => |*single| single.startup(),
             .sharded => |*sharded| sharded.startup(),
@@ -141,6 +250,27 @@ pub const ExchangeOrchestrator = struct {
             .single => |*single| single.shutdown(),
             .sharded => |*sharded| sharded.shutdown(),
         }
+    }
+
+    pub fn shutdownState(self: *const ExchangeOrchestrator) ShutdownState {
+        return switch (self.backend) {
+            .single => |*single| single.shutdownState(),
+            .sharded => |*sharded| sharded.shutdownState(),
+        };
+    }
+
+    /// A bounded or deferred close can retain the address of the inline union
+    /// payload for either backend. Keep this orchestrator in place until
+    /// shutdown completes or `deinit` returns; deinitialization must not race
+    /// active public calls.
+    pub fn shutdownTimeout(
+        self: *ExchangeOrchestrator,
+        timeout: std.Io.Timeout,
+    ) ShutdownError!ShutdownOutcome {
+        return switch (self.backend) {
+            .single => |*single| single.shutdownTimeout(timeout),
+            .sharded => |*sharded| sharded.shutdownTimeout(timeout),
+        };
     }
 
     pub fn startupFromPersistence(
@@ -257,6 +387,33 @@ pub const ExchangeOrchestrator = struct {
         }
     }
 
+    pub fn setRawResultSink(self: *ExchangeOrchestrator, sink: RawResultSink) void {
+        self.setRawResultSinkChecked(sink) catch |err| @panic(@errorName(err));
+    }
+
+    pub fn setRawResultSinkChecked(
+        self: *ExchangeOrchestrator,
+        sink: RawResultSink,
+    ) CallbackConfigError!void {
+        return switch (self.backend) {
+            .single => |*single| single.setRawResultSinkChecked(sink),
+            .sharded => |*sharded| sharded.setRawResultSinkChecked(sink),
+        };
+    }
+
+    pub fn clearRawResultSink(self: *ExchangeOrchestrator) void {
+        self.clearRawResultSinkChecked() catch |err| @panic(@errorName(err));
+    }
+
+    pub fn clearRawResultSinkChecked(
+        self: *ExchangeOrchestrator,
+    ) CallbackConfigError!void {
+        return switch (self.backend) {
+            .single => |*single| single.clearRawResultSinkChecked(),
+            .sharded => |*sharded| sharded.clearRawResultSinkChecked(),
+        };
+    }
+
     pub fn setSimpleEventsHandler(
         self: *ExchangeOrchestrator,
         handler: SimpleEventsHandler,
@@ -281,12 +438,39 @@ pub const ExchangeOrchestrator = struct {
     ) SubmitApiCommandError!void {
         try self.ensureModeSupported(mode);
         return switch (self.backend) {
-            .single => |*single| {
-                var result = try single.submitApiCommand(command);
-                result.deinit(self.allocator);
-            },
+            .single => |*single| single.submitApiCommandDetached(command),
             .sharded => |*sharded| sharded.submitApiCommand(mode, command),
         };
+    }
+
+    pub fn submitCommand(
+        self: *ExchangeOrchestrator,
+        mode: ExecutionMode,
+        command: ApiCommand,
+    ) SubmitApiCommandError!void {
+        return self.submitApiCommand(mode, command);
+    }
+
+    /// Explicit settlement-safe submission for callers that need an owned
+    /// result instead of Java's detached `submitCommand` timing.
+    pub fn submitApiCommandSync(
+        self: *ExchangeOrchestrator,
+        mode: ExecutionMode,
+        command: ApiCommand,
+    ) SubmitApiCommandError!ApiCommandResult {
+        try self.ensureModeSupported(mode);
+        return switch (self.backend) {
+            .single => |*single| single.submitApiCommand(command),
+            .sharded => |*sharded| sharded.submitApiCommandResult(mode, command),
+        };
+    }
+
+    pub fn submitCommandSync(
+        self: *ExchangeOrchestrator,
+        mode: ExecutionMode,
+        command: ApiCommand,
+    ) SubmitApiCommandError!ApiCommandResult {
+        return self.submitApiCommandSync(mode, command);
     }
 
     pub fn submitApiCommandAsync(
@@ -301,6 +485,24 @@ pub const ExchangeOrchestrator = struct {
         };
     }
 
+    /// Java-compatible full-response async submission. Only commands that
+    /// translate to one ordinary `OrderCommand` are accepted; callers retain
+    /// poll ownership through the returned handle.
+    pub fn submitCommandAsyncFullResponse(
+        self: *ExchangeOrchestrator,
+        mode: ExecutionMode,
+        command: ApiCommand,
+    ) SubmitCommandAsyncFullResponseError!ApiCommandAsyncHandle {
+        try self.ensureModeSupported(mode);
+        if (!api_command_mod.supportsAsyncFullResponse(command)) {
+            return error.UnsupportedAsyncFullResponseCommand;
+        }
+        return switch (self.backend) {
+            .single => |*single| single.submitApiCommandAsync(command),
+            .sharded => |*sharded| sharded.submitCommandAsyncFullResponse(mode, command),
+        };
+    }
+
     pub fn takeApiCommandAsyncResult(
         self: *ExchangeOrchestrator,
         handle: ApiCommandAsyncHandle,
@@ -309,6 +511,70 @@ pub const ExchangeOrchestrator = struct {
             .single => |*single| single.takeApiCommandAsyncResult(handle),
             .sharded => |*sharded| sharded.takeApiCommandAsyncResult(handle),
         };
+    }
+
+    /// Settlement-safe batch submission whose final result remains owned by
+    /// the caller. An empty batch is rejected consistently by both backends.
+    pub fn submitApiCommandsSyncResult(
+        self: *ExchangeOrchestrator,
+        mode: ExecutionMode,
+        commands: []const ApiCommand,
+    ) SubmitApiCommandBatchError!ApiCommandResult {
+        try self.ensureModeSupported(mode);
+        if (commands.len == 0) return error.EmptyApiCommandBatch;
+        try ensureCompositeBlockingCallAllowed();
+        return switch (self.backend) {
+            .single => |*single| single.submitApiCommandsSync(commands),
+            .sharded => |*sharded| sharded.submitApiCommandsSyncResult(mode, commands),
+        };
+    }
+
+    /// Java-style batch submission. The terminal result is used as the
+    /// settlement barrier and released before this call returns.
+    pub fn submitApiCommandsSync(
+        self: *ExchangeOrchestrator,
+        mode: ExecutionMode,
+        commands: []const ApiCommand,
+    ) SubmitApiCommandBatchError!void {
+        try self.ensureModeSupported(mode);
+        if (commands.len == 0) return;
+        try ensureCompositeBlockingCallAllowed();
+        var result = switch (self.backend) {
+            .single => |*single| try single.submitApiCommandsSync(commands),
+            .sharded => |*sharded| try sharded.submitApiCommandsSyncResult(mode, commands),
+        };
+        defer result.deinit(self.allocator);
+    }
+
+    pub fn submitCommandsSync(
+        self: *ExchangeOrchestrator,
+        mode: ExecutionMode,
+        commands: []const ApiCommand,
+    ) SubmitApiCommandBatchError!void {
+        return self.submitApiCommandsSync(mode, commands);
+    }
+
+    /// Uses a NOP as an explicit FIFO settlement barrier, including for an
+    /// empty input. The returned response is owned by the caller.
+    pub fn submitApiCommandsSyncWithNop(
+        self: *ExchangeOrchestrator,
+        mode: ExecutionMode,
+        commands: []const ApiCommand,
+    ) SubmitApiCommandBatchError!kernel_mod.CommandResponse {
+        try self.ensureModeSupported(mode);
+        try ensureCompositeBlockingCallAllowed();
+        return switch (self.backend) {
+            .single => |*single| single.submitApiCommandsSyncWithNop(commands),
+            .sharded => |*sharded| sharded.submitApiCommandsSyncWithNop(mode, commands),
+        };
+    }
+
+    pub fn submitCommandsSyncWithNop(
+        self: *ExchangeOrchestrator,
+        mode: ExecutionMode,
+        commands: []const ApiCommand,
+    ) SubmitApiCommandBatchError!kernel_mod.CommandResponse {
+        return self.submitApiCommandsSyncWithNop(mode, commands);
     }
 
     pub fn drainPending(self: *ExchangeOrchestrator) DrainPendingError!usize {
@@ -535,21 +801,45 @@ pub const ExchangeOrchestrator = struct {
         };
     }
 
+    pub fn fatalInfo(self: *const ExchangeOrchestrator) ?CoreFatalInfo {
+        return switch (self.backend) {
+            .single => |*single| single.fatalInfo(),
+            .sharded => |*sharded| sharded.fatalInfo(),
+        };
+    }
+
+    /// Atomically publishes one callback-owned ordinary command. The
+    /// backend-neutral allowlist excludes raw/multi-command escape hatches and
+    /// reset/NOP, matching Java's command-supported Consumer surface.
+    pub fn submitApiCommandWithCallback(
+        self: *ExchangeOrchestrator,
+        mode: ExecutionMode,
+        command: ApiCommand,
+        callback: CommandResponseCallback,
+    ) SubmitCommandWithCallbackError!void {
+        try self.ensureModeSupported(mode);
+        try ensureCallbackCommandSupported(command);
+        return switch (self.backend) {
+            .single => |*single| single.submitApiCommandWithCallback(command, callback),
+            .sharded => |*sharded| sharded.submitCommandAsyncWithCallback(
+                mode,
+                command,
+                callback,
+            ),
+        };
+    }
+
     pub fn createUserWithCallback(
         self: *ExchangeOrchestrator,
         mode: ExecutionMode,
         user_id: i64,
         callback: CommandResponseCallback,
     ) SubmitCommandWithCallbackError!void {
-        try self.ensureModeSupported(mode);
-        return switch (self.backend) {
-            .single => return error.SplitModeRequiresShardedBackend,
-            .sharded => |*sharded| sharded.createUserWithCallback(
-                mode,
-                user_id,
-                callback,
-            ),
-        };
+        return self.submitApiCommandWithCallback(
+            mode,
+            .{ .add_user = user_id },
+            callback,
+        );
     }
 
     pub fn processPendingCallbacks(self: *ExchangeOrchestrator) ProcessRegisteredCallbackError!usize {
@@ -567,13 +857,800 @@ pub const ExchangeOrchestrator = struct {
             return error.SplitModeRequiresShardedBackend;
         }
     }
+
+    fn ensureCallbackCommandSupported(
+        command: ApiCommand,
+    ) error{UnsupportedCallbackCommand}!void {
+        switch (command) {
+            .add_user,
+            .add_user_with_timestamp,
+            .adjust_user_balance,
+            .suspend_user,
+            .suspend_user_with_timestamp,
+            .resume_user,
+            .resume_user_with_timestamp,
+            .place_order,
+            .move_order,
+            .cancel_order,
+            .reduce_order,
+            .request_order_book,
+            => {},
+            .raw_command,
+            .persist_state,
+            .grouping_control,
+            .reset,
+            .reset_with_timestamp,
+            .nop,
+            .nop_with_timestamp,
+            .binary_add_symbols,
+            .binary_add_accounts,
+            .binary_report_query,
+            => return error.UnsupportedCallbackCommand,
+        }
+    }
 };
 
-test "exchange orchestrator selects single backend for java default profile" {
+const OrchestratorRawResultProbe = struct {
+    sequences: [8]u64 = undefined,
+    command_images: [8]cmd.OrderCommand = undefined,
+    result_codes: [8]cmd.CommandResultCode = undefined,
+    len: usize = 0,
+
+    fn onResult(
+        context: ?*anyopaque,
+        response: *const kernel_mod.CommandResponse,
+    ) void {
+        const self: *@This() = @ptrCast(@alignCast(context.?));
+        std.debug.assert(self.len < self.sequences.len);
+        self.sequences[self.len] = response.sequence;
+        self.command_images[self.len] = response.command;
+        self.result_codes[self.len] = response.result_code;
+        self.len += 1;
+    }
+};
+
+fn expectSuccessfulOrchestratorResponse(
+    response: *const kernel_mod.CommandResponse,
+    expected_sequence: u64,
+    expected_command: cmd.OrderCommandType,
+) !void {
+    try std.testing.expectEqual(expected_sequence, response.sequence);
+    try std.testing.expectEqual(expected_command, response.command.command);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, response.command.result_code);
+}
+
+fn expectSuccessfulOrchestratorApiResult(
+    result: *const ApiCommandResult,
+    expected_sequence: u64,
+    expected_command: cmd.OrderCommandType,
+) !void {
+    switch (result.*) {
+        .response => |response| try expectSuccessfulOrchestratorResponse(
+            &response,
+            expected_sequence,
+            expected_command,
+        ),
+        .persist_state => return error.UnexpectedPersistStateResult,
+    }
+}
+
+fn runOrchestratorRawResultForwardingScenario(
+    java_config: JavaConfig,
+    expected_backend: BackendKind,
+    first_uid: i64,
+) !void {
+    const allocator = std.testing.allocator;
+    const typed_timestamp: i64 = 9_979_310_000;
+    const grouping_off_timestamp: i64 = 9_979_310_001;
+    const grouping_on_timestamp: i64 = 9_979_310_002;
+
+    var orchestrator = try ExchangeOrchestrator.initFromJavaConfig(
+        allocator,
+        java_config,
+    );
+    defer orchestrator.deinit();
+    try std.testing.expectEqual(expected_backend, orchestrator.backendKind());
+
+    var probe: OrchestratorRawResultProbe = .{};
+    try orchestrator.setRawResultSinkChecked(.{
+        .context = &probe,
+        .on_result = OrchestratorRawResultProbe.onResult,
+    });
+    try orchestrator.startup();
+
+    var first = try orchestrator.addUser(.routed, first_uid);
+    defer first.deinit(allocator);
+    try expectSuccessfulOrchestratorResponse(&first, 1, .add_user);
+
+    var typed = try orchestrator.submitApiCommandSync(.routed, .{
+        .adjust_user_balance = .{
+            .uid = first_uid,
+            .transaction_id = 1,
+            .currency = 15,
+            .amount = 500,
+            .adjustment_type = .adjustment,
+            .timestamp = typed_timestamp,
+        },
+    });
+    defer typed.deinit(allocator);
+    try expectSuccessfulOrchestratorApiResult(&typed, 2, .balance_adjustment);
+    switch (typed) {
+        .response => |response| try std.testing.expectEqual(
+            typed_timestamp,
+            response.command.timestamp,
+        ),
+        .persist_state => return error.UnexpectedPersistStateResult,
+    }
+
+    var grouping_off = try orchestrator.submitApiCommandSync(.routed, .{
+        .grouping_control = .{
+            .timestamp_ns = grouping_off_timestamp,
+            .mode = 0,
+        },
+    });
+    defer grouping_off.deinit(allocator);
+    try expectSuccessfulOrchestratorApiResult(&grouping_off, 3, .grouping_control);
+
+    var suppressed = try orchestrator.addUser(.routed, first_uid + 1);
+    defer suppressed.deinit(allocator);
+    try expectSuccessfulOrchestratorResponse(&suppressed, 4, .add_user);
+
+    var grouping_on = try orchestrator.submitApiCommandSync(.routed, .{
+        .grouping_control = .{
+            .timestamp_ns = grouping_on_timestamp,
+            .mode = 1,
+        },
+    });
+    defer grouping_on.deinit(allocator);
+    try expectSuccessfulOrchestratorApiResult(&grouping_on, 5, .grouping_control);
+
+    var visible_again = try orchestrator.addUser(.routed, first_uid + 2);
+    defer visible_again.deinit(allocator);
+    try expectSuccessfulOrchestratorResponse(&visible_again, 6, .add_user);
+
+    try std.testing.expectEqual(@as(usize, 4), probe.len);
+    try std.testing.expectEqualSlices(
+        u64,
+        &.{ 1, 2, 5, 6 },
+        probe.sequences[0..probe.len],
+    );
+    try std.testing.expectEqualSlices(
+        cmd.OrderCommandType,
+        &.{ .add_user, .balance_adjustment, .grouping_control, .add_user },
+        &.{
+            probe.command_images[0].command,
+            probe.command_images[1].command,
+            probe.command_images[2].command,
+            probe.command_images[3].command,
+        },
+    );
+    try std.testing.expectEqualSlices(
+        cmd.CommandResultCode,
+        &.{ .success, .success, .success, .success },
+        probe.result_codes[0..probe.len],
+    );
+    for (probe.command_images[0..probe.len]) |command_image| {
+        try std.testing.expectEqual(cmd.CommandResultCode.success, command_image.result_code);
+    }
+    try std.testing.expectEqual(first_uid, probe.command_images[0].uid);
+    try std.testing.expectEqual(typed_timestamp, probe.command_images[1].timestamp);
+    try std.testing.expectEqual(@as(i64, 1), probe.command_images[2].order_id);
+    try std.testing.expectEqual(grouping_on_timestamp, probe.command_images[2].timestamp);
+    try std.testing.expectEqual(first_uid + 2, probe.command_images[3].uid);
+
+    try orchestrator.clearRawResultSinkChecked();
+    const count_after_clear = probe.len;
+    var after_clear = try orchestrator.addUser(.routed, first_uid + 3);
+    defer after_clear.deinit(allocator);
+    try expectSuccessfulOrchestratorResponse(&after_clear, 7, .add_user);
+    try std.testing.expectEqual(count_after_clear, probe.len);
+}
+
+fn runOrchestratorScalarUnitTimestampScenario(
+    java_config: JavaConfig,
+    expected_backend: BackendKind,
+    uid: i64,
+) !void {
+    const allocator = std.testing.allocator;
+    const timestamps = [_]i64{
+        9_979_320_001,
+        9_979_320_002,
+        9_979_320_003,
+        9_979_320_004,
+        9_979_320_005,
+    };
+
+    var orchestrator = try ExchangeOrchestrator.initFromJavaConfig(
+        allocator,
+        java_config,
+    );
+    defer orchestrator.deinit();
+    try std.testing.expectEqual(expected_backend, orchestrator.backendKind());
+
+    var probe: OrchestratorRawResultProbe = .{};
+    try orchestrator.setRawResultSinkChecked(.{
+        .context = &probe,
+        .on_result = OrchestratorRawResultProbe.onResult,
+    });
+    try orchestrator.startup();
+
+    var add = try orchestrator.submitApiCommandSync(.routed, .{
+        .add_user_with_timestamp = .{
+            .uid = uid,
+            .timestamp = timestamps[0],
+        },
+    });
+    defer add.deinit(allocator);
+    try expectSuccessfulOrchestratorApiResult(&add, 1, .add_user);
+    switch (add) {
+        .response => |response| try std.testing.expectEqual(
+            timestamps[0],
+            response.command.timestamp,
+        ),
+        .persist_state => return error.UnexpectedPersistStateResult,
+    }
+
+    try orchestrator.submitApiCommand(.routed, .{
+        .suspend_user_with_timestamp = .{
+            .uid = uid,
+            .timestamp = timestamps[1],
+        },
+    });
+    const resume_handle = try orchestrator.submitApiCommandAsync(.routed, .{
+        .resume_user_with_timestamp = .{
+            .uid = uid,
+            .timestamp = timestamps[2],
+        },
+    });
+    _ = try orchestrator.drainPending();
+    var resume_result = orchestrator.takeApiCommandAsyncResult(resume_handle) orelse
+        return error.MissingAsyncResult;
+    defer resume_result.deinit(allocator);
+    try expectSuccessfulOrchestratorApiResult(&resume_result, 3, .resume_user);
+    switch (resume_result) {
+        .response => |response| try std.testing.expectEqual(
+            timestamps[2],
+            response.command.timestamp,
+        ),
+        .persist_state => return error.UnexpectedPersistStateResult,
+    }
+
+    var reset_result = try orchestrator.submitApiCommandSync(.routed, .{
+        .reset_with_timestamp = .{ .timestamp = timestamps[3] },
+    });
+    defer reset_result.deinit(allocator);
+    try expectSuccessfulOrchestratorApiResult(&reset_result, 4, .reset);
+    switch (reset_result) {
+        .response => |response| try std.testing.expectEqual(
+            timestamps[3],
+            response.command.timestamp,
+        ),
+        .persist_state => return error.UnexpectedPersistStateResult,
+    }
+
+    const nop_handle = try orchestrator.submitApiCommandAsync(.routed, .{
+        .nop_with_timestamp = .{ .timestamp = timestamps[4] },
+    });
+    _ = try orchestrator.drainPending();
+    var nop_result = orchestrator.takeApiCommandAsyncResult(nop_handle) orelse
+        return error.MissingAsyncResult;
+    defer nop_result.deinit(allocator);
+    try expectSuccessfulOrchestratorApiResult(&nop_result, 5, .nop);
+    switch (nop_result) {
+        .response => |response| try std.testing.expectEqual(
+            timestamps[4],
+            response.command.timestamp,
+        ),
+        .persist_state => return error.UnexpectedPersistStateResult,
+    }
+
+    const expected_types = [_]cmd.OrderCommandType{
+        .add_user,
+        .suspend_user,
+        .resume_user,
+        .reset,
+        .nop,
+    };
+    try std.testing.expectEqual(expected_types.len, probe.len);
+    for (probe.command_images[0..probe.len], expected_types, timestamps) |
+        command_image,
+        command_type,
+        timestamp,
+    | {
+        try std.testing.expectEqual(command_type, command_image.command);
+        try std.testing.expectEqual(timestamp, command_image.timestamp);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, command_image.result_code);
+    }
+}
+
+const OrchestratorCommandCallbackProbe = struct {
+    sequence: u64 = 0,
+    command_image: cmd.OrderCommand = undefined,
+    result_code: cmd.CommandResultCode = .new,
+    calls: usize = 0,
+
+    fn onResponse(
+        context: ?*anyopaque,
+        response: *const kernel_mod.CommandResponse,
+    ) void {
+        const self: *@This() = @ptrCast(@alignCast(context.?));
+        self.sequence = response.sequence;
+        self.command_image = response.command;
+        self.result_code = response.result_code;
+        self.calls += 1;
+    }
+};
+
+fn runOrchestratorOrdinaryFacadeScenario(
+    java_config: JavaConfig,
+    expected_backend: BackendKind,
+    uid: i64,
+) !void {
+    const allocator = std.testing.allocator;
+    const timestamps = [_]i64{
+        9_979_330_001,
+        9_979_330_002,
+        9_979_330_003,
+        9_979_330_004,
+        9_979_330_005,
+        9_979_330_006,
+        9_979_330_007,
+        9_979_330_008,
+        9_979_330_009,
+        9_979_330_010,
+    };
+
+    var orchestrator = try ExchangeOrchestrator.initFromJavaConfig(
+        allocator,
+        java_config,
+    );
+    defer orchestrator.deinit();
+    try std.testing.expectEqual(expected_backend, orchestrator.backendKind());
+
+    const result_batch = [_]ApiCommand{
+        .{ .add_user_with_timestamp = .{
+            .uid = uid,
+            .timestamp = timestamps[0],
+        } },
+        .{ .suspend_user_with_timestamp = .{
+            .uid = uid,
+            .timestamp = timestamps[1],
+        } },
+        .{ .resume_user_with_timestamp = .{
+            .uid = uid,
+            .timestamp = timestamps[2],
+        } },
+    };
+    var batch_result = try orchestrator.submitApiCommandsSyncResult(
+        .routed,
+        result_batch[0..],
+    );
+    defer batch_result.deinit(allocator);
+    try expectSuccessfulOrchestratorApiResult(&batch_result, 3, .resume_user);
+    switch (batch_result) {
+        .response => |response| try std.testing.expectEqual(
+            timestamps[2],
+            response.command.timestamp,
+        ),
+        .persist_state => return error.UnexpectedPersistStateResult,
+    }
+
+    const empty: [0]ApiCommand = .{};
+    try orchestrator.submitApiCommandsSync(.routed, empty[0..]);
+
+    const void_batch = [_]ApiCommand{
+        .{ .add_user_with_timestamp = .{
+            .uid = uid + 1,
+            .timestamp = timestamps[3],
+        } },
+        .{ .suspend_user_with_timestamp = .{
+            .uid = uid + 1,
+            .timestamp = timestamps[4],
+        } },
+    };
+    try orchestrator.submitCommandsSync(.routed, void_batch[0..]);
+
+    var flush = try orchestrator.submitCommandsSyncWithNop(.routed, empty[0..]);
+    defer flush.deinit(allocator);
+    try expectSuccessfulOrchestratorResponse(&flush, 6, .nop);
+
+    const full_response_handle = try orchestrator.submitCommandAsyncFullResponse(
+        .routed,
+        .{ .add_user_with_timestamp = .{
+            .uid = uid + 2,
+            .timestamp = timestamps[5],
+        } },
+    );
+    try std.testing.expectEqual(@as(usize, 1), try orchestrator.drainPending());
+    var full_response_result = orchestrator.takeApiCommandAsyncResult(full_response_handle) orelse
+        return error.MissingAsyncResult;
+    defer full_response_result.deinit(allocator);
+    try expectSuccessfulOrchestratorApiResult(&full_response_result, 7, .add_user);
+    switch (full_response_result) {
+        .response => |response| try std.testing.expectEqual(
+            timestamps[5],
+            response.command.timestamp,
+        ),
+        .persist_state => return error.UnexpectedPersistStateResult,
+    }
+
+    try std.testing.expectError(
+        error.UnsupportedAsyncFullResponseCommand,
+        orchestrator.submitCommandAsyncFullResponse(
+            .routed,
+            .{
+                .persist_state = .{
+                    .snapshot_id = 1,
+                    .timestamp_ns = timestamps[6],
+                },
+            },
+        ),
+    );
+
+    var callback_probe: OrchestratorCommandCallbackProbe = .{};
+    const callback: CommandResponseCallback = .{
+        .context = &callback_probe,
+        .callback = OrchestratorCommandCallbackProbe.onResponse,
+    };
+    try orchestrator.submitApiCommandWithCallback(
+        .routed,
+        .{ .add_user_with_timestamp = .{
+            .uid = uid + 3,
+            .timestamp = timestamps[6],
+        } },
+        callback,
+    );
+    try std.testing.expectEqual(@as(usize, 0), callback_probe.calls);
+    try std.testing.expectEqual(@as(usize, 1), try orchestrator.drainPending());
+    try std.testing.expectEqual(@as(usize, 1), callback_probe.calls);
+    try std.testing.expectEqual(@as(u64, 8), callback_probe.sequence);
+    try std.testing.expectEqual(cmd.OrderCommandType.add_user, callback_probe.command_image.command);
+    try std.testing.expectEqual(uid + 3, callback_probe.command_image.uid);
+    try std.testing.expectEqual(timestamps[6], callback_probe.command_image.timestamp);
+    try std.testing.expectEqual(@as(i64, -1), callback_probe.command_image.order_id);
+    try std.testing.expectEqual(@as(i32, -1), callback_probe.command_image.symbol);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, callback_probe.result_code);
+    try std.testing.expectEqual(@as(usize, 0), try orchestrator.processPendingCallbacks());
+
+    try std.testing.expectError(
+        error.UnsupportedCallbackCommand,
+        orchestrator.submitApiCommandWithCallback(.routed, .reset, callback),
+    );
+    try std.testing.expectError(
+        error.UnsupportedCallbackCommand,
+        orchestrator.submitApiCommandWithCallback(
+            .routed,
+            .{ .reset_with_timestamp = .{ .timestamp = timestamps[0] } },
+            callback,
+        ),
+    );
+    try std.testing.expectError(
+        error.UnsupportedCallbackCommand,
+        orchestrator.submitApiCommandWithCallback(.routed, .nop, callback),
+    );
+    try std.testing.expectError(
+        error.UnsupportedCallbackCommand,
+        orchestrator.submitApiCommandWithCallback(
+            .routed,
+            .{ .nop_with_timestamp = .{ .timestamp = timestamps[1] } },
+            callback,
+        ),
+    );
+
+    const nop_handle = try orchestrator.submitCommandAsyncFullResponse(
+        .routed,
+        .{ .nop_with_timestamp = .{ .timestamp = timestamps[2] } },
+    );
+    try std.testing.expectEqual(@as(usize, 1), try orchestrator.drainPending());
+    var nop_result = orchestrator.takeApiCommandAsyncResult(nop_handle) orelse
+        return error.MissingAsyncResult;
+    defer nop_result.deinit(allocator);
+    try expectSuccessfulOrchestratorApiResult(&nop_result, 9, .nop);
+    switch (nop_result) {
+        .response => |response| try std.testing.expectEqual(
+            timestamps[2],
+            response.command.timestamp,
+        ),
+        .persist_state => return error.UnexpectedPersistStateResult,
+    }
+
+    if (expected_backend == .single) {
+        try std.testing.expectError(
+            error.SplitModeRequiresShardedBackend,
+            orchestrator.submitApiCommandsSync(.split, empty[0..]),
+        );
+        try std.testing.expectError(
+            error.SplitModeRequiresShardedBackend,
+            orchestrator.submitCommandAsyncFullResponse(.split, .nop),
+        );
+        try std.testing.expectError(
+            error.SplitModeRequiresShardedBackend,
+            orchestrator.submitApiCommandWithCallback(
+                .split,
+                .{ .add_user = uid + 4 },
+                callback,
+            ),
+        );
+    } else {
+        const split_uid = uid + 10;
+        const split_batch = [_]ApiCommand{
+            .{ .add_user_with_timestamp = .{
+                .uid = split_uid,
+                .timestamp = timestamps[7],
+            } },
+        };
+        var split_batch_result = try orchestrator.submitApiCommandsSyncResult(
+            .split,
+            split_batch[0..],
+        );
+        defer split_batch_result.deinit(allocator);
+        try expectSuccessfulOrchestratorApiResult(
+            &split_batch_result,
+            10,
+            .add_user,
+        );
+        switch (split_batch_result) {
+            .response => |response| try std.testing.expectEqual(
+                timestamps[7],
+                response.command.timestamp,
+            ),
+            .persist_state => return error.UnexpectedPersistStateResult,
+        }
+
+        const split_full_response_handle = try orchestrator.submitCommandAsyncFullResponse(
+            .split,
+            .{ .suspend_user_with_timestamp = .{
+                .uid = split_uid,
+                .timestamp = timestamps[8],
+            } },
+        );
+        try std.testing.expectEqual(@as(usize, 1), try orchestrator.drainPending());
+        var split_full_response_result =
+            orchestrator.takeApiCommandAsyncResult(split_full_response_handle) orelse
+            return error.MissingAsyncResult;
+        defer split_full_response_result.deinit(allocator);
+        try expectSuccessfulOrchestratorApiResult(
+            &split_full_response_result,
+            11,
+            .suspend_user,
+        );
+        switch (split_full_response_result) {
+            .response => |response| try std.testing.expectEqual(
+                timestamps[8],
+                response.command.timestamp,
+            ),
+            .persist_state => return error.UnexpectedPersistStateResult,
+        }
+
+        var split_callback_probe: OrchestratorCommandCallbackProbe = .{};
+        const split_callback: CommandResponseCallback = .{
+            .context = &split_callback_probe,
+            .callback = OrchestratorCommandCallbackProbe.onResponse,
+        };
+        try orchestrator.submitApiCommandWithCallback(
+            .split,
+            .{ .resume_user_with_timestamp = .{
+                .uid = split_uid,
+                .timestamp = timestamps[9],
+            } },
+            split_callback,
+        );
+        try std.testing.expectEqual(@as(usize, 0), split_callback_probe.calls);
+        try std.testing.expectEqual(@as(usize, 1), try orchestrator.drainPending());
+        try std.testing.expectEqual(@as(usize, 1), split_callback_probe.calls);
+        try std.testing.expectEqual(@as(u64, 12), split_callback_probe.sequence);
+        try std.testing.expectEqual(
+            cmd.OrderCommandType.resume_user,
+            split_callback_probe.command_image.command,
+        );
+        try std.testing.expectEqual(split_uid, split_callback_probe.command_image.uid);
+        try std.testing.expectEqual(
+            timestamps[9],
+            split_callback_probe.command_image.timestamp,
+        );
+        try std.testing.expectEqual(
+            cmd.CommandResultCode.success,
+            split_callback_probe.result_code,
+        );
+        try std.testing.expectEqual(
+            @as(usize, 0),
+            try orchestrator.processPendingCallbacks(),
+        );
+    }
+}
+
+fn runOrchestratorBatchCallbackPreflightScenario(
+    java_config: JavaConfig,
+    expected_backend: BackendKind,
+    uid: i64,
+) !void {
+    const allocator = std.testing.allocator;
+    var orchestrator = try ExchangeOrchestrator.initFromJavaConfig(
+        allocator,
+        java_config,
+    );
+    defer orchestrator.deinit();
+    try std.testing.expectEqual(expected_backend, orchestrator.backendKind());
+
+    const empty: [0]ApiCommand = .{};
+    const one_command = [_]ApiCommand{.{ .add_user = uid }};
+    {
+        var callback_scope = runtime_mod.CallbackExecutionScope.enter();
+        defer callback_scope.leave();
+
+        try std.testing.expectError(
+            error.EmptyApiCommandBatch,
+            orchestrator.submitApiCommandsSyncResult(.routed, empty[0..]),
+        );
+        try orchestrator.submitApiCommandsSync(.routed, empty[0..]);
+
+        try std.testing.expectError(
+            error.CoreReentrantCall,
+            orchestrator.submitApiCommandsSyncResult(.routed, one_command[0..]),
+        );
+        try std.testing.expectError(
+            error.CoreReentrantCall,
+            orchestrator.submitApiCommandsSync(.routed, one_command[0..]),
+        );
+        try std.testing.expectError(
+            error.CoreReentrantCall,
+            orchestrator.submitApiCommandsSyncWithNop(.routed, empty[0..]),
+        );
+        try std.testing.expectError(
+            error.CoreReentrantCall,
+            orchestrator.submitApiCommandsSyncWithNop(.routed, one_command[0..]),
+        );
+    }
+
+    try std.testing.expectEqual(@as(usize, 0), try orchestrator.drainPending());
+    var first_published = try orchestrator.submitApiCommandSync(.routed, .nop);
+    defer first_published.deinit(allocator);
+    try expectSuccessfulOrchestratorApiResult(
+        &first_published,
+        1,
+        .nop,
+    );
+}
+
+test "exchange orchestrator raw full-result observer forwarding covers java-default grouped backend" {
+    try runOrchestratorRawResultForwardingScenario(
+        config_mod.JavaExchangeConfig.javaDefault(),
+        .sharded,
+        980_401,
+    );
+}
+
+test "exchange orchestrator raw full-result observer forwarding covers explicit-immediate single backend" {
+    var java_config = config_mod.JavaExchangeConfig.javaDefault();
+    java_config.sharded_pipeline_mode = .immediate;
+    try runOrchestratorRawResultForwardingScenario(
+        java_config,
+        .single,
+        980_501,
+    );
+}
+
+test "exchange orchestrator scalar and unit timestamps cross java-default grouped backend" {
+    try runOrchestratorScalarUnitTimestampScenario(
+        config_mod.JavaExchangeConfig.javaDefault(),
+        .sharded,
+        980_601,
+    );
+}
+
+test "exchange orchestrator scalar and unit timestamps cross explicit-immediate single backend" {
+    var java_config = config_mod.JavaExchangeConfig.javaDefault();
+    java_config.sharded_pipeline_mode = .immediate;
+    try runOrchestratorScalarUnitTimestampScenario(
+        java_config,
+        .single,
+        980_701,
+    );
+}
+
+test "exchange orchestrator ordinary facade covers java-default grouped backend" {
+    try runOrchestratorOrdinaryFacadeScenario(
+        config_mod.JavaExchangeConfig.javaDefault(),
+        .sharded,
+        980_801,
+    );
+}
+
+test "exchange orchestrator ordinary facade covers explicit-immediate single backend" {
+    var java_config = config_mod.JavaExchangeConfig.javaDefault();
+    java_config.sharded_pipeline_mode = .immediate;
+    try runOrchestratorOrdinaryFacadeScenario(
+        java_config,
+        .single,
+        980_901,
+    );
+}
+
+test "exchange orchestrator batch callback preflight covers java-default grouped backend" {
+    try runOrchestratorBatchCallbackPreflightScenario(
+        config_mod.JavaExchangeConfig.javaDefault(),
+        .sharded,
+        981_001,
+    );
+}
+
+test "exchange orchestrator batch callback preflight covers explicit-immediate single backend" {
+    var java_config = config_mod.JavaExchangeConfig.javaDefault();
+    java_config.sharded_pipeline_mode = .immediate;
+    try runOrchestratorBatchCallbackPreflightScenario(
+        java_config,
+        .single,
+        981_101,
+    );
+}
+
+test "exchange orchestrator forwards shutdown state and completion for both backends" {
+    const allocator = std.testing.allocator;
+    {
+        var java_config = config_mod.JavaExchangeConfig.javaDefault();
+        java_config.sharded_pipeline_mode = .immediate;
+        var orchestrator = try ExchangeOrchestrator.initFromJavaConfig(
+            allocator,
+            java_config,
+        );
+        defer orchestrator.deinit();
+        try std.testing.expectEqual(BackendKind.single, orchestrator.backendKind());
+        try std.testing.expectEqual(ShutdownState.open, orchestrator.shutdownState());
+        try orchestrator.startup();
+        try std.testing.expectEqual(
+            ShutdownOutcome.complete,
+            try orchestrator.shutdownTimeout(.none),
+        );
+        try std.testing.expectEqual(ShutdownState.complete, orchestrator.shutdownState());
+    }
+
+    {
+        var java_config = config_mod.JavaExchangeConfig.javaDefault();
+        java_config.performance_cfg.matching_engines_num = 2;
+        java_config.performance_cfg.risk_engines_num = 2;
+        var orchestrator = try ExchangeOrchestrator.initFromJavaConfig(
+            allocator,
+            java_config,
+        );
+        defer orchestrator.deinit();
+        try std.testing.expectEqual(BackendKind.sharded, orchestrator.backendKind());
+        try std.testing.expectEqual(ShutdownState.open, orchestrator.shutdownState());
+        try orchestrator.startup();
+        try std.testing.expectEqual(
+            ShutdownOutcome.complete,
+            try orchestrator.shutdownTimeout(.none),
+        );
+        try std.testing.expectEqual(ShutdownState.complete, orchestrator.shutdownState());
+    }
+}
+
+test "exchange orchestrator selects grouped sharded backend for java default profile" {
     const allocator = std.testing.allocator;
     var orchestrator = try ExchangeOrchestrator.initFromJavaConfig(
         allocator,
         config_mod.JavaExchangeConfig.javaDefault(),
+    );
+    defer orchestrator.deinit();
+
+    try std.testing.expectEqual(BackendKind.sharded, orchestrator.backendKind());
+    try std.testing.expectEqual(@as(usize, 1), orchestrator.shardCount());
+    try orchestrator.startup();
+    switch (orchestrator.backend) {
+        .single => unreachable,
+        .sharded => |sharded| try std.testing.expect(
+            sharded.persistent_grouped_runtime != null,
+        ),
+    }
+}
+
+test "exchange orchestrator explicit immediate mode selects 1x1 single backend" {
+    const allocator = std.testing.allocator;
+    var java_config = config_mod.JavaExchangeConfig.javaDefault();
+    java_config.sharded_pipeline_mode = .immediate;
+    var orchestrator = try ExchangeOrchestrator.initFromJavaConfig(
+        allocator,
+        java_config,
     );
     defer orchestrator.deinit();
 
@@ -594,15 +1671,42 @@ test "exchange orchestrator selects sharded backend for throughput profile" {
 
     try std.testing.expectEqual(BackendKind.sharded, orchestrator.backendKind());
     try std.testing.expectEqual(@as(usize, 4), orchestrator.shardCount());
+    try std.testing.expectEqual(@as(usize, 4), orchestrator.matchingShardCount());
+    try std.testing.expectEqual(@as(usize, 2), orchestrator.riskShardCount());
+    try std.testing.expectEqual(@as(u64, 3), orchestrator.matchingShardMask());
+    try std.testing.expectEqual(@as(u64, 1), orchestrator.riskShardMask());
+}
+
+test "exchange orchestrator backend selection treats engine families independently" {
+    try std.testing.expectEqual(
+        BackendKind.single,
+        backendKindForPerformance(.{
+            .matching_engines_num = 1,
+            .risk_engines_num = 1,
+        }),
+    );
+    try std.testing.expectEqual(
+        BackendKind.sharded,
+        backendKindForPerformance(.{
+            .matching_engines_num = 4,
+            .risk_engines_num = 2,
+        }),
+    );
+    try std.testing.expectEqual(
+        BackendKind.sharded,
+        backendKindForPerformance(.{
+            .matching_engines_num = 1,
+            .risk_engines_num = 4,
+        }),
+    );
 }
 
 test "exchange orchestrator routes addUser through selected backend" {
     const allocator = std.testing.allocator;
 
-    var single = try ExchangeOrchestrator.initFromJavaConfig(
-        allocator,
-        config_mod.JavaExchangeConfig.javaDefault(),
-    );
+    var single = try ExchangeOrchestrator.initFromJavaConfig(allocator, .{
+        .sharded_pipeline_mode = .immediate,
+    });
     defer single.deinit();
     try single.startup();
     var single_add = try single.addUser(.routed, 980_001);
@@ -625,10 +1729,9 @@ test "exchange orchestrator routes addUser through selected backend" {
 
 test "exchange orchestrator rejects split mode on single backend" {
     const allocator = std.testing.allocator;
-    var orchestrator = try ExchangeOrchestrator.initFromJavaConfig(
-        allocator,
-        config_mod.JavaExchangeConfig.javaDefault(),
-    );
+    var orchestrator = try ExchangeOrchestrator.initFromJavaConfig(allocator, .{
+        .sharded_pipeline_mode = .immediate,
+    });
     defer orchestrator.deinit();
 
     try std.testing.expectError(
@@ -662,28 +1765,36 @@ test "exchange orchestrator async submit and drain works on sharded backend" {
     }
 }
 
-test "exchange orchestrator single backend rejects callback wrappers and keeps callback processing as no-op" {
+test "exchange orchestrator sharded backend progresses automatically and exposes lifecycle state" {
     const allocator = std.testing.allocator;
-
-    const Noop = struct {
-        fn onResponse(_: ?*anyopaque, _: *const kernel_mod.CommandResponse) void {}
-    };
-
     var orchestrator = try ExchangeOrchestrator.initFromJavaConfig(
         allocator,
-        config_mod.JavaExchangeConfig.javaDefault(),
+        .{
+            .performance_cfg = config_mod.PerformanceConfig.throughputPreset(),
+            .serialization_cfg = config_mod.SerializationConfig.diskSnapshotOnly(),
+        },
     );
     defer orchestrator.deinit();
+    try orchestrator.startup();
 
-    const callback: CommandResponseCallback = .{
-        .context = null,
-        .callback = Noop.onResponse,
-    };
-    try std.testing.expectError(
-        error.SplitModeRequiresShardedBackend,
-        orchestrator.createUserWithCallback(.routed, 980_301, callback),
+    const handle = try orchestrator.submitApiCommandAsync(
+        .split,
+        .{ .add_user = 980_251 },
     );
-    try std.testing.expectEqual(@as(usize, 0), try orchestrator.processPendingCallbacks());
+    var barrier = try orchestrator.queryReport(.{ .single_user = 980_251 });
+    defer barrier.deinit(allocator);
+    try std.testing.expectEqual(
+        kernel_mod.SingleUserQueryExecutionStatus.ok,
+        barrier.single_user.query_execution_status,
+    );
+
+    var result = orchestrator.takeApiCommandAsyncResult(handle) orelse return error.MissingAsyncResult;
+    defer result.deinit(allocator);
+    switch (result) {
+        .response => |response| try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code),
+        .persist_state => return error.UnexpectedPersistStateResult,
+    }
+    try std.testing.expectEqual(@as(?CoreFatalInfo, null), orchestrator.fatalInfo());
 }
 
 test "exchange orchestrator seeded sharded callback campaign is deterministic and seed-sensitive" {
@@ -699,10 +1810,7 @@ test "exchange orchestrator seeded sharded callback campaign is deterministic an
     const Outcome = struct {
         digest: u64 = 0,
         registered: usize = 0,
-        drain_calls: usize = 0,
         drained_total: usize = 0,
-        callback_process_calls: usize = 0,
-        callback_processed_total: usize = 0,
         success_results: usize = 0,
         duplicate_results: usize = 0,
     };
@@ -758,6 +1866,7 @@ test "exchange orchestrator seeded sharded callback campaign is deterministic an
             };
 
             var outcome: Outcome = .{ .digest = collector.digest };
+            var publication_digest: u64 = 0x51A7E5EED51A7E5E ^ scenario.seed;
             var prng = std.Random.DefaultPrng.init(scenario.seed);
             const random = prng.random();
             const base_uid: i64 = 2_100_000 + @as(i64, @intCast(scenario.seed % 30_000));
@@ -767,41 +1876,16 @@ test "exchange orchestrator seeded sharded callback campaign is deterministic an
                 const uid = base_uid + @as(i64, @intCast(uid_offset));
                 try orchestrator.createUserWithCallback(.routed, uid, callback);
                 outcome.registered += 1;
-                collector.mixDigest(@as(u64, @intCast(uid_offset)));
-
-                const should_drain = round_idx % 5 == 0 or random.uintLessThan(u32, 100) < 25;
-                if (should_drain) {
-                    const drained = try orchestrator.drainPending();
-                    outcome.drain_calls += 1;
-                    outcome.drained_total = std.math.add(usize, outcome.drained_total, drained) catch
-                        return error.DrainCountOverflow;
-                    collector.mixDigest(drained);
-
-                    const processed = try orchestrator.processPendingCallbacks();
-                    outcome.callback_process_calls += 1;
-                    outcome.callback_processed_total = std.math.add(usize, outcome.callback_processed_total, processed) catch
-                        return error.CallbackCountOverflow;
-                    collector.mixDigest(processed);
-                }
+                publication_digest = (publication_digest ^ @as(u64, @intCast(uid_offset))) *% 0x9E3779B185EBCA87;
+                publication_digest +%= 0x632BE59BD9B4E019;
+                _ = round_idx;
             }
 
-            var guard: usize = 0;
-            while (collector.processed < outcome.registered and guard < rounds + 32) : (guard += 1) {
-                const drained = try orchestrator.drainPending();
-                outcome.drain_calls += 1;
-                outcome.drained_total = std.math.add(usize, outcome.drained_total, drained) catch
-                    return error.DrainCountOverflow;
-                collector.mixDigest(drained);
-
-                const processed = try orchestrator.processPendingCallbacks();
-                outcome.callback_process_calls += 1;
-                outcome.callback_processed_total = std.math.add(usize, outcome.callback_processed_total, processed) catch
-                    return error.CallbackCountOverflow;
-                collector.mixDigest(processed);
-                if (drained == 0 and processed == 0 and collector.processed < outcome.registered) {
-                    return error.CallbackProgressStalled;
-                }
-            }
+            // The sharded lifecycle owns progress now. One terminal drain is
+            // an execution barrier for the entire accepted callback prefix;
+            // intermediate drain/process counts are scheduler observations,
+            // so they must not participate in a deterministic digest.
+            outcome.drained_total = try orchestrator.drainPending();
 
             if (collector.processed != outcome.registered) {
                 return error.CallbackCompletionMismatch;
@@ -810,7 +1894,7 @@ test "exchange orchestrator seeded sharded callback campaign is deterministic an
 
             outcome.success_results = collector.success_results;
             outcome.duplicate_results = collector.duplicate_results;
-            outcome.digest = collector.digest;
+            outcome.digest = collector.digest ^ std.math.rotl(u64, publication_digest, 23);
             return outcome;
         }
     };
@@ -837,7 +1921,6 @@ test "exchange orchestrator seeded sharded callback campaign is deterministic an
         try std.testing.expect(first.registered > 0);
         try std.testing.expectEqual(rounds, first.registered);
         try std.testing.expectEqual(first.registered, first.drained_total);
-        try std.testing.expect(first.callback_processed_total > 0);
         try std.testing.expect(first.success_results > 0);
         try std.testing.expect(first.duplicate_results > 0);
 
@@ -860,8 +1943,9 @@ test "exchange orchestrator sharded strict startup propagates malformed main-log
     var exchange_id_buf: [32]u8 = undefined;
     const exchange_id = try std.fmt.bufPrint(&exchange_id_buf, "ECORCH{x}", .{seed});
 
-    var source = try exchange_api_sharded_mod.ExchangeApiSharded.initFromJavaConfig(
+    var source = try exchange_api_sharded_mod.ExchangeApiSharded.initFromJavaConfigWithPersistenceRoot(
         allocator,
+        tmp.dir,
         .{
             .performance_cfg = config_mod.PerformanceConfig.throughputPreset(),
             .init_state_cfg = config_mod.InitialStateConfig.cleanStart(exchange_id),
@@ -883,13 +1967,15 @@ test "exchange orchestrator sharded strict startup propagates malformed main-log
         .maker_fee = 0,
     });
     try source.addSymbolAll(spec);
-    try source.captureSnapshotToDefaultPath(
-        tmp.dir,
-        901,
-        .matching_engine_router,
-        0,
-        &.{symbol},
-        8,
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.success,
+        try source.persistStateWithDefaultMainLog(
+            tmp.dir,
+            901,
+            901_000_000,
+            .matching_engine_router,
+            0,
+        ),
     );
 
     const main_log_path = try source.defaultPersistenceMainLogPath(allocator);
@@ -898,8 +1984,9 @@ test "exchange orchestrator sharded strict startup propagates malformed main-log
     defer main_log_file.close(io_context.current());
     try io_context.appendAll(main_log_file, "seeded-malformed-main-log-entry\n");
 
-    var target = try ExchangeOrchestrator.initFromJavaConfig(
+    var target = try ExchangeOrchestrator.initFromJavaConfigWithPersistenceRoot(
         allocator,
+        tmp.dir,
         .{
             .performance_cfg = config_mod.PerformanceConfig.throughputPreset(),
             .init_state_cfg = config_mod.InitialStateConfig.fromSnapshotOnly(exchange_id, 1, 0),
@@ -930,9 +2017,11 @@ test "exchange orchestrator single backend discovered startup restores persisted
     const exchange_id = try std.fmt.bufPrint(&exchange_id_buf, "ECORCHS{x}", .{seed});
     const existing_uid: i64 = 981_001 + @as(i64, @intCast(seed % 137));
 
-    var source = try ExchangeOrchestrator.initFromJavaConfig(
+    var source = try ExchangeOrchestrator.initFromJavaConfigWithPersistenceRoot(
         allocator,
+        tmp.dir,
         .{
+            .sharded_pipeline_mode = .immediate,
             .init_state_cfg = config_mod.InitialStateConfig.cleanStart(exchange_id),
             .serialization_cfg = config_mod.SerializationConfig.diskSnapshotOnly(),
         },
@@ -958,9 +2047,11 @@ test "exchange orchestrator single backend discovered startup restores persisted
         .sharded => unreachable,
     }
 
-    var target = try ExchangeOrchestrator.initFromJavaConfig(
+    var target = try ExchangeOrchestrator.initFromJavaConfigWithPersistenceRoot(
         allocator,
+        tmp.dir,
         .{
+            .sharded_pipeline_mode = .immediate,
             .init_state_cfg = config_mod.InitialStateConfig.fromSnapshotOnly(exchange_id, 1, 0),
             .serialization_cfg = config_mod.SerializationConfig.diskSnapshotOnly(),
         },
@@ -982,6 +2073,94 @@ test "exchange orchestrator single backend discovered startup restores persisted
     try std.testing.expectEqual(cmd.CommandResultCode.user_mgmt_user_already_exists, duplicate_add.result_code);
 }
 
+test "exchange orchestrator grouped default fails closed on XCM1 while immediate restores it" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const exchange_id = "ECORCH_XCM1_PROMOTION";
+    const existing_uid: i64 = 981_411;
+    const snapshot_id: i64 = 941;
+
+    var source = try ExchangeOrchestrator.initFromJavaConfigWithPersistenceRoot(
+        allocator,
+        tmp.dir,
+        .{
+            .sharded_pipeline_mode = .immediate,
+            .init_state_cfg = config_mod.InitialStateConfig.cleanStart(exchange_id),
+            .serialization_cfg = config_mod.SerializationConfig.diskSnapshotOnly(),
+        },
+    );
+    defer source.deinit();
+    try std.testing.expectEqual(BackendKind.single, source.backendKind());
+    try source.startup();
+    var add = try source.addUser(.routed, existing_uid);
+    defer add.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, add.result_code);
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.success,
+        try source.persistStateWithDefaultMainLog(
+            tmp.dir,
+            snapshot_id,
+            941_000_000,
+            .matching_engine_router,
+            0,
+        ),
+    );
+    source.shutdown();
+
+    const restore_state = config_mod.InitialStateConfig.fromSnapshotOnly(
+        exchange_id,
+        1,
+        0,
+    );
+    var grouped = try ExchangeOrchestrator.initFromJavaConfigWithPersistenceRoot(
+        allocator,
+        tmp.dir,
+        .{
+            .init_state_cfg = restore_state,
+            .serialization_cfg = config_mod.SerializationConfig.diskSnapshotOnly(),
+        },
+    );
+    defer grouped.deinit();
+    try std.testing.expectEqual(BackendKind.sharded, grouped.backendKind());
+    try std.testing.expectError(
+        error.LegacyXcm1RequiresImmediateOrMigration,
+        grouped.startupFromDiscoveredConfiguredPersistence(
+            tmp.dir,
+            .matching_engine_router,
+            0,
+            0,
+        ),
+    );
+
+    var immediate = try ExchangeOrchestrator.initFromJavaConfigWithPersistenceRoot(
+        allocator,
+        tmp.dir,
+        .{
+            .sharded_pipeline_mode = .immediate,
+            .init_state_cfg = restore_state,
+            .serialization_cfg = config_mod.SerializationConfig.diskSnapshotOnly(),
+        },
+    );
+    defer immediate.deinit();
+    try std.testing.expectEqual(BackendKind.single, immediate.backendKind());
+    const outcome = try immediate.startupFromDiscoveredConfiguredPersistence(
+        tmp.dir,
+        .matching_engine_router,
+        0,
+        0,
+    );
+    try std.testing.expect(outcome.snapshot_requested);
+    try std.testing.expect(outcome.snapshot_found);
+    var duplicate_add = try immediate.addUser(.routed, existing_uid);
+    defer duplicate_add.deinit(allocator);
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.user_mgmt_user_already_exists,
+        duplicate_add.result_code,
+    );
+}
+
 test "exchange orchestrator sharded persistStateWithDefaultMainLog writes default-path artifacts deterministically" {
     const allocator = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
@@ -991,8 +2170,9 @@ test "exchange orchestrator sharded persistStateWithDefaultMainLog writes defaul
     var exchange_id_buf: [32]u8 = undefined;
     const exchange_id = try std.fmt.bufPrint(&exchange_id_buf, "ECORCH{x}", .{seed});
 
-    var orchestrator = try ExchangeOrchestrator.initFromJavaConfig(
+    var orchestrator = try ExchangeOrchestrator.initFromJavaConfigWithPersistenceRoot(
         allocator,
+        tmp.dir,
         .{
             .performance_cfg = config_mod.PerformanceConfig.throughputPreset(),
             .init_state_cfg = config_mod.InitialStateConfig.cleanStart(exchange_id),
@@ -1034,8 +2214,9 @@ test "exchange orchestrator sharded persistStateWithDefaultMainLog writes defaul
     try std.testing.expect(std.mem.indexOf(u8, contents, "type=ME") != null);
     try std.testing.expect(std.mem.indexOf(u8, contents, "instance=0") != null);
 
-    var discovered = try ExchangeOrchestrator.initFromJavaConfig(
+    var discovered = try ExchangeOrchestrator.initFromJavaConfigWithPersistenceRoot(
         allocator,
+        tmp.dir,
         .{
             .performance_cfg = config_mod.PerformanceConfig.throughputPreset(),
             .init_state_cfg = config_mod.InitialStateConfig.fromSnapshotOnly(exchange_id, 1, 0),
@@ -1043,14 +2224,19 @@ test "exchange orchestrator sharded persistStateWithDefaultMainLog writes defaul
         },
     );
     defer discovered.deinit();
-    try std.testing.expectError(
-        error.SnapshotFileNotFound,
-        discovered.startupFromDiscoveredConfiguredPersistence(
-            tmp.dir,
-            .matching_engine_router,
-            0,
-            0,
-        ),
+    const discovered_outcome = try discovered.startupFromDiscoveredConfiguredPersistence(
+        tmp.dir,
+        .matching_engine_router,
+        0,
+        0,
+    );
+    try std.testing.expect(discovered_outcome.snapshot_requested);
+    try std.testing.expect(discovered_outcome.snapshot_found);
+    var duplicate_add = try discovered.addUser(.routed, 991_100);
+    defer duplicate_add.deinit(allocator);
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.user_mgmt_user_already_exists,
+        duplicate_add.result_code,
     );
 }
 
@@ -1095,6 +2281,7 @@ test "exchange orchestrator seeded persistence perturbation simulation is determ
         ) JavaConfig {
             return switch (backend) {
                 .single => .{
+                    .sharded_pipeline_mode = .immediate,
                     .init_state_cfg = init_state,
                     .serialization_cfg = config_mod.SerializationConfig.diskSnapshotOnly(),
                 },
@@ -1106,7 +2293,7 @@ test "exchange orchestrator seeded persistence perturbation simulation is determ
             };
         }
 
-        fn captureSnapshotToDefaultPath(
+        fn persistSnapshotToDefaultPath(
             source: *ExchangeOrchestrator,
             dir: std.Io.Dir,
             snapshot_id: u64,
@@ -1122,14 +2309,16 @@ test "exchange orchestrator seeded persistence perturbation simulation is determ
                     symbols[0..],
                     8,
                 ),
-                .sharded => |*sharded| try sharded.captureSnapshotToDefaultPath(
-                    dir,
-                    snapshot_id,
-                    module_type,
-                    0,
-                    symbols[0..],
-                    8,
-                ),
+                .sharded => {
+                    const result = try source.persistStateWithDefaultMainLog(
+                        dir,
+                        @intCast(snapshot_id),
+                        @intCast(snapshot_id),
+                        module_type,
+                        0,
+                    );
+                    try std.testing.expectEqual(cmd.CommandResultCode.success, result);
+                },
             }
         }
 
@@ -1162,8 +2351,9 @@ test "exchange orchestrator seeded persistence perturbation simulation is determ
             const existing_uid: i64 = 990_000 + @as(i64, @intCast(scenario.seed % 1_000));
             const module_type: PersistenceModuleType = .risk_engine;
 
-            var source = try ExchangeOrchestrator.initFromJavaConfig(
+            var source = try ExchangeOrchestrator.initFromJavaConfigWithPersistenceRoot(
                 alloc,
+                tmp.dir,
                 javaConfigForBackend(
                     scenario.backend,
                     config_mod.InitialStateConfig.cleanStart(exchange_id),
@@ -1177,7 +2367,7 @@ test "exchange orchestrator seeded persistence perturbation simulation is determ
             try std.testing.expectEqual(cmd.CommandResultCode.success, add_source.result_code);
 
             const snapshot_id: u64 = 700 + @as(u64, @intCast(scenario.seed % 50));
-            try captureSnapshotToDefaultPath(&source, tmp.dir, snapshot_id, module_type);
+            try persistSnapshotToDefaultPath(&source, tmp.dir, snapshot_id, module_type);
 
             if (scenario.perturbation == .malformed_main_log) {
                 try appendMalformedMainLog(alloc, &source, tmp.dir);
@@ -1187,8 +2377,9 @@ test "exchange orchestrator seeded persistence perturbation simulation is determ
                 .configured => config_mod.InitialStateConfig.fromSnapshotOnly(exchange_id, snapshot_id, 0),
                 .discovered, .discovered_strict_main_log => config_mod.InitialStateConfig.fromSnapshotOnly(exchange_id, 1, 0),
             };
-            var target = try ExchangeOrchestrator.initFromJavaConfig(
+            var target = try ExchangeOrchestrator.initFromJavaConfigWithPersistenceRoot(
                 alloc,
+                tmp.dir,
                 javaConfigForBackend(
                     scenario.backend,
                     target_init_state,
@@ -1407,6 +2598,7 @@ test "exchange orchestrator seeded journal replay perturbations are deterministi
         ) JavaConfig {
             return switch (backend) {
                 .single => .{
+                    .sharded_pipeline_mode = .immediate,
                     .init_state_cfg = init_state,
                     .serialization_cfg = config_mod.SerializationConfig.diskJournaling(),
                 },
@@ -1418,7 +2610,7 @@ test "exchange orchestrator seeded journal replay perturbations are deterministi
             };
         }
 
-        fn captureSnapshotToDefaultPath(
+        fn persistSnapshotToDefaultPath(
             source: *ExchangeOrchestrator,
             dir: std.Io.Dir,
             snapshot_id: u64,
@@ -1434,14 +2626,16 @@ test "exchange orchestrator seeded journal replay perturbations are deterministi
                     symbols[0..],
                     8,
                 ),
-                .sharded => |*sharded| try sharded.captureSnapshotToDefaultPath(
-                    dir,
-                    snapshot_id,
-                    module_type,
-                    0,
-                    symbols[0..],
-                    8,
-                ),
+                .sharded => {
+                    const result = try source.persistStateWithDefaultMainLog(
+                        dir,
+                        @intCast(snapshot_id),
+                        @intCast(snapshot_id),
+                        module_type,
+                        0,
+                    );
+                    try std.testing.expectEqual(cmd.CommandResultCode.success, result);
+                },
             }
         }
 
@@ -1595,8 +2789,9 @@ test "exchange orchestrator seeded journal replay perturbations are deterministi
             const tail_uid_b = uid_base + 2;
             const snapshot_id: u64 = 800 + @as(u64, @intCast(scenario.seed % 50));
 
-            var source = try ExchangeOrchestrator.initFromJavaConfig(
+            var source = try ExchangeOrchestrator.initFromJavaConfigWithPersistenceRoot(
                 alloc,
+                tmp.dir,
                 javaConfigForBackend(
                     scenario.backend,
                     config_mod.InitialStateConfig.cleanStart(exchange_id),
@@ -1609,7 +2804,7 @@ test "exchange orchestrator seeded journal replay perturbations are deterministi
             defer add_existing.deinit(alloc);
             try std.testing.expectEqual(cmd.CommandResultCode.success, add_existing.result_code);
 
-            try captureSnapshotToDefaultPath(&source, tmp.dir, snapshot_id, module_type);
+            try persistSnapshotToDefaultPath(&source, tmp.dir, snapshot_id, module_type);
 
             var add_tail_a = try source.addUser(.routed, tail_uid_a);
             defer add_tail_a.deinit(alloc);
@@ -1643,8 +2838,9 @@ test "exchange orchestrator seeded journal replay perturbations are deterministi
                 scenario.perturbation,
             );
 
-            var target = try ExchangeOrchestrator.initFromJavaConfig(
+            var target = try ExchangeOrchestrator.initFromJavaConfigWithPersistenceRoot(
                 alloc,
+                tmp.dir,
                 javaConfigForBackend(
                     scenario.backend,
                     config_mod.InitialStateConfig.lastKnownStateFromJournal(
@@ -1764,6 +2960,7 @@ test "exchange orchestrator long-horizon seeded restart simulation is determinis
         ) JavaConfig {
             return switch (backend) {
                 .single => .{
+                    .sharded_pipeline_mode = .immediate,
                     .init_state_cfg = init_state,
                     .serialization_cfg = config_mod.SerializationConfig.diskSnapshotOnly(),
                 },
@@ -1798,7 +2995,7 @@ test "exchange orchestrator long-horizon seeded restart simulation is determinis
             try io_context.appendAll(file, "seeded-malformed-main-log-entry\n");
         }
 
-        fn captureSnapshotToDefaultPath(
+        fn persistSnapshotToDefaultPath(
             source: *ExchangeOrchestrator,
             dir: std.Io.Dir,
             snapshot_id: u64,
@@ -1814,14 +3011,16 @@ test "exchange orchestrator long-horizon seeded restart simulation is determinis
                     symbols[0..],
                     8,
                 ),
-                .sharded => |*sharded| try sharded.captureSnapshotToDefaultPath(
-                    dir,
-                    snapshot_id,
-                    module_type,
-                    0,
-                    symbols[0..],
-                    8,
-                ),
+                .sharded => {
+                    const result = try source.persistStateWithDefaultMainLog(
+                        dir,
+                        @intCast(snapshot_id),
+                        @intCast(snapshot_id),
+                        module_type,
+                        0,
+                    );
+                    try std.testing.expectEqual(cmd.CommandResultCode.success, result);
+                },
             }
         }
 
@@ -1853,8 +3052,9 @@ test "exchange orchestrator long-horizon seeded restart simulation is determinis
                 else
                     config_mod.InitialStateConfig.fromSnapshotOnly(exchange_id, 1, 0);
 
-                var source = try ExchangeOrchestrator.initFromJavaConfig(
+                var source = try ExchangeOrchestrator.initFromJavaConfigWithPersistenceRoot(
                     alloc,
+                    tmp.dir,
                     javaConfigForBackend(scenario.backend, init_state),
                 );
                 defer source.deinit();
@@ -1886,7 +3086,7 @@ test "exchange orchestrator long-horizon seeded restart simulation is determinis
                 try std.testing.expectEqual(cmd.CommandResultCode.success, add.result_code);
 
                 latest_snapshot_id = 20_000 + @as(u64, @intCast(cycle));
-                try captureSnapshotToDefaultPath(
+                try persistSnapshotToDefaultPath(
                     &source,
                     tmp.dir,
                     latest_snapshot_id,
@@ -1898,8 +3098,9 @@ test "exchange orchestrator long-horizon seeded restart simulation is determinis
                     malformed_active = true;
                 }
 
-                var configured_probe = try ExchangeOrchestrator.initFromJavaConfig(
+                var configured_probe = try ExchangeOrchestrator.initFromJavaConfigWithPersistenceRoot(
                     alloc,
+                    tmp.dir,
                     javaConfigForBackend(
                         scenario.backend,
                         config_mod.InitialStateConfig.fromSnapshotOnly(
@@ -1936,8 +3137,9 @@ test "exchange orchestrator long-horizon seeded restart simulation is determinis
                 }
                 configured_probe_success_count += 1;
 
-                var discovered_probe = try ExchangeOrchestrator.initFromJavaConfig(
+                var discovered_probe = try ExchangeOrchestrator.initFromJavaConfigWithPersistenceRoot(
                     alloc,
+                    tmp.dir,
                     javaConfigForBackend(
                         scenario.backend,
                         config_mod.InitialStateConfig.fromSnapshotOnly(exchange_id, 1, 0),
@@ -1970,8 +3172,9 @@ test "exchange orchestrator long-horizon seeded restart simulation is determinis
                 }
                 discovered_probe_success_count += 1;
 
-                var strict_probe = try ExchangeOrchestrator.initFromJavaConfig(
+                var strict_probe = try ExchangeOrchestrator.initFromJavaConfigWithPersistenceRoot(
                     alloc,
+                    tmp.dir,
                     javaConfigForBackend(
                         scenario.backend,
                         config_mod.InitialStateConfig.fromSnapshotOnly(exchange_id, 1, 0),
@@ -2028,8 +3231,9 @@ test "exchange orchestrator long-horizon seeded restart simulation is determinis
                 }
             }
 
-            var final_target = try ExchangeOrchestrator.initFromJavaConfig(
+            var final_target = try ExchangeOrchestrator.initFromJavaConfigWithPersistenceRoot(
                 alloc,
+                tmp.dir,
                 javaConfigForBackend(
                     scenario.backend,
                     config_mod.InitialStateConfig.fromSnapshotOnly(exchange_id, 1, 0),
@@ -2182,6 +3386,7 @@ test "exchange orchestrator long-horizon seeded mixed sync-async submissions are
         ) JavaConfig {
             return switch (backend) {
                 .single => .{
+                    .sharded_pipeline_mode = .immediate,
                     .init_state_cfg = init_state,
                     .serialization_cfg = config_mod.SerializationConfig.diskSnapshotOnly(),
                 },

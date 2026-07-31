@@ -6,6 +6,7 @@ const JsonOutputPath = "src/zig/EXCHANGE_API_SURFACE_DIFF.json";
 const MarkdownOutputPath = "src/zig/EXCHANGE_API_SURFACE_DIFF.md";
 
 const SurfaceDiffError = error{
+    JavaOnlyMethods,
     MissingMethodName,
 };
 
@@ -82,6 +83,11 @@ pub fn main(init: std.process.Init) !void {
         java_only.items,
         zig_only.items,
     );
+    try requireNoJavaOnlyMethods(java_only.items);
+}
+
+fn requireNoJavaOnlyMethods(java_only: []const []const u8) SurfaceDiffError!void {
+    if (java_only.len != 0) return SurfaceDiffError.JavaOnlyMethods;
 }
 
 fn collectJavaPublicMethodNames(
@@ -266,4 +272,13 @@ test "extract method name from java signature line" {
         ).?,
     );
     try std.testing.expectEqual(@as(?[]const u8, null), extractMethodNameFromSignature("public static final int LONGS_PER_MESSAGE = 5;"));
+}
+
+test "surface diff fails when Java-only methods remain" {
+    const java_only = [_][]const u8{"missingFromZig"};
+    try std.testing.expectError(
+        SurfaceDiffError.JavaOnlyMethods,
+        requireNoJavaOnlyMethods(&java_only),
+    );
+    try requireNoJavaOnlyMethods(&.{});
 }

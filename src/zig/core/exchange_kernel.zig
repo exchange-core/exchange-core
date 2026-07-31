@@ -8,11 +8,33 @@ const risk = @import("risk.zig");
 const user = @import("user_profile.zig");
 const binary_frames = @import("binary_frames.zig");
 const binary_payload = @import("binary_payload.zig");
+const custom_report_pipeline = @import("custom_report_pipeline.zig");
+const java_binary_wire = @import("java_binary_wire.zig");
+const java_report_producer = @import("java_report_producer.zig");
+const java_report_wire = @import("java_report_wire.zig");
+const int_map_order = @import("eclipse_int_map_order.zig");
+const publication = @import("publication_sequence.zig");
+const report_query_envelope = @import("report_query_envelope.zig");
+const report_registry = @import("report_registry.zig");
 
 pub const OrderBookKind = enum {
     naive,
     direct,
 };
+
+pub const JavaIdentityHashContext = java_report_producer.JavaIdentityHashContext;
+pub const JavaReportResponse = java_report_producer.JavaReportResponse;
+pub const JavaStateHashReport = java_report_producer.JavaStateHashReport;
+pub const JavaSingleUserReport = java_report_wire.SingleUserReport;
+pub const JavaTotalCurrencyBalanceReport = java_report_wire.TotalCurrencyBalanceReport;
+
+const reserved_report_codes = [_]i32{
+    @intFromEnum(binary_payload.ReportQueryTypeCode.state_hash),
+    @intFromEnum(binary_payload.ReportQueryTypeCode.single_user),
+    @intFromEnum(binary_payload.ReportQueryTypeCode.total_currency_balance),
+};
+
+const empty_custom_report_registry = report_registry.Registry.fromSpecs(.{});
 
 const Book = union(enum) {
     naive: naive.NaiveOrderBook,
@@ -29,7 +51,7 @@ const Book = union(enum) {
         self: *Book,
         command: *cmd.OrderCommand,
         event_chain: ?*events.EventChain,
-    ) std.mem.Allocator.Error!cmd.CommandResultCode {
+    ) naive.ProcessError!cmd.CommandResultCode {
         return switch (self.*) {
             .naive => |*book| try book.processCommandWithEvents(command, event_chain),
             .direct => |*book| try book.processCommandWithEvents(command, event_chain),
@@ -103,13 +125,25 @@ const Book = union(enum) {
             .direct => |*book| try book.stateHash(),
         };
     }
+
+    fn symbolSpecification(self: *const Book) common.CoreSymbolSpecification {
+        return switch (self.*) {
+            .naive => |book| book.symbol_spec,
+            .direct => |book| book.symbol_spec,
+        };
+    }
 };
 
 pub const CommandResponse = struct {
     sequence: u64 = 0,
+    /// Completed command image observed at the publication boundary. This is
+    /// a value copy, so callbacks can inspect the original request metadata
+    /// together with its final result without borrowing the caller's command.
+    command: cmd.OrderCommand,
     result_code: cmd.CommandResultCode,
     l2_snapshot: ?naive.L2MarketData = null,
     report_response: ?ReportResponse = null,
+    java_report_response: ?JavaReportResponse = null,
     matcher_events_head: ?*events.MatcherTradeEvent = null,
 
     pub fn deinit(self: *CommandResponse, allocator: std.mem.Allocator) void {
@@ -121,8 +155,17 @@ pub const CommandResponse = struct {
             report.deinit(allocator);
             self.report_response = null;
         }
+        if (self.java_report_response) |*report| {
+            report.deinit(allocator);
+            self.java_report_response = null;
+        }
         events.deinitMatcherEventChain(allocator, self.matcher_events_head);
         self.matcher_events_head = null;
+    }
+
+    fn completeFromCommand(self: *CommandResponse, command: *const cmd.OrderCommand) void {
+        self.command = command.*;
+        self.result_code = command.result_code;
     }
 };
 
@@ -253,6 +296,15 @@ pub const ReportQuery = union(enum) {
     },
 };
 
+fn nativeQueryForJava(query: binary_payload.DecodedReportQuery) ?ReportQuery {
+    return switch (query) {
+        .state_hash => .state_hash_detailed,
+        .single_user => |uid| .{ .single_user = uid },
+        .total_currency_balance => .total_currency_balance,
+        .unknown => null,
+    };
+}
+
 pub const ReportResponse = union(enum) {
     risk_state_hash: u64,
     state_hash_detailed: DetailedStateHashReport,
@@ -281,6 +333,8 @@ pub const Config = struct {
     l2_refresh_depth: usize = 8,
     risk: risk.Config = .{},
     report_queries: ReportQueriesConfig = .{},
+    java_identity_hash_context: ?JavaIdentityHashContext = null,
+    java_report_wire: java_report_wire.Config = .{},
 };
 
 pub const ReportQueriesConfig = struct {
@@ -289,21 +343,40 @@ pub const ReportQueriesConfig = struct {
     total_currency_balance: bool = true,
     add_accounts_binary: bool = true,
     add_symbols_binary: bool = true,
+    custom_registry: *const report_registry.Registry = empty_custom_report_registry,
 };
 
-pub const InitError = risk.InitError || error{
-    InvalidL2RefreshDepth,
-};
-pub const ExecuteError = risk.ReleaseError || error{
+pub const InitError = risk.InitError ||
+    report_registry.RegistryInitError ||
+    report_registry.ReservedCodeValidationError ||
+    report_registry.RegistryContextValidationError ||
+    error{
+        InvalidCustomReportShardId,
+        InvalidL2RefreshDepth,
+    };
+pub const ExecuteError = risk.ReleaseError || naive.ProcessError || error{
     SequenceOverflow,
+    NonMonotonicPublicationSequence,
 };
-const BinaryPayloadExecutionError = binary_payload.DecodeError ||
+const BinaryCommandWireDecodeError = binary_payload.DecodeError ||
+    java_binary_wire.RequestDecodeError ||
+    error{
+        NonCanonicalJavaBinaryPayload,
+        NonCanonicalLegacyBinaryPayload,
+    };
+const BinaryQueryWireDecodeError = binary_payload.DecodeQueryError ||
+    java_binary_wire.RequestDecodeError ||
+    error{
+        NonCanonicalJavaBinaryPayload,
+        NonCanonicalLegacyBinaryPayload,
+    };
+const BinaryPayloadExecutionError = BinaryCommandWireDecodeError ||
     risk.SymbolSpecificationProvider.AddSymbolError ||
-    ExecuteError ||
+    int_map_order.LayoutError ||
+    risk.ReleaseError ||
     error{
         BinaryCommandRejected,
     };
-const BinaryQueryExecutionError = binary_payload.DecodeQueryError || ReportError;
 pub const ReportError = std.mem.Allocator.Error || error{
     UnknownSymbol,
     ArithmeticOverflow,
@@ -312,6 +385,171 @@ pub const ReportError = std.mem.Allocator.Error || error{
     StateHashCorrupted,
 };
 pub const RestingOrder = naive.UserOrderView;
+pub const MatchingBooksHistory = int_map_order.History;
+pub const MatchingBooksHistoryValidationError = int_map_order.HistoryError || error{
+    HistorySemanticKeySetMismatch,
+};
+const JavaReportBuildError = java_report_producer.ProducerError ||
+    MatchingBooksHistoryValidationError;
+
+const OwnedJavaMatchingSection = struct {
+    allocator: std.mem.Allocator,
+    books: []java_report_producer.MatchingBookView,
+    view: java_report_producer.MatchingSectionView,
+
+    fn deinit(self: *OwnedJavaMatchingSection) void {
+        for (self.books) |book| self.allocator.free(book.orders);
+        self.allocator.free(self.books);
+        self.* = undefined;
+    }
+};
+
+/// Stable, read-only callback surface for custom matching-engine reports.
+///
+/// The kernel pointer is borrowed only for the duration of one report
+/// callback. The explicit binary processor mirrors Java's matching-engine
+/// report context without making report implementations reach through kernel
+/// storage for it.
+pub const MatchingReportView = struct {
+    kernel: *const ExchangeKernel,
+    binary_processor: *const binary_frames.BinaryFrameAssembler,
+};
+
+/// Stable, read-only callback surface for custom risk-engine reports.
+///
+/// Both pointers are borrowed only for the duration of one report callback.
+pub const RiskReportView = struct {
+    engine: *const risk.RiskEngine,
+    binary_processor: *const binary_frames.BinaryFrameAssembler,
+};
+
+fn buildJavaMatchingSection(
+    allocator: std.mem.Allocator,
+    kernel: *const ExchangeKernel,
+    shard_id: i32,
+    shard_mask: u64,
+    require_history: bool,
+) MatchingBooksHistoryValidationError!OwnedJavaMatchingSection {
+    const symbol_ids = if (require_history)
+        try kernel.matchingBookKeysInHistoryOrder(allocator)
+    else blk: {
+        const keys = try allocator.alloc(i32, kernel.books.count());
+        var index: usize = 0;
+        var iterator = kernel.books.keyIterator();
+        while (iterator.next()) |key| : (index += 1) keys[index] = key.*;
+        std.debug.assert(index == keys.len);
+        break :blk keys;
+    };
+    defer allocator.free(symbol_ids);
+
+    const books = try allocator.alloc(java_report_producer.MatchingBookView, symbol_ids.len);
+    var initialized: usize = 0;
+    errdefer {
+        for (books[0..initialized]) |book| allocator.free(book.orders);
+        allocator.free(books);
+    }
+
+    for (symbol_ids) |symbol_id| {
+        const book_ptr = kernel.books.get(symbol_id) orelse
+            return error.HistorySemanticKeySetMismatch;
+        var orders: std.ArrayListUnmanaged(naive.UserOrderView) = .empty;
+        errdefer orders.deinit(allocator);
+        try book_ptr.appendAllOrders(allocator, &orders);
+        const owned_orders = try orders.toOwnedSlice(allocator);
+        books[initialized] = .{
+            .traversal = switch (book_ptr.*) {
+                .naive => .naive,
+                .direct => .direct,
+            },
+            .symbol_specification = book_ptr.symbolSpecification(),
+            .orders = owned_orders,
+        };
+        initialized += 1;
+    }
+
+    return .{
+        .allocator = allocator,
+        .books = books,
+        .view = .{
+            .shard_id = shard_id,
+            .shard_mask = shard_mask,
+            .binary_processor = &kernel.binary_frame_assembler,
+            .books = books,
+        },
+    };
+}
+
+const CustomReportDispatchError = report_registry.ProcessDispatchError ||
+    java_report_wire.WireError;
+
+fn appendCustomRiskSection(
+    allocator: std.mem.Allocator,
+    chain: *events.EventChain,
+    descriptor: *const report_registry.Descriptor,
+    body: []const u8,
+    view: *const RiskReportView,
+    shard_id: i32,
+    shard_mask: u64,
+    wire_config: java_report_wire.Config,
+) CustomReportDispatchError!void {
+    var outcome = try descriptor.processRiskBody(
+        RiskReportView,
+        allocator,
+        body,
+        .{
+            .view = view,
+            .shard_id = shard_id,
+            .shard_mask = shard_mask,
+        },
+    );
+    defer outcome.deinit();
+
+    switch (outcome) {
+        .section => |section| try custom_report_pipeline.appendSection(
+            allocator,
+            chain,
+            try java_report_wire.SectionLabel.risk(shard_id),
+            section,
+            wire_config,
+        ),
+        .constructor_rejected, .no_section => {},
+    }
+}
+
+fn appendCustomMatchingSection(
+    allocator: std.mem.Allocator,
+    chain: *events.EventChain,
+    descriptor: *const report_registry.Descriptor,
+    body: []const u8,
+    view: *const MatchingReportView,
+    shard_id: i32,
+    shard_mask: u64,
+    wire_config: java_report_wire.Config,
+) CustomReportDispatchError!void {
+    var outcome = try descriptor.processMatchingBody(
+        MatchingReportView,
+        allocator,
+        body,
+        .{
+            .view = view,
+            .shard_id = shard_id,
+            .shard_mask = shard_mask,
+        },
+    );
+    defer outcome.deinit();
+
+    switch (outcome) {
+        .section => |section| try custom_report_pipeline.appendSection(
+            allocator,
+            chain,
+            try java_report_wire.SectionLabel.matching(shard_id),
+            section,
+            wire_config,
+        ),
+        .constructor_rejected, .no_section => {},
+    }
+}
+
 pub const OrderSnapshotReadError = std.mem.Allocator.Error || error{
     UnknownSymbol,
     OrderBookMapCorrupted,
@@ -324,14 +562,207 @@ pub const OrderSnapshotRestoreError = std.mem.Allocator.Error || error{
     DuplicateOrderId,
 };
 
+/// Decodes Java's size-prefixed raw-LZ4 request format first. A canonical raw
+/// big-endian Zig body remains as a compatibility fallback while callers
+/// migrate. Because the legacy format has no discriminator, fallback is only
+/// accepted when re-encoding produces the exact same minimally padded words.
+fn decodeBinaryCommandWordsJavaFirst(
+    allocator: std.mem.Allocator,
+    words: []const i64,
+) BinaryCommandWireDecodeError!binary_payload.DecodedBinaryCommand {
+    var java_request = java_binary_wire.decodeRequestWords(allocator, words, .{}) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return decodeCanonicalLegacyBinaryCommand(allocator, words),
+    };
+    defer java_request.deinit(allocator);
+
+    return decodeCanonicalJavaBinaryCommand(allocator, java_request.body) catch |java_err| switch (java_err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => decodeCanonicalLegacyBinaryCommand(allocator, words) catch |legacy_err| switch (legacy_err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            // A valid Java envelope is the stronger format signal. If the
+            // complete carrier is not also an exact canonical legacy request,
+            // retain the Java body/schema failure rather than changing its
+            // public failure classification based on fallback internals.
+            else => return java_err,
+        },
+    };
+}
+
+fn decodeCanonicalJavaBinaryCommand(
+    allocator: std.mem.Allocator,
+    body: []const u8,
+) BinaryCommandWireDecodeError!binary_payload.DecodedBinaryCommand {
+    var decoded = try binary_payload.decodeJavaFromBytes(allocator, body);
+    errdefer decoded.deinit();
+    const canonical = encodeDecodedBinaryCommand(allocator, &decoded, .java_little) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.NonCanonicalLegacyBinaryPayload => return error.NonCanonicalJavaBinaryPayload,
+    };
+    defer allocator.free(canonical);
+    if (!std.mem.eql(u8, body, canonical)) {
+        return error.NonCanonicalJavaBinaryPayload;
+    }
+    return decoded;
+}
+
+fn decodeBinaryQueryWordsJavaFirst(
+    allocator: std.mem.Allocator,
+    words: []const i64,
+) BinaryQueryWireDecodeError!binary_payload.DecodedReportQuery {
+    var java_request = java_binary_wire.decodeRequestWords(allocator, words, .{}) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return decodeCanonicalLegacyBinaryQuery(allocator, words),
+    };
+    defer java_request.deinit(allocator);
+
+    return decodeJavaBinaryQuery(allocator, java_request.body) catch |java_err| switch (java_err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => decodeCanonicalLegacyBinaryQuery(allocator, words) catch |legacy_err| switch (legacy_err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return java_err,
+        },
+    };
+}
+
+fn decodeJavaBinaryQuery(
+    _: std.mem.Allocator,
+    body: []const u8,
+) BinaryQueryWireDecodeError!binary_payload.DecodedReportQuery {
+    return binary_payload.decodeJavaQueryOrIgnoredFromBytes(body);
+}
+
+const BinaryBodyFormat = enum {
+    java_little,
+    legacy_big,
+};
+
+fn decodeCanonicalLegacyBinaryCommand(
+    allocator: std.mem.Allocator,
+    words: []const i64,
+) BinaryCommandWireDecodeError!binary_payload.DecodedBinaryCommand {
+    var decoded = try binary_payload.decodeFromWordsBigEndian(allocator, words);
+    errdefer decoded.deinit();
+    const canonical_body = try encodeDecodedBinaryCommand(allocator, &decoded, .legacy_big);
+    defer allocator.free(canonical_body);
+    if (!try canonicalBodyMatchesWords(allocator, canonical_body, words)) {
+        return error.NonCanonicalLegacyBinaryPayload;
+    }
+    return decoded;
+}
+
+fn decodeCanonicalLegacyBinaryQuery(
+    allocator: std.mem.Allocator,
+    words: []const i64,
+) BinaryQueryWireDecodeError!binary_payload.DecodedReportQuery {
+    const decoded = try binary_payload.decodeQueryFromWordsBigEndian(allocator, words);
+    const canonical_body = try encodeDecodedBinaryQuery(allocator, decoded, .legacy_big);
+    defer allocator.free(canonical_body);
+    if (!try canonicalBodyMatchesWords(allocator, canonical_body, words)) {
+        return error.NonCanonicalLegacyBinaryPayload;
+    }
+    return decoded;
+}
+
+fn encodeDecodedBinaryCommand(
+    allocator: std.mem.Allocator,
+    decoded: *const binary_payload.DecodedBinaryCommand,
+    format: BinaryBodyFormat,
+) (std.mem.Allocator.Error || error{NonCanonicalLegacyBinaryPayload})![]u8 {
+    return switch (decoded.payload) {
+        .add_symbols => |symbols| switch (format) {
+            .java_little => binary_payload.encodeJavaAddSymbolsToBytes(allocator, symbols),
+            .legacy_big => binary_payload.encodeAddSymbolsToBytes(allocator, symbols),
+        },
+        .add_accounts => |users| switch (format) {
+            .java_little => binary_payload.encodeJavaAddAccountsToBytes(allocator, users),
+            .legacy_big => binary_payload.encodeAddAccountsToBytes(allocator, users),
+        },
+    } catch |err| switch (err) {
+        error.OutOfMemory => error.OutOfMemory,
+        error.CollectionTooLarge => error.NonCanonicalLegacyBinaryPayload,
+    };
+}
+
+fn encodeDecodedBinaryQuery(
+    allocator: std.mem.Allocator,
+    decoded: binary_payload.DecodedReportQuery,
+    format: BinaryBodyFormat,
+) std.mem.Allocator.Error![]u8 {
+    return switch (format) {
+        .java_little => binary_payload.encodeJavaReportQueryToBytes(allocator, decoded),
+        .legacy_big => binary_payload.encodeReportQueryToBytes(allocator, decoded),
+    };
+}
+
+fn canonicalBodyMatchesWords(
+    allocator: std.mem.Allocator,
+    body: []const u8,
+    words: []const i64,
+) (std.mem.Allocator.Error || error{NonCanonicalLegacyBinaryPayload})!bool {
+    const canonical_words = java_binary_wire.packSignedWordsBigEndian(allocator, body) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.CarrierTooLarge => return error.NonCanonicalLegacyBinaryPayload,
+    };
+    defer allocator.free(canonical_words);
+    return std.mem.eql(i64, canonical_words, words);
+}
+
+/// Java decodes `BatchAddSymbolsCommand` into `new IntObjectHashMap(count)`
+/// before MatchingEngineRouter visits it. Replaying the raw wire slice directly
+/// is observably wrong for colliding keys because sized-map reinsertion can
+/// change the encounter order. Duplicate keys retain the final decoded value.
+fn javaSymbolHandlerOrder(
+    allocator: std.mem.Allocator,
+    wire_symbols: []const common.CoreSymbolSpecification,
+) int_map_order.LayoutError![]common.CoreSymbolSpecification {
+    var temporary_history = try int_map_order.History.initWithExpectedSize(wire_symbols.len);
+    defer temporary_history.deinit(allocator);
+
+    var symbols_by_id: std.AutoHashMapUnmanaged(i32, common.CoreSymbolSpecification) = .empty;
+    defer symbols_by_id.deinit(allocator);
+    const semantic_capacity = std.math.cast(u32, wire_symbols.len) orelse
+        return error.CapacityOverflow;
+    try symbols_by_id.ensureTotalCapacity(allocator, semantic_capacity);
+
+    for (wire_symbols) |spec| {
+        try temporary_history.recordPut(allocator, spec.symbol_id);
+        symbols_by_id.putAssumeCapacity(spec.symbol_id, spec);
+    }
+
+    const ordered_keys = temporary_history.orderedKeys(allocator) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        // This history originates locally from a validated sized constructor
+        // and is never marked unavailable or imported from raw state.
+        else => unreachable,
+    };
+    defer allocator.free(ordered_keys);
+    std.debug.assert(ordered_keys.len == symbols_by_id.count());
+
+    const ordered_symbols = try allocator.alloc(
+        common.CoreSymbolSpecification,
+        ordered_keys.len,
+    );
+    errdefer allocator.free(ordered_symbols);
+    for (ordered_keys, 0..) |symbol_id, index| {
+        ordered_symbols[index] = symbols_by_id.get(symbol_id) orelse
+            unreachable;
+    }
+    return ordered_symbols;
+}
+
 pub const ExchangeKernel = struct {
     allocator: std.mem.Allocator,
     orderbook_kind: OrderBookKind,
     report_queries_cfg: ReportQueriesConfig,
     send_l2_for_every_cmd: bool,
     l2_refresh_depth: usize,
+    java_identity_hash_context: ?JavaIdentityHashContext,
+    java_report_wire: java_report_wire.Config,
+    custom_report_registry: *report_registry.Registry,
     next_seq: u64 = 0,
     books: std.AutoHashMapUnmanaged(i32, *Book) = .empty,
+    books_history: MatchingBooksHistory = MatchingBooksHistory.init(),
     risk_engine: risk.RiskEngine,
     binary_frame_assembler: binary_frames.BinaryFrameAssembler,
 
@@ -339,18 +770,37 @@ pub const ExchangeKernel = struct {
         if (config.l2_refresh_depth == 0) {
             return error.InvalidL2RefreshDepth;
         }
+
+        const custom_report_registry = try config.report_queries.custom_registry.cloneOwned(allocator);
+        errdefer custom_report_registry.deinit();
+        try custom_report_registry.validateNoReservedCodes(&reserved_report_codes);
+        try custom_report_registry.validateContextTypes(MatchingReportView, RiskReportView);
+        if (custom_report_registry.len() != 0 and
+            config.shard_id > @as(u64, @intCast(java_report_wire.max_unambiguous_shard_id)))
+        {
+            return error.InvalidCustomReportShardId;
+        }
+
+        var report_queries_cfg = config.report_queries;
+        report_queries_cfg.custom_registry = custom_report_registry;
+        var risk_engine = try risk.RiskEngine.init(
+            allocator,
+            config.shard_id,
+            config.num_shards,
+            config.risk,
+        );
+        errdefer risk_engine.deinit();
+
         return .{
             .allocator = allocator,
             .orderbook_kind = config.orderbook_kind,
-            .report_queries_cfg = config.report_queries,
+            .report_queries_cfg = report_queries_cfg,
             .send_l2_for_every_cmd = config.send_l2_for_every_cmd,
             .l2_refresh_depth = config.l2_refresh_depth,
-            .risk_engine = try risk.RiskEngine.init(
-                allocator,
-                config.shard_id,
-                config.num_shards,
-                config.risk,
-            ),
+            .java_identity_hash_context = config.java_identity_hash_context,
+            .java_report_wire = config.java_report_wire,
+            .custom_report_registry = custom_report_registry,
+            .risk_engine = risk_engine,
             .binary_frame_assembler = binary_frames.BinaryFrameAssembler.init(allocator),
         };
     }
@@ -362,21 +812,112 @@ pub const ExchangeKernel = struct {
             self.allocator.destroy(book_ptr.*);
         }
         self.books.deinit(self.allocator);
+        self.books_history.deinit(self.allocator);
         self.binary_frame_assembler.deinit();
         self.risk_engine.deinit();
+        self.custom_report_registry.deinit();
         self.* = undefined;
     }
 
-    pub fn resetForSnapshotLoad(self: *ExchangeKernel) void {
+    /// Returns the immutable registry clone owned by this kernel. The borrow is
+    /// valid until `deinit` and is the authority API request tokens must bind
+    /// against before publication.
+    pub fn customReportRegistry(self: *const ExchangeKernel) *const report_registry.Registry {
+        return self.custom_report_registry;
+    }
+
+    fn resetMatchingState(self: *ExchangeKernel) void {
         var it = self.books.valueIterator();
         while (it.next()) |book_ptr| {
             book_ptr.*.deinit();
             self.allocator.destroy(book_ptr.*);
         }
         self.books.clearRetainingCapacity();
-        self.risk_engine.reset();
+        self.books_history.clear();
         self.binary_frame_assembler.reset();
+    }
+
+    pub fn resetForSnapshotLoad(self: *ExchangeKernel) void {
+        self.resetMatchingState();
+        // Native snapshots currently retain only sorted semantic books, not
+        // Java's sized-constructor capacity or backing-slot encounter history.
+        // Keep exact-report/persistence consumers fail-closed after restore.
+        self.markMatchingBooksHistoryUnavailable();
+        self.risk_engine.reset();
         self.next_seq = 0;
+    }
+
+    /// Permanently discards exact Java backing-layout knowledge for the
+    /// current matching state. Subsequent mutations deliberately remain
+    /// unavailable instead of synthesizing a plausible order.
+    pub fn markMatchingBooksHistoryUnavailable(self: *ExchangeKernel) void {
+        if (!self.books_history.isKnown()) return;
+        self.books_history.deinit(self.allocator);
+        self.books_history = MatchingBooksHistory.initUnavailable();
+    }
+
+    /// Returns an owned Java/Eclipse iteration-order key slice after proving it
+    /// is the exact key set of the semantic books map. The caller must free the
+    /// slice with `allocator`.
+    pub fn matchingBookKeysInHistoryOrder(
+        self: *const ExchangeKernel,
+        allocator: std.mem.Allocator,
+    ) MatchingBooksHistoryValidationError![]i32 {
+        const keys = try self.books_history.orderedKeys(allocator);
+        errdefer allocator.free(keys);
+        if (keys.len != self.books.count()) {
+            return error.HistorySemanticKeySetMismatch;
+        }
+        for (keys) |key| {
+            if (!self.books.contains(key)) {
+                return error.HistorySemanticKeySetMismatch;
+            }
+        }
+        return keys;
+    }
+
+    /// Validates the semantic/history key-set invariant and exposes only a
+    /// read-only history pointer for later raw-layout persistence consumers.
+    /// The pointer remains valid until the kernel's next mutation.
+    pub fn validatedMatchingBooksHistory(
+        self: *const ExchangeKernel,
+        allocator: std.mem.Allocator,
+    ) MatchingBooksHistoryValidationError!*const MatchingBooksHistory {
+        const keys = try self.matchingBookKeysInHistoryOrder(allocator);
+        allocator.free(keys);
+        return &self.books_history;
+    }
+
+    pub fn cloneMatchingBooksHistory(
+        self: *const ExchangeKernel,
+        allocator: std.mem.Allocator,
+    ) MatchingBooksHistoryValidationError!MatchingBooksHistory {
+        if (self.books_history.isKnown()) {
+            _ = try self.validatedMatchingBooksHistory(allocator);
+        }
+        return self.books_history.clone(allocator);
+    }
+
+    /// Ownership of `next` moves on success. On error the kernel and `next`
+    /// remain unchanged.
+    pub fn replaceMatchingBooksHistory(
+        self: *ExchangeKernel,
+        next: *MatchingBooksHistory,
+    ) MatchingBooksHistoryValidationError!void {
+        const keys = try next.orderedKeys(self.allocator);
+        defer self.allocator.free(keys);
+        if (keys.len != self.books.count()) {
+            return error.HistorySemanticKeySetMismatch;
+        }
+        for (keys) |key| {
+            if (!self.books.contains(key)) {
+                return error.HistorySemanticKeySetMismatch;
+            }
+        }
+        var old = self.books_history;
+        self.books_history = next.*;
+        next.* = MatchingBooksHistory.initUnavailable();
+        old.deinit(self.allocator);
     }
 
     pub fn appendOrdersForSymbol(
@@ -417,16 +958,34 @@ pub const ExchangeKernel = struct {
     ) OrderSnapshotRestoreError!void {
         const book = self.books.get(symbol) orelse return error.UnknownSymbol;
         try book.restoreOrders(symbol, orders);
+        // All current native restore formats canonicalize book IDs and omit
+        // the original EC backing table. Do not invent layout history.
+        self.markMatchingBooksHistoryUnavailable();
     }
 
     pub fn addSymbol(
         self: *ExchangeKernel,
         spec: common.CoreSymbolSpecification,
-    ) (risk.SymbolSpecificationProvider.AddSymbolError || std.mem.Allocator.Error)!bool {
+    ) (risk.SymbolSpecificationProvider.AddSymbolError || int_map_order.LayoutError)!bool {
         if (self.books.contains(spec.symbol_id)) {
             return false;
         }
-        try self.risk_engine.addSymbol(spec);
+        try self.risk_engine.addSymbolForLiveAdmission(spec);
+
+        return self.addMatchingSymbol(spec);
+    }
+
+    /// Registers only matching-engine state. Multi-shard topology keeps the
+    /// active risk family separate and must not populate dormant carrier risk
+    /// engines merely to construct replicated order books.
+    fn addMatchingSymbol(
+        self: *ExchangeKernel,
+        spec: common.CoreSymbolSpecification,
+    ) (common.CoreSymbolSpecification.ValidationError || int_map_order.LayoutError)!bool {
+        if (self.books.contains(spec.symbol_id)) {
+            return false;
+        }
+        try spec.validate();
 
         const book_ptr = try self.allocator.create(Book);
         errdefer self.allocator.destroy(book_ptr);
@@ -441,23 +1000,43 @@ pub const ExchangeKernel = struct {
         }
         errdefer book_ptr.deinit();
 
-        try self.books.put(self.allocator, spec.symbol_id, book_ptr);
+        try self.insertMatchingBook(spec.symbol_id, book_ptr);
         return true;
     }
 
-    fn nextSequence(self: *ExchangeKernel) error{SequenceOverflow}!u64 {
+    fn insertMatchingBook(
+        self: *ExchangeKernel,
+        symbol_id: i32,
+        book_ptr: *Book,
+    ) int_map_order.LayoutError!void {
+        std.debug.assert(!self.books.contains(symbol_id));
+
+        var next_history = try self.books_history.clone(self.allocator);
+        errdefer next_history.deinit(self.allocator);
+        try next_history.recordPut(self.allocator, symbol_id);
+        try self.books.ensureUnusedCapacity(self.allocator, 1);
+
+        // Both ownership structures are fully prepared, so no failure edge can
+        // leave the semantic map and Java layout history out of sync.
+        self.books.putAssumeCapacityNoClobber(symbol_id, book_ptr);
+        var old_history = self.books_history;
+        self.books_history = next_history;
+        old_history.deinit(self.allocator);
+    }
+
+    fn nextSequence(self: *const ExchangeKernel) error{SequenceOverflow}!u64 {
         if (self.next_seq == std.math.maxInt(u64)) {
             return error.SequenceOverflow;
         }
-        self.next_seq += 1;
-        return self.next_seq;
+        return self.next_seq + 1;
     }
 
     fn executeBinaryPayloadWords(
         self: *ExchangeKernel,
+        seq: u64,
         words: []const i64,
     ) BinaryPayloadExecutionError!void {
-        var decoded = try binary_payload.decodeFromWordsBigEndian(self.allocator, words);
+        var decoded = try decodeBinaryCommandWordsJavaFirst(self.allocator, words);
         defer decoded.deinit();
 
         switch (decoded.payload) {
@@ -465,7 +1044,9 @@ pub const ExchangeKernel = struct {
                 if (!self.report_queries_cfg.add_symbols_binary) {
                     return error.UnsupportedBinaryCommandType;
                 }
-                for (symbols) |symbol| {
+                const handler_order = try javaSymbolHandlerOrder(self.allocator, symbols);
+                defer self.allocator.free(handler_order);
+                for (handler_order) |symbol| {
                     _ = try self.addSymbol(symbol);
                 }
             },
@@ -475,17 +1056,16 @@ pub const ExchangeKernel = struct {
                 }
                 for (users) |user_batch| {
                     var add_user = makeAddUserCommand(user_batch.uid);
-                    var add_user_response = try self.execute(&add_user);
-                    defer add_user_response.deinit(self.allocator);
+                    _ = try self.risk_engine.preProcessCommand(seq, &add_user);
 
-                    switch (add_user_response.result_code) {
+                    switch (add_user.result_code) {
                         .success => {},
                         .user_mgmt_user_already_exists => continue,
                         else => return error.BinaryCommandRejected,
                     }
 
-                    for (user_batch.accounts, 0..) |account, account_idx| {
-                        const tx_id = 1_000_000_000 + @as(i64, @intCast(account_idx + 1));
+                    for (user_batch.accounts) |account| {
+                        const tx_id = 1_000_000_000 + @as(i64, account.currency);
                         var adjustment = makeBalanceAdjustmentCommand(
                             user_batch.uid,
                             account.currency,
@@ -493,9 +1073,8 @@ pub const ExchangeKernel = struct {
                             tx_id,
                             .adjustment,
                         );
-                        var adjustment_response = try self.execute(&adjustment);
-                        defer adjustment_response.deinit(self.allocator);
-                        if (adjustment_response.result_code != .success) {
+                        _ = try self.risk_engine.preProcessCommand(seq, &adjustment);
+                        if (adjustment.result_code != .success) {
                             return error.BinaryCommandRejected;
                         }
                     }
@@ -504,23 +1083,101 @@ pub const ExchangeKernel = struct {
         }
     }
 
-    fn executeBinaryQueryWords(
+    fn produceJavaReport(
         self: *ExchangeKernel,
-        words: []const i64,
-    ) BinaryQueryExecutionError!ReportResponse {
-        const decoded = try binary_payload.decodeQueryFromWordsBigEndian(self.allocator, words);
-        return switch (decoded) {
-            .state_hash => try self.queryReport(.state_hash_detailed),
-            .single_user => |uid| try self.queryReport(.{ .single_user = uid }),
-            .total_currency_balance => try self.queryReport(.total_currency_balance),
+        query: binary_payload.DecodedReportQuery,
+    ) JavaReportBuildError!java_report_producer.ProducedReport {
+        var matching = try buildJavaMatchingSection(
+            self.allocator,
+            self,
+            @intCast(self.risk_engine.shard_id),
+            self.risk_engine.shard_mask,
+            switch (query) {
+                .state_hash => false,
+                .single_user, .total_currency_balance, .unknown => true,
+            },
+        );
+        defer matching.deinit();
+        const matching_sections = [_]java_report_producer.MatchingSectionView{matching.view};
+        const risk_sections = [_]java_report_producer.RiskSectionView{.{
+            .shard_id = @intCast(self.risk_engine.shard_id),
+            .shard_mask = self.risk_engine.shard_mask,
+            .binary_processor = &self.binary_frame_assembler,
+            .engine = &self.risk_engine,
+        }};
+        return java_report_producer.produce(
+            self.allocator,
+            query,
+            &matching_sections,
+            &risk_sections,
+            self.java_identity_hash_context,
+            self.java_report_wire,
+        );
+    }
+
+    fn produceCustomReportEvents(
+        self: *ExchangeKernel,
+        descriptor: *const report_registry.Descriptor,
+        body: []const u8,
+    ) CustomReportDispatchError!?*events.MatcherTradeEvent {
+        var chain = events.EventChain.init(self.allocator);
+        defer chain.deinit();
+
+        const shard_id = std.math.cast(i32, self.risk_engine.shard_id) orelse
+            return error.InvalidShardId;
+        const risk_view: RiskReportView = .{
+            .engine = &self.risk_engine,
+            .binary_processor = &self.binary_frame_assembler,
         };
+        try appendCustomRiskSection(
+            self.allocator,
+            &chain,
+            descriptor,
+            body,
+            &risk_view,
+            shard_id,
+            self.risk_engine.shard_mask,
+            self.java_report_wire,
+        );
+
+        const matching_view: MatchingReportView = .{
+            .kernel = self,
+            .binary_processor = &self.binary_frame_assembler,
+        };
+        try appendCustomMatchingSection(
+            self.allocator,
+            &chain,
+            descriptor,
+            body,
+            &matching_view,
+            shard_id,
+            self.risk_engine.shard_mask,
+            self.java_report_wire,
+        );
+        return chain.takeOwnedHead();
     }
 
     pub fn execute(
         self: *ExchangeKernel,
         command: *cmd.OrderCommand,
     ) ExecuteError!CommandResponse {
-        const seq = try self.nextSequence();
+        return self.executeAtSequence(
+            .fromInt(try self.nextSequence()),
+            command,
+        );
+    }
+
+    /// Executes a command at its already-published global identity. Replay may
+    /// leave gaps, but duplicate or regressing identities are rejected before
+    /// any engine state is mutated.
+    pub fn executeAtSequence(
+        self: *ExchangeKernel,
+        assigned_sequence: publication.PublicationSequence,
+        command: *cmd.OrderCommand,
+    ) ExecuteError!CommandResponse {
+        const seq = assigned_sequence.toInt();
+        if (seq <= self.next_seq) return error.NonMonotonicPublicationSequence;
+        self.next_seq = seq;
         var event_chain = events.EventChain.init(self.allocator);
         defer event_chain.deinit();
 
@@ -528,9 +1185,23 @@ pub const ExchangeKernel = struct {
 
         var response: CommandResponse = .{
             .sequence = seq,
+            .command = command.*,
             .result_code = command.result_code,
         };
         errdefer response.deinit(self.allocator);
+
+        // Java processes RESET in both R1 and matching stages. The risk pre-stage
+        // above has already cleared users, symbol specifications, prices, and
+        // accounting; complete the same command boundary by clearing all books
+        // and partially assembled binary transfers before publishing success.
+        // Every operation here is infallible, so callers cannot observe a
+        // successful partial reset or retry a half-applied RESET.
+        if (command.command == .reset) {
+            self.resetMatchingState();
+            response.completeFromCommand(command);
+            return response;
+        }
+
         var risk_l2_snapshot: ?naive.L2MarketData = null;
         defer if (risk_l2_snapshot) |*snapshot| snapshot.deinit(self.allocator);
 
@@ -544,7 +1215,7 @@ pub const ExchangeKernel = struct {
                 error.TransferStateCorrupted,
                 => {
                     command.result_code = .binary_command_failed;
-                    response.result_code = command.result_code;
+                    response.completeFromCommand(command);
                     return response;
                 },
                 error.OutOfMemory => return error.OutOfMemory,
@@ -560,7 +1231,7 @@ pub const ExchangeKernel = struct {
 
                     switch (owned_complete.command_type) {
                         .binary_data_command => {
-                            self.executeBinaryPayloadWords(owned_complete.words) catch |err| switch (err) {
+                            self.executeBinaryPayloadWords(seq, owned_complete.words) catch |err| switch (err) {
                                 error.OutOfMemory => return error.OutOfMemory,
                                 else => {
                                     command.result_code = .binary_command_failed;
@@ -571,22 +1242,97 @@ pub const ExchangeKernel = struct {
                             }
                         },
                         .binary_data_query => {
-                            const maybe_report: ?ReportResponse = self.executeBinaryQueryWords(owned_complete.words) catch |err| switch (err) {
+                            var envelope = report_query_envelope.decodeWordsJavaFirst(
+                                self.allocator,
+                                owned_complete.words,
+                                .{},
+                            ) catch |err| switch (err) {
                                 error.OutOfMemory => return error.OutOfMemory,
-                                error.UnsupportedReportQueryType => blk: {
-                                    command.result_code = .report_query_unknown_type;
-                                    break :blk null;
-                                },
-                                else => blk: {
+                                else => {
                                     command.result_code = .binary_command_failed;
-                                    break :blk null;
+                                    response.completeFromCommand(command);
+                                    return response;
                                 },
                             };
+                            defer envelope.deinit();
 
-                            if (maybe_report) |report| {
-                                response.report_response = report;
+                            if (!envelope.isReservedBuiltInCode()) {
+                                const descriptor = self.custom_report_registry.lookup(
+                                    envelope.raw.code,
+                                ) orelse {
+                                    command.result_code = .success;
+                                    response.completeFromCommand(command);
+                                    return response;
+                                };
+                                response.matcher_events_head = self.produceCustomReportEvents(
+                                    descriptor,
+                                    envelope.raw.body,
+                                ) catch |err| switch (err) {
+                                    error.OutOfMemory => return error.OutOfMemory,
+                                    else => {
+                                        command.result_code = .binary_command_failed;
+                                        response.completeFromCommand(command);
+                                        return response;
+                                    },
+                                };
                                 command.result_code = .success;
+                                response.completeFromCommand(command);
+                                return response;
                             }
+
+                            const decoded = envelope.decodeBuiltInOrIgnored() catch |err| switch (err) {
+                                error.OutOfMemory => return error.OutOfMemory,
+                                else => {
+                                    command.result_code = .binary_command_failed;
+                                    response.completeFromCommand(command);
+                                    return response;
+                                },
+                            };
+                            if (!self.isJavaReportQueryEnabled(decoded)) {
+                                command.result_code = .success;
+                                response.completeFromCommand(command);
+                                return response;
+                            }
+
+                            // The wire query is a Java request first. Native
+                            // projection is process-local opt-in metadata on
+                            // the terminal frame and must not influence an
+                            // unmarked query's result code.
+                            const produced: ?java_report_producer.ProducedReport = self.produceJavaReport(decoded) catch |err| switch (err) {
+                                error.OutOfMemory => return error.OutOfMemory,
+                                error.MissingJavaIdentityHashContext => if (command.binary_report_projection == .exact_java_and_native)
+                                    null
+                                else {
+                                    command.result_code = .binary_command_failed;
+                                    response.completeFromCommand(command);
+                                    return response;
+                                },
+                                else => {
+                                    command.result_code = .binary_command_failed;
+                                    response.completeFromCommand(command);
+                                    return response;
+                                },
+                            };
+                            if (produced) |owned| {
+                                response.java_report_response = owned.response;
+                                response.matcher_events_head = owned.events_head;
+                            }
+
+                            if (command.binary_report_projection == .exact_java_and_native) {
+                                const native_query = nativeQueryForJava(decoded) orelse unreachable;
+                                response.report_response = self.queryReport(native_query) catch |err| switch (err) {
+                                    error.OutOfMemory => return error.OutOfMemory,
+                                    else => {
+                                        response.deinit(self.allocator);
+                                        command.result_code = .binary_command_failed;
+                                        response.completeFromCommand(command);
+                                        return response;
+                                    },
+                                };
+                            }
+                            command.result_code = .success;
+                            response.completeFromCommand(command);
+                            return response;
                         },
                         else => {
                             command.result_code = .binary_command_failed;
@@ -594,12 +1340,15 @@ pub const ExchangeKernel = struct {
                     }
                 },
             }
+
+            response.completeFromCommand(command);
+            return response;
         }
 
         if (isMatchingCommand(command.command)) {
             const book_ptr = self.books.get(command.symbol) orelse {
                 command.result_code = .matching_invalid_order_book_id;
-                response.result_code = command.result_code;
+                response.completeFromCommand(command);
                 return response;
             };
 
@@ -625,9 +1374,20 @@ pub const ExchangeKernel = struct {
         else
             null;
 
-        _ = try self.risk_engine.handlerRiskRelease(seq, command, event_chain.head, top);
+        const release_spec = self.risk_engine.symbol_spec_provider.getSymbolSpecification(command.symbol);
+        if (release_spec != null and release_spec.?.symbol_type != .currency_exchange_pair) {
+            var prepared = try self.risk_engine.prepareMarginRiskRelease(
+                command,
+                event_chain.head,
+                top,
+            );
+            defer prepared.deinit();
+            self.risk_engine.commitPreparedMarginRiskRelease(&prepared);
+        } else {
+            _ = try self.risk_engine.handlerRiskRelease(seq, command, event_chain.head, top);
+        }
         response.matcher_events_head = event_chain.takeOwnedHead();
-        response.result_code = command.result_code;
+        response.completeFromCommand(command);
         return response;
     }
 
@@ -674,12 +1434,14 @@ pub const ExchangeKernel = struct {
         map: *std.AutoHashMapUnmanaged(i32, i64),
         key: i32,
         delta: i64,
-    ) std.mem.Allocator.Error!void {
+    ) ReportError!void {
         const gop = try map.getOrPut(allocator, key);
         if (!gop.found_existing) {
             gop.value_ptr.* = 0;
         }
-        gop.value_ptr.* += delta;
+        const sum = @addWithOverflow(gop.value_ptr.*, delta);
+        if (sum[1] != 0) return error.ArithmeticOverflow;
+        gop.value_ptr.* = sum[0];
     }
 
     fn copyI32I64Map(
@@ -955,6 +1717,15 @@ pub const ExchangeKernel = struct {
             while (position_it.next()) |entry| {
                 const symbol_id = entry.key_ptr.*;
                 const position = entry.value_ptr.*;
+                const spec = self.risk_engine.symbol_spec_provider.getSymbolSpecification(symbol_id) orelse
+                    return error.UnknownSymbol;
+                const estimated_profit = try self.risk_engine.estimatePositionProfitForReport(&position, spec);
+                try addToI32I64Map(
+                    self.allocator,
+                    &report.account_balances,
+                    position.currency,
+                    estimated_profit,
+                );
                 if (position.open_volume <= 0) continue;
 
                 switch (position.direction) {
@@ -975,9 +1746,12 @@ pub const ExchangeKernel = struct {
             }
         }
 
-        var book_it = self.books.valueIterator();
-        while (book_it.next()) |book_ptr| {
-            try book_ptr.*.accumulateOrderHolds(self.allocator, &report.orders_balances);
+        var book_it = self.books.iterator();
+        while (book_it.next()) |entry| {
+            const spec = entry.value_ptr.*.symbolSpecification();
+            if (spec.symbol_type == .currency_exchange_pair) {
+                try entry.value_ptr.*.accumulateOrderHolds(self.allocator, &report.orders_balances);
+            }
         }
 
         try copyI32I64Map(self.allocator, &report.fees, &self.risk_engine.fees);
@@ -1025,6 +1799,18 @@ pub const ExchangeKernel = struct {
         };
     }
 
+    fn isJavaReportQueryEnabled(
+        self: *const ExchangeKernel,
+        query: binary_payload.DecodedReportQuery,
+    ) bool {
+        return switch (query) {
+            .state_hash => self.report_queries_cfg.state_hash,
+            .single_user => self.report_queries_cfg.single_user,
+            .total_currency_balance => self.report_queries_cfg.total_currency_balance,
+            .unknown => false,
+        };
+    }
+
     fn l2TopFromSnapshot(snapshot: *const naive.L2MarketData) events.L2Top {
         return .{
             .ask_size = snapshot.asks.items.len,
@@ -1063,6 +1849,12 @@ pub const ExchangeKernel = struct {
     }
 };
 
+/// Legacy low-level facade for directly owned kernels.
+///
+/// This type has no internal synchronization. One thread must exclusively own
+/// it and serialize every call, including synchronous execution, publication,
+/// draining, result extraction, and deinitialization. Use the lifecycle-owned
+/// ExchangeCore driver when multi-producer publication is required.
 pub const ExchangeApi = struct {
     const PendingAsyncCommand = struct {
         request_id: u64,
@@ -1242,11 +2034,12 @@ pub const ExchangeApi = struct {
         self: *ExchangeApi,
         command: *const cmd.OrderCommand,
     ) AsyncSubmitError!u64 {
-        const request_id = try self.nextRequestId();
+        const request_id = try self.requestIdAfter(1);
         try self.pending_queue.append(self.kernel.allocator, .{
             .request_id = request_id,
             .command = command.*,
         });
+        self.next_request_id = request_id;
         return request_id;
     }
 
@@ -1362,22 +2155,40 @@ pub const ExchangeApi = struct {
     ) AsyncSubmitError!PersistStateRequestPair {
         const matching = makePersistStateMatchingCommand(snapshot_id, timestamp_ns);
         const risk_cmd = makePersistStateRiskCommand(snapshot_id, timestamp_ns);
+
+        const matching_request_id = try self.requestIdAfter(1);
+        const risk_request_id = try self.requestIdAfter(2);
+        try self.pending_queue.ensureUnusedCapacity(self.kernel.allocator, 2);
+        self.pending_queue.appendAssumeCapacity(.{
+            .request_id = matching_request_id,
+            .command = matching,
+        });
+        self.pending_queue.appendAssumeCapacity(.{
+            .request_id = risk_request_id,
+            .command = risk_cmd,
+        });
+        self.next_request_id = risk_request_id;
+
         return .{
-            .matching_request_id = try self.submitCommandAsync(&matching),
-            .risk_request_id = try self.submitCommandAsync(&risk_cmd),
+            .matching_request_id = matching_request_id,
+            .risk_request_id = risk_request_id,
         };
     }
 
+    /// Executes queued work in FIFO order. Result-capacity failure leaves the
+    /// head queued and untouched. Once extracted, an execution failure consumes
+    /// that request without a ready result and leaves only the unstarted tail.
     pub fn drainPending(self: *ExchangeApi) ExecuteError!usize {
         var processed: usize = 0;
-        defer self.dropProcessedPending(processed);
 
-        while (processed < self.pending_queue.items.len) {
-            const entry = self.pending_queue.items[processed];
+        while (self.pending_queue.items.len != 0) {
+            try self.ready_results.ensureUnusedCapacity(self.kernel.allocator, 1);
+            // Once execution starts, failures can follow partial mutation. Remove
+            // ownership from the queue first so a later drain cannot replay it.
+            const entry = self.pending_queue.orderedRemove(0);
             var command = entry.command;
-            var response = try self.kernel.execute(&command);
-            errdefer response.deinit(self.kernel.allocator);
-            try self.ready_results.put(self.kernel.allocator, entry.request_id, response);
+            const response = try self.kernel.execute(&command);
+            self.ready_results.putAssumeCapacityNoClobber(entry.request_id, response);
             processed += 1;
         }
         return processed;
@@ -1428,28 +2239,9 @@ pub const ExchangeApi = struct {
         });
     }
 
-    fn nextRequestId(self: *ExchangeApi) error{RequestIdOverflow}!u64 {
-        if (self.next_request_id == std.math.maxInt(u64)) {
-            return error.RequestIdOverflow;
-        }
-        self.next_request_id += 1;
-        return self.next_request_id;
-    }
-
-    fn dropProcessedPending(self: *ExchangeApi, processed: usize) void {
-        if (processed == 0) return;
-        if (processed >= self.pending_queue.items.len) {
-            self.pending_queue.clearRetainingCapacity();
-            return;
-        }
-
-        const remaining = self.pending_queue.items.len - processed;
-        std.mem.copyForwards(
-            PendingAsyncCommand,
-            self.pending_queue.items[0..remaining],
-            self.pending_queue.items[processed..],
-        );
-        self.pending_queue.items.len = remaining;
+    fn requestIdAfter(self: *const ExchangeApi, offset: u64) error{RequestIdOverflow}!u64 {
+        return std.math.add(u64, self.next_request_id, offset) catch
+            error.RequestIdOverflow;
     }
 };
 
@@ -1666,6 +2458,48 @@ fn makeExchangeSpec() !common.CoreSymbolSpecification {
     return makeExchangeSpecForSymbol(241);
 }
 
+fn testJavaIdentityHashContext() JavaIdentityHashContext {
+    return .{
+        .order_action_ask = 0x101,
+        .order_action_bid = 0x102,
+        .user_status_active = 0x201,
+        .user_status_suspended = 0x202,
+        .risk_symbol_spec_provider = 0x301,
+        .risk_user_profile_service = 0x302,
+        .risk_binary_cmd_processor = 0x303,
+        .risk_last_price_cache = 0x304,
+        .risk_fees = 0x305,
+        .risk_adjustments = 0x306,
+        .risk_suspends = 0x307,
+        .risk_shard_mask = 0x308,
+        .matching_binary_cmd_processor = 0x309,
+        .matching_order_books = 0x30a,
+        .matching_shard_mask = 0x30b,
+    };
+}
+
+fn javaMapValue(entries: ?[]const java_report_wire.IntLongEntry, key: i32) ?i64 {
+    for (entries orelse return null) |entry| {
+        if (entry.key == key) return entry.value;
+    }
+    return null;
+}
+
+fn makeFeeMarginFuturesSpec() !common.CoreSymbolSpecification {
+    return common.CoreSymbolSpecification.init(.{
+        .symbol_id = 5991,
+        .symbol_type = .futures_contract,
+        .base_currency = 840,
+        .quote_currency = 392,
+        .base_scale_k = 100_000,
+        .quote_scale_k = 10,
+        .taker_fee = 3,
+        .maker_fee = 2,
+        .margin_buy = 5_000,
+        .margin_sell = 6_000,
+    });
+}
+
 fn encodeAddSymbolsPayload(
     allocator: std.mem.Allocator,
     specs: []const common.CoreSymbolSpecification,
@@ -1781,6 +2615,67 @@ fn appendBinaryPayloadFrames(
             },
         ));
     }
+}
+
+const UnsupportedOrderCase = struct {
+    order_type: common.OrderType,
+    order_id: i64,
+    price: i64,
+    reserve_bid_price: i64,
+    size: i64,
+    action: common.OrderAction,
+};
+
+const unsupported_order_cases = [_]UnsupportedOrderCase{
+    .{
+        .order_type = .ioc_budget,
+        .order_id = 91_001,
+        .price = 120,
+        .reserve_bid_price = 120,
+        .size = 7,
+        .action = .bid,
+    },
+    .{
+        .order_type = .ioc_budget,
+        .order_id = 91_002,
+        .price = 80,
+        .reserve_bid_price = 0,
+        .size = 8,
+        .action = .ask,
+    },
+    .{
+        .order_type = .fok,
+        .order_id = 91_003,
+        .price = 110,
+        .reserve_bid_price = 145,
+        .size = 9,
+        .action = .bid,
+    },
+    .{
+        .order_type = .fok,
+        .order_id = 91_004,
+        .price = 80,
+        .reserve_bid_price = 0,
+        .size = 10,
+        .action = .ask,
+    },
+};
+
+fn expectUnsupportedFullReject(
+    response: *const CommandResponse,
+    case: UnsupportedOrderCase,
+) !void {
+    try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    const reject = response.matcher_events_head orelse return error.TestExpectedRejectEvent;
+    try std.testing.expectEqual(events.MatcherEventType.reject, reject.event_type);
+    try std.testing.expect(reject.active_order_completed);
+    try std.testing.expectEqual(@as(i64, 0), reject.matched_order_id);
+    try std.testing.expectEqual(@as(i64, 0), reject.matched_order_uid);
+    try std.testing.expect(!reject.matched_order_completed);
+    try std.testing.expectEqual(case.price, reject.price);
+    try std.testing.expectEqual(case.size, reject.size);
+    try std.testing.expectEqual(case.reserve_bid_price, reject.bidder_hold_price);
+    try std.testing.expect(reject.next_event == null);
 }
 
 fn expectEqualL2(expected: naive.L2MarketData, actual: naive.L2MarketData) !void {
@@ -1933,9 +2828,31 @@ const FaultSimulationResult = struct {
     }
 };
 
+pub const RiskShard = struct {
+    engine: *risk.RiskEngine,
+    binary_frame_assembler: binary_frames.BinaryFrameAssembler,
+    next_seq: u64 = 0,
+};
+
+/// Independent matching and risk shard families.
+///
+/// ExchangeKernel remains the matching-state carrier during the topology
+/// transition so the existing single-kernel snapshot format keeps compiling.
+/// Only the explicit `risk_shards` family is operational risk state. Embedded
+/// carrier risks beyond that family are dormant and are never mutated or
+/// included in reports. Binary frames are broadcast through the distinct
+/// matching and risk processor families. Durable per-family persistence remains
+/// a later phase.
 pub const MultiShardKernelSet = struct {
     allocator: std.mem.Allocator,
+    matching_shards: []ExchangeKernel,
+    /// Deprecated physical alias retained for source compatibility. New code
+    /// must use matching/risk semantic accessors rather than infer ownership.
     kernels: []ExchangeKernel,
+    risk_shards: []RiskShard,
+    additional_risk_engines: []risk.RiskEngine,
+    matching_mask: u64,
+    risk_mask: u64,
     next_seq: u64 = 0,
 
     pub const ShardedInitError = std.mem.Allocator.Error || InitError || error{
@@ -1945,72 +2862,585 @@ pub const MultiShardKernelSet = struct {
         ArithmeticOverflow,
     };
 
+    const GroupedTwoStepFailureStage = enum {
+        risk_pre_process,
+        matching,
+        risk_release,
+        publication_ownership,
+    };
+
+    const GroupedTwoStepFailure = struct {
+        stage: GroupedTwoStepFailureStage,
+        sequence: u64,
+        cause: anyerror,
+    };
+
+    const GroupedTwoStepState = union(enum) {
+        running,
+        poisoned: GroupedTwoStepFailure,
+    };
+
+    /// A result observer borrows the executor-owned response only for the
+    /// duration of this call. It must not retain the response or any nested
+    /// matcher-event/report pointers.
+    const BorrowedPostMatchingHook = struct {
+        context: ?*anyopaque,
+        callback: *const fn (
+            context: ?*anyopaque,
+            response: *const CommandResponse,
+        ) void,
+
+        fn publish(self: BorrowedPostMatchingHook, response: *const CommandResponse) void {
+            self.callback(self.context, response);
+        }
+    };
+
+    /// Owns exactly the matching output required by the later R2 pass.
+    /// Preparation is intentionally absent: prepared releases borrow mutable
+    /// risk state and would become stale while later same-group R1 commands run.
+    const PendingMatchedCommand = struct {
+        sequence: u64,
+        events_group: i64,
+        command: cmd.OrderCommand,
+        matcher_events_head: ?*events.MatcherTradeEvent,
+        l2_top: ?events.L2Top,
+        requires_risk_release: bool,
+
+        fn deinit(self: *PendingMatchedCommand, allocator: std.mem.Allocator) void {
+            events.deinitMatcherEventChain(allocator, self.matcher_events_head);
+            self.* = undefined;
+        }
+    };
+
+    /// Private serial model of Java's GroupingProcessor plus paired R1/R2
+    /// processors. Existing public execute APIs do not use this owner yet and
+    /// therefore retain their immediate R1 -> matching -> R2 behavior.
+    const GroupedTwoStepExecutor = struct {
+        const ProcessError = ExecuteError || error{
+            GroupedTwoStepPoisoned,
+            GroupedTwoStepReentrantCall,
+            NonMonotonicEventsGroup,
+            PublicationFrontierOwnershipLost,
+        };
+
+        kernels: *MultiShardKernelSet,
+        pending: std.ArrayListUnmanaged(PendingMatchedCommand) = .empty,
+        open_group: ?i64 = null,
+        last_events_group: ?i64 = null,
+        state: GroupedTwoStepState = .running,
+        hook_active: bool = false,
+        accepted_frontier: u64,
+        r1_frontier: u64,
+        matching_frontier: u64,
+        result_frontier: u64,
+        r2_frontier: u64,
+
+        fn init(kernels: *MultiShardKernelSet) GroupedTwoStepExecutor {
+            const settled_frontier = kernels.next_seq;
+            return .{
+                .kernels = kernels,
+                .accepted_frontier = settled_frontier,
+                .r1_frontier = settled_frontier,
+                .matching_frontier = settled_frontier,
+                .result_frontier = settled_frontier,
+                .r2_frontier = settled_frontier,
+            };
+        }
+
+        /// Drops owned staging memory without applying pending releases.
+        /// Callers that want a graceful final-group barrier must call flushAll.
+        fn deinit(self: *GroupedTwoStepExecutor) void {
+            for (self.pending.items) |*pending| {
+                pending.deinit(self.kernels.allocator);
+            }
+            self.pending.deinit(self.kernels.allocator);
+            self.* = undefined;
+        }
+
+        fn process(
+            self: *GroupedTwoStepExecutor,
+            command: *cmd.OrderCommand,
+            post_matching_hook: ?BorrowedPostMatchingHook,
+        ) ProcessError!void {
+            try self.ensureRunning();
+            try self.ensureNotInHook();
+            try self.ensurePublicationOwnership();
+            return self.processAtSequence(
+                .fromInt(try self.kernels.nextSequence()),
+                command,
+                post_matching_hook,
+            );
+        }
+
+        fn processAtSequence(
+            self: *GroupedTwoStepExecutor,
+            assigned_sequence: publication.PublicationSequence,
+            command: *cmd.OrderCommand,
+            post_matching_hook: ?BorrowedPostMatchingHook,
+        ) ProcessError!void {
+            try self.ensureRunning();
+            try self.ensureNotInHook();
+            try self.ensurePublicationOwnership();
+            try self.validateEventsGroup(command.events_group);
+
+            const seq = assigned_sequence.toInt();
+            try self.validateSequence(seq);
+
+            // Reserve before either a previous-group flush or new-command
+            // mutation. Once matching starts, appending the pending owner is
+            // infallible and the command can never be replayed.
+            try self.pending.ensureUnusedCapacity(self.kernels.allocator, 1);
+
+            if (self.open_group) |open_group| {
+                if (open_group != command.events_group) {
+                    try self.flushOpenGroup();
+                }
+            }
+            if (self.open_group == null) {
+                self.open_group = command.events_group;
+            }
+            self.last_events_group = command.events_group;
+
+            self.consumeSequence(seq);
+
+            var response: CommandResponse = .{
+                .sequence = seq,
+                .command = command.*,
+                .result_code = command.result_code,
+            };
+            defer response.deinit(self.kernels.allocator);
+
+            var pipeline_command = command.*;
+            var l2_top: ?events.L2Top = null;
+            var requires_risk_release = false;
+
+            if (pipeline_command.command == .reset) {
+                self.kernels.resetAll();
+                pipeline_command.result_code = .success;
+                self.r1_frontier = seq;
+                self.matching_frontier = seq;
+            } else if (ExchangeKernel.isBinaryFrameCommand(pipeline_command.command)) {
+                self.kernels.executeBinaryFrame(seq, &pipeline_command, &response) catch |err| {
+                    self.poison(.matching, seq, err);
+                    return err;
+                };
+                self.r1_frontier = seq;
+                self.matching_frontier = seq;
+            } else {
+                var event_chain = events.EventChain.init(self.kernels.allocator);
+                defer event_chain.deinit();
+                var risk_l2_snapshot: ?naive.L2MarketData = null;
+                defer if (risk_l2_snapshot) |*snapshot| {
+                    snapshot.deinit(self.kernels.allocator);
+                };
+
+                self.kernels.executeRiskPreProcessStage(seq, &pipeline_command) catch |err| {
+                    self.poison(.risk_pre_process, seq, err);
+                    return err;
+                };
+                self.r1_frontier = seq;
+
+                const disposition = self.kernels.executeMatchingStage(
+                    &pipeline_command,
+                    &response,
+                    &event_chain,
+                    &risk_l2_snapshot,
+                ) catch |err| {
+                    self.poison(.matching, seq, err);
+                    return err;
+                };
+                self.matching_frontier = seq;
+
+                if (disposition == .continue_to_risk_release) {
+                    requires_risk_release = true;
+                    l2_top = if (response.l2_snapshot) |*snapshot|
+                        ExchangeKernel.l2TopFromSnapshot(snapshot)
+                    else if (risk_l2_snapshot) |*snapshot|
+                        ExchangeKernel.l2TopFromSnapshot(snapshot)
+                    else
+                        null;
+                }
+                response.matcher_events_head = event_chain.takeOwnedHead();
+            }
+
+            command.* = pipeline_command;
+            response.completeFromCommand(command);
+            self.result_frontier = seq;
+
+            const pending_events = response.matcher_events_head;
+            response.matcher_events_head = null;
+            self.pending.appendAssumeCapacity(.{
+                .sequence = seq,
+                .events_group = command.events_group,
+                .command = pipeline_command,
+                .matcher_events_head = pending_events,
+                .l2_top = l2_top,
+                .requires_risk_release = requires_risk_release,
+            });
+
+            if (post_matching_hook) |hook| {
+                // The pending slot owns matching output before user code runs.
+                // The response aliases that output only for this synchronous
+                // borrow, so reentrant publication cannot orphan the R2 input.
+                response.matcher_events_head = pending_events;
+                self.hook_active = true;
+                hook.publish(&response);
+                self.hook_active = false;
+                response.matcher_events_head = null;
+
+                // Existing immediate APIs remain callable, so a hook can move
+                // the shared kernel frontier behind this executor's back. The
+                // just-published pending release remains owned for terminal
+                // cleanup, but it can no longer be applied safely.
+                try self.ensurePublicationOwnership();
+            }
+        }
+
+        fn flushAll(self: *GroupedTwoStepExecutor) ProcessError!void {
+            try self.ensureRunning();
+            try self.ensureNotInHook();
+            try self.ensurePublicationOwnership();
+            try self.flushOpenGroup();
+        }
+
+        /// Grouping may advance the group number while the command stream is
+        /// idle, but Java does not invoke R2 until a later command exposes that
+        /// new number (or shutdown explicitly flushes the final group).
+        fn observeIdle(self: *GroupedTwoStepExecutor) ProcessError!void {
+            try self.ensureRunning();
+            try self.ensureNotInHook();
+            try self.ensurePublicationOwnership();
+        }
+
+        fn flushOpenGroup(self: *GroupedTwoStepExecutor) ProcessError!void {
+            try self.ensureRunning();
+            try self.ensureNotInHook();
+            try self.ensurePublicationOwnership();
+
+            while (self.pending.items.len != 0) {
+                const pending = &self.pending.items[0];
+                std.debug.assert(self.open_group == pending.events_group);
+
+                if (pending.requires_risk_release) {
+                    var prepared = self.kernels.prepareRiskReleaseStage(
+                        &pending.command,
+                        pending.matcher_events_head,
+                        pending.l2_top,
+                    ) catch |err| {
+                        self.poison(.risk_release, pending.sequence, err);
+                        return err;
+                    };
+                    self.kernels.commitRiskReleaseStage(&prepared);
+                    prepared.deinit(self.kernels.allocator);
+                }
+
+                var completed = self.pending.orderedRemove(0);
+                self.r2_frontier = completed.sequence;
+                completed.deinit(self.kernels.allocator);
+            }
+            self.open_group = null;
+        }
+
+        fn pendingCount(self: *const GroupedTwoStepExecutor) usize {
+            return self.pending.items.len;
+        }
+
+        fn failure(self: *const GroupedTwoStepExecutor) ?GroupedTwoStepFailure {
+            return switch (self.state) {
+                .running => null,
+                .poisoned => |fatal| fatal,
+            };
+        }
+
+        fn ensureRunning(self: *const GroupedTwoStepExecutor) error{GroupedTwoStepPoisoned}!void {
+            switch (self.state) {
+                .running => {},
+                .poisoned => return error.GroupedTwoStepPoisoned,
+            }
+        }
+
+        fn ensureNotInHook(
+            self: *const GroupedTwoStepExecutor,
+        ) error{GroupedTwoStepReentrantCall}!void {
+            if (self.hook_active) return error.GroupedTwoStepReentrantCall;
+        }
+
+        fn validateEventsGroup(
+            self: *const GroupedTwoStepExecutor,
+            events_group: i64,
+        ) error{NonMonotonicEventsGroup}!void {
+            if (self.last_events_group) |last| {
+                if (events_group < last) return error.NonMonotonicEventsGroup;
+            }
+        }
+
+        fn ensurePublicationOwnership(
+            self: *GroupedTwoStepExecutor,
+        ) error{PublicationFrontierOwnershipLost}!void {
+            if (self.liveFrontiersEqual(self.accepted_frontier)) return;
+
+            if (self.pending.items.len == 0 and self.open_group == null) {
+                // Mixing immediate and grouped execution is safe only at an R2
+                // quiescent point. Adopt a coherent externally advanced
+                // frontier before accepting the next grouped command.
+                const observed = self.kernels.next_seq;
+                if (observed >= self.accepted_frontier and
+                    self.liveFrontiersEqual(observed))
+                {
+                    self.accepted_frontier = observed;
+                    self.r1_frontier = observed;
+                    self.matching_frontier = observed;
+                    self.result_frontier = observed;
+                    self.r2_frontier = observed;
+                    return;
+                }
+            }
+
+            const failure_sequence = if (self.pending.items.len != 0)
+                self.pending.items[self.pending.items.len - 1].sequence
+            else
+                self.accepted_frontier;
+            self.poison(
+                .publication_ownership,
+                failure_sequence,
+                error.PublicationFrontierOwnershipLost,
+            );
+            return error.PublicationFrontierOwnershipLost;
+        }
+
+        fn liveFrontiersEqual(self: *const GroupedTwoStepExecutor, expected: u64) bool {
+            if (self.kernels.next_seq != expected) return false;
+            for (self.kernels.matching_shards) |*kernel| {
+                if (kernel.next_seq != expected) return false;
+            }
+            for (self.kernels.risk_shards) |*risk_shard| {
+                if (risk_shard.next_seq != expected) return false;
+            }
+            return true;
+        }
+
+        fn validateSequence(
+            self: *const GroupedTwoStepExecutor,
+            seq: u64,
+        ) error{NonMonotonicPublicationSequence}!void {
+            if (seq <= self.kernels.next_seq) return error.NonMonotonicPublicationSequence;
+            for (self.kernels.matching_shards) |*kernel| {
+                if (seq <= kernel.next_seq) return error.NonMonotonicPublicationSequence;
+            }
+            for (self.kernels.risk_shards) |*risk_shard| {
+                if (seq <= risk_shard.next_seq) return error.NonMonotonicPublicationSequence;
+            }
+        }
+
+        fn consumeSequence(self: *GroupedTwoStepExecutor, seq: u64) void {
+            self.kernels.next_seq = seq;
+            for (self.kernels.matching_shards) |*kernel| kernel.next_seq = seq;
+            for (self.kernels.risk_shards) |*risk_shard| risk_shard.next_seq = seq;
+            self.accepted_frontier = seq;
+        }
+
+        fn poison(
+            self: *GroupedTwoStepExecutor,
+            stage: GroupedTwoStepFailureStage,
+            sequence: u64,
+            cause: anyerror,
+        ) void {
+            std.debug.assert(switch (self.state) {
+                .running => true,
+                .poisoned => false,
+            });
+            self.state = .{ .poisoned = .{
+                .stage = stage,
+                .sequence = sequence,
+                .cause = cause,
+            } };
+        }
+    };
+
     pub fn init(
         allocator: std.mem.Allocator,
         shard_count: usize,
         orderbook_kind: OrderBookKind,
     ) ShardedInitError!MultiShardKernelSet {
-        const shard_count_u64 = std.math.cast(u64, shard_count) orelse return error.InvalidShardCount;
-        if (shard_count == 0 or @popCount(shard_count_u64) != 1) {
-            return error.InvalidShardCount;
+        return initWithConfig(allocator, shard_count, .{
+            .orderbook_kind = orderbook_kind,
+        });
+    }
+
+    pub fn initWithConfig(
+        allocator: std.mem.Allocator,
+        shard_count: usize,
+        base_config: Config,
+    ) ShardedInitError!MultiShardKernelSet {
+        return initWithTopology(
+            allocator,
+            shard_count,
+            shard_count,
+            base_config,
+        );
+    }
+
+    pub fn initWithTopology(
+        allocator: std.mem.Allocator,
+        matching_count: usize,
+        risk_count: usize,
+        base_config: Config,
+    ) ShardedInitError!MultiShardKernelSet {
+        const matching_count_u64 = try checkedShardCount(matching_count);
+        const risk_count_u64 = try checkedShardCount(risk_count);
+        if (base_config.report_queries.custom_registry.len() != 0 and
+            (matching_count_u64 >
+                @as(u64, @intCast(java_report_wire.max_unambiguous_shard_id)) + 1 or
+                risk_count_u64 >
+                    @as(u64, @intCast(java_report_wire.max_unambiguous_shard_id)) + 1))
+        {
+            return error.InvalidCustomReportShardId;
         }
 
-        const kernels = try allocator.alloc(ExchangeKernel, shard_count);
-        errdefer allocator.free(kernels);
+        const matching_shards = try allocator.alloc(ExchangeKernel, matching_count);
+        errdefer allocator.free(matching_shards);
+        var matching_initialized: usize = 0;
+        errdefer for (matching_shards[0..matching_initialized]) |*kernel| kernel.deinit();
 
-        var initialized: usize = 0;
-        errdefer {
-            for (kernels[0..initialized]) |*kernel| {
-                kernel.deinit();
-            }
-        }
-
-        for (0..shard_count) |idx| {
+        for (0..matching_count) |idx| {
             const shard_id = std.math.cast(u64, idx) orelse return error.InvalidShardCount;
-            kernels[idx] = try ExchangeKernel.init(allocator, .{
-                .orderbook_kind = orderbook_kind,
-                .shard_id = shard_id,
-                .num_shards = shard_count_u64,
-            });
-            initialized += 1;
+            var shard_config = base_config;
+            shard_config.shard_id = shard_id;
+            // An embedded carrier risk with id >= risk_count can own no UID
+            // under this mask, making dormant state structurally non-owning.
+            shard_config.num_shards = risk_count_u64;
+            matching_shards[idx] = try ExchangeKernel.init(allocator, shard_config);
+            matching_initialized += 1;
+        }
+
+        const additional_count = risk_count -| matching_count;
+        const additional_risk_engines = try allocator.alloc(risk.RiskEngine, additional_count);
+        errdefer allocator.free(additional_risk_engines);
+        var additional_initialized: usize = 0;
+        errdefer for (additional_risk_engines[0..additional_initialized]) |*engine| engine.deinit();
+
+        for (0..additional_count) |offset| {
+            const shard_id = std.math.cast(u64, matching_count + offset) orelse
+                return error.InvalidShardCount;
+            additional_risk_engines[offset] = try risk.RiskEngine.init(
+                allocator,
+                shard_id,
+                risk_count_u64,
+                base_config.risk,
+            );
+            additional_initialized += 1;
+        }
+
+        const risk_shards = try allocator.alloc(RiskShard, risk_count);
+        errdefer allocator.free(risk_shards);
+        for (risk_shards, 0..) |*risk_shard, idx| {
+            risk_shard.* = .{
+                .engine = if (idx < matching_count)
+                    &matching_shards[idx].risk_engine
+                else
+                    &additional_risk_engines[idx - matching_count],
+                .binary_frame_assembler = binary_frames.BinaryFrameAssembler.init(allocator),
+            };
         }
 
         return .{
             .allocator = allocator,
-            .kernels = kernels,
+            .matching_shards = matching_shards,
+            .kernels = matching_shards,
+            .risk_shards = risk_shards,
+            .additional_risk_engines = additional_risk_engines,
+            .matching_mask = matching_count_u64 - 1,
+            .risk_mask = risk_count_u64 - 1,
         };
     }
 
+    fn checkedShardCount(count: usize) error{InvalidShardCount}!u64 {
+        const count_u64 = std.math.cast(u64, count) orelse return error.InvalidShardCount;
+        if (count == 0 or @popCount(count_u64) != 1) return error.InvalidShardCount;
+        return count_u64;
+    }
+
     pub fn deinit(self: *MultiShardKernelSet) void {
-        for (self.kernels) |*kernel| {
-            kernel.deinit();
-        }
-        self.allocator.free(self.kernels);
+        for (self.risk_shards) |*risk_shard| risk_shard.binary_frame_assembler.deinit();
+        self.allocator.free(self.risk_shards);
+        for (self.additional_risk_engines) |*engine| engine.deinit();
+        self.allocator.free(self.additional_risk_engines);
+        for (self.matching_shards) |*kernel| kernel.deinit();
+        self.allocator.free(self.matching_shards);
         self.* = undefined;
     }
 
-    pub fn addSymbolAll(self: *MultiShardKernelSet, spec: common.CoreSymbolSpecification) risk.SymbolSpecificationProvider.AddSymbolError!void {
-        for (self.kernels) |*kernel| {
-            _ = try kernel.addSymbol(spec);
-        }
+    pub fn matchingShardCount(self: *const MultiShardKernelSet) usize {
+        return self.matching_shards.len;
+    }
+
+    pub fn riskShardCount(self: *const MultiShardKernelSet) usize {
+        return self.risk_shards.len;
+    }
+
+    pub fn matchingShardMask(self: *const MultiShardKernelSet) u64 {
+        return self.matching_mask;
+    }
+
+    pub fn riskShardMask(self: *const MultiShardKernelSet) u64 {
+        return self.risk_mask;
+    }
+
+    pub fn matchingShardAt(self: *MultiShardKernelSet, idx: usize) *ExchangeKernel {
+        return &self.matching_shards[idx];
+    }
+
+    pub fn riskEngineAt(self: *MultiShardKernelSet, idx: usize) *risk.RiskEngine {
+        return self.risk_shards[idx].engine;
+    }
+
+    pub fn riskEngineForUid(self: *MultiShardKernelSet, uid: i64) *risk.RiskEngine {
+        return self.riskEngineAt(self.shardIndexForUid(uid));
+    }
+
+    pub fn matchingShardForSymbol(self: *MultiShardKernelSet, symbol: i32) *ExchangeKernel {
+        return self.matchingShardAt(self.shardIndexForSymbol(symbol));
+    }
+
+    pub fn matchingObservedSequence(self: *const MultiShardKernelSet, idx: usize) u64 {
+        return self.matching_shards[idx].next_seq;
+    }
+
+    pub fn riskObservedSequence(self: *const MultiShardKernelSet, idx: usize) u64 {
+        return self.risk_shards[idx].next_seq;
+    }
+
+    pub fn restorePublicationSequence(self: *MultiShardKernelSet, last: u64) void {
+        self.next_seq = last;
+        for (self.matching_shards) |*kernel| kernel.next_seq = last;
+        for (self.risk_shards) |*risk_shard| risk_shard.next_seq = last;
+    }
+
+    pub fn addSymbolAll(
+        self: *MultiShardKernelSet,
+        spec: common.CoreSymbolSpecification,
+    ) (risk.SymbolSpecificationProvider.AddSymbolError || int_map_order.LayoutError)!void {
+        // Java offers each live definition to every active risk handler; each
+        // handler applies the margin-enabled admission gate independently.
+        for (self.risk_shards) |*risk_shard| try risk_shard.engine.addSymbolForLiveAdmission(spec);
+        // Matching carriers own books only. Dormant embedded risk engines must
+        // stay empty even when matching_count exceeds risk_count.
+        for (self.matching_shards) |*kernel| _ = try kernel.addMatchingSymbol(spec);
     }
 
     pub fn shardIndexForUid(self: *const MultiShardKernelSet, uid: i64) usize {
-        std.debug.assert(self.kernels.len > 0);
-        if (self.kernels.len == 1) return 0;
-        const mask: u64 = @as(u64, @intCast(self.kernels.len - 1));
         const uid_bits: u64 = @bitCast(uid);
-        return @as(usize, @intCast(uid_bits & mask));
+        return @as(usize, @intCast(uid_bits & self.risk_mask));
     }
 
     pub fn shardIndexForSymbol(self: *const MultiShardKernelSet, symbol: i32) usize {
-        std.debug.assert(self.kernels.len > 0);
-        if (self.kernels.len == 1) return 0;
-        const mask: u64 = @as(u64, @intCast(self.kernels.len - 1));
         const symbol_bits: u64 = @as(u32, @bitCast(symbol));
-        return @as(usize, @intCast(symbol_bits & mask));
+        return @as(usize, @intCast(symbol_bits & self.matching_mask));
     }
 
+    /// Deprecated compatibility diagnostic. Staged order commands have both a
+    /// UID-owned risk route and a symbol-owned matching route, so callers must
+    /// prefer the explicit family routing functions above.
     pub fn shardIndexForCommand(self: *const MultiShardKernelSet, command: *const cmd.OrderCommand) usize {
         return switch (command.command) {
             .order_book_request => self.shardIndexForSymbol(command.symbol),
@@ -2023,8 +3453,665 @@ pub const MultiShardKernelSet = struct {
         self: *MultiShardKernelSet,
         command: *cmd.OrderCommand,
     ) ExecuteError!CommandResponse {
-        const idx = self.shardIndexForCommand(command);
-        return self.kernels[idx].execute(command);
+        return self.executePipeline(command);
+    }
+
+    pub fn executeRoutedAtSequence(
+        self: *MultiShardKernelSet,
+        assigned_sequence: publication.PublicationSequence,
+        command: *cmd.OrderCommand,
+    ) ExecuteError!CommandResponse {
+        return self.executePipelineAtSequence(assigned_sequence, command);
+    }
+
+    pub fn executeSplit(self: *MultiShardKernelSet, command: *cmd.OrderCommand) ExecuteError!CommandResponse {
+        return self.executePipeline(command);
+    }
+
+    pub fn executeSplitAtSequence(
+        self: *MultiShardKernelSet,
+        assigned_sequence: publication.PublicationSequence,
+        command: *cmd.OrderCommand,
+    ) ExecuteError!CommandResponse {
+        return self.executePipelineAtSequence(assigned_sequence, command);
+    }
+
+    fn executePipeline(
+        self: *MultiShardKernelSet,
+        command: *cmd.OrderCommand,
+    ) ExecuteError!CommandResponse {
+        return self.executePipelineAtSequence(
+            .fromInt(try self.nextSequence()),
+            command,
+        );
+    }
+
+    fn executePipelineAtSequence(
+        self: *MultiShardKernelSet,
+        assigned_sequence: publication.PublicationSequence,
+        command: *cmd.OrderCommand,
+    ) ExecuteError!CommandResponse {
+        const seq = assigned_sequence.toInt();
+        if (seq <= self.next_seq) return error.NonMonotonicPublicationSequence;
+        for (self.matching_shards) |*kernel| {
+            if (seq <= kernel.next_seq) return error.NonMonotonicPublicationSequence;
+        }
+        for (self.risk_shards) |*risk_shard| {
+            if (seq <= risk_shard.next_seq) return error.NonMonotonicPublicationSequence;
+        }
+
+        // Publication identity is consumed before state mutation, matching the
+        // single-kernel failure contract and preserving one global frontier.
+        self.next_seq = seq;
+        for (self.matching_shards) |*kernel| kernel.next_seq = seq;
+        for (self.risk_shards) |*risk_shard| risk_shard.next_seq = seq;
+
+        var response: CommandResponse = .{
+            .sequence = seq,
+            .command = command.*,
+            .result_code = command.result_code,
+        };
+        errdefer response.deinit(self.allocator);
+
+        var pipeline_command = command.*;
+        if (pipeline_command.command == .reset) {
+            self.resetAll();
+            pipeline_command.result_code = .success;
+            command.* = pipeline_command;
+            response.completeFromCommand(command);
+            return response;
+        }
+
+        if (ExchangeKernel.isBinaryFrameCommand(pipeline_command.command)) {
+            try self.executeBinaryFrame(seq, &pipeline_command, &response);
+            command.* = pipeline_command;
+            response.completeFromCommand(command);
+            return response;
+        }
+
+        var event_chain = events.EventChain.init(self.allocator);
+        defer event_chain.deinit();
+        var risk_l2_snapshot: ?naive.L2MarketData = null;
+        defer if (risk_l2_snapshot) |*snapshot| snapshot.deinit(self.allocator);
+
+        try self.executeRiskPreProcessStage(seq, &pipeline_command);
+        if (try self.executeMatchingStage(
+            &pipeline_command,
+            &response,
+            &event_chain,
+            &risk_l2_snapshot,
+        ) == .complete) {
+            command.* = pipeline_command;
+            response.completeFromCommand(command);
+            return response;
+        }
+
+        const top: ?events.L2Top = if (response.l2_snapshot) |*snapshot|
+            ExchangeKernel.l2TopFromSnapshot(snapshot)
+        else if (risk_l2_snapshot) |*snapshot|
+            ExchangeKernel.l2TopFromSnapshot(snapshot)
+        else
+            null;
+
+        var prepared_release = try self.prepareRiskReleaseStage(
+            &pipeline_command,
+            event_chain.head,
+            top,
+        );
+        defer prepared_release.deinit(self.allocator);
+        self.commitRiskReleaseStage(&prepared_release);
+
+        command.* = pipeline_command;
+        response.matcher_events_head = event_chain.takeOwnedHead();
+        response.completeFromCommand(command);
+        return response;
+    }
+
+    /// R1 stage: only the UID owner may mutate user/account/position state.
+    fn executeRiskPreProcessStage(
+        self: *MultiShardKernelSet,
+        seq: u64,
+        command: *cmd.OrderCommand,
+    ) ExecuteError!void {
+        const risk_owner = self.riskEngineForUid(command.uid);
+        _ = try risk_owner.preProcessCommand(seq, command);
+        applyControlCommandResult(command);
+    }
+
+    const MatchingStageDisposition = enum {
+        continue_to_risk_release,
+        complete,
+    };
+
+    /// Matching stage: only the symbol owner may mutate its order book.
+    fn executeMatchingStage(
+        self: *MultiShardKernelSet,
+        command: *cmd.OrderCommand,
+        response: *CommandResponse,
+        event_chain: *events.EventChain,
+        risk_l2_snapshot: *?naive.L2MarketData,
+    ) ExecuteError!MatchingStageDisposition {
+        if (!ExchangeKernel.isMatchingCommand(command.command)) {
+            return .continue_to_risk_release;
+        }
+
+        const matching_kernel = self.matchingShardForSymbol(command.symbol);
+        const book_ptr = matching_kernel.books.get(command.symbol) orelse {
+            command.result_code = .matching_invalid_order_book_id;
+            return .complete;
+        };
+
+        if (command.command == .order_book_request) {
+            const depth = if (command.size < 0)
+                std.math.maxInt(usize)
+            else
+                @as(usize, @intCast(command.size));
+            response.l2_snapshot = try book_ptr.l2Snapshot(self.allocator, depth);
+            command.result_code = .success;
+            return .continue_to_risk_release;
+        }
+
+        command.result_code = try book_ptr.processCommand(command, event_chain);
+        if (command.result_code == .success and
+            matching_kernel.shouldRefreshLastPriceFromMatching(command))
+        {
+            risk_l2_snapshot.* = try book_ptr.l2Snapshot(
+                self.allocator,
+                matching_kernel.l2_refresh_depth,
+            );
+        }
+        return .continue_to_risk_release;
+    }
+
+    const PreparedRiskReleaseStage = union(enum) {
+        none,
+        exchange: []risk.RiskEngine.PreparedExchangeRelease,
+        margin: []risk.RiskEngine.PreparedMarginRelease,
+
+        fn deinit(
+            self: *PreparedRiskReleaseStage,
+            allocator: std.mem.Allocator,
+        ) void {
+            switch (self.*) {
+                .none => {},
+                .exchange => |prepared| {
+                    for (prepared) |*release| release.deinit();
+                    allocator.free(prepared);
+                },
+                .margin => |prepared| {
+                    for (prepared) |*release| release.deinit();
+                    allocator.free(prepared);
+                },
+            }
+            self.* = undefined;
+        }
+    };
+
+    /// R2 prepare stage: finish every fallible shard calculation and
+    /// reservation before any shard can make a logical settlement write.
+    fn prepareRiskReleaseStage(
+        self: *MultiShardKernelSet,
+        command: *const cmd.OrderCommand,
+        event_head: ?*events.MatcherTradeEvent,
+        top: ?events.L2Top,
+    ) ExecuteError!PreparedRiskReleaseStage {
+        const release_spec = self.risk_shards[0].engine.symbol_spec_provider.getSymbolSpecification(
+            command.symbol,
+        ) orelse return .none;
+
+        if (release_spec.symbol_type == .currency_exchange_pair) {
+            return .{ .exchange = try self.prepareExchangeRiskReleaseStage(
+                command,
+                event_head,
+                top,
+            ) };
+        }
+        return .{ .margin = try self.prepareMarginRiskReleaseStage(
+            command,
+            event_head,
+            top,
+        ) };
+    }
+
+    fn prepareExchangeRiskReleaseStage(
+        self: *MultiShardKernelSet,
+        command: *const cmd.OrderCommand,
+        event_head: ?*events.MatcherTradeEvent,
+        top: ?events.L2Top,
+    ) ExecuteError![]risk.RiskEngine.PreparedExchangeRelease {
+        const prepared = try self.allocator.alloc(
+            risk.RiskEngine.PreparedExchangeRelease,
+            self.risk_shards.len,
+        );
+        var prepared_count: usize = 0;
+        errdefer {
+            for (prepared[0..prepared_count]) |*release| release.deinit();
+            self.allocator.free(prepared);
+        }
+
+        for (self.risk_shards, prepared) |*risk_shard, *release| {
+            release.* = try risk_shard.engine.prepareExchangeRiskRelease(command, event_head, top);
+            prepared_count += 1;
+        }
+        return prepared;
+    }
+
+    fn prepareMarginRiskReleaseStage(
+        self: *MultiShardKernelSet,
+        command: *const cmd.OrderCommand,
+        event_head: ?*events.MatcherTradeEvent,
+        top: ?events.L2Top,
+    ) ExecuteError![]risk.RiskEngine.PreparedMarginRelease {
+        const prepared = try self.allocator.alloc(
+            risk.RiskEngine.PreparedMarginRelease,
+            self.risk_shards.len,
+        );
+        var prepared_count: usize = 0;
+        errdefer {
+            for (prepared[0..prepared_count]) |*release| release.deinit();
+            self.allocator.free(prepared);
+        }
+
+        for (self.risk_shards, prepared) |*risk_shard, *release| {
+            release.* = try risk_shard.engine.prepareMarginRiskRelease(command, event_head, top);
+            prepared_count += 1;
+        }
+        return prepared;
+    }
+
+    /// R2 commit stage: preparation guarantees this pass is infallible, so
+    /// every active risk owner observes the matching result atomically.
+    fn commitRiskReleaseStage(
+        self: *MultiShardKernelSet,
+        prepared_release: *PreparedRiskReleaseStage,
+    ) void {
+        switch (prepared_release.*) {
+            .none => {},
+            .exchange => |prepared| {
+                for (self.risk_shards, prepared) |*risk_shard, *release| {
+                    risk_shard.engine.commitPreparedExchangeRiskRelease(release);
+                }
+            },
+            .margin => |prepared| {
+                for (self.risk_shards, prepared) |*risk_shard, *release| {
+                    risk_shard.engine.commitPreparedMarginRiskRelease(release);
+                }
+            },
+        }
+    }
+
+    fn resetAll(self: *MultiShardKernelSet) void {
+        for (self.risk_shards) |*risk_shard| {
+            risk_shard.engine.reset();
+            risk_shard.binary_frame_assembler.reset();
+        }
+        for (self.matching_shards) |*kernel| kernel.resetMatchingState();
+    }
+
+    const BinaryProcessorStage = struct {
+        target: *binary_frames.BinaryFrameAssembler,
+        staged: binary_frames.BinaryFrameAssembler,
+        result: ?binary_frames.AcceptResult = null,
+
+        fn deinit(self: *BinaryProcessorStage, allocator: std.mem.Allocator) void {
+            if (self.result) |*result| switch (result.*) {
+                .accepted => {},
+                .complete => |*complete| complete.deinit(allocator),
+            };
+            self.staged.deinit();
+            self.* = undefined;
+        }
+    };
+
+    const BinaryBroadcastError = binary_frames.AssemblyError || error{
+        BinaryProcessorMismatch,
+    };
+
+    fn produceJavaReport(
+        self: *MultiShardKernelSet,
+        query: binary_payload.DecodedReportQuery,
+    ) JavaReportBuildError!java_report_producer.ProducedReport {
+        const owned_matching = try self.allocator.alloc(
+            OwnedJavaMatchingSection,
+            self.matching_shards.len,
+        );
+        defer self.allocator.free(owned_matching);
+        var matching_initialized: usize = 0;
+        defer for (owned_matching[0..matching_initialized]) |*section| section.deinit();
+
+        const matching_sections = try self.allocator.alloc(
+            java_report_producer.MatchingSectionView,
+            self.matching_shards.len,
+        );
+        defer self.allocator.free(matching_sections);
+        for (self.matching_shards, 0..) |*kernel, idx| {
+            owned_matching[idx] = try buildJavaMatchingSection(
+                self.allocator,
+                kernel,
+                @intCast(idx),
+                self.matching_mask,
+                switch (query) {
+                    .state_hash => false,
+                    .single_user, .total_currency_balance, .unknown => true,
+                },
+            );
+            matching_initialized += 1;
+            matching_sections[idx] = owned_matching[idx].view;
+        }
+
+        const risk_sections = try self.allocator.alloc(
+            java_report_producer.RiskSectionView,
+            self.risk_shards.len,
+        );
+        defer self.allocator.free(risk_sections);
+        for (self.risk_shards, 0..) |*risk_shard, idx| {
+            risk_sections[idx] = .{
+                .shard_id = @intCast(idx),
+                .shard_mask = self.risk_mask,
+                .binary_processor = &risk_shard.binary_frame_assembler,
+                .engine = risk_shard.engine,
+            };
+        }
+
+        const config = &self.matching_shards[0];
+        return java_report_producer.produce(
+            self.allocator,
+            query,
+            matching_sections,
+            risk_sections,
+            config.java_identity_hash_context,
+            config.java_report_wire,
+        );
+    }
+
+    fn produceCustomReportEvents(
+        self: *MultiShardKernelSet,
+        descriptor: *const report_registry.Descriptor,
+        body: []const u8,
+    ) CustomReportDispatchError!?*events.MatcherTradeEvent {
+        var chain = events.EventChain.init(self.allocator);
+        defer chain.deinit();
+
+        const wire_config = self.matching_shards[0].java_report_wire;
+        for (self.risk_shards, 0..) |*risk_shard, idx| {
+            const shard_id = std.math.cast(i32, idx) orelse
+                return error.InvalidShardId;
+            const view: RiskReportView = .{
+                .engine = risk_shard.engine,
+                .binary_processor = &risk_shard.binary_frame_assembler,
+            };
+            try appendCustomRiskSection(
+                self.allocator,
+                &chain,
+                descriptor,
+                body,
+                &view,
+                shard_id,
+                self.risk_mask,
+                wire_config,
+            );
+        }
+
+        for (self.matching_shards, 0..) |*kernel, idx| {
+            const shard_id = std.math.cast(i32, idx) orelse
+                return error.InvalidShardId;
+            const view: MatchingReportView = .{
+                .kernel = kernel,
+                .binary_processor = &kernel.binary_frame_assembler,
+            };
+            try appendCustomMatchingSection(
+                self.allocator,
+                &chain,
+                descriptor,
+                body,
+                &view,
+                shard_id,
+                self.matching_mask,
+                wire_config,
+            );
+        }
+
+        return chain.takeOwnedHead();
+    }
+
+    /// Java sends every binary frame through every matching and risk binary
+    /// processor. Staging clones make that broadcast atomic: an allocation,
+    /// assembler, or consensus failure leaves every live processor unchanged.
+    fn executeBinaryFrame(
+        self: *MultiShardKernelSet,
+        seq: u64,
+        command: *cmd.OrderCommand,
+        response: *CommandResponse,
+    ) ExecuteError!void {
+        const frame_result = self.broadcastBinaryFrame(command) catch |err| switch (err) {
+            error.UnsupportedCommandType,
+            error.InvalidLastFlag,
+            error.TransferTypeMismatch,
+            error.TransferStateCorrupted,
+            error.BinaryProcessorMismatch,
+            => {
+                command.result_code = .binary_command_failed;
+                return;
+            },
+            error.OutOfMemory => return error.OutOfMemory,
+        };
+
+        switch (frame_result) {
+            .accepted => command.result_code = .accepted,
+            .complete => |complete| {
+                var owned_complete = complete;
+                defer owned_complete.deinit(self.allocator);
+                switch (owned_complete.command_type) {
+                    .binary_data_command => {
+                        self.executeBinaryPayloadWords(seq, owned_complete.words) catch |err| switch (err) {
+                            error.OutOfMemory => return error.OutOfMemory,
+                            else => command.result_code = .binary_command_failed,
+                        };
+                        if (command.result_code != .binary_command_failed) command.result_code = .success;
+                    },
+                    .binary_data_query => {
+                        var envelope = report_query_envelope.decodeWordsJavaFirst(
+                            self.allocator,
+                            owned_complete.words,
+                            .{},
+                        ) catch |err| switch (err) {
+                            error.OutOfMemory => return error.OutOfMemory,
+                            else => {
+                                command.result_code = .binary_command_failed;
+                                return;
+                            },
+                        };
+                        defer envelope.deinit();
+
+                        const registry = self.matching_shards[0].custom_report_registry;
+                        if (!envelope.isReservedBuiltInCode()) {
+                            const descriptor = registry.lookup(envelope.raw.code) orelse {
+                                command.result_code = .success;
+                                return;
+                            };
+                            response.matcher_events_head = self.produceCustomReportEvents(
+                                descriptor,
+                                envelope.raw.body,
+                            ) catch |err| switch (err) {
+                                error.OutOfMemory => return error.OutOfMemory,
+                                else => {
+                                    command.result_code = .binary_command_failed;
+                                    return;
+                                },
+                            };
+                            command.result_code = .success;
+                            return;
+                        }
+
+                        const decoded = envelope.decodeBuiltInOrIgnored() catch |err| switch (err) {
+                            error.OutOfMemory => return error.OutOfMemory,
+                            else => {
+                                command.result_code = .binary_command_failed;
+                                return;
+                            },
+                        };
+                        if (!self.matching_shards[0].isJavaReportQueryEnabled(decoded)) {
+                            command.result_code = .success;
+                            return;
+                        }
+
+                        // Keep the Java wire lane authoritative. A native
+                        // aggregation runs only for an explicitly marked
+                        // terminal frame and only after exact production.
+                        const produced: ?java_report_producer.ProducedReport = self.produceJavaReport(decoded) catch |err| switch (err) {
+                            error.OutOfMemory => return error.OutOfMemory,
+                            error.MissingJavaIdentityHashContext => if (command.binary_report_projection == .exact_java_and_native)
+                                null
+                            else {
+                                command.result_code = .binary_command_failed;
+                                return;
+                            },
+                            else => {
+                                command.result_code = .binary_command_failed;
+                                return;
+                            },
+                        };
+                        if (produced) |owned| {
+                            response.java_report_response = owned.response;
+                            response.matcher_events_head = owned.events_head;
+                        }
+
+                        if (command.binary_report_projection == .exact_java_and_native) {
+                            const native_query = nativeQueryForJava(decoded) orelse unreachable;
+                            response.report_response = self.queryReport(native_query) catch |err| switch (err) {
+                                error.OutOfMemory => return error.OutOfMemory,
+                                else => {
+                                    response.deinit(self.allocator);
+                                    command.result_code = .binary_command_failed;
+                                    return;
+                                },
+                            };
+                        }
+                        command.result_code = .success;
+                    },
+                    else => command.result_code = .binary_command_failed,
+                }
+            },
+        }
+    }
+
+    fn broadcastBinaryFrame(
+        self: *MultiShardKernelSet,
+        command: *const cmd.OrderCommand,
+    ) BinaryBroadcastError!binary_frames.AcceptResult {
+        const processor_count = self.matching_shards.len + self.risk_shards.len;
+        const stages = try self.allocator.alloc(BinaryProcessorStage, processor_count);
+        defer self.allocator.free(stages);
+        var initialized: usize = 0;
+        defer for (stages[0..initialized]) |*stage| stage.deinit(self.allocator);
+
+        for (0..processor_count) |idx| {
+            const target = self.binaryAssemblerAt(idx);
+            stages[idx] = .{
+                .target = target,
+                .staged = binary_frames.BinaryFrameAssembler.init(self.allocator),
+            };
+            initialized += 1;
+
+            var pending = try target.capturePendingState(self.allocator);
+            defer pending.deinit();
+            try stages[idx].staged.restorePendingState(pending.transfers);
+            stages[idx].result = try stages[idx].staged.acceptFrame(command);
+        }
+
+        const canonical = stages[0].result orelse return error.BinaryProcessorMismatch;
+        for (stages[1..]) |stage| {
+            const candidate = stage.result orelse return error.BinaryProcessorMismatch;
+            if (!binaryAcceptResultEqual(canonical, candidate)) {
+                return error.BinaryProcessorMismatch;
+            }
+        }
+
+        // All processors accepted the same frame and, on completion, produced
+        // byte-identical transfer payloads. Commit every staged state together.
+        for (stages) |*stage| {
+            std.mem.swap(
+                binary_frames.BinaryFrameAssembler,
+                stage.target,
+                &stage.staged,
+            );
+        }
+
+        const result = stages[0].result.?;
+        stages[0].result = null;
+        return result;
+    }
+
+    fn binaryAssemblerAt(
+        self: *MultiShardKernelSet,
+        idx: usize,
+    ) *binary_frames.BinaryFrameAssembler {
+        if (idx < self.matching_shards.len) {
+            return &self.matching_shards[idx].binary_frame_assembler;
+        }
+        return &self.risk_shards[idx - self.matching_shards.len].binary_frame_assembler;
+    }
+
+    fn binaryAcceptResultEqual(
+        lhs: binary_frames.AcceptResult,
+        rhs: binary_frames.AcceptResult,
+    ) bool {
+        return switch (lhs) {
+            .accepted => switch (rhs) {
+                .accepted => true,
+                .complete => false,
+            },
+            .complete => |left| switch (rhs) {
+                .accepted => false,
+                .complete => |right| left.transfer_id == right.transfer_id and
+                    left.command_type == right.command_type and
+                    std.mem.eql(i64, left.words, right.words),
+            },
+        };
+    }
+
+    fn executeBinaryPayloadWords(
+        self: *MultiShardKernelSet,
+        seq: u64,
+        words: []const i64,
+    ) BinaryPayloadExecutionError!void {
+        var decoded = try decodeBinaryCommandWordsJavaFirst(self.allocator, words);
+        defer decoded.deinit();
+        const cfg = self.matching_shards[0].report_queries_cfg;
+
+        switch (decoded.payload) {
+            .add_symbols => |symbols| {
+                if (!cfg.add_symbols_binary) return error.UnsupportedBinaryCommandType;
+                const handler_order = try javaSymbolHandlerOrder(self.allocator, symbols);
+                defer self.allocator.free(handler_order);
+                for (handler_order) |symbol| try self.addSymbolAll(symbol);
+            },
+            .add_accounts => |users| {
+                if (!cfg.add_accounts_binary) return error.UnsupportedBinaryCommandType;
+                for (users) |user_batch| {
+                    const owner = self.riskEngineForUid(user_batch.uid);
+                    var add_user = makeAddUserCommand(user_batch.uid);
+                    _ = try owner.preProcessCommand(seq, &add_user);
+                    switch (add_user.result_code) {
+                        .success => {},
+                        .user_mgmt_user_already_exists => continue,
+                        else => return error.BinaryCommandRejected,
+                    }
+                    for (user_batch.accounts) |account| {
+                        const tx_id = 1_000_000_000 + @as(i64, account.currency);
+                        var adjustment = makeBalanceAdjustmentCommand(
+                            user_batch.uid,
+                            account.currency,
+                            account.balance,
+                            tx_id,
+                            .adjustment,
+                        );
+                        _ = try owner.preProcessCommand(seq, &adjustment);
+                        if (adjustment.result_code != .success) return error.BinaryCommandRejected;
+                    }
+                }
+            },
+        }
     }
 
     pub fn queryUserBalance(
@@ -2032,148 +4119,624 @@ pub const MultiShardKernelSet = struct {
         uid: i64,
         currency: i32,
     ) ReportError!?i64 {
-        const idx = self.shardIndexForUid(uid);
-        var report = try self.kernels[idx].queryReport(.{
-            .user_balance = .{
-                .uid = uid,
-                .currency = currency,
-            },
-        });
-        defer report.deinit(self.allocator);
-        return report.user_balance;
+        const profile = self.riskEngineForUid(uid).getUserProfile(uid) orelse return null;
+        return profile.accountBalance(currency);
     }
 
-    pub fn aggregateTotalCurrencyBalance(self: *MultiShardKernelSet) AggregateError!TotalCurrencyBalanceReport {
-        var total: TotalCurrencyBalanceReport = .{};
-        errdefer total.deinit(self.allocator);
+    pub fn queryReport(self: *MultiShardKernelSet, query: ReportQuery) AggregateError!ReportResponse {
+        if (!self.matching_shards[0].isReportQueryEnabled(query)) {
+            return error.UnsupportedReportQueryType;
+        }
+        return switch (query) {
+            .risk_state_hash => .{ .risk_state_hash = try self.buildRiskStateHash() },
+            .state_hash_detailed => .{
+                .state_hash_detailed = try self.buildStateHashDetailedReport(),
+            },
+            .fee_collected => |currency| blk: {
+                var total: i64 = 0;
+                for (self.risk_shards) |*risk_shard| {
+                    total = std.math.add(
+                        i64,
+                        total,
+                        risk_shard.engine.getFeeCollected(currency),
+                    ) catch return error.ArithmeticOverflow;
+                }
+                break :blk .{ .fee_collected = total };
+            },
+            .single_user => |uid| .{
+                .single_user = try self.buildSingleUserReport(uid),
+            },
+            .total_currency_balance => .{
+                .total_currency_balance = try self.buildTotalCurrencyBalanceReport(),
+            },
+            .user_balance => |target| .{
+                .user_balance = try self.queryUserBalance(target.uid, target.currency),
+            },
+            .order_book => |request| blk: {
+                const matching = self.matchingShardForSymbol(request.symbol);
+                const book = matching.books.get(request.symbol) orelse return error.UnknownSymbol;
+                break :blk .{ .order_book = try book.l2Snapshot(self.allocator, request.depth) };
+            },
+        };
+    }
 
-        for (self.kernels) |*kernel| {
-            var report = try kernel.queryReport(.total_currency_balance);
-            defer report.deinit(self.allocator);
-            switch (report) {
-                .total_currency_balance => |*partial| {
-                    try mergeI32I64MapChecked(self.allocator, &total.account_balances, &partial.account_balances);
-                    try mergeI32I64MapChecked(self.allocator, &total.orders_balances, &partial.orders_balances);
-                    try mergeI32I64MapChecked(self.allocator, &total.fees, &partial.fees);
-                    try mergeI32I64MapChecked(self.allocator, &total.adjustments, &partial.adjustments);
-                    try mergeI32I64MapChecked(self.allocator, &total.suspends, &partial.suspends);
-                    try mergeI32I64MapChecked(self.allocator, &total.open_interest_long, &partial.open_interest_long);
-                    try mergeI32I64MapChecked(self.allocator, &total.open_interest_short, &partial.open_interest_short);
-                },
-                else => return error.StateHashCorrupted,
+    fn buildSingleUserReport(
+        self: *MultiShardKernelSet,
+        uid: i64,
+    ) std.mem.Allocator.Error!SingleUserReport {
+        var report: SingleUserReport = .{
+            .uid = uid,
+            .query_execution_status = .ok,
+        };
+        errdefer report.deinit(self.allocator);
+
+        if (self.riskEngineForUid(uid).getUserProfile(uid)) |profile| {
+            report.user_status = profile.user_status;
+            var accounts_it = profile.accounts.iterator();
+            while (accounts_it.next()) |entry| {
+                try report.accounts.put(self.allocator, entry.key_ptr.*, entry.value_ptr.*);
+            }
+            var positions_it = profile.positions.iterator();
+            while (positions_it.next()) |entry| {
+                const position = entry.value_ptr.*;
+                try report.positions.put(self.allocator, entry.key_ptr.*, .{
+                    .quote_currency = position.currency,
+                    .direction = position.direction,
+                    .open_volume = position.open_volume,
+                    .open_price_sum = position.open_price_sum,
+                    .profit = position.profit,
+                    .pending_sell_size = position.pending_sell_size,
+                    .pending_buy_size = position.pending_buy_size,
+                });
+            }
+        } else {
+            report.query_execution_status = .user_not_found;
+        }
+
+        for (self.matching_shards) |*matching| {
+            var book_it = matching.books.valueIterator();
+            while (book_it.next()) |book| {
+                try book.*.appendUserOrders(self.allocator, uid, &report.orders);
             }
         }
-        return total;
+        std.sort.heap(naive.UserOrderView, report.orders.items, {}, ExchangeKernel.lessThanUserOrder);
+        return report;
     }
 
-    pub fn detailedHashFingerprint(self: *MultiShardKernelSet) ReportError!u64 {
-        var hasher = std.hash.Wyhash.init(0);
-        hashU64Test(&hasher, @as(u64, @intCast(self.kernels.len)));
-        for (self.kernels) |*kernel| {
-            var report = try kernel.queryReport(.state_hash_detailed);
-            defer report.deinit(self.allocator);
-            switch (report) {
-                .state_hash_detailed => |detailed| {
-                    const module_id = std.math.cast(i32, kernel.risk_engine.shard_id) orelse
-                        return error.ArithmeticOverflow;
-                    hashI32Test(&hasher, module_id);
-                    hashU64Test(&hasher, detailed.aggregate_hash);
-                },
-                else => return error.StateHashCorrupted,
+    fn buildTotalCurrencyBalanceReport(
+        self: *MultiShardKernelSet,
+    ) AggregateError!TotalCurrencyBalanceReport {
+        var report: TotalCurrencyBalanceReport = .{};
+        errdefer report.deinit(self.allocator);
+
+        for (self.risk_shards) |*risk_shard| {
+            const engine = risk_shard.engine;
+            var profile_it = engine.user_profile_service.user_profiles.valueIterator();
+            while (profile_it.next()) |profile| {
+                var account_it = profile.accounts.iterator();
+                while (account_it.next()) |entry| {
+                    try ExchangeKernel.addToI32I64Map(
+                        self.allocator,
+                        &report.account_balances,
+                        entry.key_ptr.*,
+                        entry.value_ptr.*,
+                    );
+                }
+                var position_it = profile.positions.iterator();
+                while (position_it.next()) |entry| {
+                    const symbol_id = entry.key_ptr.*;
+                    const position = entry.value_ptr.*;
+                    const spec = engine.symbol_spec_provider.getSymbolSpecification(symbol_id) orelse
+                        return error.UnknownSymbol;
+                    const estimated_profit = try engine.estimatePositionProfitForReport(&position, spec);
+                    try ExchangeKernel.addToI32I64Map(
+                        self.allocator,
+                        &report.account_balances,
+                        position.currency,
+                        estimated_profit,
+                    );
+                    if (position.open_volume <= 0) continue;
+                    switch (position.direction) {
+                        .long => try ExchangeKernel.addToI32I64Map(
+                            self.allocator,
+                            &report.open_interest_long,
+                            symbol_id,
+                            position.open_volume,
+                        ),
+                        .short => try ExchangeKernel.addToI32I64Map(
+                            self.allocator,
+                            &report.open_interest_short,
+                            symbol_id,
+                            position.open_volume,
+                        ),
+                        .empty => {},
+                    }
+                }
             }
+            try mergeI32I64MapChecked(self.allocator, &report.fees, &engine.fees);
+            try mergeI32I64MapChecked(self.allocator, &report.adjustments, &engine.adjustments);
+            try mergeI32I64MapChecked(self.allocator, &report.suspends, &engine.suspends);
+        }
+
+        for (self.matching_shards) |*matching| {
+            var book_it = matching.books.iterator();
+            while (book_it.next()) |entry| {
+                const spec = entry.value_ptr.*.symbolSpecification();
+                if (spec.symbol_type == .currency_exchange_pair) {
+                    try entry.value_ptr.*.accumulateOrderHolds(
+                        self.allocator,
+                        &report.orders_balances,
+                    );
+                }
+            }
+        }
+        return report;
+    }
+
+    fn buildRiskStateHash(self: *MultiShardKernelSet) ReportError!u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        ExchangeKernel.hashU64(&hasher, @as(u64, @intCast(self.risk_shards.len)));
+        for (self.risk_shards, 0..) |*risk_shard, idx| {
+            ExchangeKernel.hashU64(&hasher, @as(u64, @intCast(idx)));
+            ExchangeKernel.hashU64(&hasher, try risk_shard.engine.stateHash());
         }
         return hasher.final();
     }
 
-    fn nextSequence(self: *MultiShardKernelSet) error{SequenceOverflow}!u64 {
-        if (self.next_seq == std.math.maxInt(u64)) {
-            return error.SequenceOverflow;
+    fn buildStateHashDetailedReport(
+        self: *MultiShardKernelSet,
+    ) ReportError!DetailedStateHashReport {
+        var report: DetailedStateHashReport = .{ .aggregate_hash = 0 };
+        errdefer report.deinit(self.allocator);
+
+        for (self.risk_shards, 0..) |*risk_shard, idx| {
+            const engine = risk_shard.engine;
+            const module_id = std.math.cast(i32, idx) orelse return error.ArithmeticOverflow;
+            const binary_hash = try stateHashBinaryAssembler(&risk_shard.binary_frame_assembler);
+            try report.submodules.append(self.allocator, .{
+                .module_id = module_id,
+                .submodule = .risk_symbol_spec_provider,
+                .hash = try engine.symbol_spec_provider.stateHash(),
+            });
+            try report.submodules.append(self.allocator, .{
+                .module_id = module_id,
+                .submodule = .risk_user_profile_service,
+                .hash = try engine.user_profile_service.stateHash(),
+            });
+            try report.submodules.append(self.allocator, .{
+                .module_id = module_id,
+                .submodule = .risk_binary_cmd_processor,
+                .hash = binary_hash,
+            });
+            try report.submodules.append(self.allocator, .{
+                .module_id = module_id,
+                .submodule = .risk_last_price_cache,
+                .hash = try self.stateHashLastPriceCache(engine),
+            });
+            try report.submodules.append(self.allocator, .{
+                .module_id = module_id,
+                .submodule = .risk_fees,
+                .hash = try self.stateHashI32I64Map(&engine.fees),
+            });
+            try report.submodules.append(self.allocator, .{
+                .module_id = module_id,
+                .submodule = .risk_adjustments,
+                .hash = try self.stateHashI32I64Map(&engine.adjustments),
+            });
+            try report.submodules.append(self.allocator, .{
+                .module_id = module_id,
+                .submodule = .risk_suspends,
+                .hash = try self.stateHashI32I64Map(&engine.suspends),
+            });
+            try report.submodules.append(self.allocator, .{
+                .module_id = module_id,
+                .submodule = .risk_shard_mask,
+                .hash = self.risk_mask,
+            });
         }
-        self.next_seq += 1;
-        return self.next_seq;
+
+        for (self.matching_shards, 0..) |*matching, idx| {
+            const module_id = std.math.cast(i32, idx) orelse return error.ArithmeticOverflow;
+            try report.submodules.append(self.allocator, .{
+                .module_id = module_id,
+                .submodule = .matching_binary_cmd_processor,
+                .hash = try stateHashBinaryAssembler(&matching.binary_frame_assembler),
+            });
+            try report.submodules.append(self.allocator, .{
+                .module_id = module_id,
+                .submodule = .matching_order_books,
+                .hash = try matching.stateHashOrderBooks(),
+            });
+            try report.submodules.append(self.allocator, .{
+                .module_id = module_id,
+                .submodule = .matching_shard_mask,
+                .hash = self.matching_mask,
+            });
+        }
+
+        std.sort.heap(
+            StateHashSubmodule,
+            report.submodules.items,
+            {},
+            ExchangeKernel.lessThanStateHashSubmodule,
+        );
+        report.aggregate_hash = ExchangeKernel.stateHashFromSubmodules(report.submodules.items);
+        return report;
     }
 
-    pub fn executeSplit(self: *MultiShardKernelSet, command: *cmd.OrderCommand) ExecuteError!CommandResponse {
-        const seq = try self.nextSequence();
-        var event_chain = events.EventChain.init(self.allocator);
-        defer event_chain.deinit();
-
-        var response: CommandResponse = .{
-            .sequence = seq,
-            .result_code = command.result_code,
+    fn stateHashBinaryAssembler(
+        assembler: *const binary_frames.BinaryFrameAssembler,
+    ) ReportError!u64 {
+        return assembler.stateHash() catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.TransferStateCorrupted => return error.BinaryFrameCorrupted,
         };
-        errdefer response.deinit(self.allocator);
+    }
 
-        var pipeline_command = command.*;
-        const risk_owner_idx = self.shardIndexForUid(pipeline_command.uid);
-        {
-            var owner_pre = pipeline_command;
-            _ = try self.kernels[risk_owner_idx].risk_engine.preProcessCommand(seq, &owner_pre);
-            pipeline_command.result_code = owner_pre.result_code;
-            pipeline_command.action = owner_pre.action;
+    fn stateHashI32I64Map(
+        self: *MultiShardKernelSet,
+        map: *const std.AutoHashMapUnmanaged(i32, i64),
+    ) ReportError!u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        var keys: std.ArrayListUnmanaged(i32) = .empty;
+        defer keys.deinit(self.allocator);
+        try keys.ensureTotalCapacityPrecise(self.allocator, map.count());
+        var it = map.iterator();
+        while (it.next()) |entry| keys.appendAssumeCapacity(entry.key_ptr.*);
+        std.sort.heap(i32, keys.items, {}, ExchangeKernel.lessThanI32);
+        for (keys.items) |key| {
+            const value = map.get(key) orelse return error.StateHashCorrupted;
+            ExchangeKernel.hashI32(&hasher, key);
+            ExchangeKernel.hashI64(&hasher, value);
         }
-        for (0..self.kernels.len) |idx| {
-            if (idx == risk_owner_idx) continue;
-            var pre = pipeline_command;
-            _ = try self.kernels[idx].risk_engine.preProcessCommand(seq, &pre);
+        return hasher.final();
+    }
+
+    fn stateHashLastPriceCache(
+        self: *MultiShardKernelSet,
+        engine: *const risk.RiskEngine,
+    ) ReportError!u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        var keys: std.ArrayListUnmanaged(i32) = .empty;
+        defer keys.deinit(self.allocator);
+        try keys.ensureTotalCapacityPrecise(self.allocator, engine.last_price_cache.count());
+        var it = engine.last_price_cache.iterator();
+        while (it.next()) |entry| keys.appendAssumeCapacity(entry.key_ptr.*);
+        std.sort.heap(i32, keys.items, {}, ExchangeKernel.lessThanI32);
+        for (keys.items) |key| {
+            const value = engine.last_price_cache.get(key) orelse return error.StateHashCorrupted;
+            ExchangeKernel.hashI32(&hasher, key);
+            ExchangeKernel.hashI64(&hasher, value.ask_price);
+            ExchangeKernel.hashI64(&hasher, value.bid_price);
+        }
+        return hasher.final();
+    }
+
+    pub fn aggregateTotalCurrencyBalance(self: *MultiShardKernelSet) AggregateError!TotalCurrencyBalanceReport {
+        return self.buildTotalCurrencyBalanceReport();
+    }
+
+    pub fn detailedHashFingerprint(self: *MultiShardKernelSet) ReportError!u64 {
+        var detailed = try self.buildStateHashDetailedReport();
+        defer detailed.deinit(self.allocator);
+        return detailed.aggregate_hash;
+    }
+
+    /// Narrow staged-execution boundary for grouped-pipeline owners.
+    /// Production immediate APIs continue to use `executePipelineAtSequence`;
+    /// this adapter deliberately exposes no shard storage and owns no
+    /// scheduling policy.
+    pub const StageAdapter = struct {
+        kernels: *MultiShardKernelSet,
+
+        pub const MatchingOutput = struct {
+            response: CommandResponse,
+            r2_events_head: ?*events.MatcherTradeEvent = null,
+            r2_top: ?events.L2Top = null,
+            requires_risk_release: bool = false,
+
+            pub fn deinit(self: *MatchingOutput, output_allocator: std.mem.Allocator) void {
+                self.response.deinit(output_allocator);
+                events.deinitMatcherEventChain(output_allocator, self.r2_events_head);
+                self.* = undefined;
+            }
+        };
+
+        pub const PreparedRiskRelease = struct {
+            inner: PreparedRiskReleaseStage,
+
+            pub fn deinit(
+                self: *PreparedRiskRelease,
+                release_allocator: std.mem.Allocator,
+            ) void {
+                self.inner.deinit(release_allocator);
+                self.* = undefined;
+            }
+        };
+
+        pub const RiskReleaseKind = enum {
+            none,
+            exchange,
+            margin,
+        };
+
+        pub const PreparedShardRiskRelease = union(RiskReleaseKind) {
+            none,
+            exchange: risk.RiskEngine.PreparedExchangeRelease,
+            margin: risk.RiskEngine.PreparedMarginRelease,
+
+            pub fn deinit(self: *PreparedShardRiskRelease) void {
+                switch (self.*) {
+                    .none => {},
+                    .exchange => |*prepared| prepared.deinit(),
+                    .margin => |*prepared| prepared.deinit(),
+                }
+                self.* = undefined;
+            }
+        };
+
+        pub fn init(kernels: *MultiShardKernelSet) StageAdapter {
+            return .{ .kernels = kernels };
         }
 
-        applyControlCommandResult(&pipeline_command);
+        pub fn allocator(self: StageAdapter) std.mem.Allocator {
+            return self.kernels.allocator;
+        }
 
-        const matching_idx = self.shardIndexForSymbol(pipeline_command.symbol);
-        if (switch (pipeline_command.command) {
-            .move_order,
-            .cancel_order,
-            .reduce_order,
-            .place_order,
-            .order_book_request,
-            => true,
-            else => false,
-        }) {
-            const matching_kernel = &self.kernels[matching_idx];
-            const book_ptr = matching_kernel.books.get(pipeline_command.symbol) orelse {
-                pipeline_command.result_code = .matching_invalid_order_book_id;
-                command.result_code = pipeline_command.result_code;
-                response.result_code = pipeline_command.result_code;
-                return response;
+        pub fn settledFrontier(self: StageAdapter) u64 {
+            return self.kernels.next_seq;
+        }
+
+        pub fn publicationFrontiersEqual(
+            self: StageAdapter,
+            expected: u64,
+        ) bool {
+            if (self.kernels.next_seq != expected) return false;
+            for (self.kernels.matching_shards) |*kernel| {
+                if (kernel.next_seq != expected) return false;
+            }
+            for (self.kernels.risk_shards) |*risk_shard| {
+                if (risk_shard.next_seq != expected) return false;
+            }
+            return true;
+        }
+
+        pub fn riskShardCount(self: StageAdapter) usize {
+            return self.kernels.riskShardCount();
+        }
+
+        pub fn matchingShardCount(self: StageAdapter) usize {
+            return self.kernels.matchingShardCount();
+        }
+
+        pub fn riskOwnerIndex(
+            self: StageAdapter,
+            command: *const cmd.OrderCommand,
+        ) usize {
+            return self.kernels.shardIndexForUid(command.uid);
+        }
+
+        pub fn matchingOwnerIndex(
+            self: StageAdapter,
+            command: *const cmd.OrderCommand,
+        ) usize {
+            return self.kernels.shardIndexForSymbol(command.symbol);
+        }
+
+        /// Read-only publication admission. The serial grouped owner completes
+        /// every other fallible admission step before settling an older group.
+        pub fn validatePublicationSequence(
+            self: StageAdapter,
+            assigned_sequence: publication.PublicationSequence,
+        ) ExecuteError!void {
+            const seq = assigned_sequence.toInt();
+            if (seq <= self.kernels.next_seq) return error.NonMonotonicPublicationSequence;
+            for (self.kernels.matching_shards) |*kernel| {
+                if (seq <= kernel.next_seq) return error.NonMonotonicPublicationSequence;
+            }
+            for (self.kernels.risk_shards) |*risk_shard| {
+                if (seq <= risk_shard.next_seq) return error.NonMonotonicPublicationSequence;
+            }
+        }
+
+        /// Infallible after `validatePublicationSequence` while the caller
+        /// retains exclusive publication-frontier ownership.
+        pub fn consumePublicationSequence(
+            self: StageAdapter,
+            assigned_sequence: publication.PublicationSequence,
+        ) void {
+            const seq = assigned_sequence.toInt();
+            std.debug.assert(seq > self.kernels.next_seq);
+            for (self.kernels.matching_shards) |*kernel| {
+                std.debug.assert(seq > kernel.next_seq);
+            }
+            for (self.kernels.risk_shards) |*risk_shard| {
+                std.debug.assert(seq > risk_shard.next_seq);
+            }
+            self.kernels.next_seq = seq;
+            for (self.kernels.matching_shards) |*kernel| kernel.next_seq = seq;
+            for (self.kernels.risk_shards) |*risk_shard| risk_shard.next_seq = seq;
+        }
+
+        pub fn runRiskPreProcess(
+            self: StageAdapter,
+            sequence: u64,
+            command: *cmd.OrderCommand,
+        ) ExecuteError!void {
+            if (command.command == .reset or
+                ExchangeKernel.isBinaryFrameCommand(command.command))
+            {
+                return;
+            }
+            try self.kernels.executeRiskPreProcessStage(sequence, command);
+        }
+
+        pub fn runRiskPreProcessForShard(
+            self: StageAdapter,
+            shard_index: usize,
+            sequence: u64,
+            command: *cmd.OrderCommand,
+        ) ExecuteError!void {
+            std.debug.assert(shard_index < self.riskShardCount());
+            if (shard_index != self.riskOwnerIndex(command)) return;
+            try self.runRiskPreProcess(sequence, command);
+        }
+
+        pub fn runMatching(
+            self: StageAdapter,
+            sequence: u64,
+            command: *cmd.OrderCommand,
+        ) ExecuteError!MatchingOutput {
+            var response: CommandResponse = .{
+                .sequence = sequence,
+                .command = command.*,
+                .result_code = command.result_code,
             };
+            errdefer response.deinit(self.kernels.allocator);
 
-            if (pipeline_command.command == .order_book_request) {
-                const depth = if (pipeline_command.size < 0)
-                    std.math.maxInt(usize)
-                else
-                    @as(usize, @intCast(pipeline_command.size));
-                response.l2_snapshot = try book_ptr.l2Snapshot(self.allocator, depth);
-                pipeline_command.result_code = .success;
-            } else {
-                pipeline_command.result_code = try book_ptr.processCommand(&pipeline_command, &event_chain);
+            if (command.command == .reset) {
+                self.kernels.resetAll();
+                command.result_code = .success;
+                response.completeFromCommand(command);
+                return .{ .response = response };
             }
-        }
 
-        const top: ?events.L2Top = if (response.l2_snapshot) |*snapshot|
-            .{
-                .ask_size = snapshot.asks.items.len,
-                .bid_size = snapshot.bids.items.len,
-                .ask_price_0 = if (snapshot.asks.items.len == 0) std.math.maxInt(i64) else snapshot.asks.items[0].price,
-                .bid_price_0 = if (snapshot.bids.items.len == 0) 0 else snapshot.bids.items[0].price,
+            if (ExchangeKernel.isBinaryFrameCommand(command.command)) {
+                try self.kernels.executeBinaryFrame(sequence, command, &response);
+                response.completeFromCommand(command);
+                return .{ .response = response };
             }
-        else
-            null;
 
-        for (self.kernels) |*kernel| {
-            var release = pipeline_command;
-            _ = try kernel.risk_engine.handlerRiskRelease(
-                seq,
-                &release,
-                event_chain.head,
-                top,
+            var event_chain = events.EventChain.init(self.kernels.allocator);
+            defer event_chain.deinit();
+            var risk_l2_snapshot: ?naive.L2MarketData = null;
+            defer if (risk_l2_snapshot) |*snapshot| snapshot.deinit(self.kernels.allocator);
+
+            const disposition = try self.kernels.executeMatchingStage(
+                command,
+                &response,
+                &event_chain,
+                &risk_l2_snapshot,
             );
+            const requires_risk_release = disposition == .continue_to_risk_release;
+            const top: ?events.L2Top = if (!requires_risk_release)
+                null
+            else if (response.l2_snapshot) |*snapshot|
+                ExchangeKernel.l2TopFromSnapshot(snapshot)
+            else if (risk_l2_snapshot) |*snapshot|
+                ExchangeKernel.l2TopFromSnapshot(snapshot)
+            else
+                null;
+
+            const r2_events_head = event_chain.takeOwnedHead();
+            errdefer events.deinitMatcherEventChain(self.kernels.allocator, r2_events_head);
+            response.matcher_events_head = try events.cloneMatcherEventChain(
+                self.kernels.allocator,
+                r2_events_head,
+            );
+            response.completeFromCommand(command);
+            return .{
+                .response = response,
+                .r2_events_head = r2_events_head,
+                .r2_top = top,
+                .requires_risk_release = requires_risk_release,
+            };
         }
 
-        command.result_code = pipeline_command.result_code;
-        command.action = pipeline_command.action;
-        response.result_code = pipeline_command.result_code;
-        return response;
+        pub fn runMatchingForShard(
+            self: StageAdapter,
+            shard_index: usize,
+            sequence: u64,
+            command: *cmd.OrderCommand,
+        ) ExecuteError!?MatchingOutput {
+            std.debug.assert(shard_index < self.matchingShardCount());
+            if (shard_index != self.matchingOwnerIndex(command)) return null;
+            return try self.runMatching(sequence, command);
+        }
+
+        /// The canonical symbol specification is shared by every risk shard.
+        /// Resolve its release family exactly once before per-shard preparation.
+        pub fn riskReleaseKind(
+            self: StageAdapter,
+            command: *const cmd.OrderCommand,
+        ) RiskReleaseKind {
+            const release_spec = self.kernels.risk_shards[0].engine.symbol_spec_provider
+                .getSymbolSpecification(command.symbol) orelse return .none;
+            return if (release_spec.symbol_type == .currency_exchange_pair)
+                .exchange
+            else
+                .margin;
+        }
+
+        pub fn prepareRiskReleaseForShard(
+            self: StageAdapter,
+            shard_index: usize,
+            kind: RiskReleaseKind,
+            command: *const cmd.OrderCommand,
+            event_head: ?*events.MatcherTradeEvent,
+            top: ?events.L2Top,
+        ) ExecuteError!PreparedShardRiskRelease {
+            std.debug.assert(shard_index < self.riskShardCount());
+            const engine = self.kernels.risk_shards[shard_index].engine;
+            return switch (kind) {
+                .none => .none,
+                .exchange => .{
+                    .exchange = try engine.prepareExchangeRiskRelease(
+                        command,
+                        event_head,
+                        top,
+                    ),
+                },
+                .margin => .{
+                    .margin = try engine.prepareMarginRiskRelease(
+                        command,
+                        event_head,
+                        top,
+                    ),
+                },
+            };
+        }
+
+        pub fn commitPreparedRiskReleaseForShard(
+            self: StageAdapter,
+            shard_index: usize,
+            prepared: *PreparedShardRiskRelease,
+        ) void {
+            std.debug.assert(shard_index < self.riskShardCount());
+            const engine = self.kernels.risk_shards[shard_index].engine;
+            switch (prepared.*) {
+                .none => {},
+                .exchange => |*release| engine.commitPreparedExchangeRiskRelease(release),
+                .margin => |*release| engine.commitPreparedMarginRiskRelease(release),
+            }
+        }
+
+        /// Every fallible risk-shard preparation completes before
+        /// `commitPreparedRiskRelease` can mutate any shard.
+        pub fn prepareAllRiskRelease(
+            self: StageAdapter,
+            command: *const cmd.OrderCommand,
+            event_head: ?*events.MatcherTradeEvent,
+            top: ?events.L2Top,
+        ) ExecuteError!PreparedRiskRelease {
+            return .{ .inner = try self.kernels.prepareRiskReleaseStage(
+                command,
+                event_head,
+                top,
+            ) };
+        }
+
+        pub fn commitPreparedRiskRelease(
+            self: StageAdapter,
+            prepared: *PreparedRiskRelease,
+        ) void {
+            self.kernels.commitRiskReleaseStage(&prepared.inner);
+        }
+    };
+
+    fn nextSequence(self: *const MultiShardKernelSet) error{SequenceOverflow}!u64 {
+        if (self.next_seq == std.math.maxInt(u64)) return error.SequenceOverflow;
+        return self.next_seq + 1;
     }
 };
 
@@ -2191,6 +4754,7 @@ fn executeSingleAndShardedExpectEqual(
     defer sharded_response.deinit(allocator);
 
     try std.testing.expectEqual(single_response.result_code, sharded_response.result_code);
+    try std.testing.expectEqualDeep(single_response.command, sharded_response.command);
     if (single_response.l2_snapshot != null or sharded_response.l2_snapshot != null) {
         try std.testing.expect(single_response.l2_snapshot != null and sharded_response.l2_snapshot != null);
         try expectEqualL2(single_response.l2_snapshot.?, sharded_response.l2_snapshot.?);
@@ -2213,6 +4777,7 @@ fn executeSingleAndSplitExpectEqual(
 
     try std.testing.expectEqual(single_response.sequence, split_response.sequence);
     try std.testing.expectEqual(single_response.result_code, split_response.result_code);
+    try std.testing.expectEqualDeep(single_response.command, split_response.command);
     if (single_response.l2_snapshot != null or split_response.l2_snapshot != null) {
         try std.testing.expect(single_response.l2_snapshot != null and split_response.l2_snapshot != null);
         try expectEqualL2(single_response.l2_snapshot.?, split_response.l2_snapshot.?);
@@ -2230,6 +4795,340 @@ fn uidForShard(target_shard: usize, shard_count: usize, seed: i64) i64 {
         const shard = @as(usize, @intCast(@as(u64, @bitCast(uid)) & mask));
         if (shard == target_shard) return uid;
     }
+}
+
+fn executeMultiExpect(
+    allocator: std.mem.Allocator,
+    set: *MultiShardKernelSet,
+    use_split: bool,
+    source: cmd.OrderCommand,
+    expected: cmd.CommandResultCode,
+) !void {
+    var command = source;
+    var response = if (use_split)
+        try set.executeSplit(&command)
+    else
+        try set.executeRouted(&command);
+    defer response.deinit(allocator);
+    try std.testing.expectEqual(expected, response.result_code);
+}
+
+const BorrowedGroupedResultCapture = struct {
+    call_count: usize = 0,
+    sequence: u64 = 0,
+    result_code: cmd.CommandResultCode = .new,
+    matcher_event_count: usize = 0,
+    first_matcher_event_type: ?events.MatcherEventType = null,
+
+    fn hook(self: *BorrowedGroupedResultCapture) MultiShardKernelSet.BorrowedPostMatchingHook {
+        return .{
+            .context = self,
+            .callback = observe,
+        };
+    }
+
+    fn observe(context: ?*anyopaque, response: *const CommandResponse) void {
+        const self: *BorrowedGroupedResultCapture = @ptrCast(@alignCast(context.?));
+        self.call_count += 1;
+        self.sequence = response.sequence;
+        self.result_code = response.result_code;
+        self.matcher_event_count = events.listSize(response.matcher_events_head);
+        self.first_matcher_event_type = if (response.matcher_events_head) |head|
+            head.event_type
+        else
+            null;
+    }
+};
+
+const ReentrantGroupedHookCapture = struct {
+    executor: *MultiShardKernelSet.GroupedTwoStepExecutor,
+    kernels: *MultiShardKernelSet,
+    outer_sequence: u64 = 0,
+    outer_matcher_event_count: usize = 0,
+    reentrant_error: ?anyerror = null,
+    immediate_error: ?anyerror = null,
+    immediate_sequence: u64 = 0,
+
+    fn hook(self: *ReentrantGroupedHookCapture) MultiShardKernelSet.BorrowedPostMatchingHook {
+        return .{
+            .context = self,
+            .callback = observeAndPublishImmediate,
+        };
+    }
+
+    fn observeAndPublishImmediate(
+        context: ?*anyopaque,
+        response: *const CommandResponse,
+    ) void {
+        const self: *ReentrantGroupedHookCapture = @ptrCast(@alignCast(context.?));
+        self.outer_sequence = response.sequence;
+        self.outer_matcher_event_count = events.listSize(response.matcher_events_head);
+
+        self.executor.flushAll() catch |err| {
+            self.reentrant_error = err;
+        };
+
+        var immediate_nop = makeNopCommand();
+        var immediate_response = self.kernels.executeRouted(&immediate_nop) catch |err| {
+            self.immediate_error = err;
+            return;
+        };
+        defer immediate_response.deinit(self.kernels.allocator);
+        self.immediate_sequence = immediate_response.sequence;
+    }
+};
+
+fn setupGroupedSpotTopology(
+    allocator: std.mem.Allocator,
+    set: *MultiShardKernelSet,
+    use_split: bool,
+    symbol: i32,
+    maker_uid: i64,
+    taker_uid: i64,
+    maker_order_id: i64,
+    maker_size: i64,
+) !void {
+    try set.addSymbolAll(try makeExchangeSpecForSymbol(symbol));
+    for ([_]i64{ maker_uid, taker_uid }) |uid| {
+        try executeMultiExpect(
+            allocator,
+            set,
+            use_split,
+            makeAddUserCommand(uid),
+            .success,
+        );
+    }
+    try executeMultiExpect(
+        allocator,
+        set,
+        use_split,
+        makeBalanceAdjustmentCommand(maker_uid, 11, 100_000, 1, .adjustment),
+        .success,
+    );
+    try executeMultiExpect(
+        allocator,
+        set,
+        use_split,
+        makeBalanceAdjustmentCommand(taker_uid, 15, 100_000, 1, .adjustment),
+        .success,
+    );
+
+    var maker_ask = cmd.OrderCommand.newOrder(
+        .gtc,
+        maker_order_id,
+        maker_uid,
+        100,
+        0,
+        maker_size,
+        .ask,
+    );
+    maker_ask.symbol = symbol;
+    try executeMultiExpect(allocator, set, use_split, maker_ask, .success);
+}
+
+fn groupedTestTotalFee(set: *MultiShardKernelSet, currency: i32) i64 {
+    var total: i64 = 0;
+    for (set.risk_shards) |*risk_shard| {
+        total += risk_shard.engine.getFeeCollected(currency);
+    }
+    return total;
+}
+
+fn expectOperationalRiskStateEmpty(engine: *const risk.RiskEngine) !void {
+    try std.testing.expectEqual(@as(usize, 0), engine.symbol_spec_provider.symbols.count());
+    try std.testing.expectEqual(@as(usize, 0), engine.user_profile_service.user_profiles.count());
+    try std.testing.expectEqual(@as(usize, 0), engine.last_price_cache.count());
+    try std.testing.expectEqual(@as(usize, 0), engine.fees.count());
+    try std.testing.expectEqual(@as(usize, 0), engine.adjustments.count());
+    try std.testing.expectEqual(@as(usize, 0), engine.suspends.count());
+}
+
+fn expectAllShardSequences(set: *const MultiShardKernelSet, expected: u64) !void {
+    try std.testing.expectEqual(expected, set.next_seq);
+    for (0..set.matchingShardCount()) |idx| {
+        try std.testing.expectEqual(expected, set.matchingObservedSequence(idx));
+    }
+    for (0..set.riskShardCount()) |idx| {
+        try std.testing.expectEqual(expected, set.riskObservedSequence(idx));
+    }
+}
+
+fn expectAllBinaryProcessorState(
+    set: *const MultiShardKernelSet,
+    expected_pending: usize,
+) !u64 {
+    var expected_hash: ?u64 = null;
+    for (set.matching_shards) |*matching| {
+        try std.testing.expectEqual(
+            expected_pending,
+            matching.binary_frame_assembler.pendingTransfers(),
+        );
+        const hash = try matching.binary_frame_assembler.stateHash();
+        if (expected_hash) |value| {
+            try std.testing.expectEqual(value, hash);
+        } else {
+            expected_hash = hash;
+        }
+    }
+    for (set.risk_shards) |*risk_shard| {
+        try std.testing.expectEqual(
+            expected_pending,
+            risk_shard.binary_frame_assembler.pendingTransfers(),
+        );
+        const hash = try risk_shard.binary_frame_assembler.stateHash();
+        if (expected_hash) |value| {
+            try std.testing.expectEqual(value, hash);
+        } else {
+            expected_hash = hash;
+        }
+    }
+    return expected_hash orelse unreachable;
+}
+
+fn expectDetailedTopologyIdentity(
+    detailed: *const DetailedStateHashReport,
+    matching_count: usize,
+    risk_count: usize,
+) !void {
+    const risk_types = [_]StateHashSubmoduleType{
+        .risk_symbol_spec_provider,
+        .risk_user_profile_service,
+        .risk_binary_cmd_processor,
+        .risk_last_price_cache,
+        .risk_fees,
+        .risk_adjustments,
+        .risk_suspends,
+        .risk_shard_mask,
+    };
+    const matching_types = [_]StateHashSubmoduleType{
+        .matching_binary_cmd_processor,
+        .matching_order_books,
+        .matching_shard_mask,
+    };
+    try std.testing.expectEqual(
+        risk_types.len * risk_count + matching_types.len * matching_count,
+        detailed.submodules.items.len,
+    );
+
+    var cursor: usize = 0;
+    for (risk_types) |submodule| {
+        for (0..risk_count) |module_idx| {
+            const entry = detailed.submodules.items[cursor];
+            try std.testing.expectEqual(submodule, entry.submodule);
+            try std.testing.expectEqual(@as(i32, @intCast(module_idx)), entry.module_id);
+            cursor += 1;
+        }
+    }
+    for (matching_types) |submodule| {
+        for (0..matching_count) |module_idx| {
+            const entry = detailed.submodules.items[cursor];
+            try std.testing.expectEqual(submodule, entry.submodule);
+            try std.testing.expectEqual(@as(i32, @intCast(module_idx)), entry.module_id);
+            cursor += 1;
+        }
+    }
+}
+
+fn expectJavaStateHashTopology(
+    allocator: std.mem.Allocator,
+    state_hash: *const JavaStateHashReport,
+    event_head: ?*const events.MatcherTradeEvent,
+    matching_count: usize,
+    risk_count: usize,
+) !void {
+    const risk_types = [_]java_report_wire.StateHashSubmodule{
+        .risk_symbol_spec_provider,
+        .risk_user_profile_service,
+        .risk_binary_cmd_processor,
+        .risk_last_price_cache,
+        .risk_fees,
+        .risk_adjustments,
+        .risk_suspends,
+        .risk_shard_mask,
+    };
+    const matching_types = [_]java_report_wire.StateHashSubmodule{
+        .matching_binary_cmd_processor,
+        .matching_order_books,
+        .matching_shard_mask,
+    };
+    try std.testing.expectEqual(
+        risk_types.len * risk_count + matching_types.len * matching_count,
+        state_hash.report.entries.len,
+    );
+
+    var cursor: usize = 0;
+    for (risk_types) |submodule| {
+        for (0..risk_count) |module_idx| {
+            const entry = state_hash.report.entries[cursor];
+            try std.testing.expectEqual(submodule, entry.submodule);
+            try std.testing.expectEqual(@as(i32, @intCast(module_idx)), entry.module_id);
+            cursor += 1;
+        }
+    }
+    for (matching_types) |submodule| {
+        for (0..matching_count) |module_idx| {
+            const entry = state_hash.report.entries[cursor];
+            try std.testing.expectEqual(submodule, entry.submodule);
+            try std.testing.expectEqual(@as(i32, @intCast(module_idx)), entry.module_id);
+            cursor += 1;
+        }
+    }
+
+    for (0..risk_count) |module_idx| {
+        var code_zero: ?i32 = null;
+        var code_two: ?i32 = null;
+        for (state_hash.report.entries) |entry| {
+            if (entry.module_id != @as(i32, @intCast(module_idx))) continue;
+            if (entry.submodule == .risk_symbol_spec_provider) code_zero = entry.hash;
+            if (entry.submodule == .risk_binary_cmd_processor) code_two = entry.hash;
+        }
+        try std.testing.expectEqual(code_zero, code_two);
+    }
+
+    var grouped = try java_report_wire.groupMatcherEventChain(allocator, event_head, .{});
+    defer grouped.deinit(allocator);
+    try std.testing.expectEqual(risk_count + matching_count, grouped.sections.len);
+    for (0..risk_count) |idx| {
+        try std.testing.expectEqual(java_report_wire.EngineSection.risk, grouped.sections[idx].label.engine);
+        try std.testing.expectEqual(@as(i32, @intCast(idx)), grouped.sections[idx].label.shard_id);
+    }
+    for (0..matching_count) |idx| {
+        const section = grouped.sections[risk_count + idx];
+        try std.testing.expectEqual(java_report_wire.EngineSection.matching, section.label.engine);
+        try std.testing.expectEqual(@as(i32, @intCast(idx)), section.label.shard_id);
+    }
+}
+
+fn executeMultiBinaryPayload(
+    allocator: std.mem.Allocator,
+    set: *MultiShardKernelSet,
+    use_split: bool,
+    command_type: cmd.OrderCommandType,
+    transfer_id: i32,
+    payload: []const u8,
+) !CommandResponse {
+    var frames: std.ArrayListUnmanaged(cmd.OrderCommand) = .empty;
+    defer frames.deinit(allocator);
+    try appendBinaryPayloadFrames(allocator, &frames, command_type, transfer_id, payload);
+    if (frames.items.len == 0) return error.EmptyBinaryPayload;
+
+    var last_response: ?CommandResponse = null;
+    errdefer if (last_response) |*response| response.deinit(allocator);
+    for (frames.items, 0..) |frame_value, frame_idx| {
+        var frame = frame_value;
+        const response = if (use_split)
+            try set.executeSplit(&frame)
+        else
+            try set.executeRouted(&frame);
+        if (frame_idx + 1 != frames.items.len) {
+            try std.testing.expectEqual(cmd.CommandResultCode.accepted, response.result_code);
+        }
+        if (last_response) |*previous| previous.deinit(allocator);
+        last_response = response;
+    }
+    const response = last_response.?;
+    last_response = null;
+    return response;
 }
 
 fn assertSingleVsSplitStateParity(
@@ -2841,7 +5740,9 @@ test "kernel returns matching invalid order book id for missing symbol routes" {
 
 test "kernel binary frame handling keeps query accepted-until-last semantics" {
     const allocator = std.testing.allocator;
-    var kernel = try ExchangeKernel.init(allocator, .{});
+    var kernel = try ExchangeKernel.init(allocator, .{
+        .java_identity_hash_context = testJavaIdentityHashContext(),
+    });
     defer kernel.deinit();
 
     const query_payload = try encodeReportQueryPayload(allocator, 10001);
@@ -2885,19 +5786,139 @@ test "kernel binary frame handling keeps query accepted-until-last semantics" {
         defer final_resp.deinit(allocator);
     }
     try std.testing.expectEqual(cmd.CommandResultCode.success, final_resp.result_code);
-    var expected_report = try kernel.queryReport(.state_hash_detailed);
-    defer expected_report.deinit(allocator);
-    switch (final_resp.report_response orelse unreachable) {
-        .state_hash_detailed => |detailed| {
-            try std.testing.expectEqual(expected_report.state_hash_detailed.aggregate_hash, detailed.aggregate_hash);
-            try std.testing.expectEqual(@as(usize, 11), detailed.submodules.items.len);
+    try std.testing.expect(final_resp.report_response == null);
+    switch (final_resp.java_report_response orelse unreachable) {
+        .state_hash => |*state_hash| {
+            try expectJavaStateHashTopology(
+                allocator,
+                state_hash,
+                final_resp.matcher_events_head,
+                1,
+                1,
+            );
+            try std.testing.expect(state_hash.state_hash != 0);
         },
         else => unreachable,
     }
     try std.testing.expectEqual(@as(usize, 0), kernel.binary_frame_assembler.pendingTransfers());
 }
 
-test "kernel binary query unknown report type returns report_query_unknown_type" {
+test "kernel native report projection is terminal-frame opt-in" {
+    const allocator = std.testing.allocator;
+    var kernel = try ExchangeKernel.init(allocator, .{
+        .java_identity_hash_context = testJavaIdentityHashContext(),
+    });
+    defer kernel.deinit();
+
+    const payload = try encodeReportQueryPayload(allocator, 10001);
+    defer allocator.free(payload);
+    var frames: std.ArrayListUnmanaged(cmd.OrderCommand) = .empty;
+    defer frames.deinit(allocator);
+    try appendBinaryPayloadFrames(allocator, &frames, .binary_data_query, 521, payload);
+    frames.items[frames.items.len - 1].binary_report_projection = .exact_java_and_native;
+
+    for (frames.items, 0..) |*frame, idx| {
+        var response = try kernel.execute(frame);
+        defer response.deinit(allocator);
+        if (idx + 1 != frames.items.len) {
+            try std.testing.expectEqual(cmd.CommandResultCode.accepted, response.result_code);
+            try std.testing.expect(response.report_response == null);
+            try std.testing.expect(response.java_report_response == null);
+            continue;
+        }
+        try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+        switch (response.report_response orelse return error.MissingReportResponse) {
+            .state_hash_detailed => |detailed| try std.testing.expect(detailed.submodules.items.len > 0),
+            else => return error.UnexpectedReportResponseType,
+        }
+        try std.testing.expect(response.java_report_response != null);
+    }
+}
+
+test "unmarked exact Java total balance wraps independently of native overflow" {
+    const allocator = std.testing.allocator;
+    var kernel = try ExchangeKernel.init(allocator, .{});
+    defer kernel.deinit();
+
+    for ([_]i64{ 522_001, 522_002 }) |uid| {
+        try std.testing.expect(try kernel.risk_engine.user_profile_service.addEmptyUserProfile(uid));
+        const profile = kernel.risk_engine.getUserProfile(uid) orelse unreachable;
+        try profile.putAccount(allocator, 15, std.math.maxInt(i64));
+    }
+
+    const payload = try encodeReportQueryPayload(allocator, 10003);
+    defer allocator.free(payload);
+
+    var exact_frames: std.ArrayListUnmanaged(cmd.OrderCommand) = .empty;
+    defer exact_frames.deinit(allocator);
+    try appendBinaryPayloadFrames(allocator, &exact_frames, .binary_data_query, 522, payload);
+    var exact_response: ?CommandResponse = null;
+    defer if (exact_response) |*response| response.deinit(allocator);
+    for (exact_frames.items) |*frame| {
+        if (exact_response) |*previous| previous.deinit(allocator);
+        exact_response = try kernel.execute(frame);
+    }
+    try std.testing.expectEqual(cmd.CommandResultCode.success, exact_response.?.result_code);
+    try std.testing.expect(exact_response.?.report_response == null);
+    switch (exact_response.?.java_report_response orelse return error.MissingJavaReportResponse) {
+        .total_currency_balance => |report| {
+            try std.testing.expectEqual(@as(?i64, -2), javaMapValue(report.account_balances, 15));
+        },
+        else => return error.UnexpectedJavaReportResponseType,
+    }
+
+    var native_frames: std.ArrayListUnmanaged(cmd.OrderCommand) = .empty;
+    defer native_frames.deinit(allocator);
+    try appendBinaryPayloadFrames(allocator, &native_frames, .binary_data_query, 523, payload);
+    native_frames.items[native_frames.items.len - 1].binary_report_projection = .exact_java_and_native;
+    var native_response: ?CommandResponse = null;
+    defer if (native_response) |*response| response.deinit(allocator);
+    for (native_frames.items) |*frame| {
+        if (native_response) |*previous| previous.deinit(allocator);
+        native_response = try kernel.execute(frame);
+    }
+    try std.testing.expectEqual(cmd.CommandResultCode.binary_command_failed, native_response.?.result_code);
+    try std.testing.expect(native_response.?.report_response == null);
+    try std.testing.expect(native_response.?.java_report_response == null);
+    try std.testing.expect(native_response.?.matcher_events_head == null);
+}
+
+fn nativeReportProjectionAllocationFailure(allocator: std.mem.Allocator) !void {
+    var kernel = try ExchangeKernel.init(allocator, .{});
+    defer kernel.deinit();
+    try std.testing.expect(
+        try kernel.risk_engine.user_profile_service.addEmptyUserProfile(524_001),
+    );
+    const profile = kernel.risk_engine.getUserProfile(524_001) orelse unreachable;
+    try profile.putAccount(allocator, 15, 1_000);
+
+    const payload = try encodeReportQueryPayload(allocator, 10003);
+    defer allocator.free(payload);
+    var frames: std.ArrayListUnmanaged(cmd.OrderCommand) = .empty;
+    defer frames.deinit(allocator);
+    try appendBinaryPayloadFrames(allocator, &frames, .binary_data_query, 524, payload);
+    frames.items[frames.items.len - 1].binary_report_projection = .exact_java_and_native;
+
+    for (frames.items, 0..) |*frame, idx| {
+        var response = try kernel.execute(frame);
+        defer response.deinit(allocator);
+        if (idx + 1 == frames.items.len) {
+            try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+            try std.testing.expect(response.report_response != null);
+            try std.testing.expect(response.java_report_response != null);
+        }
+    }
+}
+
+test "combined exact and native report projection is allocation-failure clean" {
+    try std.testing.checkAllAllocationFailures(
+        std.testing.allocator,
+        nativeReportProjectionAllocationFailure,
+        .{},
+    );
+}
+
+test "kernel binary query unknown report type succeeds without sections" {
     const allocator = std.testing.allocator;
     var kernel = try ExchangeKernel.init(allocator, .{});
     defer kernel.deinit();
@@ -2919,16 +5940,62 @@ test "kernel binary query unknown report type returns report_query_unknown_type"
         var response = try kernel.execute(frame);
         defer response.deinit(allocator);
         const expected: cmd.CommandResultCode = if (idx + 1 == query_frames.items.len)
-            .report_query_unknown_type
+            .success
         else
             .accepted;
         try std.testing.expectEqual(expected, response.result_code);
         if (idx + 1 == query_frames.items.len) {
             try std.testing.expect(response.report_response == null);
+            try std.testing.expect(response.java_report_response == null);
+            try std.testing.expect(response.matcher_events_head == null);
         }
     }
 
     try std.testing.expectEqual(@as(usize, 0), kernel.binary_frame_assembler.pendingTransfers());
+}
+
+test "Java report query constructors ignore unknown malformed and trailing bodies" {
+    const allocator = std.testing.allocator;
+    var kernel = try ExchangeKernel.init(allocator, .{
+        .java_identity_hash_context = testJavaIdentityHashContext(),
+    });
+    defer kernel.deinit();
+
+    var unknown: [9]u8 = undefined;
+    std.mem.writeInt(i32, unknown[0..4], 77_777, .little);
+    @memset(unknown[4..], 0xa5);
+    var truncated_single: [8]u8 = undefined;
+    std.mem.writeInt(i32, truncated_single[0..4], 10_002, .little);
+    @memset(truncated_single[4..], 0);
+    var state_with_tail: [7]u8 = undefined;
+    std.mem.writeInt(i32, state_with_tail[0..4], 10_001, .little);
+    @memset(state_with_tail[4..], 0x5a);
+
+    const cases = [_]struct {
+        body: []const u8,
+        expects_report: bool,
+    }{
+        .{ .body = &unknown, .expects_report = false },
+        .{ .body = &truncated_single, .expects_report = false },
+        .{ .body = &state_with_tail, .expects_report = true },
+    };
+
+    for (cases, 0..) |case, idx| {
+        const words = try java_binary_wire.encodeRequestWords(allocator, case.body, .{});
+        defer allocator.free(words);
+        try std.testing.expectEqual(@as(usize, 5), words.len);
+        var frame = makeBinaryFrameCommand(
+            .binary_data_query,
+            @intCast(520 + idx),
+            -1,
+            .{ words[0], words[1], words[2], words[3], words[4] },
+        );
+        var response = try kernel.execute(&frame);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+        try std.testing.expect(response.report_response == null);
+        try std.testing.expectEqual(case.expects_report, response.java_report_response != null);
+    }
 }
 
 test "kernel disabled state hash query gates direct and binary query paths" {
@@ -2968,11 +6035,53 @@ test "kernel disabled state hash query gates direct and binary query paths" {
         var response = try kernel.execute(frame);
         defer response.deinit(allocator);
         const expected: cmd.CommandResultCode = if (idx + 1 == query_frames.items.len)
-            .report_query_unknown_type
+            .success
         else
             .accepted;
         try std.testing.expectEqual(expected, response.result_code);
+        if (idx + 1 == query_frames.items.len) {
+            try std.testing.expect(response.java_report_response == null);
+            try std.testing.expect(response.matcher_events_head == null);
+        }
     }
+}
+
+test "exact Java state hash fails closed without JVM identity context" {
+    const allocator = std.testing.allocator;
+    var kernel = try ExchangeKernel.init(allocator, .{});
+    defer kernel.deinit();
+
+    const payload = try encodeReportQueryPayload(allocator, 10001);
+    defer allocator.free(payload);
+    var frames: std.ArrayListUnmanaged(cmd.OrderCommand) = .empty;
+    defer frames.deinit(allocator);
+    try appendBinaryPayloadFrames(allocator, &frames, .binary_data_query, 510, payload);
+    try std.testing.expectEqual(@as(usize, 1), frames.items.len);
+    var response = try kernel.execute(&frames.items[0]);
+    defer response.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.binary_command_failed, response.result_code);
+    try std.testing.expect(response.report_response == null);
+    try std.testing.expect(response.java_report_response == null);
+    try std.testing.expect(response.matcher_events_head == null);
+}
+
+test "legacy unknown custom report query with an arbitrary body succeeds empty" {
+    const allocator = std.testing.allocator;
+    var kernel = try ExchangeKernel.init(allocator, .{});
+    defer kernel.deinit();
+
+    var malformed: [8]u8 = undefined;
+    std.mem.writeInt(i32, malformed[0..4], 9999, .big);
+    std.mem.writeInt(i32, malformed[4..8], 1, .big);
+    var frames: std.ArrayListUnmanaged(cmd.OrderCommand) = .empty;
+    defer frames.deinit(allocator);
+    try appendBinaryPayloadFrames(allocator, &frames, .binary_data_query, 511, &malformed);
+    try std.testing.expectEqual(@as(usize, 1), frames.items.len);
+    var response = try kernel.execute(&frames.items[0]);
+    defer response.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    try std.testing.expect(response.java_report_response == null);
+    try std.testing.expect(response.matcher_events_head == null);
 }
 
 test "kernel binary query total currency balance payload returns typed report" {
@@ -3005,10 +6114,10 @@ test "kernel binary query total currency balance payload returns typed report" {
             .accepted;
         try std.testing.expectEqual(expected, response.result_code);
         if (idx + 1 == frames.items.len) {
-            switch (response.report_response orelse unreachable) {
+            switch (response.java_report_response orelse unreachable) {
                 .total_currency_balance => |report| {
-                    try std.testing.expectEqual(@as(i64, 2000), report.account_balances.get(15) orelse 0);
-                    try std.testing.expectEqual(@as(i64, -2000), report.adjustments.get(15) orelse 0);
+                    try std.testing.expectEqual(@as(?i64, 2000), javaMapValue(report.account_balances, 15));
+                    try std.testing.expectEqual(@as(?i64, -2000), javaMapValue(report.adjustments, 15));
                 },
                 else => unreachable,
             }
@@ -3051,18 +6160,103 @@ test "kernel binary query single user payload returns typed report" {
             .accepted;
         try std.testing.expectEqual(expected, response.result_code);
         if (idx + 1 == frames.items.len) {
-            switch (response.report_response orelse unreachable) {
+            switch (response.java_report_response orelse unreachable) {
                 .single_user => |report| {
-                    try std.testing.expectEqual(@as(i64, 7602), report.uid);
-                    try std.testing.expectEqual(SingleUserQueryExecutionStatus.ok, report.query_execution_status);
-                    try std.testing.expectEqual(@as(usize, 1), report.orders.items.len);
-                    try std.testing.expectEqual(@as(i64, 9951), report.orders.items[0].order_id);
+                    try std.testing.expectEqual(@as(i64, 0), report.uid);
+                    try std.testing.expectEqual(java_report_wire.QueryExecutionStatus.ok, report.query_execution_status);
+                    const groups = report.orders orelse unreachable;
+                    try std.testing.expectEqual(@as(usize, 1), groups.len);
+                    try std.testing.expectEqual(@as(i64, 9951), groups[0].orders[0].order_id);
                 },
                 else => unreachable,
             }
         }
     }
     try std.testing.expectEqual(@as(usize, 0), kernel.binary_frame_assembler.pendingTransfers());
+}
+
+test "exact single-user preserves Java Direct and Naive order traversal plus missing-user reduction" {
+    const allocator = std.testing.allocator;
+    for ([_]OrderBookKind{ .direct, .naive }) |kind| {
+        var kernel = try ExchangeKernel.init(allocator, .{ .orderbook_kind = kind });
+        defer kernel.deinit();
+        try std.testing.expect(try kernel.addSymbol(try makeExchangeSpec()));
+
+        var add_user = makeAddUserCommand(7_603);
+        var add_response = try kernel.execute(&add_user);
+        defer add_response.deinit(allocator);
+        var base = makeBalanceAdjustmentCommand(7_603, 11, 100_000, 1, .adjustment);
+        var base_response = try kernel.execute(&base);
+        defer base_response.deinit(allocator);
+        var quote = makeBalanceAdjustmentCommand(7_603, 15, 100_000, 2, .adjustment);
+        var quote_response = try kernel.execute(&quote);
+        defer quote_response.deinit(allocator);
+
+        const sources = [_]cmd.OrderCommand{
+            blk: {
+                var order = cmd.OrderCommand.newOrder(.gtc, 30, 7_603, 100, 0, 1, .ask);
+                order.symbol = 241;
+                break :blk order;
+            },
+            blk: {
+                var order = cmd.OrderCommand.newOrder(.gtc, 10, 7_603, 101, 0, 1, .ask);
+                order.symbol = 241;
+                break :blk order;
+            },
+            blk: {
+                var order = cmd.OrderCommand.newOrder(.gtc, 20, 7_603, 90, 101, 1, .bid);
+                order.symbol = 241;
+                break :blk order;
+            },
+        };
+        for (sources) |source| {
+            var order = source;
+            var order_response = try kernel.execute(&order);
+            defer order_response.deinit(allocator);
+            try std.testing.expectEqual(cmd.CommandResultCode.success, order_response.result_code);
+        }
+
+        const payload = try encodeSingleUserReportQueryPayload(allocator, 7_603);
+        defer allocator.free(payload);
+        var frames: std.ArrayListUnmanaged(cmd.OrderCommand) = .empty;
+        defer frames.deinit(allocator);
+        try appendBinaryPayloadFrames(allocator, &frames, .binary_data_query, 512, payload);
+        try std.testing.expectEqual(@as(usize, 1), frames.items.len);
+        var response = try kernel.execute(&frames.items[0]);
+        defer response.deinit(allocator);
+        switch (response.java_report_response orelse return error.MissingJavaReportResponse) {
+            .single_user => |report| {
+                const groups = report.orders orelse return error.MissingJavaOrders;
+                try std.testing.expectEqual(@as(usize, 1), groups.len);
+                const expected = switch (kind) {
+                    .direct => [_]i64{ 10, 20, 30 },
+                    .naive => [_]i64{ 30, 10, 20 },
+                };
+                for (groups[0].orders, expected) |order, order_id| {
+                    try std.testing.expectEqual(order_id, order.order_id);
+                }
+            },
+            else => return error.UnexpectedReportResponseType,
+        }
+
+        const missing_payload = try encodeSingleUserReportQueryPayload(allocator, 999_999);
+        defer allocator.free(missing_payload);
+        var missing_frames: std.ArrayListUnmanaged(cmd.OrderCommand) = .empty;
+        defer missing_frames.deinit(allocator);
+        try appendBinaryPayloadFrames(allocator, &missing_frames, .binary_data_query, 513, missing_payload);
+        var missing_response = try kernel.execute(&missing_frames.items[0]);
+        defer missing_response.deinit(allocator);
+        switch (missing_response.java_report_response orelse return error.MissingJavaReportResponse) {
+            .single_user => |report| {
+                try std.testing.expectEqual(@as(i64, 0), report.uid);
+                try std.testing.expectEqual(java_report_wire.QueryExecutionStatus.user_not_found, report.query_execution_status);
+                try std.testing.expect(report.accounts == null);
+                try std.testing.expect(report.positions == null);
+                try std.testing.expectEqual(@as(usize, 0), (report.orders orelse unreachable).len);
+            },
+            else => return error.UnexpectedReportResponseType,
+        }
+    }
 }
 
 test "kernel binary data command applies add-symbols and add-accounts payloads" {
@@ -3166,6 +6360,349 @@ test "kernel binary data command applies add-symbols and add-accounts payloads" 
     try std.testing.expectEqual(@as(?i64, 900), u1_15.user_balance);
     try std.testing.expectEqual(@as(?i64, 1200), u2_15.user_balance);
     try std.testing.expectEqual(@as(usize, 0), kernel.binary_frame_assembler.pendingTransfers());
+}
+
+test "kernel accepts fixed Java LZ4 account command and single-user query words" {
+    const allocator = std.testing.allocator;
+    var kernel = try ExchangeKernel.init(allocator, .{});
+    defer kernel.deinit();
+
+    // Captured from lz4-java 1.8.0 on the exact Java NativeBytes little-endian
+    // body: add-accounts type 1002, one user uid=7, one currency=11,
+    // balance=500. Both fastCompressor() and highCompressor() produce this
+    // 29-byte match-containing raw block, padded to one five-long frame.
+    const fixed_account_words = [5]i64{
+        0x00000020A2EA0300,
+        0x0001000000070001,
+        0x00000C00C00B0000,
+        0x00F4010000000000,
+        0,
+    };
+    var account_frame = makeBinaryFrameCommand(
+        .binary_data_command,
+        8_800,
+        -1,
+        fixed_account_words,
+    );
+    var account_response = try kernel.execute(&account_frame);
+    defer account_response.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, account_response.result_code);
+    const profile = kernel.risk_engine.getUserProfile(7) orelse unreachable;
+    try std.testing.expectEqual(@as(i64, 500), profile.accountBalance(11));
+
+    // Java NativeBytes query body (little endian): type 10002, uid=7.
+    const fixed_query_words = [5]i64{
+        0x0000000CC0122700,
+        0x0007000000000000,
+        0,
+        0,
+        0,
+    };
+    var query_frame = makeBinaryFrameCommand(
+        .binary_data_query,
+        8_801,
+        -1,
+        fixed_query_words,
+    );
+    var query_response = try kernel.execute(&query_frame);
+    defer query_response.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, query_response.result_code);
+    switch (query_response.java_report_response orelse unreachable) {
+        .single_user => |report| {
+            try std.testing.expectEqual(@as(i64, 0), report.uid);
+            try std.testing.expectEqual(java_report_wire.QueryExecutionStatus.ok, report.query_execution_status);
+            try std.testing.expectEqual(@as(?i64, 500), javaMapValue(report.accounts, 11));
+        },
+        else => unreachable,
+    }
+}
+
+test "kernel Java decoder rejects bad size LZ4 and padding without mutation" {
+    const allocator = std.testing.allocator;
+    var kernel = try ExchangeKernel.init(allocator, .{});
+    defer kernel.deinit();
+
+    const malformed = [_][5]i64{
+        // 64 MiB + 1 declared output exceeds the inbound default cap.
+        .{ 0x0400000100000000, 0, 0, 0, 0 },
+        // Declares 32 bytes, then starts an extended literal sequence whose
+        // zero-filled carrier reaches an illegal zero match offset.
+        .{ 0x00000020F0000000, 0, 0, 0, 0 },
+        // Otherwise valid lz4-java add-account request with non-zero tail padding.
+        .{
+            0x00000020A2EA0300,
+            0x0001000000070001,
+            0x00000C00C00B0000,
+            0x00F4010000000000,
+            1,
+        },
+    };
+
+    for (malformed, 0..) |words, idx| {
+        var frame = makeBinaryFrameCommand(
+            .binary_data_command,
+            @intCast(8_900 + idx),
+            -1,
+            words,
+        );
+        var response = try kernel.execute(&frame);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.binary_command_failed, response.result_code);
+        try std.testing.expectEqual(@as(usize, 0), kernel.risk_engine.user_profile_service.user_profiles.count());
+        try std.testing.expectEqual(@as(usize, 0), kernel.books.count());
+    }
+}
+
+test "kernel rejects huge tiny-body counts in Java and legacy formats without mutation" {
+    const allocator = std.testing.allocator;
+    var kernel = try ExchangeKernel.init(allocator, .{});
+    defer kernel.deinit();
+
+    var java_body: [8]u8 = undefined;
+    std.mem.writeInt(i32, java_body[0..4], 1002, .little);
+    std.mem.writeInt(i32, java_body[4..8], std.math.maxInt(i32), .little);
+    const java_words = try java_binary_wire.encodeRequestWords(allocator, &java_body, .{});
+    defer allocator.free(java_words);
+    try std.testing.expectEqual(@as(usize, 5), java_words.len);
+    var java_frame = makeBinaryFrameCommand(
+        .binary_data_command,
+        8_920,
+        -1,
+        .{ java_words[0], java_words[1], java_words[2], java_words[3], java_words[4] },
+    );
+    var java_response = try kernel.execute(&java_frame);
+    defer java_response.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.binary_command_failed, java_response.result_code);
+
+    var legacy_body: [8]u8 = undefined;
+    std.mem.writeInt(i32, legacy_body[0..4], 1002, .big);
+    std.mem.writeInt(i32, legacy_body[4..8], std.math.maxInt(i32), .big);
+    const legacy_words = try java_binary_wire.packSignedWordsBigEndian(allocator, &legacy_body);
+    defer allocator.free(legacy_words);
+    try std.testing.expectEqual(@as(usize, 5), legacy_words.len);
+    var legacy_frame = makeBinaryFrameCommand(
+        .binary_data_command,
+        8_921,
+        -1,
+        .{ legacy_words[0], legacy_words[1], legacy_words[2], legacy_words[3], legacy_words[4] },
+    );
+    var legacy_response = try kernel.execute(&legacy_frame);
+    defer legacy_response.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.binary_command_failed, legacy_response.result_code);
+
+    try std.testing.expectEqual(@as(usize, 0), kernel.risk_engine.user_profile_service.user_profiles.count());
+    try std.testing.expectEqual(@as(usize, 0), kernel.books.count());
+}
+
+test "kernel legacy fallback requires canonical schema and preserves valid raw big endian callers" {
+    const allocator = std.testing.allocator;
+    var kernel = try ExchangeKernel.init(allocator, .{});
+    defer kernel.deinit();
+
+    const accounts = [_]binary_payload.CurrencyBalance{
+        .{ .currency = 15, .balance = 900 },
+    };
+    const users = [_]binary_payload.UserAccountsBatch{
+        .{ .uid = 88, .accounts = &accounts },
+    };
+    const legacy_body = try binary_payload.encodeAddAccountsToBytes(allocator, &users);
+    defer allocator.free(legacy_body);
+    const canonical_words = try java_binary_wire.packSignedWordsBigEndian(allocator, legacy_body);
+    defer allocator.free(canonical_words);
+    try std.testing.expectEqual(@as(usize, 5), canonical_words.len);
+
+    var noncanonical_words: [5]i64 = undefined;
+    @memcpy(&noncanonical_words, canonical_words);
+    noncanonical_words[4] = 1;
+    var noncanonical_frame = makeBinaryFrameCommand(
+        .binary_data_command,
+        8_950,
+        -1,
+        noncanonical_words,
+    );
+    var noncanonical_response = try kernel.execute(&noncanonical_frame);
+    defer noncanonical_response.deinit(allocator);
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.binary_command_failed,
+        noncanonical_response.result_code,
+    );
+    try std.testing.expect(kernel.risk_engine.getUserProfile(88) == null);
+
+    var canonical_frame = makeBinaryFrameCommand(
+        .binary_data_command,
+        8_951,
+        -1,
+        .{
+            canonical_words[0],
+            canonical_words[1],
+            canonical_words[2],
+            canonical_words[3],
+            canonical_words[4],
+        },
+    );
+    var canonical_response = try kernel.execute(&canonical_frame);
+    defer canonical_response.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, canonical_response.result_code);
+    const profile = kernel.risk_engine.getUserProfile(88) orelse unreachable;
+    try std.testing.expectEqual(@as(i64, 900), profile.accountBalance(15));
+}
+
+test "kernel binary add-accounts derives duplicate transaction IDs from currency" {
+    const allocator = std.testing.allocator;
+    var kernel = try ExchangeKernel.init(allocator, .{});
+    defer kernel.deinit();
+
+    const currency_a: i32 = 11;
+    const currency_b: i32 = 15;
+    const uid_a: i64 = 8_111;
+    const uid_b: i64 = 8_115;
+    const balance_a: i64 = 500;
+    const balance_b: i64 = 900;
+    const accounts_a = [_]binary_payload.CurrencyBalance{
+        .{ .currency = currency_a, .balance = balance_a },
+    };
+    const accounts_b = [_]binary_payload.CurrencyBalance{
+        .{ .currency = currency_b, .balance = balance_b },
+    };
+    const users = [_]binary_payload.UserAccountsBatch{
+        .{ .uid = uid_a, .accounts = accounts_a[0..] },
+        .{ .uid = uid_b, .accounts = accounts_b[0..] },
+    };
+    const payload = try encodeAddAccountsPayload(allocator, users[0..]);
+    defer allocator.free(payload);
+
+    var frames: std.ArrayListUnmanaged(cmd.OrderCommand) = .empty;
+    defer frames.deinit(allocator);
+    try appendBinaryPayloadFrames(
+        allocator,
+        &frames,
+        .binary_data_command,
+        703,
+        payload,
+    );
+
+    for (frames.items, 0..) |*frame, idx| {
+        var response = try kernel.execute(frame);
+        defer response.deinit(allocator);
+        const expected: cmd.CommandResultCode = if (idx + 1 == frames.items.len)
+            .success
+        else
+            .accepted;
+        try std.testing.expectEqual(expected, response.result_code);
+    }
+
+    const tx_id_a: i64 = 1_000_000_000 + @as(i64, currency_a);
+    const tx_id_b: i64 = 1_000_000_000 + @as(i64, currency_b);
+    const profile_a = kernel.risk_engine.getUserProfile(uid_a) orelse unreachable;
+    const profile_b = kernel.risk_engine.getUserProfile(uid_b) orelse unreachable;
+    try std.testing.expectEqual(tx_id_a, profile_a.adjustments_counter);
+    try std.testing.expectEqual(tx_id_b, profile_b.adjustments_counter);
+
+    var duplicate_a = makeBalanceAdjustmentCommand(
+        uid_a,
+        currency_a,
+        1,
+        tx_id_a,
+        .adjustment,
+    );
+    var duplicate_a_response = try kernel.execute(&duplicate_a);
+    defer duplicate_a_response.deinit(allocator);
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.user_mgmt_account_balance_adjustment_already_applied_same,
+        duplicate_a_response.result_code,
+    );
+
+    var duplicate_b = makeBalanceAdjustmentCommand(
+        uid_b,
+        currency_b,
+        1,
+        tx_id_b,
+        .adjustment,
+    );
+    var duplicate_b_response = try kernel.execute(&duplicate_b);
+    defer duplicate_b_response.deinit(allocator);
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.user_mgmt_account_balance_adjustment_already_applied_same,
+        duplicate_b_response.result_code,
+    );
+
+    try std.testing.expectEqual(balance_a, profile_a.accountBalance(currency_a));
+    try std.testing.expectEqual(balance_b, profile_b.accountBalance(currency_b));
+}
+
+test "kernel binary add-accounts replay consumes only one sequence per frame" {
+    const allocator = std.testing.allocator;
+    var kernel = try ExchangeKernel.init(allocator, .{});
+    defer kernel.deinit();
+
+    const first_accounts = [_]binary_payload.CurrencyBalance{
+        .{ .currency = 11, .balance = 500 },
+        .{ .currency = 15, .balance = 900 },
+        .{ .currency = 17, .balance = 1_300 },
+    };
+    const second_accounts = [_]binary_payload.CurrencyBalance{
+        .{ .currency = 11, .balance = 700 },
+        .{ .currency = 15, .balance = 1_100 },
+    };
+    const users = [_]binary_payload.UserAccountsBatch{
+        .{ .uid = 8_201, .accounts = first_accounts[0..] },
+        .{ .uid = 8_202, .accounts = second_accounts[0..] },
+    };
+    const payload = try encodeAddAccountsPayload(allocator, users[0..]);
+    defer allocator.free(payload);
+
+    var frames: std.ArrayListUnmanaged(cmd.OrderCommand) = .empty;
+    defer frames.deinit(allocator);
+    try appendBinaryPayloadFrames(
+        allocator,
+        &frames,
+        .binary_data_command,
+        720,
+        payload,
+    );
+    try std.testing.expect(frames.items.len > 1);
+
+    var first_replay_hash: ?u64 = null;
+    for (0..2) |replay_index| {
+        for (frames.items, 0..) |source_frame, frame_index| {
+            var frame = source_frame;
+            var response = try kernel.execute(&frame);
+            defer response.deinit(allocator);
+
+            const expected_sequence: u64 = @intCast(
+                replay_index * frames.items.len + frame_index + 1,
+            );
+            const expected_result: cmd.CommandResultCode = if (frame_index + 1 == frames.items.len)
+                .success
+            else
+                .accepted;
+            try std.testing.expectEqual(expected_sequence, response.sequence);
+            try std.testing.expectEqual(expected_sequence, kernel.next_seq);
+            try std.testing.expectEqual(expected_result, response.result_code);
+        }
+
+        var state_hash = try kernel.queryReport(.state_hash_detailed);
+        defer state_hash.deinit(allocator);
+        const aggregate_hash = state_hash.state_hash_detailed.aggregate_hash;
+        if (first_replay_hash) |expected_hash| {
+            try std.testing.expectEqual(expected_hash, aggregate_hash);
+        } else {
+            first_replay_hash = aggregate_hash;
+        }
+        try std.testing.expectEqual(@as(usize, 0), kernel.binary_frame_assembler.pendingTransfers());
+    }
+
+    try std.testing.expectEqual(
+        @as(u64, @intCast(frames.items.len * 2)),
+        kernel.next_seq,
+    );
+    const first_profile = kernel.risk_engine.getUserProfile(8_201) orelse unreachable;
+    const second_profile = kernel.risk_engine.getUserProfile(8_202) orelse unreachable;
+    try std.testing.expectEqual(@as(i64, 500), first_profile.accountBalance(11));
+    try std.testing.expectEqual(@as(i64, 900), first_profile.accountBalance(15));
+    try std.testing.expectEqual(@as(i64, 1_300), first_profile.accountBalance(17));
+    try std.testing.expectEqual(@as(i64, 700), second_profile.accountBalance(11));
+    try std.testing.expectEqual(@as(i64, 1_100), second_profile.accountBalance(15));
 }
 
 test "kernel binary command capability flags gate add-symbols while allowing add-accounts" {
@@ -3297,7 +6834,1356 @@ test "kernel binary frame invalid marker returns binary command failed" {
     var response = try kernel.execute(&invalid);
     defer response.deinit(allocator);
     try std.testing.expectEqual(cmd.CommandResultCode.binary_command_failed, response.result_code);
+    try std.testing.expectEqualDeep(invalid, response.command);
     try std.testing.expectEqual(@as(usize, 0), kernel.binary_frame_assembler.pendingTransfers());
+}
+
+test "kernel RESET atomically clears risk matching and in-flight binary state and permits reuse" {
+    const allocator = std.testing.allocator;
+    const old_symbol: i32 = 241;
+    const new_symbol: i32 = 242;
+    const old_uid: i64 = 8_401;
+    const new_uid: i64 = 8_402;
+    const transfer_id: i32 = 9_901;
+
+    for ([_]OrderBookKind{ .naive, .direct }) |orderbook_kind| {
+        var kernel = try ExchangeKernel.init(allocator, .{
+            .orderbook_kind = orderbook_kind,
+            .risk = .{ .ignore_risk_processing = true },
+        });
+        defer kernel.deinit();
+
+        try std.testing.expect(try kernel.addSymbol(try makeExchangeSpecForSymbol(old_symbol)));
+
+        var add_old_user = makeAddUserCommand(old_uid);
+        var add_old_user_response = try kernel.execute(&add_old_user);
+        defer add_old_user_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, add_old_user_response.result_code);
+
+        var old_deposit = makeBalanceAdjustmentCommand(old_uid, 15, 50_000, 1, .adjustment);
+        var old_deposit_response = try kernel.execute(&old_deposit);
+        defer old_deposit_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, old_deposit_response.result_code);
+
+        var old_order = makePlaceOrderCommand(
+            84_001,
+            old_uid,
+            old_symbol,
+            100,
+            0,
+            5,
+            .ask,
+            .gtc,
+            0,
+        );
+        var old_order_response = try kernel.execute(&old_order);
+        defer old_order_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, old_order_response.result_code);
+
+        // Exercise every risk-accounting collection that Java RiskEngine.reset clears.
+        try kernel.risk_engine.last_price_cache.put(allocator, old_symbol, .{
+            .ask_price = 101,
+            .bid_price = 99,
+        });
+        try kernel.risk_engine.fees.put(allocator, 15, 17);
+        try kernel.risk_engine.suspends.put(allocator, 15, -3);
+
+        var old_book = makeRequestOrderBookCommand(old_symbol, 4);
+        var old_book_response = try kernel.execute(&old_book);
+        defer old_book_response.deinit(allocator);
+        const old_snapshot = old_book_response.l2_snapshot orelse unreachable;
+        try std.testing.expectEqual(@as(usize, 1), old_snapshot.asks.items.len);
+        try std.testing.expectEqual(@as(usize, 1), kernel.books.count());
+        try std.testing.expectEqual(@as(usize, 1), kernel.risk_engine.symbol_spec_provider.symbols.count());
+        try std.testing.expectEqual(@as(usize, 1), kernel.risk_engine.user_profile_service.user_profiles.count());
+        try std.testing.expect(kernel.risk_engine.adjustments.count() != 0);
+        try std.testing.expect(kernel.risk_engine.last_price_cache.count() != 0);
+        try std.testing.expect(kernel.risk_engine.fees.count() != 0);
+        try std.testing.expect(kernel.risk_engine.suspends.count() != 0);
+
+        const new_spec = try makeExchangeSpecForSymbol(new_symbol);
+        const new_symbol_payload = try encodeAddSymbolsPayload(allocator, &.{new_spec});
+        defer allocator.free(new_symbol_payload);
+        var new_symbol_frames: std.ArrayListUnmanaged(cmd.OrderCommand) = .empty;
+        defer new_symbol_frames.deinit(allocator);
+        try appendBinaryPayloadFrames(
+            allocator,
+            &new_symbol_frames,
+            .binary_data_command,
+            transfer_id,
+            new_symbol_payload,
+        );
+        try std.testing.expect(new_symbol_frames.items.len > 1);
+
+        // Leave a transfer incomplete at the reset boundary.
+        var stale_first_frame = new_symbol_frames.items[0];
+        var stale_first_response = try kernel.execute(&stale_first_frame);
+        defer stale_first_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.accepted, stale_first_response.result_code);
+        try std.testing.expectEqual(@as(usize, 1), kernel.binary_frame_assembler.pendingTransfers());
+
+        const sequence_before_reset = kernel.next_seq;
+        var reset = makeResetCommand();
+        var reset_response = try kernel.execute(&reset);
+        defer reset_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, reset_response.result_code);
+        try std.testing.expectEqualDeep(reset, reset_response.command);
+        try std.testing.expectEqual(sequence_before_reset + 1, reset_response.sequence);
+        try std.testing.expectEqual(reset_response.sequence, kernel.next_seq);
+
+        try std.testing.expectEqual(@as(usize, 0), kernel.books.count());
+        try std.testing.expectEqual(@as(usize, 0), kernel.risk_engine.symbol_spec_provider.symbols.count());
+        try std.testing.expectEqual(@as(usize, 0), kernel.risk_engine.user_profile_service.user_profiles.count());
+        try std.testing.expectEqual(@as(usize, 0), kernel.risk_engine.last_price_cache.count());
+        try std.testing.expectEqual(@as(usize, 0), kernel.risk_engine.fees.count());
+        try std.testing.expectEqual(@as(usize, 0), kernel.risk_engine.adjustments.count());
+        try std.testing.expectEqual(@as(usize, 0), kernel.risk_engine.suspends.count());
+        try std.testing.expectEqual(@as(usize, 0), kernel.binary_frame_assembler.pendingTransfers());
+
+        var missing_old_book = makeRequestOrderBookCommand(old_symbol, 1);
+        var missing_old_book_response = try kernel.execute(&missing_old_book);
+        defer missing_old_book_response.deinit(allocator);
+        try std.testing.expectEqual(
+            cmd.CommandResultCode.matching_invalid_order_book_id,
+            missing_old_book_response.result_code,
+        );
+        try std.testing.expectEqualDeep(missing_old_book, missing_old_book_response.command);
+
+        // Reusing the same transfer id with the complete payload must not append
+        // to the pre-reset fragment. The final frame creates a fresh symbol/book.
+        for (new_symbol_frames.items, 0..) |frame_value, frame_idx| {
+            var frame = frame_value;
+            var frame_response = try kernel.execute(&frame);
+            defer frame_response.deinit(allocator);
+            try std.testing.expectEqual(
+                if (frame_idx + 1 == new_symbol_frames.items.len)
+                    cmd.CommandResultCode.success
+                else
+                    cmd.CommandResultCode.accepted,
+                frame_response.result_code,
+            );
+        }
+
+        try std.testing.expect(kernel.books.contains(new_symbol));
+        try std.testing.expect(kernel.risk_engine.symbol_spec_provider.getSymbolSpecification(new_symbol) != null);
+        try std.testing.expectEqual(@as(usize, 0), kernel.binary_frame_assembler.pendingTransfers());
+
+        var add_new_user = makeAddUserCommand(new_uid);
+        var add_new_user_response = try kernel.execute(&add_new_user);
+        defer add_new_user_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, add_new_user_response.result_code);
+
+        var new_deposit = makeBalanceAdjustmentCommand(new_uid, 11, 10_000, 2, .adjustment);
+        var new_deposit_response = try kernel.execute(&new_deposit);
+        defer new_deposit_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, new_deposit_response.result_code);
+
+        var new_order = makePlaceOrderCommand(
+            84_002,
+            new_uid,
+            new_symbol,
+            90,
+            0,
+            2,
+            .ask,
+            .gtc,
+            0,
+        );
+        var new_order_response = try kernel.execute(&new_order);
+        defer new_order_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, new_order_response.result_code);
+
+        var new_book = makeRequestOrderBookCommand(new_symbol, 4);
+        var new_book_response = try kernel.execute(&new_book);
+        defer new_book_response.deinit(allocator);
+        const new_snapshot = new_book_response.l2_snapshot orelse unreachable;
+        try std.testing.expectEqual(@as(usize, 1), new_snapshot.asks.items.len);
+        try std.testing.expectEqual(@as(i64, 90), new_snapshot.asks.items[0].price);
+        try std.testing.expect(kernel.next_seq > reset_response.sequence);
+    }
+}
+
+test "4ME 2RE Java multi-frame commands and query preserve routed split parity" {
+    const allocator = std.testing.allocator;
+    var routed = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        4,
+        2,
+        .{ .orderbook_kind = .direct },
+    );
+    defer routed.deinit();
+    var split = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        4,
+        2,
+        .{ .orderbook_kind = .direct },
+    );
+    defer split.deinit();
+
+    const symbol: i32 = 9_123;
+    const spec = try makeExchangeSpecForSymbol(symbol);
+    const symbol_body = try binary_payload.encodeJavaAddSymbolsToBytes(allocator, &.{spec});
+    defer allocator.free(symbol_body);
+    const symbol_envelope = try java_binary_wire.encodeRequestEnvelope(allocator, symbol_body, .{});
+    defer allocator.free(symbol_envelope);
+    const symbol_words = try java_binary_wire.packSignedWordsBigEndian(allocator, symbol_envelope);
+    defer allocator.free(symbol_words);
+    try std.testing.expectEqual(@as(usize, 10), symbol_words.len);
+    try std.testing.expectEqual(@as(usize, 2), try java_binary_wire.frameCount(symbol_words));
+
+    const uid = uidForShard(1, 2, 91_001);
+    const balances = [_]binary_payload.CurrencyBalance{
+        .{ .currency = 11, .balance = 500 },
+    };
+    const users = [_]binary_payload.UserAccountsBatch{
+        .{ .uid = uid, .accounts = &balances },
+    };
+    const accounts_body = try binary_payload.encodeJavaAddAccountsToBytes(allocator, &users);
+    defer allocator.free(accounts_body);
+    const accounts_envelope = try java_binary_wire.encodeRequestEnvelope(allocator, accounts_body, .{});
+    defer allocator.free(accounts_envelope);
+
+    const query_body = try binary_payload.encodeJavaReportQueryToBytes(
+        allocator,
+        .{ .single_user = uid },
+    );
+    defer allocator.free(query_body);
+    const query_envelope = try java_binary_wire.encodeRequestEnvelope(allocator, query_body, .{});
+    defer allocator.free(query_envelope);
+
+    const sets = [_]*MultiShardKernelSet{ &routed, &split };
+    var fingerprints: [sets.len]u64 = undefined;
+    for (sets, 0..) |set, mode_idx| {
+        const use_split = mode_idx == 1;
+        {
+            var response = try executeMultiBinaryPayload(
+                allocator,
+                set,
+                use_split,
+                .binary_data_command,
+                9_200,
+                symbol_envelope,
+            );
+            defer response.deinit(allocator);
+            try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+        }
+        for (set.matching_shards) |*matching| {
+            try std.testing.expect(matching.books.contains(symbol));
+        }
+        for (set.risk_shards) |*risk_shard| {
+            try std.testing.expect(
+                risk_shard.engine.symbol_spec_provider.getSymbolSpecification(symbol) != null,
+            );
+        }
+
+        {
+            var response = try executeMultiBinaryPayload(
+                allocator,
+                set,
+                use_split,
+                .binary_data_command,
+                9_201,
+                accounts_envelope,
+            );
+            defer response.deinit(allocator);
+            try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+        }
+        try std.testing.expectEqual(@as(?i64, 500), try set.queryUserBalance(uid, 11));
+
+        {
+            var response = try executeMultiBinaryPayload(
+                allocator,
+                set,
+                use_split,
+                .binary_data_query,
+                9_202,
+                query_envelope,
+            );
+            defer response.deinit(allocator);
+            try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+            switch (response.java_report_response orelse return error.MissingJavaReportResponse) {
+                .single_user => |report| {
+                    try std.testing.expectEqual(@as(i64, 0), report.uid);
+                    try std.testing.expectEqual(java_report_wire.QueryExecutionStatus.ok, report.query_execution_status);
+                    try std.testing.expectEqual(@as(?i64, 500), javaMapValue(report.accounts, 11));
+                },
+                else => return error.UnexpectedReportResponseType,
+            }
+        }
+        _ = try expectAllBinaryProcessorState(set, 0);
+        try expectAllShardSequences(set, 4);
+        fingerprints[mode_idx] = try set.detailedHashFingerprint();
+    }
+
+    try std.testing.expectEqual(fingerprints[0], fingerprints[1]);
+}
+
+test "multi-shard routed and split report projections preserve exact and native lanes" {
+    const allocator = std.testing.allocator;
+    const topology_config = Config{
+        .orderbook_kind = .direct,
+        .java_identity_hash_context = testJavaIdentityHashContext(),
+    };
+    var routed = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        2,
+        2,
+        topology_config,
+    );
+    defer routed.deinit();
+    var split = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        2,
+        2,
+        topology_config,
+    );
+    defer split.deinit();
+
+    const payload = try encodeReportQueryPayload(allocator, 10001);
+    defer allocator.free(payload);
+    const projections = [_]cmd.BinaryReportProjection{
+        .exact_java_only,
+        .exact_java_and_native,
+    };
+
+    for (projections, 0..) |projection, projection_idx| {
+        var frames: std.ArrayListUnmanaged(cmd.OrderCommand) = .empty;
+        defer frames.deinit(allocator);
+        try appendBinaryPayloadFrames(
+            allocator,
+            &frames,
+            .binary_data_query,
+            9_300 + @as(i32, @intCast(projection_idx)),
+            payload,
+        );
+        frames.items[frames.items.len - 1].binary_report_projection = projection;
+
+        for (frames.items, 0..) |frame_value, frame_idx| {
+            var routed_command = frame_value;
+            var split_command = frame_value;
+            var routed_response = try routed.executeRouted(&routed_command);
+            defer routed_response.deinit(allocator);
+            var split_response = try split.executeSplit(&split_command);
+            defer split_response.deinit(allocator);
+
+            try std.testing.expectEqual(routed_response.sequence, split_response.sequence);
+            try std.testing.expectEqual(routed_response.result_code, split_response.result_code);
+            try std.testing.expectEqualDeep(routed_response.command, split_response.command);
+
+            if (frame_idx + 1 != frames.items.len) {
+                try std.testing.expectEqual(
+                    cmd.CommandResultCode.accepted,
+                    routed_response.result_code,
+                );
+                try std.testing.expect(routed_response.java_report_response == null);
+                try std.testing.expect(split_response.java_report_response == null);
+                try std.testing.expect(routed_response.report_response == null);
+                try std.testing.expect(split_response.report_response == null);
+                continue;
+            }
+
+            try std.testing.expectEqual(cmd.CommandResultCode.success, routed_response.result_code);
+            const routed_java = routed_response.java_report_response orelse
+                return error.MissingJavaReportResponse;
+            const split_java = split_response.java_report_response orelse
+                return error.MissingJavaReportResponse;
+            switch (routed_java) {
+                .state_hash => |routed_state_hash| switch (split_java) {
+                    .state_hash => |split_state_hash| {
+                        try std.testing.expectEqual(
+                            routed_state_hash.state_hash,
+                            split_state_hash.state_hash,
+                        );
+                    },
+                    else => return error.UnexpectedReportResponseType,
+                },
+                else => return error.UnexpectedReportResponseType,
+            }
+
+            switch (projection) {
+                .exact_java_only => {
+                    try std.testing.expect(routed_response.report_response == null);
+                    try std.testing.expect(split_response.report_response == null);
+                },
+                .exact_java_and_native => {
+                    const routed_native = routed_response.report_response orelse
+                        return error.MissingReportResponse;
+                    const split_native = split_response.report_response orelse
+                        return error.MissingReportResponse;
+                    switch (routed_native) {
+                        .state_hash_detailed => |routed_state_hash| switch (split_native) {
+                            .state_hash_detailed => |split_state_hash| {
+                                try std.testing.expectEqual(
+                                    routed_state_hash.aggregate_hash,
+                                    split_state_hash.aggregate_hash,
+                                );
+                            },
+                            else => return error.UnexpectedReportResponseType,
+                        },
+                        else => return error.UnexpectedReportResponseType,
+                    }
+                },
+            }
+        }
+    }
+
+    try std.testing.expectEqual(routed.next_seq, split.next_seq);
+    try std.testing.expectEqual(
+        try routed.detailedHashFingerprint(),
+        try split.detailedHashFingerprint(),
+    );
+}
+
+test "4ME 2RE binary broadcast keeps partial state atomic across mismatch malformed and reset" {
+    const allocator = std.testing.allocator;
+    var sharded = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        4,
+        2,
+        .{ .orderbook_kind = .direct },
+    );
+    defer sharded.deinit();
+
+    const transfer_id: i32 = 7_001;
+    var partial = makeBinaryFrameCommand(
+        .binary_data_command,
+        transfer_id,
+        0,
+        .{ 1, 2, 3, 4, 5 },
+    );
+    var partial_response = try sharded.executeRouted(&partial);
+    defer partial_response.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.accepted, partial_response.result_code);
+    const partial_hash = try expectAllBinaryProcessorState(&sharded, 1);
+    try expectAllShardSequences(&sharded, 1);
+
+    var partial_report = try sharded.queryReport(.state_hash_detailed);
+    defer partial_report.deinit(allocator);
+    try expectDetailedTopologyIdentity(&partial_report.state_hash_detailed, 4, 2);
+    var binary_entries: usize = 0;
+    for (partial_report.state_hash_detailed.submodules.items) |entry| {
+        switch (entry.submodule) {
+            .risk_binary_cmd_processor, .matching_binary_cmd_processor => {
+                try std.testing.expectEqual(partial_hash, entry.hash);
+                binary_entries += 1;
+            },
+            else => {},
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 6), binary_entries);
+
+    // Introduce one divergent processor to prove the next broadcast does not
+    // commit a prefix when completion payloads disagree.
+    var divergent = makeBinaryFrameCommand(
+        .binary_data_command,
+        transfer_id,
+        0,
+        .{ 6, 7, 8, 9, 10 },
+    );
+    const divergent_result = try sharded.risk_shards[1].binary_frame_assembler.acceptFrame(&divergent);
+    try std.testing.expect(divergent_result == .accepted);
+    const before_failed_completion = try sharded.detailedHashFingerprint();
+
+    var final = makeBinaryFrameCommand(
+        .binary_data_command,
+        transfer_id,
+        -1,
+        .{ 11, 12, 13, 14, 15 },
+    );
+    var final_response = try sharded.executeSplit(&final);
+    defer final_response.deinit(allocator);
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.binary_command_failed,
+        final_response.result_code,
+    );
+    try std.testing.expectEqual(
+        before_failed_completion,
+        try sharded.detailedHashFingerprint(),
+    );
+    for (sharded.matching_shards) |*matching| {
+        try std.testing.expectEqual(@as(usize, 1), matching.binary_frame_assembler.pendingTransfers());
+    }
+    for (sharded.risk_shards) |*risk_shard| {
+        try std.testing.expectEqual(@as(usize, 1), risk_shard.binary_frame_assembler.pendingTransfers());
+    }
+
+    var malformed = makeBinaryFrameCommand(
+        .binary_data_query,
+        7_002,
+        1,
+        .{ 21, 22, 23, 24, 25 },
+    );
+    var malformed_response = try sharded.executeRouted(&malformed);
+    defer malformed_response.deinit(allocator);
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.binary_command_failed,
+        malformed_response.result_code,
+    );
+    try std.testing.expectEqual(
+        before_failed_completion,
+        try sharded.detailedHashFingerprint(),
+    );
+
+    var reset = makeResetCommand();
+    var reset_response = try sharded.executeSplit(&reset);
+    defer reset_response.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, reset_response.result_code);
+    _ = try expectAllBinaryProcessorState(&sharded, 0);
+    try expectAllShardSequences(&sharded, 4);
+}
+
+test "4ME 2RE binary mutations and merged reports keep routed split parity" {
+    const allocator = std.testing.allocator;
+    const exact_config = Config{
+        .orderbook_kind = .direct,
+        .java_identity_hash_context = testJavaIdentityHashContext(),
+    };
+    var routed = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        4,
+        2,
+        exact_config,
+    );
+    defer routed.deinit();
+    var split = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        4,
+        2,
+        exact_config,
+    );
+    defer split.deinit();
+
+    const symbol0: i32 = 240;
+    const symbol3: i32 = 243;
+    const symbols = [_]common.CoreSymbolSpecification{
+        try makeExchangeSpecForSymbol(symbol0),
+        try makeExchangeSpecForSymbol(symbol3),
+    };
+    const symbol_payload = try encodeAddSymbolsPayload(allocator, symbols[0..]);
+    defer allocator.free(symbol_payload);
+
+    const uid = uidForShard(1, 2, 70_001);
+    const accounts = [_]binary_payload.CurrencyBalance{
+        .{ .currency = 11, .balance = 1_000 },
+    };
+    const users = [_]binary_payload.UserAccountsBatch{
+        .{ .uid = uid, .accounts = accounts[0..] },
+    };
+    const account_payload = try encodeAddAccountsPayload(allocator, users[0..]);
+    defer allocator.free(account_payload);
+    const single_user_payload = try encodeSingleUserReportQueryPayload(allocator, uid);
+    defer allocator.free(single_user_payload);
+    const total_payload = try encodeReportQueryPayload(allocator, 10003);
+    defer allocator.free(total_payload);
+    const state_hash_payload = try encodeReportQueryPayload(allocator, 10001);
+    defer allocator.free(state_hash_payload);
+
+    const sets = [_]*MultiShardKernelSet{ &routed, &split };
+    var fingerprints: [sets.len]i32 = undefined;
+    for (sets, 0..) |set, mode_idx| {
+        const use_split = mode_idx == 1;
+        {
+            var response = try executeMultiBinaryPayload(
+                allocator,
+                set,
+                use_split,
+                .binary_data_command,
+                241,
+                symbol_payload,
+            );
+            defer response.deinit(allocator);
+            try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+        }
+        for (set.risk_shards) |*risk_shard| {
+            try std.testing.expectEqual(
+                @as(usize, symbols.len),
+                risk_shard.engine.symbol_spec_provider.symbols.count(),
+            );
+        }
+        // Java's binary symbol handler installs every definition in every
+        // matching router; ordinary commands still mutate only the owner.
+        for (set.matching_shards) |*matching| {
+            try std.testing.expectEqual(@as(usize, symbols.len), matching.books.count());
+        }
+        try expectOperationalRiskStateEmpty(&set.matching_shards[2].risk_engine);
+        try expectOperationalRiskStateEmpty(&set.matching_shards[3].risk_engine);
+
+        {
+            var response = try executeMultiBinaryPayload(
+                allocator,
+                set,
+                use_split,
+                .binary_data_command,
+                symbol0,
+                account_payload,
+            );
+            defer response.deinit(allocator);
+            try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+        }
+        for (set.risk_shards, 0..) |*risk_shard, shard_idx| {
+            try std.testing.expectEqual(
+                @as(usize, if (shard_idx == 1) 1 else 0),
+                risk_shard.engine.user_profile_service.user_profiles.count(),
+            );
+        }
+        try std.testing.expectEqual(@as(?i64, 1_000), try set.queryUserBalance(uid, 11));
+
+        var order0 = cmd.OrderCommand.newOrder(.gtc, 70_101, uid, 100, 0, 1, .ask);
+        order0.symbol = symbol0;
+        try executeMultiExpect(allocator, set, use_split, order0, .success);
+        var order3 = cmd.OrderCommand.newOrder(.gtc, 70_102, uid, 100, 0, 1, .ask);
+        order3.symbol = symbol3;
+        try executeMultiExpect(allocator, set, use_split, order3, .success);
+
+        {
+            var response = try executeMultiBinaryPayload(
+                allocator,
+                set,
+                use_split,
+                .binary_data_query,
+                997,
+                single_user_payload,
+            );
+            defer response.deinit(allocator);
+            try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+            switch (response.java_report_response orelse return error.MissingJavaReportResponse) {
+                .single_user => |report| {
+                    try std.testing.expectEqual(java_report_wire.QueryExecutionStatus.ok, report.query_execution_status);
+                    try std.testing.expectEqual(@as(i64, 0), report.uid);
+                    try std.testing.expectEqual(@as(?i64, 800), javaMapValue(report.accounts, 11));
+                    const groups = report.orders orelse return error.MissingJavaOrders;
+                    try std.testing.expectEqual(@as(usize, 2), groups.len);
+                    try std.testing.expectEqual(symbol0, groups[0].symbol);
+                    try std.testing.expectEqual(symbol3, groups[1].symbol);
+                },
+                else => return error.UnexpectedReportResponseType,
+            }
+        }
+
+        {
+            var response = try executeMultiBinaryPayload(
+                allocator,
+                set,
+                use_split,
+                .binary_data_query,
+                998,
+                total_payload,
+            );
+            defer response.deinit(allocator);
+            switch (response.java_report_response orelse return error.MissingJavaReportResponse) {
+                .total_currency_balance => |report| {
+                    try std.testing.expectEqual(@as(?i64, 800), javaMapValue(report.account_balances, 11));
+                    try std.testing.expectEqual(@as(?i64, 200), javaMapValue(report.order_balances, 11));
+                    try std.testing.expectEqual(@as(?i64, -1_000), javaMapValue(report.adjustments, 11));
+                },
+                else => return error.UnexpectedReportResponseType,
+            }
+        }
+
+        {
+            var response = try executeMultiBinaryPayload(
+                allocator,
+                set,
+                use_split,
+                .binary_data_query,
+                999,
+                state_hash_payload,
+            );
+            defer response.deinit(allocator);
+            switch (response.java_report_response orelse return error.MissingJavaReportResponse) {
+                .state_hash => |*state_hash| {
+                    try expectJavaStateHashTopology(
+                        allocator,
+                        state_hash,
+                        response.matcher_events_head,
+                        4,
+                        2,
+                    );
+                    fingerprints[mode_idx] = state_hash.state_hash;
+                },
+                else => return error.UnexpectedReportResponseType,
+            }
+        }
+        _ = try expectAllBinaryProcessorState(set, 0);
+    }
+
+    try std.testing.expectEqual(fingerprints[0], fingerprints[1]);
+    try std.testing.expectEqual(routed.next_seq, split.next_seq);
+}
+
+test "1ME 4RE binary broadcast mutates each semantic owner once and merges reports" {
+    const allocator = std.testing.allocator;
+    var sharded = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        1,
+        4,
+        .{
+            .orderbook_kind = .direct,
+            .java_identity_hash_context = testJavaIdentityHashContext(),
+        },
+    );
+    defer sharded.deinit();
+
+    var partial = makeBinaryFrameCommand(
+        .binary_data_query,
+        8_001,
+        0,
+        .{ 31, 32, 33, 34, 35 },
+    );
+    var partial_response = try sharded.executeSplit(&partial);
+    defer partial_response.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.accepted, partial_response.result_code);
+    _ = try expectAllBinaryProcessorState(&sharded, 1);
+
+    var reset = makeResetCommand();
+    var reset_response = try sharded.executeRouted(&reset);
+    defer reset_response.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, reset_response.result_code);
+    _ = try expectAllBinaryProcessorState(&sharded, 0);
+
+    const symbol: i32 = 8_101;
+    const spec = try makeExchangeSpecForSymbol(symbol);
+    const symbol_payload = try encodeAddSymbolsPayload(allocator, &.{spec});
+    defer allocator.free(symbol_payload);
+    {
+        var response = try executeMultiBinaryPayload(
+            allocator,
+            &sharded,
+            true,
+            .binary_data_command,
+            8_199,
+            symbol_payload,
+        );
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    }
+    try std.testing.expectEqual(@as(usize, 1), sharded.matching_shards[0].books.count());
+    for (sharded.risk_shards) |*risk_shard| {
+        try std.testing.expectEqual(
+            @as(usize, 1),
+            risk_shard.engine.symbol_spec_provider.symbols.count(),
+        );
+    }
+
+    const uids = [_]i64{
+        uidForShard(0, 4, 81_000),
+        uidForShard(1, 4, 81_100),
+        uidForShard(2, 4, 81_200),
+        uidForShard(3, 4, 81_300),
+    };
+    const balances = [_][1]binary_payload.CurrencyBalance{
+        .{.{ .currency = 11, .balance = 1_000 }},
+        .{.{ .currency = 11, .balance = 2_000 }},
+        .{.{ .currency = 11, .balance = 3_000 }},
+        .{.{ .currency = 11, .balance = 4_000 }},
+    };
+    const users = [_]binary_payload.UserAccountsBatch{
+        .{ .uid = uids[0], .accounts = balances[0][0..] },
+        .{ .uid = uids[1], .accounts = balances[1][0..] },
+        .{ .uid = uids[2], .accounts = balances[2][0..] },
+        .{ .uid = uids[3], .accounts = balances[3][0..] },
+    };
+    const account_payload = try encodeAddAccountsPayload(allocator, users[0..]);
+    defer allocator.free(account_payload);
+    {
+        var response = try executeMultiBinaryPayload(
+            allocator,
+            &sharded,
+            false,
+            .binary_data_command,
+            8_198,
+            account_payload,
+        );
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    }
+
+    for (sharded.risk_shards, 0..) |*risk_shard, shard_idx| {
+        try std.testing.expectEqual(
+            @as(usize, 1),
+            risk_shard.engine.user_profile_service.user_profiles.count(),
+        );
+        try std.testing.expect(risk_shard.engine.getUserProfile(uids[shard_idx]) != null);
+    }
+    _ = try expectAllBinaryProcessorState(&sharded, 0);
+
+    const total_payload = try encodeReportQueryPayload(allocator, 10003);
+    defer allocator.free(total_payload);
+    {
+        var response = try executeMultiBinaryPayload(
+            allocator,
+            &sharded,
+            true,
+            .binary_data_query,
+            8_197,
+            total_payload,
+        );
+        defer response.deinit(allocator);
+        switch (response.java_report_response orelse return error.MissingJavaReportResponse) {
+            .total_currency_balance => |report| {
+                try std.testing.expectEqual(@as(?i64, 10_000), javaMapValue(report.account_balances, 11));
+                try std.testing.expectEqual(@as(?i64, -10_000), javaMapValue(report.adjustments, 11));
+            },
+            else => return error.UnexpectedReportResponseType,
+        }
+    }
+
+    const hash_payload = try encodeReportQueryPayload(allocator, 10001);
+    defer allocator.free(hash_payload);
+    var hash_response = try executeMultiBinaryPayload(
+        allocator,
+        &sharded,
+        false,
+        .binary_data_query,
+        8_196,
+        hash_payload,
+    );
+    defer hash_response.deinit(allocator);
+    switch (hash_response.java_report_response orelse return error.MissingJavaReportResponse) {
+        .state_hash => |*state_hash| try expectJavaStateHashTopology(
+            allocator,
+            state_hash,
+            hash_response.matcher_events_head,
+            1,
+            4,
+        ),
+        else => return error.UnexpectedReportResponseType,
+    }
+}
+
+test "multi-shard RESET clears independent families in routed and split modes" {
+    const allocator = std.testing.allocator;
+    const symbol: i32 = 6_401;
+
+    for ([_]bool{ false, true }) |use_split| {
+        var sharded = try MultiShardKernelSet.initWithTopology(
+            allocator,
+            4,
+            2,
+            .{ .orderbook_kind = .direct },
+        );
+        defer sharded.deinit();
+
+        // Matching carriers 2 and 3 have structurally dormant embedded risks.
+        try expectOperationalRiskStateEmpty(&sharded.matching_shards[2].risk_engine);
+        try expectOperationalRiskStateEmpty(&sharded.matching_shards[3].risk_engine);
+        try sharded.addSymbolAll(try makeExchangeSpecForSymbol(symbol));
+        try expectOperationalRiskStateEmpty(&sharded.matching_shards[2].risk_engine);
+        try expectOperationalRiskStateEmpty(&sharded.matching_shards[3].risk_engine);
+
+        const uid = uidForShard(1, 2, 64_001);
+        try executeMultiExpect(allocator, &sharded, use_split, makeAddUserCommand(uid), .success);
+        try executeMultiExpect(
+            allocator,
+            &sharded,
+            use_split,
+            makeBalanceAdjustmentCommand(uid, 11, 1_000, 1, .adjustment),
+            .success,
+        );
+        var order = cmd.OrderCommand.newOrder(.gtc, 64_101, uid, 100, 0, 1, .ask);
+        order.symbol = symbol;
+        try executeMultiExpect(allocator, &sharded, use_split, order, .success);
+
+        for (sharded.matching_shards, 0..) |*matching, shard_idx| {
+            var partial_frame = makeBinaryFrameCommand(
+                .binary_data_command,
+                @as(i32, @intCast(7_100 + shard_idx)),
+                0,
+                .{ 1, 2, 3, 4, 5 },
+            );
+            const accepted = try matching.binary_frame_assembler.acceptFrame(&partial_frame);
+            try std.testing.expect(accepted == .accepted);
+            try std.testing.expectEqual(@as(usize, 1), matching.books.count());
+            try std.testing.expectEqual(
+                @as(usize, 1),
+                matching.binary_frame_assembler.pendingTransfers(),
+            );
+        }
+        for (sharded.risk_shards, 0..) |*risk_shard, shard_idx| {
+            var partial_frame = makeBinaryFrameCommand(
+                .binary_data_command,
+                @as(i32, @intCast(7_200 + shard_idx)),
+                0,
+                .{ 6, 7, 8, 9, 10 },
+            );
+            const accepted = try risk_shard.binary_frame_assembler.acceptFrame(&partial_frame);
+            try std.testing.expect(accepted == .accepted);
+            try std.testing.expectEqual(
+                @as(usize, 1),
+                risk_shard.binary_frame_assembler.pendingTransfers(),
+            );
+        }
+
+        var before_hash = try sharded.queryReport(.state_hash_detailed);
+        defer before_hash.deinit(allocator);
+        try std.testing.expectEqual(
+            @as(usize, 8 * 2 + 3 * 4),
+            before_hash.state_hash_detailed.submodules.items.len,
+        );
+        try expectOperationalRiskStateEmpty(&sharded.matching_shards[2].risk_engine);
+        try expectOperationalRiskStateEmpty(&sharded.matching_shards[3].risk_engine);
+
+        var reset = makeResetCommand();
+        var response = if (use_split)
+            try sharded.executeSplit(&reset)
+        else
+            try sharded.executeRouted(&reset);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+        try std.testing.expectEqualDeep(reset, response.command);
+        try expectAllShardSequences(&sharded, 4);
+
+        for (sharded.matching_shards) |*matching| {
+            try std.testing.expectEqual(@as(usize, 0), matching.books.count());
+            try std.testing.expectEqual(
+                @as(usize, 0),
+                matching.binary_frame_assembler.pendingTransfers(),
+            );
+        }
+        for (sharded.risk_shards) |*risk_shard| {
+            try expectOperationalRiskStateEmpty(risk_shard.engine);
+            try std.testing.expectEqual(
+                @as(usize, 0),
+                risk_shard.binary_frame_assembler.pendingTransfers(),
+            );
+        }
+        try expectOperationalRiskStateEmpty(&sharded.matching_shards[2].risk_engine);
+        try expectOperationalRiskStateEmpty(&sharded.matching_shards[3].risk_engine);
+
+        var after_hash = try sharded.queryReport(.state_hash_detailed);
+        defer after_hash.deinit(allocator);
+        try std.testing.expectEqual(
+            @as(usize, 8 * 2 + 3 * 4),
+            after_hash.state_hash_detailed.submodules.items.len,
+        );
+        try expectOperationalRiskStateEmpty(&sharded.matching_shards[2].risk_engine);
+        try expectOperationalRiskStateEmpty(&sharded.matching_shards[3].risk_engine);
+    }
+}
+
+test "risk-heavy topology routes owners outside matching carriers exactly once" {
+    const allocator = std.testing.allocator;
+    var sharded = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        1,
+        4,
+        .{ .orderbook_kind = .direct },
+    );
+    defer sharded.deinit();
+
+    try std.testing.expectEqual(@as(usize, 1), sharded.matchingShardCount());
+    try std.testing.expectEqual(@as(usize, 4), sharded.riskShardCount());
+    try std.testing.expectEqual(@as(u64, 0), sharded.matchingShardMask());
+    try std.testing.expectEqual(@as(u64, 3), sharded.riskShardMask());
+
+    const symbol: i32 = 6_501;
+    try sharded.addSymbolAll(try makeExchangeSpecForSymbol(symbol));
+    for (sharded.risk_shards, 0..) |*risk_shard, idx| {
+        try std.testing.expectEqual(@as(u64, @intCast(idx)), risk_shard.engine.shard_id);
+        try std.testing.expectEqual(@as(u64, 3), risk_shard.engine.shard_mask);
+        try std.testing.expectEqual(
+            @as(usize, 1),
+            risk_shard.engine.symbol_spec_provider.symbols.count(),
+        );
+    }
+
+    const uid = uidForShard(3, 4, 65_001);
+    try executeMultiExpect(allocator, &sharded, false, makeAddUserCommand(uid), .success);
+    try executeMultiExpect(
+        allocator,
+        &sharded,
+        false,
+        makeBalanceAdjustmentCommand(uid, 11, 1_000, 1, .adjustment),
+        .success,
+    );
+    var ask = cmd.OrderCommand.newOrder(.gtc, 65_101, uid, 100, 0, 1, .ask);
+    ask.symbol = symbol;
+    try executeMultiExpect(allocator, &sharded, false, ask, .success);
+
+    for (0..3) |idx| {
+        try std.testing.expect(sharded.riskEngineAt(idx).getUserProfile(uid) == null);
+    }
+    const owner = sharded.riskEngineAt(3).getUserProfile(uid) orelse
+        return error.ExpectedRiskOwnerProfile;
+    try std.testing.expectEqual(@as(i64, 900), owner.accountBalance(11));
+    try std.testing.expectEqual(@as(usize, 1), sharded.matchingShardAt(0).books.count());
+    try expectAllShardSequences(&sharded, 3);
+
+    var detailed = try sharded.queryReport(.state_hash_detailed);
+    defer detailed.deinit(allocator);
+    try std.testing.expectEqual(
+        @as(usize, 8 * 4 + 3),
+        detailed.state_hash_detailed.submodules.items.len,
+    );
+}
+
+test "matching-heavy routed pipeline crosses risk owners without touching dormant carriers" {
+    const allocator = std.testing.allocator;
+    var sharded = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        4,
+        2,
+        .{ .orderbook_kind = .direct },
+    );
+    defer sharded.deinit();
+
+    const symbol: i32 = 243;
+    const maker_uid = uidForShard(0, 2, 66_000);
+    const taker_uid = uidForShard(1, 2, 66_100);
+    try std.testing.expectEqual(@as(usize, 3), sharded.shardIndexForSymbol(symbol));
+    try std.testing.expectEqual(@as(usize, 0), sharded.shardIndexForUid(maker_uid));
+    try std.testing.expectEqual(@as(usize, 1), sharded.shardIndexForUid(taker_uid));
+
+    try expectOperationalRiskStateEmpty(&sharded.matching_shards[2].risk_engine);
+    try expectOperationalRiskStateEmpty(&sharded.matching_shards[3].risk_engine);
+    try sharded.addSymbolAll(try makeExchangeSpecForSymbol(symbol));
+    try expectOperationalRiskStateEmpty(&sharded.matching_shards[2].risk_engine);
+    try expectOperationalRiskStateEmpty(&sharded.matching_shards[3].risk_engine);
+
+    try executeMultiExpect(allocator, &sharded, false, makeAddUserCommand(maker_uid), .success);
+    try executeMultiExpect(allocator, &sharded, false, makeAddUserCommand(taker_uid), .success);
+    try executeMultiExpect(
+        allocator,
+        &sharded,
+        false,
+        makeBalanceAdjustmentCommand(maker_uid, 15, 100_000, 1, .adjustment),
+        .success,
+    );
+    try executeMultiExpect(
+        allocator,
+        &sharded,
+        false,
+        makeBalanceAdjustmentCommand(taker_uid, 11, 100_000, 1, .adjustment),
+        .success,
+    );
+
+    var maker_bid = cmd.OrderCommand.newOrder(.gtc, 66_201, maker_uid, 100, 100, 5, .bid);
+    maker_bid.symbol = symbol;
+    try executeMultiExpect(allocator, &sharded, false, maker_bid, .success);
+
+    var taker_ask = cmd.OrderCommand.newOrder(.ioc, 66_202, taker_uid, 95, 0, 3, .ask);
+    taker_ask.symbol = symbol;
+    var taker_response = try sharded.executeRouted(&taker_ask);
+    defer taker_response.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, taker_response.result_code);
+    const trade = taker_response.matcher_events_head orelse return error.ExpectedTradeEvent;
+    try std.testing.expectEqual(events.MatcherEventType.trade, trade.event_type);
+    try std.testing.expectEqual(maker_uid, trade.matched_order_uid);
+    try std.testing.expectEqual(@as(i64, 3), trade.size);
+
+    try std.testing.expectEqual(@as(?i64, 94_993), try sharded.queryUserBalance(maker_uid, 15));
+    try std.testing.expectEqual(@as(?i64, 300), try sharded.queryUserBalance(maker_uid, 11));
+    try std.testing.expectEqual(@as(?i64, 99_700), try sharded.queryUserBalance(taker_uid, 11));
+    try std.testing.expectEqual(@as(?i64, 2_994), try sharded.queryUserBalance(taker_uid, 15));
+
+    var book_report = try sharded.queryReport(.{
+        .order_book = .{ .symbol = symbol, .depth = 8 },
+    });
+    defer book_report.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 1), book_report.order_book.bids.items.len);
+    try std.testing.expectEqual(@as(i64, 100), book_report.order_book.bids.items[0].price);
+    try std.testing.expectEqual(@as(i64, 2), book_report.order_book.bids.items[0].volume);
+
+    var detailed = try sharded.queryReport(.state_hash_detailed);
+    defer detailed.deinit(allocator);
+    try std.testing.expectEqual(
+        @as(usize, 8 * 2 + 3 * 4),
+        detailed.state_hash_detailed.submodules.items.len,
+    );
+    try expectOperationalRiskStateEmpty(&sharded.matching_shards[2].risk_engine);
+    try expectOperationalRiskStateEmpty(&sharded.matching_shards[3].risk_engine);
+    try expectAllShardSequences(&sharded, 6);
+}
+
+test "all active risk owners settle a multi-maker trade exactly once" {
+    const allocator = std.testing.allocator;
+    var sharded = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        4,
+        2,
+        .{ .orderbook_kind = .direct },
+    );
+    defer sharded.deinit();
+
+    const symbol: i32 = 243;
+    const maker0 = uidForShard(0, 2, 67_000);
+    const maker1 = uidForShard(1, 2, 67_100);
+    const taker = uidForShard(0, 2, 67_200);
+    try sharded.addSymbolAll(try makeExchangeSpecForSymbol(symbol));
+
+    for ([_]i64{ maker0, maker1, taker }) |uid| {
+        try executeMultiExpect(allocator, &sharded, true, makeAddUserCommand(uid), .success);
+    }
+    try executeMultiExpect(
+        allocator,
+        &sharded,
+        true,
+        makeBalanceAdjustmentCommand(maker0, 11, 1_000, 1, .adjustment),
+        .success,
+    );
+    try executeMultiExpect(
+        allocator,
+        &sharded,
+        true,
+        makeBalanceAdjustmentCommand(maker1, 11, 1_000, 1, .adjustment),
+        .success,
+    );
+    try executeMultiExpect(
+        allocator,
+        &sharded,
+        true,
+        makeBalanceAdjustmentCommand(taker, 15, 10_000, 1, .adjustment),
+        .success,
+    );
+
+    var ask0 = cmd.OrderCommand.newOrder(.gtc, 67_301, maker0, 100, 0, 2, .ask);
+    ask0.symbol = symbol;
+    try executeMultiExpect(allocator, &sharded, true, ask0, .success);
+    var ask1 = cmd.OrderCommand.newOrder(.gtc, 67_302, maker1, 100, 0, 3, .ask);
+    ask1.symbol = symbol;
+    try executeMultiExpect(allocator, &sharded, true, ask1, .success);
+
+    var bid = cmd.OrderCommand.newOrder(.ioc, 67_303, taker, 100, 100, 5, .bid);
+    bid.symbol = symbol;
+    var response = try sharded.executeSplit(&bid);
+    defer response.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    try std.testing.expectEqual(@as(usize, 2), events.listSize(response.matcher_events_head));
+    const first = response.matcher_events_head orelse return error.ExpectedFirstTrade;
+    const second = first.next_event orelse return error.ExpectedSecondTrade;
+    try std.testing.expectEqual(maker0, first.matched_order_uid);
+    try std.testing.expectEqual(@as(i64, 2), first.size);
+    try std.testing.expectEqual(maker1, second.matched_order_uid);
+    try std.testing.expectEqual(@as(i64, 3), second.size);
+
+    try std.testing.expectEqual(@as(?i64, 800), try sharded.queryUserBalance(maker0, 11));
+    try std.testing.expectEqual(@as(?i64, 1_998), try sharded.queryUserBalance(maker0, 15));
+    try std.testing.expectEqual(@as(?i64, 700), try sharded.queryUserBalance(maker1, 11));
+    try std.testing.expectEqual(@as(?i64, 2_997), try sharded.queryUserBalance(maker1, 15));
+    try std.testing.expectEqual(@as(?i64, 500), try sharded.queryUserBalance(taker, 11));
+    try std.testing.expectEqual(@as(?i64, 4_990), try sharded.queryUserBalance(taker, 15));
+
+    var fee_report = try sharded.queryReport(.{ .fee_collected = 15 });
+    defer fee_report.deinit(allocator);
+    try std.testing.expectEqual(@as(i64, 15), fee_report.fee_collected);
+    try expectOperationalRiskStateEmpty(&sharded.matching_shards[2].risk_engine);
+    try expectOperationalRiskStateEmpty(&sharded.matching_shards[3].risk_engine);
+    try expectAllShardSequences(&sharded, 9);
+}
+
+test "single-user report merges orders across matching symbol owners" {
+    const allocator = std.testing.allocator;
+    var sharded = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        4,
+        2,
+        .{ .orderbook_kind = .direct },
+    );
+    defer sharded.deinit();
+
+    const uid = uidForShard(1, 2, 68_000);
+    const symbol0: i32 = 240;
+    const symbol3: i32 = 243;
+    try sharded.addSymbolAll(try makeExchangeSpecForSymbol(symbol0));
+    try sharded.addSymbolAll(try makeExchangeSpecForSymbol(symbol3));
+    try executeMultiExpect(allocator, &sharded, true, makeAddUserCommand(uid), .success);
+    try executeMultiExpect(
+        allocator,
+        &sharded,
+        true,
+        makeBalanceAdjustmentCommand(uid, 11, 1_000, 1, .adjustment),
+        .success,
+    );
+
+    var high_symbol_order = cmd.OrderCommand.newOrder(.gtc, 68_102, uid, 100, 0, 1, .ask);
+    high_symbol_order.symbol = symbol3;
+    try executeMultiExpect(allocator, &sharded, true, high_symbol_order, .success);
+    var low_symbol_order = cmd.OrderCommand.newOrder(.gtc, 68_101, uid, 100, 0, 1, .ask);
+    low_symbol_order.symbol = symbol0;
+    try executeMultiExpect(allocator, &sharded, true, low_symbol_order, .success);
+
+    var response = try sharded.queryReport(.{ .single_user = uid });
+    defer response.deinit(allocator);
+    const report = &response.single_user;
+    try std.testing.expectEqual(SingleUserQueryExecutionStatus.ok, report.query_execution_status);
+    try std.testing.expectEqual(@as(?i64, 800), report.accounts.get(11));
+    try std.testing.expectEqual(@as(usize, 2), report.orders.items.len);
+    try std.testing.expectEqual(symbol0, report.orders.items[0].symbol);
+    try std.testing.expectEqual(@as(i64, 68_101), report.orders.items[0].order_id);
+    try std.testing.expectEqual(symbol3, report.orders.items[1].symbol);
+    try std.testing.expectEqual(@as(i64, 68_102), report.orders.items[1].order_id);
+    try expectAllShardSequences(&sharded, 4);
+}
+
+test "kernel unsupported IOC budget and FOK orders fully release reserved spot funds" {
+    const allocator = std.testing.allocator;
+    const symbol: i32 = 241;
+    const uid: i64 = 8_501;
+
+    for ([_]OrderBookKind{ .naive, .direct }) |orderbook_kind| {
+        var kernel = try ExchangeKernel.init(allocator, .{ .orderbook_kind = orderbook_kind });
+        defer kernel.deinit();
+        try std.testing.expect(try kernel.addSymbol(try makeExchangeSpecForSymbol(symbol)));
+
+        var add_user = makeAddUserCommand(uid);
+        var add_user_response = try kernel.execute(&add_user);
+        defer add_user_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, add_user_response.result_code);
+
+        var deposit_base = makeBalanceAdjustmentCommand(uid, 11, 100_000, 1, .adjustment);
+        var deposit_base_response = try kernel.execute(&deposit_base);
+        defer deposit_base_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, deposit_base_response.result_code);
+
+        var deposit_quote = makeBalanceAdjustmentCommand(uid, 15, 2_000_000, 2, .adjustment);
+        var deposit_quote_response = try kernel.execute(&deposit_quote);
+        defer deposit_quote_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, deposit_quote_response.result_code);
+
+        const profile_before = kernel.risk_engine.getUserProfile(uid) orelse unreachable;
+        const base_before = profile_before.accountBalance(11);
+        const quote_before = profile_before.accountBalance(15);
+        const book = kernel.books.get(symbol) orelse unreachable;
+        const book_hash_before = try book.stateHash();
+
+        for (unsupported_order_cases) |case| {
+            var unsupported = makePlaceOrderCommand(
+                case.order_id,
+                uid,
+                symbol,
+                case.price,
+                case.reserve_bid_price,
+                case.size,
+                case.action,
+                case.order_type,
+                0,
+            );
+            var response = try kernel.execute(&unsupported);
+            defer response.deinit(allocator);
+            try expectUnsupportedFullReject(&response, case);
+
+            const profile_after = kernel.risk_engine.getUserProfile(uid) orelse unreachable;
+            try std.testing.expectEqual(base_before, profile_after.accountBalance(11));
+            try std.testing.expectEqual(quote_before, profile_after.accountBalance(15));
+            try std.testing.expectEqual(@as(usize, 0), profile_after.positions.count());
+            try std.testing.expectEqual(book_hash_before, try book.stateHash());
+        }
+
+        var order_book = makeRequestOrderBookCommand(symbol, 4);
+        var order_book_response = try kernel.execute(&order_book);
+        defer order_book_response.deinit(allocator);
+        const snapshot = order_book_response.l2_snapshot orelse unreachable;
+        try std.testing.expectEqual(@as(usize, 0), snapshot.asks.items.len);
+        try std.testing.expectEqual(@as(usize, 0), snapshot.bids.items.len);
+    }
+}
+
+test "kernel surfaces impossible FOK prescan state as a typed matching invariant" {
+    const allocator = std.testing.allocator;
+    const symbol: i32 = 6_402;
+
+    for ([_]OrderBookKind{ .naive, .direct }) |orderbook_kind| {
+        var kernel = try ExchangeKernel.init(allocator, .{
+            .orderbook_kind = orderbook_kind,
+            .risk = .{ .ignore_risk_processing = true },
+        });
+        defer kernel.deinit();
+        try std.testing.expect(try kernel.addSymbol(try makeExchangeSpecForSymbol(symbol)));
+
+        for ([_]i64{ 8_601, 8_602 }) |uid| {
+            var add_user = makeAddUserCommand(uid);
+            var add_response = try kernel.execute(&add_user);
+            defer add_response.deinit(allocator);
+            try std.testing.expectEqual(cmd.CommandResultCode.success, add_response.result_code);
+        }
+
+        var resting = cmd.OrderCommand.newOrder(.gtc, 86_001, 8_601, 100, 0, 2, .ask);
+        resting.symbol = symbol;
+        var resting_response = try kernel.execute(&resting);
+        defer resting_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, resting_response.result_code);
+
+        const book = kernel.books.get(symbol) orelse return error.TestExpectedOrderBook;
+        switch (book.*) {
+            .naive => |*value| value.asks.items[0].orders.items[0].filled = 2,
+            .direct => |*value| {
+                const maker = value.order_id_index.get(86_001) orelse return error.TestExpectedMakerOrder;
+                maker.filled = 2;
+            },
+        }
+
+        var fok = cmd.OrderCommand.newOrder(.fok_budget, 86_002, 8_602, 100, 100, 1, .bid);
+        fok.symbol = symbol;
+        try std.testing.expectError(error.OrderBookInvariantViolation, kernel.execute(&fok));
+
+        switch (book.*) {
+            .naive => |*value| value.asks.items[0].orders.items[0].filled = 0,
+            .direct => |*value| {
+                const maker = value.order_id_index.get(86_001) orelse return error.TestExpectedMakerOrder;
+                maker.filled = 0;
+            },
+        }
+    }
+}
+
+test "kernel unsupported IOC budget and FOK orders fully release margin pending exposure" {
+    const allocator = std.testing.allocator;
+    const uid: i64 = 8_601;
+    const spec = try makeFeeMarginFuturesSpec();
+
+    for ([_]OrderBookKind{ .naive, .direct }) |orderbook_kind| {
+        var kernel = try ExchangeKernel.init(allocator, .{
+            .orderbook_kind = orderbook_kind,
+            .risk = .{ .margin_trading_enabled = true },
+        });
+        defer kernel.deinit();
+        try std.testing.expect(try kernel.addSymbol(spec));
+
+        var add_user = makeAddUserCommand(uid);
+        var add_user_response = try kernel.execute(&add_user);
+        defer add_user_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, add_user_response.result_code);
+
+        var deposit = makeBalanceAdjustmentCommand(uid, spec.quote_currency, 1_000_000, 1, .adjustment);
+        var deposit_response = try kernel.execute(&deposit);
+        defer deposit_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, deposit_response.result_code);
+
+        const profile_before = kernel.risk_engine.getUserProfile(uid) orelse unreachable;
+        const balance_before = profile_before.accountBalance(spec.quote_currency);
+        const book = kernel.books.get(spec.symbol_id) orelse unreachable;
+        const book_hash_before = try book.stateHash();
+
+        for (unsupported_order_cases) |case| {
+            var unsupported = makePlaceOrderCommand(
+                case.order_id,
+                uid,
+                spec.symbol_id,
+                case.price,
+                case.reserve_bid_price,
+                case.size,
+                case.action,
+                case.order_type,
+                0,
+            );
+            var response = try kernel.execute(&unsupported);
+            defer response.deinit(allocator);
+            try expectUnsupportedFullReject(&response, case);
+
+            const profile_after = kernel.risk_engine.getUserProfile(uid) orelse unreachable;
+            try std.testing.expectEqual(balance_before, profile_after.accountBalance(spec.quote_currency));
+            try std.testing.expectEqual(@as(usize, 0), profile_after.positions.count());
+            try std.testing.expectEqual(@as(usize, 0), kernel.risk_engine.fees.count());
+            try std.testing.expectEqual(book_hash_before, try book.stateHash());
+        }
+
+        var order_book = makeRequestOrderBookCommand(spec.symbol_id, 4);
+        var order_book_response = try kernel.execute(&order_book);
+        defer order_book_response.deinit(allocator);
+        const snapshot = order_book_response.l2_snapshot orelse unreachable;
+        try std.testing.expectEqual(@as(usize, 0), snapshot.asks.items.len);
+        try std.testing.expectEqual(@as(usize, 0), snapshot.bids.items.len);
+    }
 }
 
 test "kernel init rejects zero l2 refresh depth" {
@@ -3401,6 +8287,850 @@ test "kernel matching commands update risk last price cache when service flag is
     const lp = kernel.risk_engine.getLastPrice(241) orelse unreachable;
     try std.testing.expectEqual(@as(i64, 105), lp.ask_price);
     try std.testing.expectEqual(@as(i64, 92), lp.bid_price);
+}
+
+test "multi-shard split service-flagged match refreshes every risk cache for cross-symbol margin" {
+    const allocator = std.testing.allocator;
+    const shard_count: usize = 4;
+    const source_symbol: i32 = 6_100;
+    const target_symbol: i32 = 6_101;
+    const quote_currency: i32 = 392;
+    const collateral_uid: i64 = 7_203;
+
+    var sharded = try MultiShardKernelSet.initWithConfig(allocator, shard_count, .{
+        .orderbook_kind = .direct,
+        .l2_refresh_depth = 8,
+        .risk = .{ .margin_trading_enabled = true },
+    });
+    defer sharded.deinit();
+
+    const source_spec = try common.CoreSymbolSpecification.init(.{
+        .symbol_id = source_symbol,
+        .symbol_type = .futures_contract,
+        .base_currency = 840,
+        .quote_currency = quote_currency,
+        .base_scale_k = 1,
+        .quote_scale_k = 1,
+        .taker_fee = 0,
+        .maker_fee = 0,
+        .margin_buy = 10,
+        .margin_sell = 10,
+    });
+    const target_spec = try common.CoreSymbolSpecification.init(.{
+        .symbol_id = target_symbol,
+        .symbol_type = .futures_contract,
+        .base_currency = 978,
+        .quote_currency = quote_currency,
+        .base_scale_k = 1,
+        .quote_scale_k = 1,
+        .taker_fee = 0,
+        .maker_fee = 0,
+        .margin_buy = 60,
+        .margin_sell = 60,
+    });
+    try sharded.addSymbolAll(source_spec);
+    try sharded.addSymbolAll(target_spec);
+
+    for ([_]i64{ 7_201, 7_202, collateral_uid }) |uid| {
+        var add_user = makeAddUserCommand(uid);
+        var response = try sharded.executeSplit(&add_user);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    }
+
+    for ([_]i64{ 7_201, 7_202 }) |uid| {
+        var deposit = makeBalanceAdjustmentCommand(uid, quote_currency, 1_000, 1, .adjustment);
+        var response = try sharded.executeSplit(&deposit);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    }
+
+    // The collateral owner starts with a long opened at 100. Without market data,
+    // Java's margin fallback values the position at its required margin, leaving
+    // no free collateral for the second symbol.
+    const collateral_owner_idx = sharded.shardIndexForUid(collateral_uid);
+    const collateral_profile = sharded.kernels[collateral_owner_idx].risk_engine.getUserProfile(collateral_uid) orelse
+        unreachable;
+    var source_position = user.SymbolPositionRecord.init(collateral_uid, source_symbol, quote_currency);
+    source_position.direction = .long;
+    source_position.open_volume = 1;
+    source_position.open_price_sum = 100;
+    try collateral_profile.positions.put(allocator, source_symbol, source_position);
+
+    var resting_bid = cmd.OrderCommand.newOrder(.gtc, 71_001, 7_201, 200, 220, 2, .bid);
+    resting_bid.symbol = source_symbol;
+    {
+        var response = try sharded.executeSplit(&resting_bid);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    }
+
+    var resting_ask = cmd.OrderCommand.newOrder(.gtc, 71_002, 7_202, 220, 0, 1, .ask);
+    resting_ask.symbol = source_symbol;
+    {
+        var response = try sharded.executeSplit(&resting_ask);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    }
+
+    for (sharded.kernels) |*kernel| {
+        try std.testing.expect(kernel.risk_engine.getLastPrice(source_symbol) == null);
+    }
+
+    var rejected_target = cmd.OrderCommand.newOrder(.gtc, 72_001, collateral_uid, 100, 100, 1, .bid);
+    rejected_target.symbol = target_symbol;
+    {
+        var response = try sharded.executeSplit(&rejected_target);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.risk_nsf, response.result_code);
+    }
+
+    // Moving the two-lot bid through the one-lot ask produces a trade and leaves
+    // a 220 bid. The service flag requests the post-match L2 top for risk.
+    var matching_move = makeMoveOrderCommand(71_001, 7_201, source_symbol, 220);
+    matching_move.service_flags = 1;
+    {
+        var response = try sharded.executeSplit(&matching_move);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+        try std.testing.expectEqualDeep(matching_move, response.command);
+        const trade = response.matcher_events_head orelse return error.TestExpectedTradeEvent;
+        try std.testing.expectEqual(events.MatcherEventType.trade, trade.event_type);
+    }
+
+    for (sharded.kernels) |*kernel| {
+        const last_price = kernel.risk_engine.getLastPrice(source_symbol) orelse unreachable;
+        try std.testing.expectEqual(std.math.maxInt(i64), last_price.ask_price);
+        try std.testing.expectEqual(@as(i64, 220), last_price.bid_price);
+    }
+
+    // The long is now worth 120, minus 10 required margin, so the same account
+    // can collateralize the target symbol's 60 margin requirement.
+    var accepted_target = cmd.OrderCommand.newOrder(.gtc, 72_002, collateral_uid, 100, 100, 1, .bid);
+    accepted_target.symbol = target_symbol;
+    {
+        var response = try sharded.executeSplit(&accepted_target);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    }
+
+    const target_position = collateral_profile.positions.getPtr(target_symbol) orelse unreachable;
+    try std.testing.expectEqual(@as(i64, 1), target_position.pending_buy_size);
+}
+
+test "multi-shard explicit stages isolate R1 matching prepare and commit mutations" {
+    const allocator = std.testing.allocator;
+    const symbol: i32 = 241;
+    const maker_uid = uidForShard(1, 2, 1_440_011);
+    const taker_uid = uidForShard(0, 2, 1_440_012);
+
+    var sharded = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        2,
+        2,
+        .{ .orderbook_kind = .direct },
+    );
+    defer sharded.deinit();
+    try sharded.addSymbolAll(try makeExchangeSpecForSymbol(symbol));
+
+    for ([_]i64{ maker_uid, taker_uid }) |uid| {
+        try executeMultiExpect(
+            allocator,
+            &sharded,
+            true,
+            makeAddUserCommand(uid),
+            .success,
+        );
+    }
+    try executeMultiExpect(
+        allocator,
+        &sharded,
+        true,
+        makeBalanceAdjustmentCommand(maker_uid, 11, 100_000, 1, .adjustment),
+        .success,
+    );
+    try executeMultiExpect(
+        allocator,
+        &sharded,
+        true,
+        makeBalanceAdjustmentCommand(taker_uid, 15, 100_000, 1, .adjustment),
+        .success,
+    );
+
+    var maker_ask = cmd.OrderCommand.newOrder(
+        .gtc,
+        1_440_101,
+        maker_uid,
+        100,
+        0,
+        3,
+        .ask,
+    );
+    maker_ask.symbol = symbol;
+    try executeMultiExpect(allocator, &sharded, true, maker_ask, .success);
+
+    var before_r1: [2]u64 = undefined;
+    for (sharded.risk_shards, 0..) |*risk_shard, idx| {
+        before_r1[idx] = try risk_shard.engine.stateHash();
+    }
+
+    var taker_bid = cmd.OrderCommand.newOrder(
+        .ioc,
+        1_440_102,
+        taker_uid,
+        100,
+        100,
+        2,
+        .bid,
+    );
+    taker_bid.symbol = symbol;
+    const stage_sequence = sharded.next_seq + 1;
+    try sharded.executeRiskPreProcessStage(stage_sequence, &taker_bid);
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.valid_for_matching_engine,
+        taker_bid.result_code,
+    );
+
+    var after_r1: [2]u64 = undefined;
+    for (sharded.risk_shards, 0..) |*risk_shard, idx| {
+        after_r1[idx] = try risk_shard.engine.stateHash();
+    }
+    try std.testing.expect(before_r1[0] != after_r1[0]);
+    try std.testing.expectEqual(before_r1[1], after_r1[1]);
+
+    var response: CommandResponse = .{
+        .sequence = stage_sequence,
+        .command = taker_bid,
+        .result_code = taker_bid.result_code,
+    };
+    defer response.deinit(allocator);
+    var event_chain = events.EventChain.init(allocator);
+    defer event_chain.deinit();
+    var risk_l2_snapshot: ?naive.L2MarketData = null;
+    defer if (risk_l2_snapshot) |*snapshot| snapshot.deinit(allocator);
+
+    try std.testing.expectEqual(
+        MultiShardKernelSet.MatchingStageDisposition.continue_to_risk_release,
+        try sharded.executeMatchingStage(
+            &taker_bid,
+            &response,
+            &event_chain,
+            &risk_l2_snapshot,
+        ),
+    );
+    try std.testing.expectEqual(cmd.CommandResultCode.success, taker_bid.result_code);
+    try std.testing.expect(event_chain.head != null);
+    try std.testing.expectEqual(@as(usize, 1), events.listSize(event_chain.head));
+
+    var after_matching: [2]u64 = undefined;
+    for (sharded.risk_shards, 0..) |*risk_shard, idx| {
+        after_matching[idx] = try risk_shard.engine.stateHash();
+        try std.testing.expectEqual(after_r1[idx], after_matching[idx]);
+    }
+
+    var prepared = try sharded.prepareRiskReleaseStage(
+        &taker_bid,
+        event_chain.head,
+        null,
+    );
+    defer prepared.deinit(allocator);
+    for (sharded.risk_shards, 0..) |*risk_shard, idx| {
+        try std.testing.expectEqual(after_matching[idx], try risk_shard.engine.stateHash());
+    }
+
+    sharded.commitRiskReleaseStage(&prepared);
+    for (sharded.risk_shards, 0..) |*risk_shard, idx| {
+        try std.testing.expect(after_matching[idx] != try risk_shard.engine.stateHash());
+    }
+
+    try std.testing.expectEqual(@as(?i64, 99_700), try sharded.queryUserBalance(maker_uid, 11));
+    try std.testing.expectEqual(@as(?i64, 1_998), try sharded.queryUserBalance(maker_uid, 15));
+    try std.testing.expectEqual(@as(?i64, 200), try sharded.queryUserBalance(taker_uid, 11));
+    try std.testing.expectEqual(@as(?i64, 97_996), try sharded.queryUserBalance(taker_uid, 15));
+}
+
+test "grouped two-step publishes matching before settlement and flushes before next-group R1" {
+    const allocator = std.testing.allocator;
+    const symbol: i32 = 241;
+    const maker_uid = uidForShard(1, 2, 1_441_001);
+    const taker_uid = uidForShard(0, 2, 1_441_002);
+
+    var sharded = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        2,
+        2,
+        .{ .orderbook_kind = .direct },
+    );
+    defer sharded.deinit();
+    try setupGroupedSpotTopology(
+        allocator,
+        &sharded,
+        true,
+        symbol,
+        maker_uid,
+        taker_uid,
+        1_441_101,
+        3,
+    );
+
+    const settled_frontier = sharded.next_seq;
+    var grouped = MultiShardKernelSet.GroupedTwoStepExecutor.init(&sharded);
+    defer grouped.deinit();
+
+    var taker_bid = cmd.OrderCommand.newOrder(
+        .ioc,
+        1_441_102,
+        taker_uid,
+        100,
+        100,
+        2,
+        .bid,
+    );
+    taker_bid.symbol = symbol;
+    taker_bid.events_group = 41;
+
+    var capture: BorrowedGroupedResultCapture = .{};
+    try grouped.process(&taker_bid, capture.hook());
+
+    try std.testing.expectEqual(@as(usize, 1), capture.call_count);
+    try std.testing.expectEqual(settled_frontier + 1, capture.sequence);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, capture.result_code);
+    try std.testing.expectEqual(@as(usize, 1), capture.matcher_event_count);
+    try std.testing.expectEqual(
+        @as(?events.MatcherEventType, .trade),
+        capture.first_matcher_event_type,
+    );
+    try std.testing.expectEqual(@as(usize, 1), grouped.pendingCount());
+    try std.testing.expectEqual(settled_frontier, grouped.r2_frontier);
+    try std.testing.expectEqual(settled_frontier + 1, grouped.result_frontier);
+
+    const maker_before_release = sharded.riskEngineForUid(maker_uid).getUserProfile(maker_uid) orelse
+        return error.TestExpectedMakerProfile;
+    const taker_before_release = sharded.riskEngineForUid(taker_uid).getUserProfile(taker_uid) orelse
+        return error.TestExpectedTakerProfile;
+    try std.testing.expectEqual(@as(i64, 0), maker_before_release.accountBalance(15));
+    try std.testing.expectEqual(@as(i64, 0), taker_before_release.accountBalance(11));
+    try std.testing.expectEqual(@as(i64, 0), groupedTestTotalFee(&sharded, 15));
+
+    try grouped.observeIdle();
+    try std.testing.expectEqual(@as(usize, 1), grouped.pendingCount());
+    try std.testing.expectEqual(settled_frontier, grouped.r2_frontier);
+
+    // A same-group NOP is observable but is not an R2 fence.
+    var same_group_nop = makeNopCommand();
+    same_group_nop.events_group = 41;
+    try grouped.process(&same_group_nop, null);
+    try std.testing.expectEqual(@as(usize, 2), grouped.pendingCount());
+    try std.testing.expectEqual(settled_frontier, grouped.r2_frontier);
+    try std.testing.expectEqual(@as(i64, 0), maker_before_release.accountBalance(15));
+
+    // The prior trade credits exactly 1_998 quote units. This withdrawal can
+    // succeed in R1 only if the group transition ran previous-group R2 first.
+    var next_group_withdrawal = makeBalanceAdjustmentCommand(
+        maker_uid,
+        15,
+        -1_998,
+        2,
+        .adjustment,
+    );
+    next_group_withdrawal.events_group = 42;
+    try grouped.process(&next_group_withdrawal, null);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, next_group_withdrawal.result_code);
+    try std.testing.expectEqual(settled_frontier + 2, grouped.r2_frontier);
+    try std.testing.expectEqual(@as(usize, 1), grouped.pendingCount());
+
+    const maker_after_release = sharded.riskEngineForUid(maker_uid).getUserProfile(maker_uid) orelse
+        return error.TestExpectedMakerProfile;
+    const taker_after_release = sharded.riskEngineForUid(taker_uid).getUserProfile(taker_uid) orelse
+        return error.TestExpectedTakerProfile;
+    try std.testing.expectEqual(@as(i64, 0), maker_after_release.accountBalance(15));
+    try std.testing.expectEqual(@as(i64, 200), taker_after_release.accountBalance(11));
+    try std.testing.expectEqual(@as(i64, 97_996), taker_after_release.accountBalance(15));
+    try std.testing.expectEqual(@as(i64, 6), groupedTestTotalFee(&sharded, 15));
+
+    try grouped.flushAll();
+    try std.testing.expectEqual(@as(usize, 0), grouped.pendingCount());
+    try std.testing.expect(grouped.open_group == null);
+    try std.testing.expectEqual(grouped.result_frontier, grouped.r2_frontier);
+}
+
+test "grouped two-step delays preparation across a group and matches immediate routed split state" {
+    const allocator = std.testing.allocator;
+    const symbol: i32 = 241;
+    const maker_uid = uidForShard(1, 2, 1_442_001);
+    const taker_uid = uidForShard(0, 2, 1_442_002);
+
+    for ([_]OrderBookKind{ .naive, .direct }) |orderbook_kind| {
+        for ([_]bool{ false, true }) |use_split| {
+            var immediate = try MultiShardKernelSet.initWithTopology(
+                allocator,
+                2,
+                2,
+                .{ .orderbook_kind = orderbook_kind },
+            );
+            defer immediate.deinit();
+            var delayed = try MultiShardKernelSet.initWithTopology(
+                allocator,
+                2,
+                2,
+                .{ .orderbook_kind = orderbook_kind },
+            );
+            defer delayed.deinit();
+
+            try setupGroupedSpotTopology(
+                allocator,
+                &immediate,
+                use_split,
+                symbol,
+                maker_uid,
+                taker_uid,
+                1_442_101,
+                4,
+            );
+            try setupGroupedSpotTopology(
+                allocator,
+                &delayed,
+                use_split,
+                symbol,
+                maker_uid,
+                taker_uid,
+                1_442_101,
+                4,
+            );
+
+            const settled_frontier = delayed.next_seq;
+            var grouped = MultiShardKernelSet.GroupedTwoStepExecutor.init(&delayed);
+            defer grouped.deinit();
+
+            for (0..2) |index| {
+                const order_id = 1_442_102 + @as(i64, @intCast(index));
+                var immediate_bid = cmd.OrderCommand.newOrder(
+                    .ioc,
+                    order_id,
+                    taker_uid,
+                    100,
+                    100,
+                    1,
+                    .bid,
+                );
+                immediate_bid.symbol = symbol;
+                immediate_bid.events_group = 51;
+                var immediate_response = if (use_split)
+                    try immediate.executeSplit(&immediate_bid)
+                else
+                    try immediate.executeRouted(&immediate_bid);
+                defer immediate_response.deinit(allocator);
+                try std.testing.expectEqual(
+                    cmd.CommandResultCode.success,
+                    immediate_response.result_code,
+                );
+
+                var delayed_bid = cmd.OrderCommand.newOrder(
+                    .ioc,
+                    order_id,
+                    taker_uid,
+                    100,
+                    100,
+                    1,
+                    .bid,
+                );
+                delayed_bid.symbol = symbol;
+                delayed_bid.events_group = 51;
+                try grouped.process(&delayed_bid, null);
+                try std.testing.expectEqual(cmd.CommandResultCode.success, delayed_bid.result_code);
+
+                // Matcher outputs remain owned by the executor. No command has
+                // prepared an absolute risk-state snapshot yet.
+                try std.testing.expectEqual(@as(i64, 0), groupedTestTotalFee(&delayed, 15));
+                try std.testing.expectEqual(settled_frontier, grouped.r2_frontier);
+            }
+
+            try std.testing.expectEqual(@as(usize, 2), grouped.pendingCount());
+            try grouped.flushAll();
+            try std.testing.expectEqual(@as(usize, 0), grouped.pendingCount());
+            try std.testing.expectEqual(settled_frontier + 2, grouped.r2_frontier);
+
+            try std.testing.expectEqual(
+                try immediate.detailedHashFingerprint(),
+                try delayed.detailedHashFingerprint(),
+            );
+            for ([_]i64{ maker_uid, taker_uid }) |uid| {
+                for ([_]i32{ 11, 15 }) |currency| {
+                    try std.testing.expectEqual(
+                        try immediate.queryUserBalance(uid, currency),
+                        try delayed.queryUserBalance(uid, currency),
+                    );
+                }
+            }
+            try std.testing.expectEqual(
+                groupedTestTotalFee(&immediate, 15),
+                groupedTestTotalFee(&delayed, 15),
+            );
+        }
+    }
+}
+
+test "grouped two-step prepare failure is attributed once and poisons without retry" {
+    const allocator = std.testing.allocator;
+    const maker_uid: i64 = 1_443_001;
+    const taker_uid: i64 = 1_443_002;
+
+    var sharded = try MultiShardKernelSet.initWithConfig(allocator, 2, .{
+        .orderbook_kind = .direct,
+        .risk = .{ .margin_trading_enabled = true },
+    });
+    defer sharded.deinit();
+    const spec = try makeFeeMarginFuturesSpec();
+    try sharded.addSymbolAll(spec);
+
+    try std.testing.expectEqual(@as(usize, 0), sharded.shardIndexForUid(taker_uid));
+    try std.testing.expectEqual(@as(usize, 1), sharded.shardIndexForUid(maker_uid));
+    for ([_]i64{ maker_uid, taker_uid }) |uid| {
+        try executeMultiExpect(allocator, &sharded, true, makeAddUserCommand(uid), .success);
+        try executeMultiExpect(
+            allocator,
+            &sharded,
+            true,
+            makeBalanceAdjustmentCommand(uid, spec.quote_currency, 100_000, 1, .adjustment),
+            .success,
+        );
+    }
+
+    var maker_ask = cmd.OrderCommand.newOrder(
+        .gtc,
+        1_443_101,
+        maker_uid,
+        10_770,
+        0,
+        1,
+        .ask,
+    );
+    maker_ask.symbol = spec.symbol_id;
+    try executeMultiExpect(allocator, &sharded, true, maker_ask, .success);
+
+    const settled_frontier = sharded.next_seq;
+    var grouped = MultiShardKernelSet.GroupedTwoStepExecutor.init(&sharded);
+    defer grouped.deinit();
+
+    var taker_bid = cmd.OrderCommand.newOrder(
+        .ioc,
+        1_443_102,
+        taker_uid,
+        10_770,
+        10_770,
+        1,
+        .bid,
+    );
+    taker_bid.symbol = spec.symbol_id;
+    taker_bid.events_group = 61;
+    var capture: BorrowedGroupedResultCapture = .{};
+    try grouped.process(&taker_bid, capture.hook());
+    try std.testing.expectEqual(cmd.CommandResultCode.success, capture.result_code);
+    try std.testing.expectEqual(@as(usize, 1), capture.matcher_event_count);
+    try std.testing.expectEqual(@as(usize, 1), grouped.pendingCount());
+
+    // Corrupt only the later release shard after matching has already
+    // published. Shard 0 preparation must be discarded before any commit.
+    const maker_profile = sharded.riskEngineForUid(maker_uid).getUserProfile(maker_uid) orelse
+        return error.TestExpectedMakerProfile;
+    const removed_position = maker_profile.positions.fetchRemove(spec.symbol_id) orelse
+        return error.TestExpectedMakerPosition;
+    try std.testing.expectEqual(@as(i64, 1), removed_position.value.pending_sell_size);
+
+    var before_failed_flush: [2]u64 = undefined;
+    for (sharded.risk_shards, 0..) |*risk_shard, index| {
+        before_failed_flush[index] = try risk_shard.engine.stateHash();
+    }
+
+    var next_group_nop = makeNopCommand();
+    next_group_nop.events_group = 62;
+    try std.testing.expectError(
+        error.PositionRecordCorrupted,
+        grouped.process(&next_group_nop, null),
+    );
+
+    const fatal = grouped.failure() orelse return error.TestExpectedGroupedFailure;
+    try std.testing.expectEqual(
+        MultiShardKernelSet.GroupedTwoStepFailureStage.risk_release,
+        fatal.stage,
+    );
+    try std.testing.expectEqual(capture.sequence, fatal.sequence);
+    try std.testing.expectEqual(error.PositionRecordCorrupted, fatal.cause);
+    try std.testing.expectEqual(@as(usize, 1), grouped.pendingCount());
+    try std.testing.expectEqual(settled_frontier, grouped.r2_frontier);
+    try std.testing.expectEqual(capture.sequence, sharded.next_seq);
+    try std.testing.expectEqual(cmd.CommandResultCode.new, next_group_nop.result_code);
+
+    for (sharded.risk_shards, 0..) |*risk_shard, index| {
+        try std.testing.expectEqual(before_failed_flush[index], try risk_shard.engine.stateHash());
+    }
+    const taker_profile = sharded.riskEngineForUid(taker_uid).getUserProfile(taker_uid) orelse
+        return error.TestExpectedTakerProfile;
+    const taker_position = taker_profile.positions.getPtr(spec.symbol_id) orelse
+        return error.TestExpectedTakerPosition;
+    try std.testing.expectEqual(common.PositionDirection.empty, taker_position.direction);
+    try std.testing.expectEqual(@as(i64, 0), taker_position.open_volume);
+    try std.testing.expectEqual(@as(i64, 1), taker_position.pending_buy_size);
+    try std.testing.expectEqual(@as(i64, 100_000), taker_profile.accountBalance(spec.quote_currency));
+    try std.testing.expectEqual(@as(i64, 0), groupedTestTotalFee(&sharded, spec.quote_currency));
+
+    try std.testing.expectError(error.GroupedTwoStepPoisoned, grouped.flushAll());
+    try std.testing.expectError(
+        error.GroupedTwoStepPoisoned,
+        grouped.process(&next_group_nop, null),
+    );
+}
+
+test "grouped two-step rejects decreasing groups without flushing or poisoning" {
+    const allocator = std.testing.allocator;
+    var sharded = try MultiShardKernelSet.init(allocator, 2, .direct);
+    defer sharded.deinit();
+    var grouped = MultiShardKernelSet.GroupedTwoStepExecutor.init(&sharded);
+    defer grouped.deinit();
+
+    var first = makeNopCommand();
+    first.events_group = 10;
+    try grouped.process(&first, null);
+    const first_sequence = grouped.result_frontier;
+    try std.testing.expectEqual(@as(usize, 1), grouped.pendingCount());
+    try std.testing.expectEqual(@as(?i64, 10), grouped.last_events_group);
+
+    var decreasing = makeNopCommand();
+    decreasing.events_group = 9;
+    try std.testing.expectError(
+        error.NonMonotonicEventsGroup,
+        grouped.process(&decreasing, null),
+    );
+    try std.testing.expect(grouped.failure() == null);
+    try std.testing.expectEqual(@as(usize, 1), grouped.pendingCount());
+    try std.testing.expectEqual(first_sequence, grouped.pending.items[0].sequence);
+    try std.testing.expectEqual(@as(i64, 10), grouped.pending.items[0].events_group);
+    try std.testing.expectEqual(first_sequence, grouped.accepted_frontier);
+    try std.testing.expectEqual(@as(u64, 0), grouped.r2_frontier);
+    try std.testing.expectEqual(first_sequence, sharded.next_seq);
+    try std.testing.expectEqual(cmd.CommandResultCode.new, decreasing.result_code);
+
+    // A later valid group still flushes and proves the protocol error was
+    // recoverable rather than terminal.
+    var increasing = makeNopCommand();
+    increasing.events_group = 11;
+    try grouped.process(&increasing, null);
+    try std.testing.expectEqual(first_sequence, grouped.r2_frontier);
+    try std.testing.expectEqual(@as(usize, 1), grouped.pendingCount());
+    try grouped.flushAll();
+
+    // Explicit R2 flush does not reset the monotonic grouping protocol.
+    const after_flush_frontier = grouped.accepted_frontier;
+    var decreasing_after_flush = makeNopCommand();
+    decreasing_after_flush.events_group = 10;
+    try std.testing.expectError(
+        error.NonMonotonicEventsGroup,
+        grouped.process(&decreasing_after_flush, null),
+    );
+    try std.testing.expect(grouped.failure() == null);
+    try std.testing.expectEqual(@as(usize, 0), grouped.pendingCount());
+    try std.testing.expectEqual(after_flush_frontier, sharded.next_seq);
+}
+
+test "grouped two-step poisons when an immediate call steals a pending frontier" {
+    const allocator = std.testing.allocator;
+    const symbol: i32 = 241;
+    const maker_uid = uidForShard(1, 2, 1_444_001);
+    const taker_uid = uidForShard(0, 2, 1_444_002);
+
+    var sharded = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        2,
+        2,
+        .{ .orderbook_kind = .direct },
+    );
+    defer sharded.deinit();
+    try setupGroupedSpotTopology(
+        allocator,
+        &sharded,
+        true,
+        symbol,
+        maker_uid,
+        taker_uid,
+        1_444_101,
+        2,
+    );
+
+    const settled_frontier = sharded.next_seq;
+    var grouped = MultiShardKernelSet.GroupedTwoStepExecutor.init(&sharded);
+    defer grouped.deinit();
+
+    var taker_bid = cmd.OrderCommand.newOrder(
+        .ioc,
+        1_444_102,
+        taker_uid,
+        100,
+        100,
+        1,
+        .bid,
+    );
+    taker_bid.symbol = symbol;
+    taker_bid.events_group = 71;
+    try grouped.process(&taker_bid, null);
+    const pending_sequence = grouped.result_frontier;
+    const pending_events = grouped.pending.items[0].matcher_events_head orelse
+        return error.TestExpectedTradeEvent;
+
+    var immediate_nop = makeNopCommand();
+    var immediate_response = try sharded.executeRouted(&immediate_nop);
+    defer immediate_response.deinit(allocator);
+    try std.testing.expectEqual(pending_sequence + 1, immediate_response.sequence);
+
+    try std.testing.expectError(
+        error.PublicationFrontierOwnershipLost,
+        grouped.flushAll(),
+    );
+    const fatal = grouped.failure() orelse return error.TestExpectedGroupedFailure;
+    try std.testing.expectEqual(
+        MultiShardKernelSet.GroupedTwoStepFailureStage.publication_ownership,
+        fatal.stage,
+    );
+    try std.testing.expectEqual(pending_sequence, fatal.sequence);
+    try std.testing.expectEqual(error.PublicationFrontierOwnershipLost, fatal.cause);
+    try std.testing.expectEqual(@as(usize, 1), grouped.pendingCount());
+    try std.testing.expect(grouped.pending.items[0].matcher_events_head == pending_events);
+    try std.testing.expectEqual(settled_frontier, grouped.r2_frontier);
+    try std.testing.expectEqual(pending_sequence, grouped.accepted_frontier);
+    try std.testing.expectEqual(immediate_response.sequence, sharded.next_seq);
+    try std.testing.expectEqual(@as(i64, 0), groupedTestTotalFee(&sharded, 15));
+
+    try std.testing.expectError(error.GroupedTwoStepPoisoned, grouped.flushAll());
+}
+
+test "grouped two-step retains pending ownership when a borrowed hook advances the frontier" {
+    const allocator = std.testing.allocator;
+    const symbol: i32 = 241;
+    const maker_uid = uidForShard(1, 2, 1_445_001);
+    const taker_uid = uidForShard(0, 2, 1_445_002);
+
+    var sharded = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        2,
+        2,
+        .{ .orderbook_kind = .direct },
+    );
+    defer sharded.deinit();
+    try setupGroupedSpotTopology(
+        allocator,
+        &sharded,
+        true,
+        symbol,
+        maker_uid,
+        taker_uid,
+        1_445_101,
+        2,
+    );
+
+    const settled_frontier = sharded.next_seq;
+    var grouped = MultiShardKernelSet.GroupedTwoStepExecutor.init(&sharded);
+    defer grouped.deinit();
+
+    var capture: ReentrantGroupedHookCapture = .{
+        .executor = &grouped,
+        .kernels = &sharded,
+    };
+    var taker_bid = cmd.OrderCommand.newOrder(
+        .ioc,
+        1_445_102,
+        taker_uid,
+        100,
+        100,
+        1,
+        .bid,
+    );
+    taker_bid.symbol = symbol;
+    taker_bid.events_group = 81;
+
+    try std.testing.expectError(
+        error.PublicationFrontierOwnershipLost,
+        grouped.process(&taker_bid, capture.hook()),
+    );
+    try std.testing.expectEqual(cmd.CommandResultCode.success, taker_bid.result_code);
+    try std.testing.expectEqual(@as(usize, 1), capture.outer_matcher_event_count);
+    try std.testing.expect(capture.reentrant_error != null);
+    try std.testing.expectEqual(
+        error.GroupedTwoStepReentrantCall,
+        capture.reentrant_error.?,
+    );
+    try std.testing.expect(capture.immediate_error == null);
+    try std.testing.expectEqual(capture.outer_sequence + 1, capture.immediate_sequence);
+
+    const fatal = grouped.failure() orelse return error.TestExpectedGroupedFailure;
+    try std.testing.expectEqual(
+        MultiShardKernelSet.GroupedTwoStepFailureStage.publication_ownership,
+        fatal.stage,
+    );
+    try std.testing.expectEqual(capture.outer_sequence, fatal.sequence);
+    try std.testing.expectEqual(error.PublicationFrontierOwnershipLost, fatal.cause);
+    try std.testing.expectEqual(@as(usize, 1), grouped.pendingCount());
+    try std.testing.expect(grouped.pending.items[0].matcher_events_head != null);
+    try std.testing.expectEqual(capture.outer_sequence, grouped.accepted_frontier);
+    try std.testing.expectEqual(capture.immediate_sequence, sharded.next_seq);
+    try std.testing.expectEqual(settled_frontier, grouped.r2_frontier);
+    try std.testing.expectEqual(@as(i64, 0), groupedTestTotalFee(&sharded, 15));
+
+    try std.testing.expectError(error.GroupedTwoStepPoisoned, grouped.flushAll());
+}
+
+test "multi-shard split prepares every risk release before committing an earlier shard" {
+    const allocator = std.testing.allocator;
+    const maker_uid: i64 = 1_440_031;
+    const taker_uid: i64 = 1_440_032;
+
+    var sharded = try MultiShardKernelSet.initWithConfig(allocator, 2, .{
+        .orderbook_kind = .direct,
+        .risk = .{ .margin_trading_enabled = true },
+    });
+    defer sharded.deinit();
+    const spec = try makeFeeMarginFuturesSpec();
+    try sharded.addSymbolAll(spec);
+
+    try std.testing.expectEqual(@as(usize, 0), sharded.shardIndexForUid(taker_uid));
+    try std.testing.expectEqual(@as(usize, 1), sharded.shardIndexForUid(maker_uid));
+
+    for ([_]i64{ maker_uid, taker_uid }) |uid| {
+        var add_user = makeAddUserCommand(uid);
+        var add_response = try sharded.executeSplit(&add_user);
+        defer add_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, add_response.result_code);
+
+        var deposit = makeBalanceAdjustmentCommand(uid, spec.quote_currency, 100_000, 1, .adjustment);
+        var deposit_response = try sharded.executeSplit(&deposit);
+        defer deposit_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, deposit_response.result_code);
+    }
+
+    var maker_ask = cmd.OrderCommand.newOrder(.gtc, 81_001, maker_uid, 10_770, 0, 1, .ask);
+    maker_ask.symbol = spec.symbol_id;
+    {
+        var response = try sharded.executeSplit(&maker_ask);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    }
+
+    // Corrupt only the later release shard after matching has accepted the maker.
+    // Java treats a release-stage invariant failure as fatal, so the matching book
+    // is intentionally not rolled back; this assertion covers risk commit ordering.
+    const maker_profile = sharded.kernels[1].risk_engine.getUserProfile(maker_uid) orelse unreachable;
+    const removed_maker_position = maker_profile.positions.fetchRemove(spec.symbol_id) orelse unreachable;
+    try std.testing.expectEqual(@as(i64, 1), removed_maker_position.value.pending_sell_size);
+
+    var taker_bid = cmd.OrderCommand.newOrder(.ioc, 81_002, taker_uid, 10_770, 10_770, 1, .bid);
+    taker_bid.symbol = spec.symbol_id;
+    try std.testing.expectError(error.PositionRecordCorrupted, sharded.executeSplit(&taker_bid));
+
+    const taker_profile = sharded.kernels[0].risk_engine.getUserProfile(taker_uid) orelse unreachable;
+    const taker_position = taker_profile.positions.getPtr(spec.symbol_id) orelse unreachable;
+    try std.testing.expectEqual(common.PositionDirection.empty, taker_position.direction);
+    try std.testing.expectEqual(@as(i64, 0), taker_position.open_volume);
+    try std.testing.expectEqual(@as(i64, 1), taker_position.pending_buy_size);
+    try std.testing.expectEqual(@as(i64, 100_000), taker_profile.accountBalance(spec.quote_currency));
+    try std.testing.expectEqual(@as(i64, 0), sharded.kernels[0].risk_engine.getFeeCollected(spec.quote_currency));
 }
 
 test "kernel send_l2_for_every_cmd updates risk last price cache without service flag" {
@@ -3723,6 +9453,60 @@ test "exchange api persistState async helper exposes merged result when both com
     try std.testing.expect(api.takePersistStateResult(requests) == null);
 }
 
+test "exchange api async append OOM does not consume a request id" {
+    var failing_allocator_state = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    const allocator = failing_allocator_state.allocator();
+    var kernel = try ExchangeKernel.init(allocator, .{});
+    defer kernel.deinit();
+    var api = ExchangeApi.init(&kernel);
+    defer api.deinit();
+
+    const command = makeAddUserCommand(9_101);
+    failing_allocator_state.fail_index = failing_allocator_state.alloc_index;
+    try std.testing.expectError(error.OutOfMemory, api.submitCommandAsync(&command));
+    try std.testing.expect(failing_allocator_state.has_induced_failure);
+    try std.testing.expectEqual(@as(u64, 0), api.next_request_id);
+    try std.testing.expectEqual(@as(usize, 0), api.pendingCount());
+
+    failing_allocator_state.fail_index = std.math.maxInt(usize);
+    try std.testing.expectEqual(@as(u64, 1), try api.submitCommandAsync(&command));
+    try std.testing.expectEqual(@as(u64, 1), api.next_request_id);
+    try std.testing.expectEqual(@as(usize, 1), api.pendingCount());
+}
+
+test "exchange api persist pair publication is all or nothing on allocation failure" {
+    var failing_allocator_state = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    const allocator = failing_allocator_state.allocator();
+    var kernel = try ExchangeKernel.init(allocator, .{});
+    defer kernel.deinit();
+    var api = ExchangeApi.init(&kernel);
+    defer api.deinit();
+
+    failing_allocator_state.fail_index = failing_allocator_state.alloc_index;
+    try std.testing.expectError(
+        error.OutOfMemory,
+        api.persistStateAsync(7_003, 987_654_322),
+    );
+    try std.testing.expect(failing_allocator_state.has_induced_failure);
+    try std.testing.expectEqual(@as(u64, 0), api.next_request_id);
+    try std.testing.expectEqual(@as(usize, 0), api.pendingCount());
+
+    failing_allocator_state.fail_index = std.math.maxInt(usize);
+    const requests = try api.persistStateAsync(7_003, 987_654_322);
+    try std.testing.expectEqual(@as(u64, 1), requests.matching_request_id);
+    try std.testing.expectEqual(@as(u64, 2), requests.risk_request_id);
+    try std.testing.expectEqual(@as(u64, 2), api.next_request_id);
+    try std.testing.expectEqual(@as(usize, 2), api.pendingCount());
+    try std.testing.expectEqual(
+        cmd.OrderCommandType.persist_state_matching,
+        api.pending_queue.items[0].command.command,
+    );
+    try std.testing.expectEqual(
+        cmd.OrderCommandType.persist_state_risk,
+        api.pending_queue.items[1].command.command,
+    );
+}
+
 test "kernel execute batch returns deterministic sequence range and merged result" {
     const allocator = std.testing.allocator;
     var kernel = try ExchangeKernel.init(allocator, .{});
@@ -3760,6 +9544,106 @@ test "exchange api batch facade handles empty and non-empty batches" {
     try std.testing.expectEqual(@as(?u64, 1), result.sequence_from);
     try std.testing.expectEqual(@as(?u64, 2), result.sequence_to);
     try std.testing.expectEqual(cmd.CommandResultCode.user_mgmt_user_already_exists, result.result_code);
+}
+
+test "exchange api async drain reserves result storage before command execution" {
+    var failing_allocator_state = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    const allocator = failing_allocator_state.allocator();
+    var kernel = try ExchangeKernel.init(allocator, .{});
+    defer kernel.deinit();
+    var api = ExchangeApi.init(&kernel);
+    defer api.deinit();
+
+    const uid: i64 = 6_099;
+    const request_id = try api.addUserAsync(uid);
+    const sequence_before = kernel.next_seq;
+
+    // The result map is still empty, so its first reservation must allocate.
+    // Failing that allocation must leave the queued command wholly unexecuted.
+    failing_allocator_state.fail_index = failing_allocator_state.alloc_index;
+    try std.testing.expectError(error.OutOfMemory, api.drainPending());
+    try std.testing.expect(failing_allocator_state.has_induced_failure);
+    try std.testing.expectEqual(sequence_before, kernel.next_seq);
+    try std.testing.expect(kernel.risk_engine.getUserProfile(uid) == null);
+    try std.testing.expectEqual(@as(usize, 1), api.pendingCount());
+    try std.testing.expectEqual(@as(usize, 0), api.readyCount());
+    try std.testing.expect(!api.isResultReady(request_id));
+
+    failing_allocator_state.fail_index = std.math.maxInt(usize);
+    try std.testing.expectEqual(@as(usize, 1), try api.drainPending());
+    try std.testing.expectEqual(@as(usize, 0), api.pendingCount());
+    try std.testing.expectEqual(@as(usize, 1), api.readyCount());
+    try std.testing.expectEqual(sequence_before + 1, kernel.next_seq);
+    try std.testing.expect(kernel.risk_engine.getUserProfile(uid) != null);
+
+    var response = api.takeResult(request_id) orelse unreachable;
+    defer response.deinit(allocator);
+    try std.testing.expectEqual(sequence_before + 1, response.sequence);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+
+    // Re-draining an empty queue proves the retry produced one execution/result.
+    try std.testing.expectEqual(@as(usize, 0), try api.drainPending());
+    try std.testing.expectEqual(sequence_before + 1, kernel.next_seq);
+    try std.testing.expectEqual(@as(usize, 0), api.readyCount());
+}
+
+test "exchange api async drain consumes a failed request without partial balance mutation" {
+    var failing_allocator_state = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    const allocator = failing_allocator_state.allocator();
+    var kernel = try ExchangeKernel.init(allocator, .{});
+    defer kernel.deinit();
+    var api = ExchangeApi.init(&kernel);
+    defer api.deinit();
+
+    const uid: i64 = 6_101;
+    const tail_uid: i64 = 6_102;
+    var add_user = makeAddUserCommand(uid);
+    var add_user_response = try kernel.execute(&add_user);
+    defer add_user_response.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, add_user_response.result_code);
+
+    const transaction_id: i64 = 77;
+    const adjustment = makeBalanceAdjustmentCommand(
+        uid,
+        15,
+        500,
+        transaction_id,
+        .adjustment,
+    );
+    const failing_request_id = try api.submitCommandAsync(&adjustment);
+    const tail_request_id = try api.addUserAsync(tail_uid);
+    try api.ready_results.ensureUnusedCapacity(allocator, 1);
+    const sequence_before = kernel.next_seq;
+
+    // Result capacity is already reserved, so the head is extracted and its
+    // sequence consumed before account-history allocation fails. The risk
+    // mutation itself remains all-or-nothing.
+    failing_allocator_state.fail_index = failing_allocator_state.alloc_index;
+    try std.testing.expectError(error.OutOfMemory, api.drainPending());
+    try std.testing.expect(failing_allocator_state.has_induced_failure);
+    try std.testing.expectEqual(sequence_before + 1, kernel.next_seq);
+    try std.testing.expectEqual(@as(usize, 1), api.pendingCount());
+    try std.testing.expect(!api.isResultReady(failing_request_id));
+    try std.testing.expect(!api.isResultReady(tail_request_id));
+
+    const unchanged_profile = kernel.risk_engine.getUserProfile(uid) orelse unreachable;
+    try std.testing.expectEqual(@as(i64, 0), unchanged_profile.adjustments_counter);
+    try std.testing.expectEqual(@as(i64, 0), unchanged_profile.accountBalance(15));
+
+    failing_allocator_state.fail_index = std.math.maxInt(usize);
+    try std.testing.expectEqual(@as(usize, 1), try api.drainPending());
+    try std.testing.expectEqual(@as(usize, 0), api.pendingCount());
+    try std.testing.expect(!api.isResultReady(failing_request_id));
+    try std.testing.expect(api.isResultReady(tail_request_id));
+    try std.testing.expectEqual(sequence_before + 2, kernel.next_seq);
+    try std.testing.expect(kernel.risk_engine.getUserProfile(tail_uid) != null);
+
+    var tail_response = api.takeResult(tail_request_id) orelse unreachable;
+    defer tail_response.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, tail_response.result_code);
+    try std.testing.expectEqual(@as(usize, 0), try api.drainPending());
+    try std.testing.expectEqual(@as(i64, 0), unchanged_profile.adjustments_counter);
+    try std.testing.expectEqual(@as(i64, 0), unchanged_profile.accountBalance(15));
 }
 
 test "exchange api async queue preserves fifo execution and request/result routing" {
@@ -3956,8 +9840,22 @@ test "kernel detailed state hash report is deterministic and mutation sensitive"
 
 test "kernel total currency balance report aggregates risk balances and open interest" {
     const allocator = std.testing.allocator;
-    var kernel = try ExchangeKernel.init(allocator, .{});
+    var kernel = try ExchangeKernel.init(allocator, .{
+        .risk = .{ .margin_trading_enabled = true },
+    });
     defer kernel.deinit();
+    try std.testing.expect(try kernel.addSymbol(try common.CoreSymbolSpecification.init(.{
+        .symbol_id = 241,
+        .symbol_type = .futures_contract,
+        .base_currency = 11,
+        .quote_currency = 15,
+        .base_scale_k = 100,
+        .quote_scale_k = 10,
+        .taker_fee = 0,
+        .maker_fee = 0,
+        .margin_buy = 10,
+        .margin_sell = 12,
+    })));
 
     var add_u1 = makeAddUserCommand(7201);
     var add_u2 = makeAddUserCommand(7202);
@@ -3980,14 +9878,14 @@ test "kernel total currency balance report aggregates risk balances and open int
     var long_position = user.SymbolPositionRecord.init(7201, 241, 15);
     long_position.direction = .long;
     long_position.open_volume = 7;
-    long_position.open_price_sum = 700;
+    long_position.open_price_sum = 7 * 42;
     try profile_1.positions.put(allocator, 241, long_position);
 
     const profile_2 = kernel.risk_engine.getUserProfile(7202) orelse unreachable;
     var short_position = user.SymbolPositionRecord.init(7202, 241, 15);
     short_position.direction = .short;
     short_position.open_volume = 4;
-    short_position.open_price_sum = 400;
+    short_position.open_price_sum = 4 * 42;
     try profile_2.positions.put(allocator, 241, short_position);
 
     var report = try kernel.queryReport(.total_currency_balance);
@@ -4013,6 +9911,102 @@ test "kernel total currency balance report aggregates risk balances and open int
                 (balance_report.suspends.get(11) orelse 0);
             try std.testing.expectEqual(@as(i64, 0), global_15);
             try std.testing.expectEqual(@as(i64, 0), global_11);
+        },
+        else => unreachable,
+    }
+}
+
+test "kernel total currency balance report includes averaged futures profit" {
+    const allocator = std.testing.allocator;
+    var kernel = try ExchangeKernel.init(allocator, .{
+        .risk = .{ .margin_trading_enabled = true },
+    });
+    defer kernel.deinit();
+    const spec = try makeFeeMarginFuturesSpec();
+    try std.testing.expect(try kernel.addSymbol(spec));
+
+    var add_user = makeAddUserCommand(7251);
+    var add_response = try kernel.execute(&add_user);
+    defer add_response.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, add_response.result_code);
+
+    var deposit = makeBalanceAdjustmentCommand(7251, spec.quote_currency, 1_000, 1, .adjustment);
+    var deposit_response = try kernel.execute(&deposit);
+    defer deposit_response.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, deposit_response.result_code);
+
+    const profile = kernel.risk_engine.getUserProfile(7251) orelse unreachable;
+    var position = user.SymbolPositionRecord.init(7251, spec.symbol_id, spec.quote_currency);
+    position.direction = .long;
+    position.open_volume = 2;
+    position.open_price_sum = 200;
+    position.profit = 5;
+    try profile.positions.put(allocator, spec.symbol_id, position);
+    try kernel.risk_engine.last_price_cache.put(allocator, spec.symbol_id, .{
+        .ask_price = 120,
+        .bid_price = 100,
+    });
+
+    var report = try kernel.queryReport(.total_currency_balance);
+    defer report.deinit(allocator);
+    switch (report) {
+        .total_currency_balance => |total| {
+            // Average price is 110; estimated profit is 5 + (2 * 110 - 200) = 25.
+            try std.testing.expectEqual(@as(i64, 1_025), total.account_balances.get(spec.quote_currency) orelse 0);
+            try std.testing.expectEqual(@as(i64, 2), total.open_interest_long.get(spec.symbol_id) orelse 0);
+            try std.testing.expectEqual(@as(usize, 0), total.orders_balances.count());
+        },
+        else => unreachable,
+    }
+}
+
+test "kernel total currency balance report preserves Java one-sided averaging" {
+    const allocator = std.testing.allocator;
+    var kernel = try ExchangeKernel.init(allocator, .{
+        .risk = .{ .margin_trading_enabled = true },
+    });
+    defer kernel.deinit();
+    const spec = try makeFeeMarginFuturesSpec();
+    try std.testing.expect(try kernel.addSymbol(spec));
+
+    var add_user = makeAddUserCommand(7252);
+    var add_response = try kernel.execute(&add_user);
+    defer add_response.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, add_response.result_code);
+
+    var deposit = makeBalanceAdjustmentCommand(7252, spec.quote_currency, 1_000, 1, .adjustment);
+    var deposit_response = try kernel.execute(&deposit);
+    defer deposit_response.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, deposit_response.result_code);
+
+    const profile = kernel.risk_engine.getUserProfile(7252) orelse unreachable;
+    var position = user.SymbolPositionRecord.init(7252, spec.symbol_id, spec.quote_currency);
+    position.direction = .long;
+    position.open_volume = 1;
+    position.open_price_sum = 100;
+    position.profit = 5;
+    try profile.positions.put(allocator, spec.symbol_id, position);
+    try kernel.risk_engine.last_price_cache.put(allocator, spec.symbol_id, .{
+        .ask_price = std.math.maxInt(i64),
+        .bid_price = 100,
+    });
+
+    // Java LastPriceCacheRecord.averagingRecord performs wrapping signed-long
+    // addition before shifting, even when maxInt represents a missing ask.
+    const java_average = (std.math.maxInt(i64) +% @as(i64, 100)) >> 1;
+    const expected_profit = 5 + (java_average - 100);
+    const expected_balance = 1_000 + expected_profit;
+
+    var report = try kernel.queryReport(.total_currency_balance);
+    defer report.deinit(allocator);
+    switch (report) {
+        .total_currency_balance => |total| {
+            try std.testing.expectEqual(
+                expected_balance,
+                total.account_balances.get(spec.quote_currency) orelse 0,
+            );
+            try std.testing.expectEqual(@as(i64, 1), total.open_interest_long.get(spec.symbol_id) orelse 0);
+            try std.testing.expectEqual(@as(usize, 0), total.orders_balances.count());
         },
         else => unreachable,
     }
@@ -4287,6 +10281,567 @@ test "kernel settles exchange balances from matcher trade events" {
     try std.testing.expectEqual(@as(usize, 1), snapshot.bids.items.len);
     try std.testing.expectEqual(@as(i64, 100), snapshot.bids.items[0].price);
     try std.testing.expectEqual(@as(i64, 2), snapshot.bids.items[0].volume);
+}
+
+test "kernel duplicate GTC partial match rejects remainder before trade and settles spot once" {
+    const allocator = std.testing.allocator;
+    const symbol: i32 = 241;
+    const maker_uid: i64 = 1_445_000;
+    const original_bidder_uid: i64 = 1_445_001;
+    const duplicate_bidder_uid: i64 = 1_445_002;
+    const maker_order_id: i64 = 1_445_100;
+    const duplicate_order_id: i64 = 1_445_101;
+
+    for ([_]OrderBookKind{ .naive, .direct }) |orderbook_kind| {
+        var kernel = try ExchangeKernel.init(allocator, .{
+            .orderbook_kind = orderbook_kind,
+        });
+        defer kernel.deinit();
+        try std.testing.expect(try kernel.addSymbol(try makeExchangeSpecForSymbol(symbol)));
+
+        for ([_]i64{ maker_uid, original_bidder_uid, duplicate_bidder_uid }) |uid| {
+            var add_user = makeAddUserCommand(uid);
+            var response = try kernel.execute(&add_user);
+            defer response.deinit(allocator);
+            try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+        }
+
+        var maker_base_deposit = makeBalanceAdjustmentCommand(
+            maker_uid,
+            11,
+            100_000,
+            1,
+            .adjustment,
+        );
+        var maker_base_response = try kernel.execute(&maker_base_deposit);
+        defer maker_base_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, maker_base_response.result_code);
+
+        var original_quote_deposit = makeBalanceAdjustmentCommand(
+            original_bidder_uid,
+            15,
+            100_000,
+            1,
+            .adjustment,
+        );
+        var original_quote_response = try kernel.execute(&original_quote_deposit);
+        defer original_quote_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, original_quote_response.result_code);
+
+        var duplicate_quote_deposit = makeBalanceAdjustmentCommand(
+            duplicate_bidder_uid,
+            15,
+            100_000,
+            1,
+            .adjustment,
+        );
+        var duplicate_quote_response = try kernel.execute(&duplicate_quote_deposit);
+        defer duplicate_quote_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, duplicate_quote_response.result_code);
+
+        var original_bid = cmd.OrderCommand.newOrder(
+            .gtc,
+            duplicate_order_id,
+            original_bidder_uid,
+            90,
+            120,
+            5,
+            .bid,
+        );
+        original_bid.symbol = symbol;
+        var original_bid_response = try kernel.execute(&original_bid);
+        defer original_bid_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, original_bid_response.result_code);
+
+        var maker_ask = cmd.OrderCommand.newOrder(
+            .gtc,
+            maker_order_id,
+            maker_uid,
+            100,
+            0,
+            3,
+            .ask,
+        );
+        maker_ask.symbol = symbol;
+        var maker_ask_response = try kernel.execute(&maker_ask);
+        defer maker_ask_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, maker_ask_response.result_code);
+
+        var duplicate_bid = cmd.OrderCommand.newOrder(
+            .gtc,
+            duplicate_order_id,
+            duplicate_bidder_uid,
+            110,
+            150,
+            7,
+            .bid,
+        );
+        duplicate_bid.symbol = symbol;
+        var duplicate_response = try kernel.execute(&duplicate_bid);
+        defer duplicate_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, duplicate_response.result_code);
+        try std.testing.expectEqual(
+            @as(usize, 2),
+            events.listSize(duplicate_response.matcher_events_head),
+        );
+
+        const reject = duplicate_response.matcher_events_head orelse
+            return error.TestExpectedDuplicateRejectEvent;
+        try std.testing.expectEqual(events.MatcherEventType.reject, reject.event_type);
+        try std.testing.expect(reject.active_order_completed);
+        try std.testing.expectEqual(@as(i64, 0), reject.matched_order_id);
+        try std.testing.expectEqual(@as(i64, 0), reject.matched_order_uid);
+        try std.testing.expect(!reject.matched_order_completed);
+        try std.testing.expectEqual(@as(i64, 110), reject.price);
+        try std.testing.expectEqual(@as(i64, 4), reject.size);
+        try std.testing.expectEqual(@as(i64, 150), reject.bidder_hold_price);
+
+        const trade = reject.next_event orelse return error.TestExpectedDuplicateTradeEvent;
+        try std.testing.expectEqual(events.MatcherEventType.trade, trade.event_type);
+        try std.testing.expect(!trade.active_order_completed);
+        try std.testing.expectEqual(maker_order_id, trade.matched_order_id);
+        try std.testing.expectEqual(maker_uid, trade.matched_order_uid);
+        try std.testing.expect(trade.matched_order_completed);
+        try std.testing.expectEqual(@as(i64, 100), trade.price);
+        try std.testing.expectEqual(@as(i64, 3), trade.size);
+        try std.testing.expectEqual(@as(i64, 150), trade.bidder_hold_price);
+        try std.testing.expect(trade.next_event == null);
+
+        const maker = kernel.risk_engine.getUserProfile(maker_uid) orelse unreachable;
+        const original_bidder = kernel.risk_engine.getUserProfile(original_bidder_uid) orelse
+            unreachable;
+        const duplicate_bidder = kernel.risk_engine.getUserProfile(duplicate_bidder_uid) orelse
+            unreachable;
+        try std.testing.expectEqual(@as(i64, 99_700), maker.accountBalance(11));
+        try std.testing.expectEqual(@as(i64, 2_997), maker.accountBalance(15));
+        try std.testing.expectEqual(@as(i64, 0), original_bidder.accountBalance(11));
+        try std.testing.expectEqual(@as(i64, 93_990), original_bidder.accountBalance(15));
+        try std.testing.expectEqual(@as(i64, 300), duplicate_bidder.accountBalance(11));
+        try std.testing.expectEqual(@as(i64, 96_994), duplicate_bidder.accountBalance(15));
+        try std.testing.expectEqual(@as(i64, 9), kernel.risk_engine.getFeeCollected(15));
+
+        var order_book = makeRequestOrderBookCommand(symbol, 4);
+        var order_book_response = try kernel.execute(&order_book);
+        defer order_book_response.deinit(allocator);
+        const snapshot = order_book_response.l2_snapshot orelse
+            return error.TestExpectedOrderBookSnapshot;
+        try std.testing.expectEqual(@as(usize, 0), snapshot.asks.items.len);
+        try std.testing.expectEqual(@as(usize, 1), snapshot.bids.items.len);
+        try std.testing.expectEqual(@as(i64, 90), snapshot.bids.items[0].price);
+        try std.testing.expectEqual(@as(i64, 5), snapshot.bids.items[0].volume);
+        try std.testing.expectEqual(@as(i64, 1), snapshot.bids.items[0].orders);
+
+        var total_report = try kernel.queryReport(.total_currency_balance);
+        defer total_report.deinit(allocator);
+        switch (total_report) {
+            .total_currency_balance => |total| {
+                try std.testing.expectEqual(
+                    @as(i64, 100_000),
+                    total.account_balances.get(11) orelse 0,
+                );
+                try std.testing.expectEqual(
+                    @as(i64, 193_981),
+                    total.account_balances.get(15) orelse 0,
+                );
+                try std.testing.expectEqual(@as(usize, 1), total.orders_balances.count());
+                try std.testing.expectEqual(
+                    @as(i64, 6_010),
+                    total.orders_balances.get(15) orelse 0,
+                );
+                try std.testing.expectEqual(@as(i64, 9), total.fees.get(15) orelse 0);
+                try std.testing.expectEqual(
+                    @as(i64, -100_000),
+                    total.adjustments.get(11) orelse 0,
+                );
+                try std.testing.expectEqual(
+                    @as(i64, -200_000),
+                    total.adjustments.get(15) orelse 0,
+                );
+                try std.testing.expectEqual(@as(usize, 0), total.open_interest_long.count());
+                try std.testing.expectEqual(@as(usize, 0), total.open_interest_short.count());
+            },
+            else => return error.TestExpectedTotalCurrencyBalanceReport,
+        }
+    }
+}
+
+test "kernel duplicate GTC rejection releases only the futures remainder exposure" {
+    const allocator = std.testing.allocator;
+    const spec = try makeFeeMarginFuturesSpec();
+    const maker_uid: i64 = 1_445_010;
+    const original_bidder_uid: i64 = 1_445_011;
+    const duplicate_bidder_uid: i64 = 1_445_012;
+    const maker_order_id: i64 = 1_445_110;
+    const duplicate_order_id: i64 = 1_445_111;
+
+    for ([_]OrderBookKind{ .naive, .direct }) |orderbook_kind| {
+        var kernel = try ExchangeKernel.init(allocator, .{
+            .orderbook_kind = orderbook_kind,
+            .risk = .{ .margin_trading_enabled = true },
+        });
+        defer kernel.deinit();
+        try std.testing.expect(try kernel.addSymbol(spec));
+
+        for ([_]i64{ maker_uid, original_bidder_uid, duplicate_bidder_uid }) |uid| {
+            var add_user = makeAddUserCommand(uid);
+            var add_response = try kernel.execute(&add_user);
+            defer add_response.deinit(allocator);
+            try std.testing.expectEqual(cmd.CommandResultCode.success, add_response.result_code);
+
+            var deposit = makeBalanceAdjustmentCommand(
+                uid,
+                spec.quote_currency,
+                200_000,
+                1,
+                .adjustment,
+            );
+            var deposit_response = try kernel.execute(&deposit);
+            defer deposit_response.deinit(allocator);
+            try std.testing.expectEqual(cmd.CommandResultCode.success, deposit_response.result_code);
+        }
+
+        var original_bid = cmd.OrderCommand.newOrder(
+            .gtc,
+            duplicate_order_id,
+            original_bidder_uid,
+            10_000,
+            10_000,
+            5,
+            .bid,
+        );
+        original_bid.symbol = spec.symbol_id;
+        var original_response = try kernel.execute(&original_bid);
+        defer original_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, original_response.result_code);
+
+        var maker_ask = cmd.OrderCommand.newOrder(
+            .gtc,
+            maker_order_id,
+            maker_uid,
+            10_100,
+            0,
+            3,
+            .ask,
+        );
+        maker_ask.symbol = spec.symbol_id;
+        var maker_response = try kernel.execute(&maker_ask);
+        defer maker_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, maker_response.result_code);
+
+        var duplicate_bid = cmd.OrderCommand.newOrder(
+            .gtc,
+            duplicate_order_id,
+            duplicate_bidder_uid,
+            10_100,
+            10_100,
+            7,
+            .bid,
+        );
+        duplicate_bid.symbol = spec.symbol_id;
+        var duplicate_response = try kernel.execute(&duplicate_bid);
+        defer duplicate_response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, duplicate_response.result_code);
+
+        const reject = duplicate_response.matcher_events_head orelse
+            return error.TestExpectedDuplicateRejectEvent;
+        try std.testing.expectEqual(events.MatcherEventType.reject, reject.event_type);
+        try std.testing.expectEqual(@as(i64, 4), reject.size);
+        const trade = reject.next_event orelse return error.TestExpectedDuplicateTradeEvent;
+        try std.testing.expectEqual(events.MatcherEventType.trade, trade.event_type);
+        try std.testing.expectEqual(@as(i64, 3), trade.size);
+        try std.testing.expect(trade.next_event == null);
+
+        const original = kernel.risk_engine.getUserProfile(original_bidder_uid) orelse
+            unreachable;
+        const maker = kernel.risk_engine.getUserProfile(maker_uid) orelse unreachable;
+        const duplicate = kernel.risk_engine.getUserProfile(duplicate_bidder_uid) orelse
+            unreachable;
+        const original_position = original.positions.getPtr(spec.symbol_id) orelse unreachable;
+        const maker_position = maker.positions.getPtr(spec.symbol_id) orelse unreachable;
+        const duplicate_position = duplicate.positions.getPtr(spec.symbol_id) orelse unreachable;
+
+        try std.testing.expectEqual(@as(i64, 5), original_position.pending_buy_size);
+        try std.testing.expectEqual(@as(i64, 0), original_position.open_volume);
+        try std.testing.expectEqual(common.PositionDirection.short, maker_position.direction);
+        try std.testing.expectEqual(@as(i64, 3), maker_position.open_volume);
+        try std.testing.expectEqual(@as(i64, 0), maker_position.pending_sell_size);
+        try std.testing.expectEqual(common.PositionDirection.long, duplicate_position.direction);
+        try std.testing.expectEqual(@as(i64, 3), duplicate_position.open_volume);
+        try std.testing.expectEqual(@as(i64, 0), duplicate_position.pending_buy_size);
+        try std.testing.expectEqual(@as(i64, 199_994), maker.accountBalance(spec.quote_currency));
+        try std.testing.expectEqual(@as(i64, 200_000), original.accountBalance(spec.quote_currency));
+        try std.testing.expectEqual(@as(i64, 199_991), duplicate.accountBalance(spec.quote_currency));
+        try std.testing.expectEqual(@as(i64, 15), kernel.risk_engine.getFeeCollected(spec.quote_currency));
+    }
+}
+
+test "kernel matches Java fee-margin partial maker scenario" {
+    const allocator = std.testing.allocator;
+
+    for ([_]OrderBookKind{ .naive, .direct }) |orderbook_kind| {
+        var kernel = try ExchangeKernel.init(allocator, .{
+            .orderbook_kind = orderbook_kind,
+            .risk = .{ .margin_trading_enabled = true },
+        });
+        defer kernel.deinit();
+        try std.testing.expect(try kernel.addSymbol(try makeFeeMarginFuturesSpec()));
+
+        var add_maker = makeAddUserCommand(1_440_001);
+        var add_maker_response = try kernel.execute(&add_maker);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, add_maker_response.result_code);
+        add_maker_response.deinit(allocator);
+
+        var maker_deposit = makeBalanceAdjustmentCommand(1_440_001, 392, 240_000, 1, .adjustment);
+        var maker_deposit_response = try kernel.execute(&maker_deposit);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, maker_deposit_response.result_code);
+        maker_deposit_response.deinit(allocator);
+
+        var maker_ask = cmd.OrderCommand.newOrder(.gtc, 101, 1_440_001, 10_770, 0, 40, .ask);
+        maker_ask.symbol = 5991;
+        var maker_response = try kernel.execute(&maker_ask);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, maker_response.result_code);
+        maker_response.deinit(allocator);
+
+        var add_taker = makeAddUserCommand(1_440_002);
+        var add_taker_response = try kernel.execute(&add_taker);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, add_taker_response.result_code);
+        add_taker_response.deinit(allocator);
+
+        var taker_deposit = makeBalanceAdjustmentCommand(1_440_002, 392, 150_000, 1, .adjustment);
+        var taker_deposit_response = try kernel.execute(&taker_deposit);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, taker_deposit_response.result_code);
+        taker_deposit_response.deinit(allocator);
+
+        var taker_bid = cmd.OrderCommand.newOrder(.ioc, 102, 1_440_002, 10_770, 10_770, 30, .bid);
+        taker_bid.symbol = 5991;
+        var taker_response = try kernel.execute(&taker_bid);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, taker_response.result_code);
+        taker_response.deinit(allocator);
+
+        const maker = kernel.risk_engine.getUserProfile(1_440_001) orelse unreachable;
+        const taker = kernel.risk_engine.getUserProfile(1_440_002) orelse unreachable;
+        const maker_position = maker.positions.getPtr(5991) orelse unreachable;
+        const taker_position = taker.positions.getPtr(5991) orelse unreachable;
+
+        try std.testing.expectEqual(@as(i64, 239_940), maker.accountBalance(392));
+        try std.testing.expectEqual(common.PositionDirection.short, maker_position.direction);
+        try std.testing.expectEqual(@as(i64, 30), maker_position.open_volume);
+        try std.testing.expectEqual(@as(i64, 323_100), maker_position.open_price_sum);
+        try std.testing.expectEqual(@as(i64, 0), maker_position.pending_buy_size);
+        try std.testing.expectEqual(@as(i64, 10), maker_position.pending_sell_size);
+
+        try std.testing.expectEqual(@as(i64, 149_910), taker.accountBalance(392));
+        try std.testing.expectEqual(common.PositionDirection.long, taker_position.direction);
+        try std.testing.expectEqual(@as(i64, 30), taker_position.open_volume);
+        try std.testing.expectEqual(@as(i64, 323_100), taker_position.open_price_sum);
+        try std.testing.expectEqual(@as(i64, 0), taker_position.pending_buy_size);
+        try std.testing.expectEqual(@as(i64, 0), taker_position.pending_sell_size);
+        try std.testing.expectEqual(@as(i64, 150), kernel.risk_engine.getFeeCollected(392));
+
+        var maker_report = try kernel.queryReport(.{ .single_user = 1_440_001 });
+        defer maker_report.deinit(allocator);
+        switch (maker_report) {
+            .single_user => |single| {
+                try std.testing.expectEqual(@as(usize, 1), single.orders.items.len);
+                try std.testing.expectEqual(@as(i64, 101), single.orders.items[0].order_id);
+                try std.testing.expectEqual(@as(i64, 10_770), single.orders.items[0].price);
+                try std.testing.expectEqual(@as(i64, 40), single.orders.items[0].size);
+                try std.testing.expectEqual(@as(i64, 30), single.orders.items[0].filled);
+            },
+            else => unreachable,
+        }
+
+        var taker_report = try kernel.queryReport(.{ .single_user = 1_440_002 });
+        defer taker_report.deinit(allocator);
+        switch (taker_report) {
+            .single_user => |single| {
+                try std.testing.expectEqual(@as(usize, 0), single.orders.items.len);
+            },
+            else => unreachable,
+        }
+
+        var total_report = try kernel.queryReport(.total_currency_balance);
+        defer total_report.deinit(allocator);
+        switch (total_report) {
+            .total_currency_balance => |total| {
+                try std.testing.expectEqual(@as(i64, 389_850), total.account_balances.get(392) orelse 0);
+                try std.testing.expectEqual(@as(usize, 0), total.orders_balances.count());
+                try std.testing.expectEqual(@as(i64, 150), total.fees.get(392) orelse 0);
+                try std.testing.expectEqual(@as(i64, -390_000), total.adjustments.get(392) orelse 0);
+                try std.testing.expectEqual(@as(i64, 30), total.open_interest_long.get(5991) orelse 0);
+                try std.testing.expectEqual(@as(i64, 30), total.open_interest_short.get(5991) orelse 0);
+            },
+            else => unreachable,
+        }
+    }
+}
+
+test "kernel matches Java fee-margin inverse partial maker scenario" {
+    const allocator = std.testing.allocator;
+
+    for ([_]OrderBookKind{ .naive, .direct }) |orderbook_kind| {
+        var kernel = try ExchangeKernel.init(allocator, .{
+            .orderbook_kind = orderbook_kind,
+            .risk = .{ .margin_trading_enabled = true },
+        });
+        defer kernel.deinit();
+        try std.testing.expect(try kernel.addSymbol(try makeFeeMarginFuturesSpec()));
+
+        var add_maker = makeAddUserCommand(1_440_011);
+        var add_maker_response = try kernel.execute(&add_maker);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, add_maker_response.result_code);
+        add_maker_response.deinit(allocator);
+
+        var maker_deposit = makeBalanceAdjustmentCommand(1_440_011, 392, 250_000, 1, .adjustment);
+        var maker_deposit_response = try kernel.execute(&maker_deposit);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, maker_deposit_response.result_code);
+        maker_deposit_response.deinit(allocator);
+
+        var maker_bid = cmd.OrderCommand.newOrder(.gtc, 101, 1_440_011, 10_770, 0, 50, .bid);
+        maker_bid.symbol = 5991;
+        var maker_response = try kernel.execute(&maker_bid);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, maker_response.result_code);
+        maker_response.deinit(allocator);
+
+        var add_taker = makeAddUserCommand(1_440_012);
+        var add_taker_response = try kernel.execute(&add_taker);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, add_taker_response.result_code);
+        add_taker_response.deinit(allocator);
+
+        var taker_deposit = makeBalanceAdjustmentCommand(1_440_012, 392, 200_000, 1, .adjustment);
+        var taker_deposit_response = try kernel.execute(&taker_deposit);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, taker_deposit_response.result_code);
+        taker_deposit_response.deinit(allocator);
+
+        var taker_ask = cmd.OrderCommand.newOrder(.ioc, 102, 1_440_012, 10_770, 10_770, 30, .ask);
+        taker_ask.symbol = 5991;
+        var taker_response = try kernel.execute(&taker_ask);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, taker_response.result_code);
+        taker_response.deinit(allocator);
+
+        const maker = kernel.risk_engine.getUserProfile(1_440_011) orelse unreachable;
+        const taker = kernel.risk_engine.getUserProfile(1_440_012) orelse unreachable;
+        const maker_position = maker.positions.getPtr(5991) orelse unreachable;
+        const taker_position = taker.positions.getPtr(5991) orelse unreachable;
+
+        try std.testing.expectEqual(@as(i64, 249_940), maker.accountBalance(392));
+        try std.testing.expectEqual(common.PositionDirection.long, maker_position.direction);
+        try std.testing.expectEqual(@as(i64, 30), maker_position.open_volume);
+        try std.testing.expectEqual(@as(i64, 323_100), maker_position.open_price_sum);
+        try std.testing.expectEqual(@as(i64, 20), maker_position.pending_buy_size);
+        try std.testing.expectEqual(@as(i64, 0), maker_position.pending_sell_size);
+
+        try std.testing.expectEqual(@as(i64, 199_910), taker.accountBalance(392));
+        try std.testing.expectEqual(common.PositionDirection.short, taker_position.direction);
+        try std.testing.expectEqual(@as(i64, 30), taker_position.open_volume);
+        try std.testing.expectEqual(@as(i64, 323_100), taker_position.open_price_sum);
+        try std.testing.expectEqual(@as(i64, 0), taker_position.pending_buy_size);
+        try std.testing.expectEqual(@as(i64, 0), taker_position.pending_sell_size);
+        try std.testing.expectEqual(@as(i64, 150), kernel.risk_engine.getFeeCollected(392));
+
+        var maker_report = try kernel.queryReport(.{ .single_user = 1_440_011 });
+        defer maker_report.deinit(allocator);
+        switch (maker_report) {
+            .single_user => |single| {
+                try std.testing.expectEqual(@as(usize, 1), single.orders.items.len);
+                try std.testing.expectEqual(@as(i64, 101), single.orders.items[0].order_id);
+                try std.testing.expectEqual(@as(i64, 50), single.orders.items[0].size);
+                try std.testing.expectEqual(@as(i64, 30), single.orders.items[0].filled);
+            },
+            else => unreachable,
+        }
+
+        var taker_report = try kernel.queryReport(.{ .single_user = 1_440_012 });
+        defer taker_report.deinit(allocator);
+        switch (taker_report) {
+            .single_user => |single| try std.testing.expectEqual(@as(usize, 0), single.orders.items.len),
+            else => unreachable,
+        }
+
+        var total_report = try kernel.queryReport(.total_currency_balance);
+        defer total_report.deinit(allocator);
+        switch (total_report) {
+            .total_currency_balance => |total| {
+                try std.testing.expectEqual(@as(i64, 449_850), total.account_balances.get(392) orelse 0);
+                try std.testing.expectEqual(@as(usize, 0), total.orders_balances.count());
+                try std.testing.expectEqual(@as(i64, 150), total.fees.get(392) orelse 0);
+                try std.testing.expectEqual(@as(i64, -450_000), total.adjustments.get(392) orelse 0);
+                try std.testing.expectEqual(@as(i64, 30), total.open_interest_long.get(5991) orelse 0);
+                try std.testing.expectEqual(@as(i64, 30), total.open_interest_short.get(5991) orelse 0);
+            },
+            else => unreachable,
+        }
+    }
+}
+
+test "kernel matches Java fee-margin cancel without fees scenario" {
+    const allocator = std.testing.allocator;
+
+    for ([_]OrderBookKind{ .naive, .direct }) |orderbook_kind| {
+        var kernel = try ExchangeKernel.init(allocator, .{
+            .orderbook_kind = orderbook_kind,
+            .risk = .{ .margin_trading_enabled = true },
+        });
+        defer kernel.deinit();
+        try std.testing.expect(try kernel.addSymbol(try makeFeeMarginFuturesSpec()));
+
+        var add_user = makeAddUserCommand(1_440_021);
+        var add_user_response = try kernel.execute(&add_user);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, add_user_response.result_code);
+        add_user_response.deinit(allocator);
+
+        var deposit = makeBalanceAdjustmentCommand(1_440_021, 392, 240_000, 1, .adjustment);
+        var deposit_response = try kernel.execute(&deposit);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, deposit_response.result_code);
+        deposit_response.deinit(allocator);
+
+        var ask = cmd.OrderCommand.newOrder(.gtc, 101, 1_440_021, 10_770, 0, 40, .ask);
+        ask.symbol = 5991;
+        var ask_response = try kernel.execute(&ask);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, ask_response.result_code);
+        ask_response.deinit(allocator);
+
+        const profile = kernel.risk_engine.getUserProfile(1_440_021) orelse unreachable;
+        const pending_position = profile.positions.getPtr(5991) orelse unreachable;
+        try std.testing.expectEqual(common.PositionDirection.empty, pending_position.direction);
+        try std.testing.expectEqual(@as(i64, 0), pending_position.open_volume);
+        try std.testing.expectEqual(@as(i64, 0), pending_position.pending_buy_size);
+        try std.testing.expectEqual(@as(i64, 40), pending_position.pending_sell_size);
+        try std.testing.expectEqual(@as(i64, 240_000), profile.accountBalance(392));
+
+        var cancel = makeCancelOrderCommand(101, 1_440_021, 5991);
+        var cancel_response = try kernel.execute(&cancel);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, cancel_response.result_code);
+        cancel_response.deinit(allocator);
+
+        try std.testing.expectEqual(@as(i64, 240_000), profile.accountBalance(392));
+        try std.testing.expectEqual(@as(usize, 0), profile.positions.count());
+        try std.testing.expectEqual(@as(i64, 0), kernel.risk_engine.getFeeCollected(392));
+
+        var user_report = try kernel.queryReport(.{ .single_user = 1_440_021 });
+        defer user_report.deinit(allocator);
+        switch (user_report) {
+            .single_user => |single| {
+                try std.testing.expectEqual(@as(usize, 0), single.positions.count());
+                try std.testing.expectEqual(@as(usize, 0), single.orders.items.len);
+            },
+            else => unreachable,
+        }
+
+        var total_report = try kernel.queryReport(.total_currency_balance);
+        defer total_report.deinit(allocator);
+        switch (total_report) {
+            .total_currency_balance => |total| {
+                try std.testing.expectEqual(@as(i64, 240_000), total.account_balances.get(392) orelse 0);
+                try std.testing.expectEqual(@as(usize, 0), total.orders_balances.count());
+                try std.testing.expectEqual(@as(i64, 0), total.fees.get(392) orelse 0);
+                try std.testing.expectEqual(@as(i64, -240_000), total.adjustments.get(392) orelse 0);
+                try std.testing.expectEqual(@as(i64, 0), total.open_interest_long.get(5991) orelse 0);
+                try std.testing.expectEqual(@as(i64, 0), total.open_interest_short.get(5991) orelse 0);
+            },
+            else => unreachable,
+        }
+    }
 }
 
 test "kernel ioc reject releases held quote for bid taker" {
@@ -4944,4 +11499,866 @@ test "seeded fault-injection multi-symbol split simulation is deterministic and 
     const delivered_diff = first.delivered_count != different_seed.delivered_count;
     const fingerprint_diff = first.final_fingerprint != different_seed.final_fingerprint;
     try std.testing.expect(digest_diff or delivered_diff or fingerprint_diff);
+}
+
+test "assigned sharded execution shares one routed and split frontier" {
+    const allocator = std.testing.allocator;
+    var sharded = try MultiShardKernelSet.init(allocator, 4, .direct);
+    defer sharded.deinit();
+
+    var shard_zero = makeAddUserCommand(200_000);
+    var first = try sharded.executeRoutedAtSequence(.fromInt(1), &shard_zero);
+    defer first.deinit(allocator);
+
+    var shard_one = makeAddUserCommand(200_001);
+    var second = try sharded.executeRoutedAtSequence(.fromInt(2), &shard_one);
+    defer second.deinit(allocator);
+
+    var split = makeNopCommand();
+    var third = try sharded.executeSplitAtSequence(.fromInt(4), &split);
+    defer third.deinit(allocator);
+
+    try std.testing.expectEqual(@as(u64, 1), first.sequence);
+    try std.testing.expectEqual(@as(u64, 2), second.sequence);
+    try std.testing.expectEqual(@as(u64, 4), third.sequence);
+    try std.testing.expectEqual(@as(u64, 4), sharded.next_seq);
+    for (sharded.kernels) |kernel| {
+        try std.testing.expectEqual(@as(u64, 4), kernel.next_seq);
+    }
+
+    var duplicate = makeNopCommand();
+    try std.testing.expectError(
+        error.NonMonotonicPublicationSequence,
+        sharded.executeRoutedAtSequence(.fromInt(4), &duplicate),
+    );
+    try std.testing.expectEqual(@as(u64, 4), sharded.next_seq);
+}
+
+fn testStateHashSubmodule(
+    report: *const DetailedStateHashReport,
+    submodule: StateHashSubmoduleType,
+    module_id: i32,
+) ?u64 {
+    for (report.submodules.items) |entry| {
+        if (entry.submodule == submodule and entry.module_id == module_id) {
+            return entry.hash;
+        }
+    }
+    return null;
+}
+
+test "margin-disabled kernel keeps futures matching-only while enabled kernel preserves risk admission" {
+    const allocator = std.testing.allocator;
+    const spec = try makeFeeMarginFuturesSpec();
+    const uid: i64 = 91_001;
+
+    var disabled = try ExchangeKernel.init(allocator, .{ .orderbook_kind = .direct });
+    defer disabled.deinit();
+    const empty_provider_hash = try disabled.risk_engine.symbol_spec_provider.stateHash();
+    const empty_risk_hash = try disabled.risk_engine.stateHash();
+    var empty_risk_report = try disabled.queryReport(.risk_state_hash);
+    defer empty_risk_report.deinit(allocator);
+
+    try std.testing.expect(try disabled.addSymbol(spec));
+    try std.testing.expect(disabled.books.contains(spec.symbol_id));
+    try std.testing.expectEqual(@as(usize, 1), disabled.books.count());
+    try std.testing.expect(disabled.risk_engine.symbol_spec_provider.getSymbolSpecification(spec.symbol_id) == null);
+    try std.testing.expectEqual(@as(usize, 0), disabled.risk_engine.symbol_spec_provider.symbols.count());
+    try std.testing.expectEqual(empty_provider_hash, try disabled.risk_engine.symbol_spec_provider.stateHash());
+    try std.testing.expectEqual(empty_risk_hash, try disabled.risk_engine.stateHash());
+
+    var risk_report = try disabled.queryReport(.risk_state_hash);
+    defer risk_report.deinit(allocator);
+    try std.testing.expectEqual(empty_risk_report.risk_state_hash, risk_report.risk_state_hash);
+    var detailed = try disabled.queryReport(.state_hash_detailed);
+    defer detailed.deinit(allocator);
+    try std.testing.expectEqual(
+        empty_provider_hash,
+        testStateHashSubmodule(
+            &detailed.state_hash_detailed,
+            .risk_symbol_spec_provider,
+            0,
+        ) orelse return error.TestExpectedRiskSymbolHash,
+    );
+    var total = try disabled.queryReport(.total_currency_balance);
+    defer total.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 0), total.total_currency_balance.orders_balances.count());
+
+    var add_user = makeAddUserCommand(uid);
+    {
+        var response = try disabled.execute(&add_user);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    }
+    var rejected = cmd.OrderCommand.newOrder(.gtc, 91_101, uid, 10_770, 10_770, 1, .bid);
+    rejected.symbol = spec.symbol_id;
+    {
+        var response = try disabled.execute(&rejected);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.invalid_symbol, response.result_code);
+    }
+
+    var enabled = try ExchangeKernel.init(allocator, .{
+        .orderbook_kind = .direct,
+        .risk = .{ .margin_trading_enabled = true },
+    });
+    defer enabled.deinit();
+    const enabled_empty_provider_hash = try enabled.risk_engine.symbol_spec_provider.stateHash();
+    try std.testing.expect(try enabled.addSymbol(spec));
+    try std.testing.expect(enabled.books.contains(spec.symbol_id));
+    try std.testing.expect(enabled.risk_engine.symbol_spec_provider.getSymbolSpecification(spec.symbol_id) != null);
+    try std.testing.expect(enabled_empty_provider_hash != try enabled.risk_engine.symbol_spec_provider.stateHash());
+
+    var enabled_add_user = makeAddUserCommand(uid);
+    {
+        var response = try enabled.execute(&enabled_add_user);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    }
+    var deposit = makeBalanceAdjustmentCommand(uid, spec.quote_currency, 100_000, 1, .adjustment);
+    {
+        var response = try enabled.execute(&deposit);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    }
+    var accepted = cmd.OrderCommand.newOrder(.gtc, 91_102, uid, 10_770, 10_770, 1, .bid);
+    accepted.symbol = spec.symbol_id;
+    {
+        var response = try enabled.execute(&accepted);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    }
+}
+
+test "4ME 2RE margin-disabled topology excludes futures from active risk while enabled topology preserves them" {
+    const allocator = std.testing.allocator;
+    const spec = try makeFeeMarginFuturesSpec();
+    const uid: i64 = 92_001;
+
+    var disabled = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        4,
+        2,
+        .{ .orderbook_kind = .direct },
+    );
+    defer disabled.deinit();
+    var empty_risk_hashes: [2]u64 = undefined;
+    var empty_provider_hashes: [2]u64 = undefined;
+    for (disabled.risk_shards, 0..) |*risk_shard, idx| {
+        empty_risk_hashes[idx] = try risk_shard.engine.stateHash();
+        empty_provider_hashes[idx] = try risk_shard.engine.symbol_spec_provider.stateHash();
+    }
+    var empty_risk_report = try disabled.queryReport(.risk_state_hash);
+    defer empty_risk_report.deinit(allocator);
+
+    try disabled.addSymbolAll(spec);
+    for (disabled.matching_shards) |*matching| {
+        try std.testing.expect(matching.books.contains(spec.symbol_id));
+        try std.testing.expectEqual(@as(usize, 1), matching.books.count());
+    }
+    for (disabled.risk_shards, 0..) |*risk_shard, idx| {
+        try std.testing.expect(risk_shard.engine.symbol_spec_provider.getSymbolSpecification(spec.symbol_id) == null);
+        try std.testing.expectEqual(@as(usize, 0), risk_shard.engine.symbol_spec_provider.symbols.count());
+        try std.testing.expectEqual(empty_provider_hashes[idx], try risk_shard.engine.symbol_spec_provider.stateHash());
+        try std.testing.expectEqual(empty_risk_hashes[idx], try risk_shard.engine.stateHash());
+    }
+    var risk_report = try disabled.queryReport(.risk_state_hash);
+    defer risk_report.deinit(allocator);
+    try std.testing.expectEqual(empty_risk_report.risk_state_hash, risk_report.risk_state_hash);
+    var detailed = try disabled.queryReport(.state_hash_detailed);
+    defer detailed.deinit(allocator);
+    for (0..2) |idx| {
+        try std.testing.expectEqual(
+            empty_provider_hashes[idx],
+            testStateHashSubmodule(
+                &detailed.state_hash_detailed,
+                .risk_symbol_spec_provider,
+                @intCast(idx),
+            ) orelse return error.TestExpectedRiskSymbolHash,
+        );
+    }
+    var total = try disabled.queryReport(.total_currency_balance);
+    defer total.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 0), total.total_currency_balance.orders_balances.count());
+
+    var add_user = makeAddUserCommand(uid);
+    {
+        var response = try disabled.executeRouted(&add_user);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    }
+    var rejected = cmd.OrderCommand.newOrder(.gtc, 92_101, uid, 10_770, 10_770, 1, .bid);
+    rejected.symbol = spec.symbol_id;
+    {
+        var response = try disabled.executeRouted(&rejected);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.invalid_symbol, response.result_code);
+    }
+
+    var enabled = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        4,
+        2,
+        .{
+            .orderbook_kind = .direct,
+            .risk = .{ .margin_trading_enabled = true },
+        },
+    );
+    defer enabled.deinit();
+    try enabled.addSymbolAll(spec);
+    for (enabled.matching_shards) |*matching| {
+        try std.testing.expect(matching.books.contains(spec.symbol_id));
+    }
+    for (enabled.risk_shards) |*risk_shard| {
+        try std.testing.expect(risk_shard.engine.symbol_spec_provider.getSymbolSpecification(spec.symbol_id) != null);
+    }
+
+    var enabled_add_user = makeAddUserCommand(uid);
+    {
+        var response = try enabled.executeRouted(&enabled_add_user);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    }
+    var deposit = makeBalanceAdjustmentCommand(uid, spec.quote_currency, 100_000, 1, .adjustment);
+    {
+        var response = try enabled.executeRouted(&deposit);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    }
+    var accepted = cmd.OrderCommand.newOrder(.gtc, 92_102, uid, 10_770, 10_770, 1, .bid);
+    accepted.symbol = spec.symbol_id;
+    {
+        var response = try enabled.executeRouted(&accepted);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    }
+}
+
+test "matching books history follows Java temporary-map and Eclipse collision order" {
+    const allocator = std.testing.allocator;
+
+    // A Java source map populated as [23, 39] serializes these colliding keys
+    // as [39, 23]. MatchingEngineRouter first decodes that wire sequence into
+    // a sized temporary map, whose handler order is [23, 39].
+    const wire_symbols = [_]common.CoreSymbolSpecification{
+        try makeExchangeSpecForSymbol(39),
+        try makeExchangeSpecForSymbol(23),
+    };
+    const handler_order = try javaSymbolHandlerOrder(allocator, &wire_symbols);
+    defer allocator.free(handler_order);
+    try std.testing.expectEqual(@as(usize, 2), handler_order.len);
+    try std.testing.expectEqual(@as(i32, 23), handler_order[0].symbol_id);
+    try std.testing.expectEqual(@as(i32, 39), handler_order[1].symbol_id);
+
+    var kernel = try ExchangeKernel.init(allocator, .{});
+    defer kernel.deinit();
+    for (handler_order) |spec| {
+        try std.testing.expect(try kernel.addMatchingSymbol(spec));
+    }
+
+    const handler_keys = try kernel.matchingBookKeysInHistoryOrder(allocator);
+    defer allocator.free(handler_keys);
+    try std.testing.expectEqualSlices(i32, &.{ 23, 39 }, handler_keys);
+    const validated = try kernel.validatedMatchingBooksHistory(allocator);
+    try std.testing.expectEqual(@as(?usize, 16), validated.tableSizeIfKnown());
+
+    var collision_kernel = try ExchangeKernel.init(allocator, .{});
+    defer collision_kernel.deinit();
+    for ([_]i32{ 2, 17, 33 }) |symbol_id| {
+        try std.testing.expect(
+            try collision_kernel.addMatchingSymbol(
+                try makeExchangeSpecForSymbol(symbol_id),
+            ),
+        );
+    }
+    const collision_keys = try collision_kernel.matchingBookKeysInHistoryOrder(allocator);
+    defer allocator.free(collision_keys);
+    try std.testing.expectEqualSlices(i32, &.{ 17, 2, 33 }, collision_keys);
+}
+
+test "matching books reset clears history while retaining Java table capacity" {
+    const allocator = std.testing.allocator;
+    var kernel = try ExchangeKernel.init(allocator, .{});
+    defer kernel.deinit();
+
+    const fresh = try kernel.validatedMatchingBooksHistory(allocator);
+    try std.testing.expectEqual(@as(?usize, 16), fresh.tableSizeIfKnown());
+
+    for (2..11) |raw_symbol| {
+        try std.testing.expect(
+            try kernel.addMatchingSymbol(
+                try makeExchangeSpecForSymbol(@intCast(raw_symbol)),
+            ),
+        );
+    }
+    try std.testing.expectEqual(
+        @as(?usize, 32),
+        kernel.books_history.tableSizeIfKnown(),
+    );
+
+    kernel.resetMatchingState();
+    try std.testing.expectEqual(@as(usize, 0), kernel.books.count());
+    const cleared_keys = try kernel.matchingBookKeysInHistoryOrder(allocator);
+    defer allocator.free(cleared_keys);
+    try std.testing.expectEqual(@as(usize, 0), cleared_keys.len);
+    try std.testing.expectEqual(
+        @as(?usize, 32),
+        kernel.books_history.tableSizeIfKnown(),
+    );
+
+    try std.testing.expect(
+        try kernel.addMatchingSymbol(try makeExchangeSpecForSymbol(17)),
+    );
+    try std.testing.expectEqual(
+        @as(?usize, 32),
+        kernel.books_history.tableSizeIfKnown(),
+    );
+}
+
+fn matchingBooksInsertionAllocationFailure(
+    allocator: std.mem.Allocator,
+) !void {
+    var kernel = try ExchangeKernel.init(allocator, .{});
+    defer kernel.deinit();
+
+    const inserted = kernel.addMatchingSymbol(
+        try makeExchangeSpecForSymbol(42),
+    ) catch |err| {
+        try std.testing.expectEqual(@as(usize, 0), kernel.books.count());
+        try std.testing.expectEqual(
+            @as(?usize, 16),
+            kernel.books_history.tableSizeIfKnown(),
+        );
+        switch (kernel.books_history) {
+            .lazy_known_empty => {},
+            .known, .unavailable => return error.TestExpectedFreshBooksHistory,
+        }
+        return err;
+    };
+
+    try std.testing.expect(inserted);
+    try std.testing.expectEqual(@as(usize, 1), kernel.books.count());
+    switch (kernel.books_history) {
+        .known => |layout| try std.testing.expectEqual(@as(usize, 1), layout.count()),
+        .lazy_known_empty, .unavailable => return error.TestExpectedKnownBooksHistory,
+    }
+}
+
+test "matching books semantic map and history insertion are allocation-failure atomic" {
+    try std.testing.checkAllAllocationFailures(
+        std.testing.allocator,
+        matchingBooksInsertionAllocationFailure,
+        .{},
+    );
+}
+
+test "matching books duplicate insertion is allocation-free and preserves the first book" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    const allocator = failing.allocator();
+    var kernel = try ExchangeKernel.init(allocator, .{});
+    defer kernel.deinit();
+
+    var first = try makeExchangeSpecForSymbol(17);
+    first.maker_fee = 3;
+    var last = first;
+    last.maker_fee = 9;
+    const duplicate_wire = [_]common.CoreSymbolSpecification{ first, last };
+    const handler_order = try javaSymbolHandlerOrder(allocator, &duplicate_wire);
+    defer allocator.free(handler_order);
+    try std.testing.expectEqual(@as(usize, 1), handler_order.len);
+    try std.testing.expectEqual(@as(i64, 9), handler_order[0].maker_fee);
+    try std.testing.expect(try kernel.addMatchingSymbol(handler_order[0]));
+
+    failing.fail_index = failing.alloc_index;
+    try std.testing.expect(!try kernel.addMatchingSymbol(first));
+    try std.testing.expect(!failing.has_induced_failure);
+    failing.fail_index = std.math.maxInt(usize);
+
+    const stored = kernel.books.get(17) orelse unreachable;
+    try std.testing.expectEqual(@as(i64, 9), stored.symbolSpecification().maker_fee);
+    const keys = try kernel.matchingBookKeysInHistoryOrder(allocator);
+    defer allocator.free(keys);
+    try std.testing.expectEqualSlices(i32, &.{17}, keys);
+}
+
+test "matching books history detects mismatch and native restore stays unavailable" {
+    const allocator = std.testing.allocator;
+    var kernel = try ExchangeKernel.init(allocator, .{});
+    defer kernel.deinit();
+    try std.testing.expect(
+        try kernel.addMatchingSymbol(try makeExchangeSpecForSymbol(17)),
+    );
+
+    const removed = kernel.books.fetchRemove(17) orelse unreachable;
+    removed.value.deinit();
+    allocator.destroy(removed.value);
+    try std.testing.expectError(
+        error.HistorySemanticKeySetMismatch,
+        kernel.matchingBookKeysInHistoryOrder(allocator),
+    );
+
+    kernel.resetForSnapshotLoad();
+    try std.testing.expect(!kernel.books_history.isKnown());
+    try std.testing.expectError(
+        error.HistoryUnavailable,
+        kernel.matchingBookKeysInHistoryOrder(allocator),
+    );
+    try std.testing.expect(
+        try kernel.addMatchingSymbol(try makeExchangeSpecForSymbol(33)),
+    );
+    try std.testing.expectError(
+        error.HistoryUnavailable,
+        kernel.matchingBookKeysInHistoryOrder(allocator),
+    );
+
+    var imported = try ExchangeKernel.init(allocator, .{});
+    defer imported.deinit();
+    try std.testing.expect(
+        try imported.addMatchingSymbol(try makeExchangeSpecForSymbol(2)),
+    );
+    try imported.restoreOrdersForSymbol(2, &.{});
+    try std.testing.expectError(
+        error.HistoryUnavailable,
+        imported.matchingBookKeysInHistoryOrder(allocator),
+    );
+}
+
+test "exact state hash remains available when matching encounter history is unavailable" {
+    const allocator = std.testing.allocator;
+    var kernel = try ExchangeKernel.init(allocator, .{
+        .java_identity_hash_context = testJavaIdentityHashContext(),
+    });
+    defer kernel.deinit();
+    try std.testing.expect(
+        try kernel.addMatchingSymbol(try makeExchangeSpecForSymbol(17)),
+    );
+    kernel.markMatchingBooksHistoryUnavailable();
+
+    var state_hash = try kernel.produceJavaReport(.state_hash);
+    defer state_hash.deinit(allocator);
+    switch (state_hash.response) {
+        .state_hash => {},
+        else => return error.UnexpectedJavaReportResponseType,
+    }
+    try std.testing.expectError(
+        error.HistoryUnavailable,
+        kernel.produceJavaReport(.{ .single_user = 1 }),
+    );
+    try std.testing.expectError(
+        error.HistoryUnavailable,
+        kernel.produceJavaReport(.total_currency_balance),
+    );
+}
+
+const KernelCustomTestQuery = struct {
+    mode: u8,
+};
+
+const KernelCustomTestSection = struct {
+    mode: u8,
+    family: u8,
+    shard_id: i32,
+    shard_mask: u64,
+};
+
+const KernelCustomTestResult = struct {
+    section_count: usize,
+};
+
+var kernel_custom_constructor_count: usize = 0;
+
+fn KernelCustomReportSpec(
+    comptime report_code: i32,
+    comptime MatchingViewType: type,
+    comptime RiskViewType: type,
+) type {
+    return struct {
+        pub const code: i32 = report_code;
+        pub const schema_id: [report_registry.schema_id_len]u8 =
+            [_]u8{0x6b} ** report_registry.schema_id_len;
+        pub const schema_version: u32 = 1;
+        pub const Query = KernelCustomTestQuery;
+        pub const Section = KernelCustomTestSection;
+        pub const Result = KernelCustomTestResult;
+        pub const MatchingView = MatchingViewType;
+        pub const RiskView = RiskViewType;
+
+        pub fn cloneQuery(
+            _: std.mem.Allocator,
+            query: *const Query,
+        ) report_registry.ResourceError!Query {
+            return query.*;
+        }
+
+        pub fn deinitQuery(_: std.mem.Allocator, query: *Query) void {
+            query.* = undefined;
+        }
+
+        pub fn encodeQuery(
+            _: std.mem.Allocator,
+            writer: *report_registry.EncodingWriter,
+            query: *const Query,
+        ) report_registry.EncodingError!void {
+            try writer.writeByte(query.mode);
+        }
+
+        pub fn decodeQuery(
+            _: std.mem.Allocator,
+            body: []const u8,
+        ) report_registry.QueryConstructionError!Query {
+            kernel_custom_constructor_count += 1;
+            if (body.len != 1) return error.InvalidQuery;
+            if (body[0] == 1) return error.ConstructorFailed;
+            return .{ .mode = body[0] };
+        }
+
+        pub fn processMatching(
+            _: std.mem.Allocator,
+            query: *const Query,
+            context: report_registry.MatchingContext(MatchingView),
+        ) report_registry.HandlerError!?Section {
+            _ = context.view;
+            if (query.mode == 2) return null;
+            if (query.mode == 3 and context.shard_id == 1) {
+                return error.HandlerFailed;
+            }
+            return .{
+                .mode = query.mode,
+                .family = 1,
+                .shard_id = context.shard_id,
+                .shard_mask = context.shard_mask,
+            };
+        }
+
+        pub fn processRisk(
+            _: std.mem.Allocator,
+            query: *const Query,
+            context: report_registry.RiskContext(RiskView),
+        ) report_registry.HandlerError!?Section {
+            _ = context.view;
+            if (query.mode == 2) return null;
+            if (query.mode == 5) return error.SystemResources;
+            return .{
+                .mode = query.mode,
+                .family = 0,
+                .shard_id = context.shard_id,
+                .shard_mask = context.shard_mask,
+            };
+        }
+
+        pub fn encodeSection(
+            _: std.mem.Allocator,
+            writer: *report_registry.EncodingWriter,
+            section: *const Section,
+        ) report_registry.EncodingError!void {
+            if (section.mode == 4) return error.EncodingFailed;
+            try writer.writeByte(section.mode);
+            try writer.writeByte(section.family);
+            try writer.writeInt(i32, section.shard_id, .little);
+            try writer.writeInt(u64, section.shard_mask, .little);
+        }
+
+        pub fn deinitSection(_: std.mem.Allocator, section: *Section) void {
+            section.* = undefined;
+        }
+
+        pub fn reduce(
+            _: std.mem.Allocator,
+            _: *const Query,
+            sections: []const report_registry.SectionBytes,
+        ) report_registry.ReductionError!Result {
+            return .{ .section_count = sections.len };
+        }
+
+        pub fn deinitResult(_: std.mem.Allocator, result: *Result) void {
+            result.* = undefined;
+        }
+    };
+}
+
+const KernelCustomSpec = KernelCustomReportSpec(
+    70_401,
+    MatchingReportView,
+    RiskReportView,
+);
+const KernelReservedCustomSpec = KernelCustomReportSpec(
+    @intFromEnum(binary_payload.ReportQueryTypeCode.state_hash),
+    MatchingReportView,
+    RiskReportView,
+);
+const WrongKernelMatchingReportView = struct {};
+const KernelWrongViewCustomSpec = KernelCustomReportSpec(
+    70_402,
+    WrongKernelMatchingReportView,
+    RiskReportView,
+);
+
+fn encodeKernelCustomQueryWords(
+    allocator: std.mem.Allocator,
+    code: i32,
+    body: []const u8,
+) ![]i64 {
+    const raw = try binary_payload.encodeJavaRawReportQueryToBytes(
+        allocator,
+        code,
+        body,
+    );
+    defer allocator.free(raw);
+    return java_binary_wire.encodeRequestWords(allocator, raw, .{});
+}
+
+fn customQueryFrame(transfer_id: i32, words: []const i64) !cmd.OrderCommand {
+    if (words.len != binary_frames.FrameWordsPerCommand) {
+        return error.UnexpectedCustomQueryFrameCount;
+    }
+    return makeBinaryFrameCommand(
+        .binary_data_query,
+        transfer_id,
+        -1,
+        .{ words[0], words[1], words[2], words[3], words[4] },
+    );
+}
+
+fn expectKernelCustomSection(
+    allocator: std.mem.Allocator,
+    grouped: java_report_wire.GroupedBinaryEventSection,
+    expected_family: u8,
+    expected_shard_id: i32,
+    expected_shard_mask: u64,
+) !void {
+    var unpacked = try java_report_wire.unpackSectionEvents(allocator, grouped.carriers);
+    defer unpacked.deinit(allocator);
+    try std.testing.expect(unpacked.padded_bytes.len >= 14);
+    try std.testing.expectEqual(@as(u8, 0), unpacked.padded_bytes[0]);
+    try std.testing.expectEqual(expected_family, unpacked.padded_bytes[1]);
+    try std.testing.expectEqual(
+        expected_shard_id,
+        std.mem.readInt(i32, unpacked.padded_bytes[2..6], .little),
+    );
+    try std.testing.expectEqual(
+        expected_shard_mask,
+        std.mem.readInt(u64, unpacked.padded_bytes[6..14], .little),
+    );
+}
+
+test "kernel validates and clones custom registry before dispatch" {
+    const allocator = std.testing.allocator;
+    const Custom = report_registry.Adapter(KernelCustomSpec);
+    const descriptors = [_]*const report_registry.Descriptor{Custom.descriptorPtr()};
+    var source = try report_registry.Registry.initValidated(allocator, &descriptors);
+
+    var kernel = try ExchangeKernel.init(allocator, .{
+        .report_queries = .{ .custom_registry = source },
+    });
+    defer kernel.deinit();
+    try std.testing.expect(kernel.customReportRegistry() != source);
+    source.deinit();
+
+    kernel_custom_constructor_count = 0;
+    const words = try encodeKernelCustomQueryWords(allocator, KernelCustomSpec.code, &.{0});
+    defer allocator.free(words);
+    var frame = try customQueryFrame(601, words);
+    var response = try kernel.execute(&frame);
+    defer response.deinit(allocator);
+
+    try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    try std.testing.expect(response.java_report_response == null);
+    try std.testing.expect(response.report_response == null);
+    try std.testing.expectEqual(@as(usize, 2), kernel_custom_constructor_count);
+
+    var first = response.matcher_events_head orelse return error.MissingCustomReportSection;
+    try std.testing.expectEqual(@as(i32, 0), first.section);
+    first = first.next_event orelse return error.MissingCustomReportSection;
+    try std.testing.expectEqual(@as(i32, java_report_wire.matching_section_offset), first.section);
+    try std.testing.expect(first.next_event == null);
+}
+
+test "kernel rejects reserved wrong-view and out-of-range custom registries" {
+    const allocator = std.testing.allocator;
+    const reserved_registry = report_registry.Registry.fromSpecs(.{KernelReservedCustomSpec});
+    try std.testing.expectError(
+        error.ReservedReportCode,
+        ExchangeKernel.init(allocator, .{
+            .report_queries = .{ .custom_registry = reserved_registry },
+        }),
+    );
+
+    const wrong_view_registry = report_registry.Registry.fromSpecs(.{KernelWrongViewCustomSpec});
+    try std.testing.expectError(
+        error.ContextTypeMismatch,
+        ExchangeKernel.init(allocator, .{
+            .report_queries = .{ .custom_registry = wrong_view_registry },
+        }),
+    );
+
+    const custom_registry = report_registry.Registry.fromSpecs(.{KernelCustomSpec});
+    try std.testing.expectError(
+        error.InvalidCustomReportShardId,
+        ExchangeKernel.init(allocator, .{
+            .shard_id = 1024,
+            .num_shards = 2048,
+            .report_queries = .{ .custom_registry = custom_registry },
+        }),
+    );
+    try std.testing.expectError(
+        error.InvalidCustomReportShardId,
+        MultiShardKernelSet.initWithTopology(
+            allocator,
+            2048,
+            1,
+            .{ .report_queries = .{ .custom_registry = custom_registry } },
+        ),
+    );
+}
+
+test "multi-shard custom report invokes fresh risk then matching constructors" {
+    const allocator = std.testing.allocator;
+    const registry = report_registry.Registry.fromSpecs(.{KernelCustomSpec});
+    var set = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        2,
+        4,
+        .{ .report_queries = .{ .custom_registry = registry } },
+    );
+    defer set.deinit();
+
+    kernel_custom_constructor_count = 0;
+    const words = try encodeKernelCustomQueryWords(allocator, KernelCustomSpec.code, &.{0});
+    defer allocator.free(words);
+    var frame = try customQueryFrame(602, words);
+    var response = try set.executeRouted(&frame);
+    defer response.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    try std.testing.expectEqual(@as(usize, 6), kernel_custom_constructor_count);
+
+    const expected_sections = [_]i32{ 0, 1, 2, 3, 1024, 1025 };
+    var node = response.matcher_events_head;
+    for (expected_sections) |expected| {
+        const event = node orelse return error.MissingCustomReportSection;
+        try std.testing.expectEqual(expected, event.section);
+        node = event.next_event;
+    }
+    try std.testing.expect(node == null);
+
+    var grouped = try java_report_wire.groupMatcherEventChain(
+        allocator,
+        response.matcher_events_head,
+        .{},
+    );
+    defer grouped.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 6), grouped.sections.len);
+    for (grouped.sections[0..4], 0..) |section, idx| {
+        try expectKernelCustomSection(
+            allocator,
+            section,
+            0,
+            @intCast(idx),
+            3,
+        );
+    }
+    for (grouped.sections[4..], 0..) |section, idx| {
+        try expectKernelCustomSection(
+            allocator,
+            section,
+            1,
+            @intCast(idx),
+            1,
+        );
+    }
+}
+
+test "custom report rejection no-section and handler failures are atomic" {
+    const allocator = std.testing.allocator;
+    const registry = report_registry.Registry.fromSpecs(.{KernelCustomSpec});
+    var set = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        2,
+        4,
+        .{ .report_queries = .{ .custom_registry = registry } },
+    );
+    defer set.deinit();
+
+    const cases = [_]struct {
+        mode: u8,
+        transfer_id: i32,
+        expected: cmd.CommandResultCode,
+        constructor_count: usize,
+    }{
+        .{ .mode = 1, .transfer_id = 603, .expected = .success, .constructor_count = 6 },
+        .{ .mode = 2, .transfer_id = 604, .expected = .success, .constructor_count = 6 },
+        .{ .mode = 3, .transfer_id = 605, .expected = .binary_command_failed, .constructor_count = 6 },
+        .{ .mode = 4, .transfer_id = 606, .expected = .binary_command_failed, .constructor_count = 1 },
+        .{ .mode = 5, .transfer_id = 609, .expected = .binary_command_failed, .constructor_count = 1 },
+    };
+
+    for (cases) |case| {
+        kernel_custom_constructor_count = 0;
+        const words = try encodeKernelCustomQueryWords(
+            allocator,
+            KernelCustomSpec.code,
+            &.{case.mode},
+        );
+        defer allocator.free(words);
+        var frame = try customQueryFrame(case.transfer_id, words);
+        var response = try set.executeRouted(&frame);
+        defer response.deinit(allocator);
+        try std.testing.expectEqual(case.expected, response.result_code);
+        try std.testing.expectEqual(case.constructor_count, kernel_custom_constructor_count);
+        try std.testing.expect(response.matcher_events_head == null);
+        try std.testing.expect(response.java_report_response == null);
+        try std.testing.expect(response.report_response == null);
+    }
+}
+
+test "malformed reserved query never falls through to custom registry" {
+    const allocator = std.testing.allocator;
+    const registry = report_registry.Registry.fromSpecs(.{KernelCustomSpec});
+    var kernel = try ExchangeKernel.init(allocator, .{
+        .report_queries = .{ .custom_registry = registry },
+    });
+    defer kernel.deinit();
+
+    kernel_custom_constructor_count = 0;
+    const words = try encodeKernelCustomQueryWords(
+        allocator,
+        @intFromEnum(binary_payload.ReportQueryTypeCode.single_user),
+        &.{ 1, 2, 3 },
+    );
+    defer allocator.free(words);
+    var frame = try customQueryFrame(607, words);
+    var response = try kernel.execute(&frame);
+    defer response.deinit(allocator);
+
+    try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    try std.testing.expect(response.matcher_events_head == null);
+    try std.testing.expectEqual(@as(usize, 0), kernel_custom_constructor_count);
+}
+
+fn customReportAllocationCampaign(
+    allocator: std.mem.Allocator,
+    words: []const i64,
+) !void {
+    const registry = report_registry.Registry.fromSpecs(.{KernelCustomSpec});
+    var kernel = try ExchangeKernel.init(allocator, .{
+        .report_queries = .{ .custom_registry = registry },
+    });
+    defer kernel.deinit();
+
+    kernel_custom_constructor_count = 0;
+    var frame = try customQueryFrame(608, words);
+    var response = try kernel.execute(&frame);
+    defer response.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    try std.testing.expect(response.matcher_events_head != null);
+}
+
+test "custom report dispatch cleans every allocation failure without partial publication" {
+    const allocator = std.testing.allocator;
+    const words = try encodeKernelCustomQueryWords(allocator, KernelCustomSpec.code, &.{0});
+    defer allocator.free(words);
+    try std.testing.checkAllAllocationFailures(
+        allocator,
+        customReportAllocationCampaign,
+        .{words},
+    );
 }

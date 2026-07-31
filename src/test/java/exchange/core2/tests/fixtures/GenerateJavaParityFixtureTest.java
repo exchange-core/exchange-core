@@ -38,7 +38,9 @@ import exchange.core2.core.processors.MatchingEngineRouter;
 import exchange.core2.core.processors.RiskEngine;
 import exchange.core2.core.utils.HashingUtils;
 import exchange.core2.tests.util.ExchangeTestContainer;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -47,11 +49,17 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 public class GenerateJavaParityFixtureTest {
@@ -63,6 +71,10 @@ public class GenerateJavaParityFixtureTest {
     private static final String TRADE_SYMBOL_REGISTRATION_API = "api";
     private static final String ORDERBOOK_MODE_NAIVE = "naive";
     private static final String ORDERBOOK_MODE_DIRECT = "direct";
+    private static final String DIAGNOSTIC_INTERNAL_FALLBACK_PROPERTY =
+            "parity.fixture.diagnostic.allow_internal_fallback";
+    private static final String DIAGNOSTIC_FALLBACK_MARKER_PREFIX =
+            "# NON_AUTHORITATIVE_DIAGNOSTIC_FALLBACK=";
 
     private static final int BASE = 11;
     private static final int QUOTE = 15;
@@ -80,6 +92,67 @@ public class GenerateJavaParityFixtureTest {
     private static final long MULTISYMBOL_EXECUTED_QUOTE = 884L;
     private static final int REPORTS_LONG_ROUNDS = 16;
     private static final int BOOTSTRAP_LONG_ROUNDS = 18;
+
+    @Test
+    public void strictFixtureOracleDoesNotUseInternalFallbackByDefault() {
+        final String previousValue = System.getProperty(DIAGNOSTIC_INTERNAL_FALLBACK_PROPERTY);
+        System.clearProperty(DIAGNOSTIC_INTERNAL_FALLBACK_PROPERTY);
+        try {
+            final IllegalArgumentException publicApiFailure =
+                    new IllegalArgumentException("expected public API failure");
+            final boolean[] fallbackCalled = new boolean[]{false};
+
+            final IllegalStateException failure = assertThrows(
+                    IllegalStateException.class,
+                    () -> executeFixtureOracle(
+                            "test_public_api",
+                            () -> {
+                                throw publicApiFailure;
+                            },
+                            () -> {
+                                fallbackCalled[0] = true;
+                                return "fallback";
+                            }));
+
+            assertSame(publicApiFailure, failure.getCause());
+            assertFalse(fallbackCalled[0]);
+            assertTrue(failure.getMessage().contains(DIAGNOSTIC_INTERNAL_FALLBACK_PROPERTY));
+        } finally {
+            restoreSystemProperty(DIAGNOSTIC_INTERNAL_FALLBACK_PROPERTY, previousValue);
+        }
+    }
+
+    @Test
+    public void diagnosticFixtureOracleFallbackIsExplicitlyMarkedNonAuthoritative() {
+        final String previousValue = System.getProperty(DIAGNOSTIC_INTERNAL_FALLBACK_PROPERTY);
+        final PrintStream previousErrorStream = System.err;
+        final ByteArrayOutputStream diagnosticOutput = new ByteArrayOutputStream();
+        final PrintStream diagnosticStream = new PrintStream(diagnosticOutput);
+        System.setProperty(DIAGNOSTIC_INTERNAL_FALLBACK_PROPERTY, "true");
+        System.setErr(diagnosticStream);
+        try {
+            final FixtureOracleResult<String> result = executeFixtureOracle(
+                    "test_public_api",
+                    () -> {
+                        throw new IllegalArgumentException("expected public API failure");
+                    },
+                    () -> "fallback");
+            final List<String> lines = new ArrayList<>();
+            appendDiagnosticFallbackMarker(lines, result);
+
+            assertEquals("fallback", result.value);
+            assertEquals(1, lines.size());
+            assertTrue(lines.get(0).startsWith(DIAGNOSTIC_FALLBACK_MARKER_PREFIX));
+            assertTrue(lines.get(0).contains("test_public_api:java.lang.IllegalArgumentException"));
+            assertTrue(diagnosticOutput.toString().contains("non-authoritative Java parity fixture fallback"));
+            assertTrue(diagnosticOutput.toString().contains(DIAGNOSTIC_INTERNAL_FALLBACK_PROPERTY));
+            assertTrue(diagnosticOutput.toString().contains("expected public API failure"));
+        } finally {
+            System.setErr(previousErrorStream);
+            diagnosticStream.close();
+            restoreSystemProperty(DIAGNOSTIC_INTERNAL_FALLBACK_PROPERTY, previousValue);
+        }
+    }
 
     @Test
     public void writeUserBalanceBasicFixture() throws Exception {
@@ -188,7 +261,8 @@ public class GenerateJavaParityFixtureTest {
             }
             commandResults.add(groupingResults.get(0));
             commandResults.add(groupingBarrierResult);
-            commandResults.add(controlPersistMergedResult(perfCfg));
+            final FixtureOracleResult<String> persistenceOracle = controlPersistMergedResult(perfCfg);
+            commandResults.add(persistenceOracle.value);
             commandResults.add(submit(api, ApiReset.builder().build()));
             commandResults.add(submit(api, ApiAddUser.builder().uid(USER_B_UID).build()));
             commandResults.add(submit(api, ApiAdjustUserBalance.builder()
@@ -205,6 +279,7 @@ public class GenerateJavaParityFixtureTest {
 
             final List<String> lines = new ArrayList<>();
             lines.add("version=1");
+            appendDiagnosticFallbackMarker(lines, persistenceOracle);
             lines.add("scenario=exchange_control");
             lines.add("orderbook_mode=na");
             lines.add("symbol=0");
@@ -1258,7 +1333,9 @@ public class GenerateJavaParityFixtureTest {
             final long takerBalanceQuote = accountBalance(riskEngine, USER_B_UID, QUOTE);
             long takerBalanceBase = accountBalance(riskEngine, USER_B_UID, BASE);
 
-            final ReportFixtureMetrics reportMetrics = collectReportFixtureMetrics(container.getApi(), exchangeCore, riskEngine);
+            final FixtureOracleResult<ReportFixtureMetrics> reportOracle =
+                    collectReportFixtureMetrics(container.getApi(), exchangeCore, riskEngine);
+            final ReportFixtureMetrics reportMetrics = reportOracle.value;
 
             if ("full".equals(settlementMode) && "pre_release".equals(registrationSettlementMode)) {
                 // Project settlement delta for deterministic zero-fee command stream.
@@ -1272,6 +1349,7 @@ public class GenerateJavaParityFixtureTest {
 
             final List<String> lines = new ArrayList<>();
             lines.add("version=1");
+            appendDiagnosticFallbackMarker(lines, reportOracle);
             lines.add("scenario=exchange_trade_reports");
             lines.add("orderbook_mode=" + orderBookMode);
             lines.add("symbol=" + SYMBOL_EXCHANGE);
@@ -1485,10 +1563,13 @@ public class GenerateJavaParityFixtureTest {
             final long makerBalanceBase = accountBalance(riskEngine, USER_A_UID, BASE);
             final long takerBalanceQuote = accountBalance(riskEngine, USER_B_UID, QUOTE);
             final long takerBalanceBase = accountBalance(riskEngine, USER_B_UID, BASE);
-            final ReportFixtureMetrics reportMetrics = collectReportFixtureMetrics(api, exchangeCore, riskEngine);
+            final FixtureOracleResult<ReportFixtureMetrics> reportOracle =
+                    collectReportFixtureMetrics(api, exchangeCore, riskEngine);
+            final ReportFixtureMetrics reportMetrics = reportOracle.value;
 
             final List<String> lines = new ArrayList<>();
             lines.add("version=1");
+            appendDiagnosticFallbackMarker(lines, reportOracle);
             lines.add("scenario=exchange_trade_reports_long");
             lines.add("orderbook_mode=" + orderBookMode);
             lines.add("symbol=" + SYMBOL_EXCHANGE);
@@ -1798,17 +1879,14 @@ public class GenerateJavaParityFixtureTest {
         return total[0];
     }
 
-    private static ReportFixtureMetrics collectReportFixtureMetrics(
+    private static FixtureOracleResult<ReportFixtureMetrics> collectReportFixtureMetrics(
             final ExchangeApi api,
             final ExchangeCore exchangeCore,
             final RiskEngine riskEngine) {
-        try {
-            return collectReportFixtureMetricsFromApi(api);
-        } catch (Throwable ignored) {
-            // Java 25 runtimes can break report-query marshalling in some environments.
-            // Keep fixture generation deterministic by falling back to equivalent in-memory reads.
-            return collectReportFixtureMetricsFromState(exchangeCore, riskEngine);
-        }
+        return executeFixtureOracle(
+                "public_report_queries",
+                () -> collectReportFixtureMetricsFromApi(api),
+                () -> collectReportFixtureMetricsFromState(exchangeCore, riskEngine));
     }
 
     private static ReportFixtureMetrics collectReportFixtureMetricsFromApi(final ExchangeApi api) {
@@ -1968,22 +2046,78 @@ public class GenerateJavaParityFixtureTest {
                 CommandResultCode.SUCCESS).name();
     }
 
-    private static String controlPersistMergedResult(final PerformanceConfiguration perfCfg) {
+    private static FixtureOracleResult<String> controlPersistMergedResult(final PerformanceConfiguration perfCfg) {
+        return executeFixtureOracle(
+                "public_persistence_command",
+                () -> {
+                    try (ExchangeTestContainer probe = ExchangeTestContainer.create(
+                            perfCfg,
+                            InitialStateConfiguration.CLEAN_TEST,
+                            SerializationConfiguration.DISK_SNAPSHOT_ONLY)) {
+                        return probe.getApi().submitCommandAsync(ApiPersistState.builder()
+                                        .dumpId(System.currentTimeMillis())
+                                        .build())
+                                .get(500, TimeUnit.MILLISECONDS)
+                                .name();
+                    }
+                },
+                GenerateJavaParityFixtureTest::syntheticPersistMergedResult);
+    }
+
+    private static <T> FixtureOracleResult<T> executeFixtureOracle(
+            final String oracleName,
+            final Callable<T> publicApiOracle,
+            final Callable<T> internalFallback) {
         try {
-            try (ExchangeTestContainer probe = ExchangeTestContainer.create(
-                    perfCfg,
-                    InitialStateConfiguration.CLEAN_TEST,
-                    SerializationConfiguration.DISK_SNAPSHOT_ONLY)) {
-                return probe.getApi().submitCommandAsync(ApiPersistState.builder()
-                                .dumpId(System.currentTimeMillis())
-                                .build())
-                        .get(500, TimeUnit.MILLISECONDS)
-                        .name();
+            return FixtureOracleResult.strict(publicApiOracle.call());
+        } catch (Exception strictFailure) {
+            if (strictFailure instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+                throw strictOracleFailure(oracleName, strictFailure);
             }
-        } catch (Throwable ignored) {
-            // Java 25 runtimes can fail Chronicle persistence init and may not publish a completion.
-            // Preserve deterministic parity stream by falling back to the merged synthetic result.
-            return syntheticPersistMergedResult();
+            if (!Boolean.getBoolean(DIAGNOSTIC_INTERNAL_FALLBACK_PROPERTY)) {
+                throw strictOracleFailure(oracleName, strictFailure);
+            }
+
+            final String marker = oracleName + ":" + strictFailure.getClass().getName();
+            System.err.println("WARNING: non-authoritative Java parity fixture fallback enabled by -D"
+                    + DIAGNOSTIC_INTERNAL_FALLBACK_PROPERTY + "=true; oracle=" + marker);
+            strictFailure.printStackTrace(System.err);
+            try {
+                return FixtureOracleResult.diagnosticFallback(internalFallback.call(), marker);
+            } catch (Exception fallbackFailure) {
+                strictFailure.addSuppressed(fallbackFailure);
+                throw new IllegalStateException(
+                        "Strict fixture oracle and diagnostic fallback both failed for " + oracleName,
+                        strictFailure);
+            }
+        }
+    }
+
+    private static IllegalStateException strictOracleFailure(
+            final String oracleName,
+            final Exception cause) {
+        return new IllegalStateException(
+                "Strict public Java fixture oracle failed for " + oracleName
+                        + "; diagnostic internal fallback is disabled by default. "
+                        + "For non-authoritative diagnosis only, set -D"
+                        + DIAGNOSTIC_INTERNAL_FALLBACK_PROPERTY + "=true",
+                cause);
+    }
+
+    private static void appendDiagnosticFallbackMarker(
+            final List<String> lines,
+            final FixtureOracleResult<?> oracleResult) {
+        if (oracleResult.diagnosticFallbackMarker != null) {
+            lines.add(DIAGNOSTIC_FALLBACK_MARKER_PREFIX + oracleResult.diagnosticFallbackMarker);
+        }
+    }
+
+    private static void restoreSystemProperty(final String property, final String previousValue) {
+        if (previousValue == null) {
+            System.clearProperty(property);
+        } else {
+            System.setProperty(property, previousValue);
         }
     }
 
@@ -2191,6 +2325,26 @@ public class GenerateJavaParityFixtureTest {
             this.reportTotalOrdersBase = reportTotalOrdersBase;
             this.reportTotalFeesQuote = reportTotalFeesQuote;
             this.reportTotalFeesBase = reportTotalFeesBase;
+        }
+    }
+
+    private static final class FixtureOracleResult<T> {
+        private final T value;
+        private final String diagnosticFallbackMarker;
+
+        private FixtureOracleResult(final T value, final String diagnosticFallbackMarker) {
+            this.value = value;
+            this.diagnosticFallbackMarker = diagnosticFallbackMarker;
+        }
+
+        private static <T> FixtureOracleResult<T> strict(final T value) {
+            return new FixtureOracleResult<>(value, null);
+        }
+
+        private static <T> FixtureOracleResult<T> diagnosticFallback(
+                final T value,
+                final String diagnosticFallbackMarker) {
+            return new FixtureOracleResult<>(value, diagnosticFallbackMarker);
         }
     }
 

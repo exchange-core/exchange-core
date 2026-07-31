@@ -2,8 +2,10 @@ const std = @import("std");
 const common = @import("common.zig");
 const cmd = @import("cmd.zig");
 const config_mod = @import("config.zig");
+const int_map_order = @import("eclipse_int_map_order.zig");
 const kernel_mod = @import("exchange_kernel.zig");
 const orderbook_naive = @import("orderbook_naive.zig");
+const publication = @import("publication_sequence.zig");
 const risk = @import("risk.zig");
 
 pub const OrderBookKind = kernel_mod.OrderBookKind;
@@ -16,9 +18,9 @@ pub const ReportError = kernel_mod.ReportError;
 pub const InitError = kernel_mod.MultiShardKernelSet.ShardedInitError;
 pub const AggregateError = kernel_mod.MultiShardKernelSet.AggregateError;
 pub const QueryReportError = AggregateError;
-pub const InitFromJavaConfigError = config_mod.PerformanceConfig.ValidationError || InitError || error{
+pub const InitFromJavaConfigError = config_mod.JavaExchangeConfig.ValidationError || InitError || error{
     MatchingEnginesNumOverflow,
-    RiskEnginesExceedMatchingEngines,
+    RiskEnginesNumOverflow,
 };
 
 pub const ShardedExchangeCore = struct {
@@ -32,12 +34,37 @@ pub const ShardedExchangeCore = struct {
         shard_count: usize,
         orderbook_kind: OrderBookKind,
     ) InitError!ShardedExchangeCore {
+        return initWithConfig(allocator, shard_count, .{
+            .orderbook_kind = orderbook_kind,
+        });
+    }
+
+    pub fn initWithConfig(
+        allocator: std.mem.Allocator,
+        shard_count: usize,
+        config: kernel_mod.Config,
+    ) InitError!ShardedExchangeCore {
+        return initWithTopologyConfig(
+            allocator,
+            shard_count,
+            shard_count,
+            config,
+        );
+    }
+
+    pub fn initWithTopologyConfig(
+        allocator: std.mem.Allocator,
+        matching_count: usize,
+        risk_count: usize,
+        config: kernel_mod.Config,
+    ) InitError!ShardedExchangeCore {
         return .{
             .allocator = allocator,
-            .kernels = try kernel_mod.MultiShardKernelSet.init(
+            .kernels = try kernel_mod.MultiShardKernelSet.initWithTopology(
                 allocator,
-                shard_count,
-                orderbook_kind,
+                matching_count,
+                risk_count,
+                config,
             ),
             .started = false,
             .stopped = false,
@@ -49,13 +76,18 @@ pub const ShardedExchangeCore = struct {
         java_config: config_mod.JavaExchangeConfig,
     ) InitFromJavaConfigError!ShardedExchangeCore {
         const perf = java_config.performance_cfg;
-        try perf.validate();
-        if (perf.risk_engines_num > perf.matching_engines_num) {
-            return error.RiskEnginesExceedMatchingEngines;
-        }
-        const shard_count = std.math.cast(usize, perf.matching_engines_num) orelse
+        try java_config.validate();
+        const matching_count = std.math.cast(usize, perf.matching_engines_num) orelse
             return error.MatchingEnginesNumOverflow;
-        return init(allocator, shard_count, perf.orderbook_kind);
+        const risk_count = std.math.cast(usize, perf.risk_engines_num) orelse
+            return error.RiskEnginesNumOverflow;
+        const config = try java_config.toExchangeCoreConfig();
+        return initWithTopologyConfig(
+            allocator,
+            matching_count,
+            risk_count,
+            config.toKernelConfig(),
+        );
     }
 
     pub fn deinit(self: *ShardedExchangeCore) void {
@@ -64,7 +96,23 @@ pub const ShardedExchangeCore = struct {
     }
 
     pub fn shardCount(self: *const ShardedExchangeCore) usize {
-        return self.kernels.kernels.len;
+        return self.matchingShardCount();
+    }
+
+    pub fn matchingShardCount(self: *const ShardedExchangeCore) usize {
+        return self.kernels.matchingShardCount();
+    }
+
+    pub fn riskShardCount(self: *const ShardedExchangeCore) usize {
+        return self.kernels.riskShardCount();
+    }
+
+    pub fn matchingShardMask(self: *const ShardedExchangeCore) u64 {
+        return self.kernels.matchingShardMask();
+    }
+
+    pub fn riskShardMask(self: *const ShardedExchangeCore) u64 {
+        return self.kernels.riskShardMask();
     }
 
     pub fn isStarted(self: *const ShardedExchangeCore) bool {
@@ -80,6 +128,14 @@ pub const ShardedExchangeCore = struct {
         self.started = true;
     }
 
+    /// Reverts a startup attempt that failed before the owning API published
+    /// its runtime worker. This is deliberately distinct from terminal
+    /// `shutdown`, so the same fully initialized kernel set can retry startup.
+    pub fn rollbackStartup(self: *ShardedExchangeCore) void {
+        std.debug.assert(self.started and !self.stopped);
+        self.started = false;
+    }
+
     pub fn shutdown(self: *ShardedExchangeCore) void {
         self.stopped = true;
     }
@@ -87,7 +143,7 @@ pub const ShardedExchangeCore = struct {
     pub fn addSymbolAll(
         self: *ShardedExchangeCore,
         spec: common.CoreSymbolSpecification,
-    ) risk.SymbolSpecificationProvider.AddSymbolError!void {
+    ) (risk.SymbolSpecificationProvider.AddSymbolError || int_map_order.LayoutError)!void {
         try self.kernels.addSymbolAll(spec);
     }
 
@@ -114,12 +170,49 @@ pub const ShardedExchangeCore = struct {
         return self.kernels.executeRouted(command);
     }
 
+    pub fn executeRoutedAtSequence(
+        self: *ShardedExchangeCore,
+        sequence: publication.PublicationSequence,
+        command: *cmd.OrderCommand,
+    ) ExecuteError!CommandResponse {
+        try self.ensureRunning();
+        return self.kernels.executeRoutedAtSequence(sequence, command);
+    }
+
     pub fn executeSplit(
         self: *ShardedExchangeCore,
         command: *cmd.OrderCommand,
     ) ExecuteError!CommandResponse {
         try self.ensureRunning();
         return self.kernels.executeSplit(command);
+    }
+
+    pub fn executeSplitAtSequence(
+        self: *ShardedExchangeCore,
+        sequence: publication.PublicationSequence,
+        command: *cmd.OrderCommand,
+    ) ExecuteError!CommandResponse {
+        try self.ensureRunning();
+        return self.kernels.executeSplitAtSequence(sequence, command);
+    }
+
+    /// Snapshot/bootstrap owns the cold core and restores every shard's
+    /// observed watermark together with the shared sharded frontier.
+    pub fn restorePublicationSequence(self: *ShardedExchangeCore, last: u64) void {
+        self.kernels.restorePublicationSequence(last);
+    }
+
+    /// Atomically installs a fully staged topology while the core is cold.
+    /// Ownership of `replacement` transfers to this core; ownership of the
+    /// previous set transfers to the caller.
+    pub fn replaceKernelsCold(
+        self: *ShardedExchangeCore,
+        replacement: kernel_mod.MultiShardKernelSet,
+    ) kernel_mod.MultiShardKernelSet {
+        std.debug.assert(!self.started and !self.stopped);
+        const previous = self.kernels;
+        self.kernels = replacement;
+        return previous;
     }
 
     pub fn queryUserBalance(
@@ -134,77 +227,7 @@ pub const ShardedExchangeCore = struct {
         self: *ShardedExchangeCore,
         query: kernel_mod.ReportQuery,
     ) QueryReportError!kernel_mod.ReportResponse {
-        return switch (query) {
-            .total_currency_balance => .{
-                .total_currency_balance = try self.kernels.aggregateTotalCurrencyBalance(),
-            },
-            .user_balance => |target| .{
-                .user_balance = try self.kernels.queryUserBalance(target.uid, target.currency),
-            },
-            .single_user => |uid| blk: {
-                const idx = self.kernels.shardIndexForUid(uid);
-                break :blk try self.kernels.kernels[idx].queryReport(query);
-            },
-            .order_book => |request| blk: {
-                const idx = self.kernels.shardIndexForSymbol(request.symbol);
-                break :blk try self.kernels.kernels[idx].queryReport(query);
-            },
-            .risk_state_hash => blk: {
-                var hasher = std.hash.Wyhash.init(0);
-                for (self.kernels.kernels, 0..) |*kernel, shard_idx| {
-                    var report = try kernel.queryReport(.risk_state_hash);
-                    defer report.deinit(self.allocator);
-                    switch (report) {
-                        .risk_state_hash => |value| {
-                            const shard_i64 = std.math.cast(i64, shard_idx) orelse
-                                return error.ArithmeticOverflow;
-                            hasher.update(std.mem.asBytes(&shard_i64));
-                            hasher.update(std.mem.asBytes(&value));
-                        },
-                        else => return error.StateHashCorrupted,
-                    }
-                }
-                break :blk .{ .risk_state_hash = hasher.final() };
-            },
-            .state_hash_detailed => blk: {
-                var combined: kernel_mod.DetailedStateHashReport = .{
-                    .aggregate_hash = 0,
-                };
-                errdefer combined.deinit(self.allocator);
-
-                for (self.kernels.kernels) |*kernel| {
-                    var report = try kernel.queryReport(.state_hash_detailed);
-                    defer report.deinit(self.allocator);
-                    switch (report) {
-                        .state_hash_detailed => |*detailed| {
-                            try combined.submodules.appendSlice(
-                                self.allocator,
-                                detailed.submodules.items,
-                            );
-                        },
-                        else => return error.StateHashCorrupted,
-                    }
-                }
-
-                combined.aggregate_hash = try self.kernels.detailedHashFingerprint();
-                break :blk .{ .state_hash_detailed = combined };
-            },
-            .fee_collected => |currency| blk: {
-                var total: i64 = 0;
-                for (self.kernels.kernels) |*kernel| {
-                    var report = try kernel.queryReport(.{ .fee_collected = currency });
-                    defer report.deinit(self.allocator);
-                    switch (report) {
-                        .fee_collected => |value| {
-                            total = std.math.add(i64, total, value) catch
-                                return error.ArithmeticOverflow;
-                        },
-                        else => return error.StateHashCorrupted,
-                    }
-                }
-                break :blk .{ .fee_collected = total };
-            },
-        };
+        return self.kernels.queryReport(query);
     }
 
     pub fn aggregateTotalCurrencyBalance(
@@ -353,11 +376,115 @@ test "sharded exchange core init enforces power-of-two shard counts" {
     defer core.deinit();
 }
 
+test "sharded exchange core full config reaches every matching and risk shard" {
+    const allocator = std.testing.allocator;
+    const config: kernel_mod.Config = .{
+        .orderbook_kind = .naive,
+        .shard_id = 99,
+        .num_shards = 128,
+        .send_l2_for_every_cmd = true,
+        .l2_refresh_depth = 17,
+        .risk = .{
+            .ignore_risk_processing = true,
+            .margin_trading_enabled = true,
+        },
+        .report_queries = .{
+            .state_hash = false,
+            .single_user = true,
+            .total_currency_balance = false,
+            .add_accounts_binary = false,
+            .add_symbols_binary = true,
+        },
+    };
+    const topologies = [_]struct {
+        matching_count: usize,
+        risk_count: usize,
+        balanced_constructor: bool,
+    }{
+        .{ .matching_count = 2, .risk_count = 2, .balanced_constructor = true },
+        .{ .matching_count = 4, .risk_count = 2, .balanced_constructor = false },
+        .{ .matching_count = 1, .risk_count = 4, .balanced_constructor = false },
+    };
+
+    for (topologies) |topology| {
+        const matching_count = topology.matching_count;
+        const risk_count = topology.risk_count;
+        var core = if (topology.balanced_constructor)
+            try ShardedExchangeCore.initWithConfig(allocator, matching_count, config)
+        else
+            try ShardedExchangeCore.initWithTopologyConfig(
+                allocator,
+                matching_count,
+                risk_count,
+                config,
+            );
+        defer core.deinit();
+
+        try std.testing.expectEqual(matching_count, core.matchingShardCount());
+        try std.testing.expectEqual(risk_count, core.riskShardCount());
+
+        for (core.kernels.matching_shards) |*matching_shard| {
+            try std.testing.expectEqual(config.orderbook_kind, matching_shard.orderbook_kind);
+            try std.testing.expectEqual(config.send_l2_for_every_cmd, matching_shard.send_l2_for_every_cmd);
+            try std.testing.expectEqual(config.l2_refresh_depth, matching_shard.l2_refresh_depth);
+            try std.testing.expectEqual(config.report_queries.state_hash, matching_shard.report_queries_cfg.state_hash);
+            try std.testing.expectEqual(config.report_queries.single_user, matching_shard.report_queries_cfg.single_user);
+            try std.testing.expectEqual(config.report_queries.total_currency_balance, matching_shard.report_queries_cfg.total_currency_balance);
+            try std.testing.expectEqual(config.report_queries.add_accounts_binary, matching_shard.report_queries_cfg.add_accounts_binary);
+            try std.testing.expectEqual(config.report_queries.add_symbols_binary, matching_shard.report_queries_cfg.add_symbols_binary);
+            try std.testing.expectEqual(
+                config.report_queries.custom_registry.digest(),
+                matching_shard.report_queries_cfg.custom_registry.digest(),
+            );
+            try std.testing.expectEqual(
+                config.risk.ignore_risk_processing,
+                matching_shard.risk_engine.cfg_ignore_risk_processing,
+            );
+            try std.testing.expectEqual(
+                config.risk.margin_trading_enabled,
+                matching_shard.risk_engine.cfg_margin_trading_enabled,
+            );
+        }
+
+        for (core.kernels.additional_risk_engines) |*risk_engine| {
+            try std.testing.expectEqual(
+                config.risk.ignore_risk_processing,
+                risk_engine.cfg_ignore_risk_processing,
+            );
+            try std.testing.expectEqual(
+                config.risk.margin_trading_enabled,
+                risk_engine.cfg_margin_trading_enabled,
+            );
+        }
+
+        for (core.kernels.risk_shards, 0..) |risk_shard, shard_id| {
+            try std.testing.expectEqual(@as(u64, @intCast(shard_id)), risk_shard.engine.shard_id);
+            try std.testing.expectEqual(@as(u64, @intCast(risk_count - 1)), risk_shard.engine.shard_mask);
+            try std.testing.expectEqual(
+                config.risk.ignore_risk_processing,
+                risk_shard.engine.cfg_ignore_risk_processing,
+            );
+            try std.testing.expectEqual(
+                config.risk.margin_trading_enabled,
+                risk_shard.engine.cfg_margin_trading_enabled,
+            );
+        }
+    }
+}
+
 test "sharded exchange core lifecycle startup and shutdown flags are deterministic" {
     const allocator = std.testing.allocator;
     var core = try ShardedExchangeCore.init(allocator, 4, .direct);
     defer core.deinit();
 
+    try std.testing.expect(!core.isStarted());
+    try std.testing.expect(!core.isStopped());
+
+    try core.startup();
+    try std.testing.expect(core.isStarted());
+    try std.testing.expect(!core.isStopped());
+
+    core.rollbackStartup();
     try std.testing.expect(!core.isStarted());
     try std.testing.expect(!core.isStopped());
 
@@ -386,27 +513,32 @@ test "sharded exchange core blocks routed and split execution after shutdown" {
     try std.testing.expectError(error.CoreStopped, core.executeSplit(&command));
 }
 
-test "sharded exchange core initFromJavaConfig supports throughput profile shard mapping" {
+test "sharded exchange core initFromJavaConfig preserves independent engine topology" {
     const allocator = std.testing.allocator;
-    var core = try ShardedExchangeCore.initFromJavaConfig(allocator, .{
+    var matching_heavy = try ShardedExchangeCore.initFromJavaConfig(allocator, .{
         .performance_cfg = config_mod.PerformanceConfig.throughputPreset(),
     });
-    defer core.deinit();
+    defer matching_heavy.deinit();
 
-    try std.testing.expectEqual(@as(usize, 4), core.shardCount());
-}
+    try std.testing.expectEqual(@as(usize, 4), matching_heavy.shardCount());
+    try std.testing.expectEqual(@as(usize, 4), matching_heavy.matchingShardCount());
+    try std.testing.expectEqual(@as(usize, 2), matching_heavy.riskShardCount());
+    try std.testing.expectEqual(@as(u64, 3), matching_heavy.matchingShardMask());
+    try std.testing.expectEqual(@as(u64, 1), matching_heavy.riskShardMask());
 
-test "sharded exchange core initFromJavaConfig rejects risk engines over matching engines" {
-    const allocator = std.testing.allocator;
-    try std.testing.expectError(
-        error.RiskEnginesExceedMatchingEngines,
-        ShardedExchangeCore.initFromJavaConfig(allocator, .{
-            .performance_cfg = .{
-                .matching_engines_num = 2,
-                .risk_engines_num = 4,
-            },
-        }),
-    );
+    var risk_heavy = try ShardedExchangeCore.initFromJavaConfig(allocator, .{
+        .performance_cfg = .{
+            .matching_engines_num = 1,
+            .risk_engines_num = 4,
+        },
+    });
+    defer risk_heavy.deinit();
+
+    try std.testing.expectEqual(@as(usize, 1), risk_heavy.shardCount());
+    try std.testing.expectEqual(@as(usize, 1), risk_heavy.matchingShardCount());
+    try std.testing.expectEqual(@as(usize, 4), risk_heavy.riskShardCount());
+    try std.testing.expectEqual(@as(u64, 0), risk_heavy.matchingShardMask());
+    try std.testing.expectEqual(@as(u64, 3), risk_heavy.riskShardMask());
 }
 
 test "sharded exchange core routes uid and symbol deterministically" {

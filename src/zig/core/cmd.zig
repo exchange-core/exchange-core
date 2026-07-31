@@ -140,6 +140,14 @@ pub const CommandResultCode = enum(i32) {
     }
 };
 
+/// Process-local report projection requested by a Zig publisher. This field is
+/// deliberately absent from the Java command and persistence wire formats: an
+/// unmarked BINARY_DATA_QUERY must retain Java's exact report semantics.
+pub const BinaryReportProjection = enum {
+    exact_java_only,
+    exact_java_and_native,
+};
+
 pub const OrderCommand = struct {
     command: OrderCommandType,
     order_id: i64 = 0,
@@ -155,6 +163,7 @@ pub const OrderCommand = struct {
     events_group: i64 = 0,
     service_flags: i32 = 0,
     result_code: CommandResultCode = .new,
+    binary_report_projection: BinaryReportProjection = .exact_java_only,
 
     pub fn newOrder(
         order_type: common.OrderType,
@@ -218,6 +227,7 @@ pub const OrderCommand = struct {
         dest.size = self.size;
         dest.action = self.action;
         dest.order_type = self.order_type;
+        dest.binary_report_projection = self.binary_report_projection;
     }
 };
 
@@ -251,7 +261,8 @@ test "order command constructors set matching defaults" {
 }
 
 test "writeTo copies command data but not result code" {
-    const source = OrderCommand.newOrder(.ioc, 42, 100, 200, 210, 9, .ask);
+    var source = OrderCommand.newOrder(.ioc, 42, 100, 200, 210, 9, .ask);
+    source.binary_report_projection = .exact_java_and_native;
     var destination: OrderCommand = .{
         .command = .nop,
         .result_code = .matching_unsupported_command,
@@ -262,4 +273,8 @@ test "writeTo copies command data but not result code" {
     try std.testing.expectEqual(OrderCommandType.place_order, destination.command);
     try std.testing.expectEqual(@as(i64, 42), destination.order_id);
     try std.testing.expectEqual(CommandResultCode.matching_unsupported_command, destination.result_code);
+    try std.testing.expectEqual(
+        BinaryReportProjection.exact_java_and_native,
+        destination.binary_report_projection,
+    );
 }

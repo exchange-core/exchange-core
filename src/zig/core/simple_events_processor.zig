@@ -192,11 +192,23 @@ pub const EventsHandler = struct {
     on_order_book: ?*const fn (?*anyopaque, OrderBook) void = null,
 };
 
+/// Guards an immutable handler snapshot against same-thread reconfiguration
+/// during a multi-callback command. External mutations are excluded by the
+/// owning core's callback execution barrier; reentrant mutations change the
+/// revision and suppress the remaining callbacks from the stale snapshot.
+pub const InvocationGuard = struct {
+    revision: *const u64,
+    expected: u64,
+
+    pub fn current(self: InvocationGuard) bool {
+        return self.revision.* == self.expected;
+    }
+};
+
 pub const ProcessError = std.mem.Allocator.Error || error{
     MissingPlaceOrderAction,
     MissingPlaceOrderType,
     ReduceEventMustBeSingle,
-    UnsupportedMatcherEventType,
     ArithmeticOverflow,
 };
 
@@ -228,16 +240,44 @@ pub const SimpleEventsProcessor = struct {
         response: *const kernel.CommandResponse,
         matcher_events_head: ?*const events.MatcherTradeEvent,
     ) ProcessError!void {
-        try self.sendCommandResult(command, sequence);
-        try self.sendMatcherEvents(command, matcher_events_head);
-        try self.sendOrderBook(command, response);
+        try self.acceptWithHandler(
+            self.handler,
+            null,
+            command,
+            sequence,
+            response,
+            matcher_events_head,
+        );
+    }
+
+    /// Processes one result with an immutable handler snapshot. Runtime owners
+    /// can replace their configured handler concurrently without racing an
+    /// in-flight callback or retaining the configuration lock during user code.
+    pub fn acceptWithHandler(
+        self: *SimpleEventsProcessor,
+        handler: EventsHandler,
+        invocation_guard: ?InvocationGuard,
+        command: *const cmd.OrderCommand,
+        sequence: u64,
+        response: *const kernel.CommandResponse,
+        matcher_events_head: ?*const events.MatcherTradeEvent,
+    ) ProcessError!void {
+        if (!invocationIsCurrent(invocation_guard)) return;
+        try self.sendCommandResult(handler, invocation_guard, command, sequence);
+        if (!invocationIsCurrent(invocation_guard)) return;
+        try self.sendMatcherEvents(handler, invocation_guard, command, matcher_events_head);
+        if (!invocationIsCurrent(invocation_guard)) return;
+        try self.sendOrderBook(handler, invocation_guard, command, response);
     }
 
     fn sendCommandResult(
         self: *SimpleEventsProcessor,
+        handler: EventsHandler,
+        invocation_guard: ?InvocationGuard,
         command: *const cmd.OrderCommand,
         sequence: u64,
     ) ProcessError!void {
+        _ = self;
         // Keep Java parity: only the allow-list below emits commandResult callbacks.
         // Control commands and accepted binary payload fragments are intentionally silent.
         const command_payload: ApiCommand = switch (command.command) {
@@ -325,8 +365,9 @@ pub const SimpleEventsProcessor = struct {
             => return,
         };
 
-        if (self.handler.on_command_result) |callback| {
-            callback(self.handler.context, .{
+        if (!invocationIsCurrent(invocation_guard)) return;
+        if (handler.on_command_result) |callback| {
+            callback(handler.context, .{
                 .command = command_payload,
                 .result_code = command.result_code,
                 .sequence = sequence,
@@ -336,6 +377,8 @@ pub const SimpleEventsProcessor = struct {
 
     fn sendMatcherEvents(
         self: *SimpleEventsProcessor,
+        handler: EventsHandler,
+        invocation_guard: ?InvocationGuard,
         command: *const cmd.OrderCommand,
         matcher_events_head: ?*const events.MatcherTradeEvent,
     ) ProcessError!void {
@@ -343,8 +386,9 @@ pub const SimpleEventsProcessor = struct {
 
         if (head.event_type == .reduce) {
             if (head.next_event != null) return error.ReduceEventMustBeSingle;
-            if (self.handler.on_reduce_event) |callback| {
-                callback(self.handler.context, .{
+            if (!invocationIsCurrent(invocation_guard)) return;
+            if (handler.on_reduce_event) |callback| {
+                callback(handler.context, .{
                     .symbol = command.symbol,
                     .reduced_volume = head.size,
                     .order_completed = head.active_order_completed,
@@ -390,13 +434,14 @@ pub const SimpleEventsProcessor = struct {
                 },
                 .reduce,
                 .binary_event,
-                => return error.UnsupportedMatcherEventType,
+                => {},
             }
         }
 
         if (self.trades.items.len > 0) {
-            if (self.handler.on_trade_event) |callback| {
-                callback(self.handler.context, .{
+            if (!invocationIsCurrent(invocation_guard)) return;
+            if (handler.on_trade_event) |callback| {
+                callback(handler.context, .{
                     .symbol = command.symbol,
                     .total_volume = total_volume,
                     .taker_order_id = command.order_id,
@@ -410,19 +455,22 @@ pub const SimpleEventsProcessor = struct {
         }
 
         if (reject_event) |evt| {
-            if (self.handler.on_reject_event) |callback| {
-                callback(self.handler.context, evt);
+            if (!invocationIsCurrent(invocation_guard)) return;
+            if (handler.on_reject_event) |callback| {
+                callback(handler.context, evt);
             }
         }
     }
 
     fn sendOrderBook(
         self: *SimpleEventsProcessor,
+        handler: EventsHandler,
+        invocation_guard: ?InvocationGuard,
         command: *const cmd.OrderCommand,
         response: *const kernel.CommandResponse,
     ) ProcessError!void {
         const snapshot = response.l2_snapshot orelse return;
-        if (self.handler.on_order_book == null) return;
+        if (handler.on_order_book == null) return;
 
         self.asks.clearRetainingCapacity();
         self.bids.clearRetainingCapacity();
@@ -442,8 +490,9 @@ pub const SimpleEventsProcessor = struct {
             });
         }
 
-        const callback = self.handler.on_order_book.?;
-        callback(self.handler.context, .{
+        if (!invocationIsCurrent(invocation_guard)) return;
+        const callback = handler.on_order_book.?;
+        callback(handler.context, .{
             .symbol = command.symbol,
             .asks = self.asks.items,
             .bids = self.bids.items,
@@ -451,6 +500,10 @@ pub const SimpleEventsProcessor = struct {
         });
     }
 };
+
+fn invocationIsCurrent(guard: ?InvocationGuard) bool {
+    return if (guard) |value| value.current() else true;
+}
 
 test "simple events processor emits command, reduce, and orderbook callbacks in order" {
     const allocator = std.testing.allocator;
@@ -512,6 +565,7 @@ test "simple events processor emits command, reduce, and orderbook callbacks in 
 
     var response: kernel.CommandResponse = .{
         .sequence = 41,
+        .command = command,
         .result_code = .success,
         .l2_snapshot = .{},
     };
@@ -547,6 +601,7 @@ test "simple events processor emits trade then reject for mixed matcher events" 
         steps: std.ArrayListUnmanaged(Step) = .empty,
         total_volume: i64 = 0,
         trade_count: usize = 0,
+        taker_order_completed: bool = false,
         rejected_volume: i64 = 0,
 
         fn onCommand(ctx: ?*anyopaque, _: ApiCommandResult) void {
@@ -559,6 +614,7 @@ test "simple events processor emits trade then reject for mixed matcher events" 
             self.steps.append(self.allocator, .trade) catch @panic("append");
             self.total_volume = event.total_volume;
             self.trade_count = event.trades.len;
+            self.taker_order_completed = event.taker_order_completed;
         }
 
         fn onReject(ctx: ?*anyopaque, event: RejectEvent) void {
@@ -597,6 +653,7 @@ test "simple events processor emits trade then reject for mixed matcher events" 
 
     const response: kernel.CommandResponse = .{
         .sequence = 77,
+        .command = command,
         .result_code = .success,
     };
 
@@ -634,7 +691,149 @@ test "simple events processor emits trade then reject for mixed matcher events" 
     try std.testing.expectEqual(Step.reject, collector.steps.items[2]);
     try std.testing.expectEqual(@as(i64, 3), collector.total_volume);
     try std.testing.expectEqual(@as(usize, 2), collector.trade_count);
+    try std.testing.expect(collector.taker_order_completed);
     try std.testing.expectEqual(@as(i64, 4), collector.rejected_volume);
+}
+
+test "simple events processor ignores standalone binary matcher event without mutation" {
+    const allocator = std.testing.allocator;
+
+    const Collector = struct {
+        trade_count: usize = 0,
+        reject_count: usize = 0,
+        reduce_count: usize = 0,
+
+        fn onTrade(ctx: ?*anyopaque, _: TradeEvent) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            self.trade_count += 1;
+        }
+
+        fn onReject(ctx: ?*anyopaque, _: RejectEvent) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            self.reject_count += 1;
+        }
+
+        fn onReduce(ctx: ?*anyopaque, _: ReduceEvent) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            self.reduce_count += 1;
+        }
+    };
+
+    var collector: Collector = .{};
+    var processor = SimpleEventsProcessor.init(allocator, .{
+        .context = &collector,
+        .on_trade_event = Collector.onTrade,
+        .on_reject_event = Collector.onReject,
+        .on_reduce_event = Collector.onReduce,
+    });
+    defer processor.deinit();
+
+    var command: cmd.OrderCommand = .{
+        .command = .nop,
+        .result_code = .success,
+    };
+    const response: kernel.CommandResponse = .{
+        .sequence = 78,
+        .command = command,
+        .result_code = .success,
+    };
+    var binary_event = events.MatcherTradeEvent{
+        .event_type = .binary_event,
+        .section = 7,
+        .price = 123,
+        .size = 456,
+    };
+
+    try processor.accept(&command, response.sequence, &response, &binary_event);
+
+    try std.testing.expectEqual(@as(usize, 0), collector.trade_count);
+    try std.testing.expectEqual(@as(usize, 0), collector.reject_count);
+    try std.testing.expectEqual(@as(usize, 0), collector.reduce_count);
+    try std.testing.expectEqual(events.MatcherEventType.binary_event, binary_event.event_type);
+    try std.testing.expectEqual(@as(i32, 7), binary_event.section);
+    try std.testing.expectEqual(@as(i64, 123), binary_event.price);
+    try std.testing.expectEqual(@as(i64, 456), binary_event.size);
+    try std.testing.expect(binary_event.next_event == null);
+}
+
+test "simple events processor skips non-simple nodes while preserving trade and reject" {
+    const allocator = std.testing.allocator;
+
+    const Collector = struct {
+        trade_count: usize = 0,
+        reject_count: usize = 0,
+        reduce_count: usize = 0,
+        total_volume: i64 = 0,
+
+        fn onTrade(ctx: ?*anyopaque, event: TradeEvent) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            self.trade_count += 1;
+            self.total_volume = event.total_volume;
+        }
+
+        fn onReject(ctx: ?*anyopaque, _: RejectEvent) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            self.reject_count += 1;
+        }
+
+        fn onReduce(ctx: ?*anyopaque, _: ReduceEvent) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            self.reduce_count += 1;
+        }
+    };
+
+    var collector: Collector = .{};
+    var processor = SimpleEventsProcessor.init(allocator, .{
+        .context = &collector,
+        .on_trade_event = Collector.onTrade,
+        .on_reject_event = Collector.onReject,
+        .on_reduce_event = Collector.onReduce,
+    });
+    defer processor.deinit();
+
+    var command: cmd.OrderCommand = .{
+        .command = .place_order,
+        .order_id = 5002,
+        .symbol = 241,
+        .uid = 7003,
+        .action = .ask,
+        .order_type = .gtc,
+        .result_code = .success,
+    };
+    const response: kernel.CommandResponse = .{
+        .sequence = 79,
+        .command = command,
+        .result_code = .success,
+    };
+
+    var binary_event = events.MatcherTradeEvent{ .event_type = .binary_event };
+    var trade = events.MatcherTradeEvent{
+        .event_type = .trade,
+        .matched_order_id = 9103,
+        .matched_order_uid = 7004,
+        .price = 101,
+        .size = 2,
+    };
+    var embedded_reduce = events.MatcherTradeEvent{
+        .event_type = .reduce,
+        .price = 101,
+        .size = 99,
+    };
+    var reject = events.MatcherTradeEvent{
+        .event_type = .reject,
+        .price = 102,
+        .size = 3,
+    };
+    binary_event.next_event = &trade;
+    trade.next_event = &embedded_reduce;
+    embedded_reduce.next_event = &reject;
+
+    try processor.accept(&command, response.sequence, &response, &binary_event);
+
+    try std.testing.expectEqual(@as(usize, 1), collector.trade_count);
+    try std.testing.expectEqual(@as(usize, 1), collector.reject_count);
+    try std.testing.expectEqual(@as(usize, 0), collector.reduce_count);
+    try std.testing.expectEqual(@as(i64, 2), collector.total_volume);
 }
 
 test "simple events processor rejects place-order command without action" {
@@ -650,6 +849,7 @@ test "simple events processor rejects place-order command without action" {
     };
     const response: kernel.CommandResponse = .{
         .sequence = 1,
+        .command = command,
         .result_code = .success,
     };
 
@@ -686,6 +886,7 @@ test "simple events processor suppresses accepted binary-data-command command re
     };
     const response: kernel.CommandResponse = .{
         .sequence = 12,
+        .command = command,
         .result_code = .accepted,
     };
 
@@ -727,6 +928,7 @@ test "simple events processor emits failed binary-data-command command result ca
     };
     const response: kernel.CommandResponse = .{
         .sequence = 13,
+        .command = command,
         .result_code = .binary_command_failed,
     };
 
@@ -762,6 +964,7 @@ test "simple events processor suppresses nop command result callback for Java pa
     };
     const response: kernel.CommandResponse = .{
         .sequence = 14,
+        .command = command,
         .result_code = .success,
     };
 

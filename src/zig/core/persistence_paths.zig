@@ -7,13 +7,99 @@ pub const ModuleType = enum {
 
 pub const FileNameError = std.mem.Allocator.Error || error{
     EmptyExchangeId,
+    InvalidExchangeId,
 };
 
 pub const ResolveError = std.mem.Allocator.Error || error{
     EmptyStorageFolder,
+    StorageFolderOutsideRoot,
+    InvalidFileName,
 };
 
 pub const PathError = FileNameError || ResolveError;
+pub const DirectorySyncError = std.Io.File.OpenError || std.Io.File.SyncError;
+pub const DurableDirectoryError = ResolveError || std.Io.Dir.CreateDirPathError || DirectorySyncError;
+
+fn validateStorageFolder(path: []const u8) ResolveError!void {
+    if (path.len == 0) return error.EmptyStorageFolder;
+
+    var components = std.fs.path.componentIterator(path);
+    if (components.root() != null) return error.StorageFolderOutsideRoot;
+    while (components.next()) |component| {
+        if (std.mem.eql(u8, component.name, "..")) {
+            return error.StorageFolderOutsideRoot;
+        }
+    }
+}
+
+fn validateFileName(file_name: []const u8) ResolveError!void {
+    if (file_name.len == 0 or
+        std.mem.eql(u8, file_name, ".") or
+        std.mem.eql(u8, file_name, ".."))
+    {
+        return error.InvalidFileName;
+    }
+    for (file_name) |byte| {
+        if (std.fs.path.isSep(byte)) return error.InvalidFileName;
+    }
+}
+
+fn validateExchangeId(exchange_id: []const u8) FileNameError!void {
+    if (exchange_id.len == 0) return error.EmptyExchangeId;
+    if (std.mem.eql(u8, exchange_id, ".") or
+        std.mem.eql(u8, exchange_id, ".."))
+    {
+        return error.InvalidExchangeId;
+    }
+    for (exchange_id) |byte| {
+        if (std.fs.path.isSep(byte)) return error.InvalidExchangeId;
+    }
+}
+
+pub fn syncDirectoryPath(
+    io: std.Io,
+    root: std.Io.Dir,
+    path: []const u8,
+) DirectorySyncError!void {
+    const directory = try root.openFile(io, path, .{
+        .mode = .read_only,
+        .allow_directory = true,
+        .path_only = false,
+    });
+    defer directory.close(io);
+    try directory.sync(io);
+}
+
+pub fn syncParentDirectory(
+    io: std.Io,
+    root: std.Io.Dir,
+    path: []const u8,
+) DirectorySyncError!void {
+    try syncDirectoryPath(io, root, std.fs.path.dirname(path) orelse ".");
+}
+
+/// Creates a configured directory tree and persists every directory entry
+/// linking it back to the supplied root capability. Syncing only the deepest
+/// directory is insufficient when one or more ancestors were newly created.
+pub fn ensureDirPathDurable(
+    io: std.Io,
+    root: std.Io.Dir,
+    path: []const u8,
+) DurableDirectoryError!void {
+    try validateStorageFolder(path);
+    try root.createDirPath(io, path);
+
+    var current = path;
+    while (current.len != 0) {
+        try syncDirectoryPath(io, root, current);
+
+        const parent = std.fs.path.dirname(current) orelse break;
+        if (std.mem.eql(u8, parent, current)) break;
+        current = parent;
+    }
+
+    try syncDirectoryPath(io, root, ".");
+}
 
 pub fn moduleCode(module_type: ModuleType) []const u8 {
     return switch (module_type) {
@@ -29,7 +115,7 @@ pub fn snapshotFileName(
     module_type: ModuleType,
     instance_id: u32,
 ) FileNameError![]u8 {
-    if (exchange_id.len == 0) return error.EmptyExchangeId;
+    try validateExchangeId(exchange_id);
     return std.fmt.allocPrint(
         allocator,
         "{s}_snapshot_{d}_{s}{d}.ecs",
@@ -43,7 +129,7 @@ pub fn journalFileName(
     snapshot_id: u64,
     partition_id: u16,
 ) FileNameError![]u8 {
-    if (exchange_id.len == 0) return error.EmptyExchangeId;
+    try validateExchangeId(exchange_id);
     return std.fmt.allocPrint(
         allocator,
         "{s}_journal_{d}_{X:0>4}.ecj",
@@ -55,8 +141,21 @@ pub fn mainLogFileName(
     allocator: std.mem.Allocator,
     exchange_id: []const u8,
 ) FileNameError![]u8 {
-    if (exchange_id.len == 0) return error.EmptyExchangeId;
+    try validateExchangeId(exchange_id);
     return std.fmt.allocPrint(allocator, "{s}.eca", .{exchange_id});
+}
+
+pub fn snapshotManifestFileName(
+    allocator: std.mem.Allocator,
+    exchange_id: []const u8,
+    snapshot_id: u64,
+) FileNameError![]u8 {
+    try validateExchangeId(exchange_id);
+    return std.fmt.allocPrint(
+        allocator,
+        "{s}_snapshot_{d}.ecm",
+        .{ exchange_id, snapshot_id },
+    );
 }
 
 pub fn resolveInFolder(
@@ -64,7 +163,8 @@ pub fn resolveInFolder(
     storage_folder: []const u8,
     file_name: []const u8,
 ) ResolveError![]u8 {
-    if (storage_folder.len == 0) return error.EmptyStorageFolder;
+    try validateStorageFolder(storage_folder);
+    try validateFileName(file_name);
     return std.fs.path.join(allocator, &.{ storage_folder, file_name });
 }
 
@@ -114,6 +214,17 @@ pub fn mainLogPath(
     return resolveInFolder(allocator, storage_folder, file_name);
 }
 
+pub fn snapshotManifestPath(
+    allocator: std.mem.Allocator,
+    storage_folder: []const u8,
+    exchange_id: []const u8,
+    snapshot_id: u64,
+) PathError![]u8 {
+    const file_name = try snapshotManifestFileName(allocator, exchange_id, snapshot_id);
+    defer allocator.free(file_name);
+    return resolveInFolder(allocator, storage_folder, file_name);
+}
+
 test "module code parity matches Java constants" {
     try std.testing.expectEqualStrings("RE", moduleCode(.risk_engine));
     try std.testing.expectEqualStrings("ME", moduleCode(.matching_engine_router));
@@ -139,6 +250,13 @@ test "main log filename parity uses eca suffix" {
     const path = try mainLogFileName(allocator, "EX0");
     defer allocator.free(path);
     try std.testing.expectEqualStrings("EX0.eca", path);
+}
+
+test "snapshot manifest filename is pair scoped" {
+    const allocator = std.testing.allocator;
+    const path = try snapshotManifestFileName(allocator, "EX0", 77);
+    defer allocator.free(path);
+    try std.testing.expectEqualStrings("EX0_snapshot_77.ecm", path);
 }
 
 test "path helpers resolve within configured storage folder" {
@@ -179,4 +297,46 @@ test "helpers reject empty exchange id and storage folder" {
         error.EmptyStorageFolder,
         resolveInFolder(allocator, "", "name.ext"),
     );
+}
+
+test "path helpers keep configured artifacts below the supplied root" {
+    const allocator = std.testing.allocator;
+
+    inline for (.{ "/absolute", "../escape", "safe/../../escape" }) |storage_folder| {
+        try std.testing.expectError(
+            error.StorageFolderOutsideRoot,
+            resolveInFolder(allocator, storage_folder, "name.ext"),
+        );
+    }
+    inline for (.{ "../name.ext", "nested/name.ext", "." }) |file_name| {
+        try std.testing.expectError(
+            error.InvalidFileName,
+            resolveInFolder(allocator, "safe", file_name),
+        );
+    }
+    inline for (.{ "../EX", "nested/EX", "." }) |exchange_id| {
+        try std.testing.expectError(
+            error.InvalidExchangeId,
+            mainLogFileName(allocator, exchange_id),
+        );
+    }
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try std.testing.expectError(
+        error.StorageFolderOutsideRoot,
+        ensureDirPathDurable(std.testing.io, tmp.dir, "../escape"),
+    );
+}
+
+test "durable nested directory creation syncs every reachable level" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try ensureDirPathDurable(std.testing.io, tmp.dir, "one/two/three");
+    inline for (.{ "one", "one/two", "one/two/three" }) |path| {
+        var directory = try tmp.dir.openDir(std.testing.io, path, .{});
+        directory.close(std.testing.io);
+    }
+    try syncParentDirectory(std.testing.io, tmp.dir, "one/two/three/state.eca");
 }

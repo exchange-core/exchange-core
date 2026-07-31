@@ -1,10 +1,17 @@
 # Zig Parity + Benchmark Report
 
-Date: 2026-02-13
+Original run date: 2026-02-13
+Evidence classification updated: 2026-07-31
+
+> This is a historical fixture and benchmark report, not the current
+> whole-port release verdict. See `MIGRATION_COVERAGE.md` for the current gate
+> and `ORCHESTRATOR_AB_BENCHMARK_REPORT_2026-07-31.md` for the current
+> immediate-vs-grouped semantic and performance evidence.
 
 ## Scope
 
-This report captures migration-gate status for the current Zig core:
+This report captures migration-gate status for the Zig core at the original
+run:
 
 - internal parity between `.naive` and `.direct` orderbook modes,
 - deterministic benchmark harness output from `zig build bench`,
@@ -17,7 +24,26 @@ This report captures migration-gate status for the current Zig core:
 - [x] Benchmark output includes command count, elapsed time, throughput, and risk hash.
 - [x] Java reference fixtures are generated for deterministic scenarios.
 - [x] Automated Zig-vs-Java diff run is produced for result codes, balances, fees, and orderbook views.
-- [x] All current Zig-vs-Java fixture checks pass with zero mismatches.
+- [x] The recorded fixture-diff command completed with zero mismatches under
+  the normalization and fallback rules documented below.
+
+## Evidence Classification
+
+The recorded `PASS` labels mean the fixture comparator accepted the stored
+values. They do not all mean the value was independently produced by a live
+Java exchange-core execution:
+
+- direct Java values are parity evidence for the specific fields and scenario
+  captured by that fixture;
+- normalized or aliased values are compatibility evidence only for the stated
+  projection;
+- report values produced by the Java-25 in-memory fallback are smoke-test
+  evidence, not Chronicle/report-pipeline parity evidence;
+- synthetic persist results are smoke-test evidence, not persistence parity
+  evidence.
+
+Accordingly, this historical zero-mismatch run cannot close current report,
+processor-topology, or persistence release gates by itself.
 
 ## Verification Evidence
 
@@ -191,7 +217,7 @@ Strict low32 hash check was validated in two steps:
 - Reports long full-settlement low32 risk mismatch (`state_hash=0`) fails with `actual(i32)=-741618970`; regenerated naive + direct fixtures with `state_hash=-741618970` pass.
 - Reports long full-settlement low32 detailed mismatch (`state_hash=0`) fails with `actual(i32)=1800747790`; regenerated naive + direct fixtures with `state_hash=1800747790` pass.
 
-Parity-relevant tests currently include:
+Parity-relevant tests included in the historical run:
 
 - `kernel parity gate keeps naive and direct behavior aligned`
 - `journal replay reproduces sequence, results, risk hash, and L2 view`
@@ -230,12 +256,38 @@ Parity-relevant tests currently include:
 - `single user report found and not-found semantics`
 - `single user report keeps naive/direct parity on open orders and balances`
 
-## Current Gaps
+## Gaps Recorded in the Original Run and Current Disposition
 
 - Exchange trade fixtures include `pre_release` variants where settlement-sensitive balances are now compared via deterministic Java-aligned normalization (no skip-based comparison path).
-- Report fixtures now export canonical Java report-query fields first (`SingleUserReportQuery` and `TotalCurrencyBalanceReportQuery`). On Java 25 runtimes where Chronicle `unmap0` incompatibility breaks marshalling, fixture generation takes a bounded deterministic fallback to in-memory report-equivalent values.
-- Control fixtures now attempt `ApiPersistState` first via an isolated snapshot-enabled probe container. On Java 25 runtimes where persistence initialization is blocked (for example Chronicle initialization failures such as `NoSuchFieldException: address`) or persist completion times out, fixture generation falls back to a deterministic synthetic merged persist result.
+- Public report fixtures export canonical Java report-query fields through
+  `SingleUserReportQuery` and `TotalCurrencyBalanceReportQuery`; public writers
+  fail closed when that path is unavailable. The internal deterministic
+  fallback is diagnostic-only and requires
+  `parity.fixture.diagnostic.allow_internal_fallback=true`.
+- Control fixtures use `ApiPersistState` via an isolated snapshot-enabled probe
+  container. The public persistence writer likewise fails closed; only the
+  explicitly enabled diagnostic path may synthesize a marked fallback result.
+- At the original run, the Zig sharded path did not reproduce Java's grouped
+  delayed-R2 and per-engine worker topology. That topology is now implemented,
+  promoted to the default, and covered by the current full and capacity gates.
+- Exact Java report bytes can depend on Eclipse Collections backing-table
+  history that final logical map contents do not reconstruct. Exact live and
+  persisted layout histories are now implemented; authoritative persistence
+  fixtures and the full Java suite are current on workspace-local Temurin 11.
+- Native snapshot/journal crash-frontier and adoption semantics were still
+  under active verification at the original run. The current ledger records
+  that native durability boundary as closed.
 
-## Follow-up Work
+## Follow-up Work, Annotated with Current Status
 
-- None at current fixture scope.
+- The authoritative persistence fixture now uses a Chronicle-compatible
+  Temurin 11 runtime and forbids fallback behavior.
+- Grouped sharded execution, native crash-window persistence, exact report
+  layout handling, and compatible-JDK persistence fixture proof are complete.
+- The current Debug, ReleaseSafe, parity-diff, API audits, production-class
+  map, and full migration gate passed 26/26 steps and 2255/2255 tests: 1117
+  Debug, 1117 ReleaseSafe, and 21 evidence-tool tests. The default parity
+  manifest passed exactly 96/96 and cannot be narrowed from the aggregate gate. Current
+  counts live in `MIGRATION_COVERAGE.md`; the dated orchestrator report records
+  the capacity-gated A/B command and results without overwriting this
+  historical run.

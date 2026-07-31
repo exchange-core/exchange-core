@@ -2,11 +2,12 @@
   "java_source": "src/main/java/exchange/core2/core/ExchangeApi.java",
   "zig_source": "src/zig/core/exchange_api.zig",
   "java_public_declaration_count": 33,
-  "zig_public_declaration_count": 165,
+  "zig_public_declaration_count": 207,
   "java_method_family_count": 24,
-  "zig_method_family_count": 165,
+  "zig_method_family_count": 207,
   "java_method_families_with_same_name_coverage": 24,
   "java_method_families_without_same_name_coverage": 0,
+  "java_method_families_with_semantic_evidence": 24,
   "coverage_rows": [
     {
       "name": "balanceAdjustment",
@@ -154,998 +155,1567 @@
     }
   ],
   "java_without_same_name": [],
+  "semantic_rows": [
+    {
+      "name": "balanceAdjustment",
+      "zig_entrypoint": "balanceAdjustment",
+      "observable_contract": "The same-name detached entrypoint maps balance fields and service, group, and timestamp metadata into the raw command carrier.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.balanceAdjustment("
+    },
+    {
+      "name": "binaryData",
+      "zig_entrypoint": "binaryData",
+      "observable_contract": "The same-name detached entrypoint preserves all five carrier words, the last-frame marker, and service, group, and timestamp metadata.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.binaryData("
+    },
+    {
+      "name": "cancelOrder",
+      "zig_entrypoint": "cancelOrder",
+      "observable_contract": "The same-name detached entrypoint preserves order, symbol, uid, and service, group, and timestamp metadata.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.cancelOrder("
+    },
+    {
+      "name": "createUser",
+      "zig_entrypoint": "createUser",
+      "observable_contract": "The same-name detached entrypoint preserves uid and service, group, and timestamp metadata.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.createUser("
+    },
+    {
+      "name": "groupingControl",
+      "zig_entrypoint": "groupingControl",
+      "observable_contract": "The same-name detached entrypoint preserves the grouping mode and timestamp in the raw command carrier.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.groupingControl("
+    },
+    {
+      "name": "moveOrder",
+      "zig_entrypoint": "moveOrder",
+      "observable_contract": "The same-name detached entrypoint preserves new price, order, symbol, uid, and service, group, and timestamp metadata.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.moveOrder("
+    },
+    {
+      "name": "orderBookRequest",
+      "zig_entrypoint": "orderBookRequest",
+      "observable_contract": "The callback entrypoint returns one completed command with an owned L2 snapshot for the requested symbol and depth.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api orderBookRequest callback wrapper exposes snapshot response",
+      "evidence_call": "api.orderBookRequest("
+    },
+    {
+      "name": "placeNewOrder",
+      "zig_entrypoint": "placeNewOrder",
+      "observable_contract": "The same-name detached entrypoint preserves order fields and service, group, and timestamp metadata in the raw carrier.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.placeNewOrder("
+    },
+    {
+      "name": "processReport",
+      "zig_entrypoint": "processJavaReport",
+      "observable_contract": "The explicitly named semantic entrypoint executes the report query and returns its owned exact-Java reduced payload.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api processJavaReport returns exact Java report payload in one step",
+      "evidence_call": "api.processJavaReport("
+    },
+    {
+      "name": "processResult",
+      "zig_entrypoint": "processResult",
+      "observable_contract": "The same-name entrypoint invokes the callback only after readiness and consumes the completed result exactly once.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api processResult consumes callback result after drain",
+      "evidence_call": "api.processResult("
+    },
+    {
+      "name": "publishBinaryData",
+      "zig_entrypoint": "publishBinaryData",
+      "observable_contract": "The alias frames an encoded add-symbols payload, applies it, and resolves the terminal async handle successfully.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api publishBinaryData alias resolves encoded add-symbols payload",
+      "evidence_call": "api.publishBinaryData("
+    },
+    {
+      "name": "publishQuery",
+      "zig_entrypoint": "publishQuery",
+      "observable_contract": "The alias publishes a state-hash query and returns the owned exact-Java report payload.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api publishQuery alias resolves report payload",
+      "evidence_call": "api.publishQuery("
+    },
+    {
+      "name": "reduceOrder",
+      "zig_entrypoint": "reduceOrder",
+      "observable_contract": "The same-name detached entrypoint preserves reduce size, order, symbol, uid, and service, group, and timestamp metadata.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.reduceOrder("
+    },
+    {
+      "name": "requestOrderBookAsync",
+      "zig_entrypoint": "requestOrderBookAsync",
+      "observable_contract": "The async entrypoint retains symbol and depth and transfers ownership of the terminal L2 snapshot to the caller.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api order-book async helper returns typed snapshot ownership",
+      "evidence_call": "api.requestOrderBookAsync("
+    },
+    {
+      "name": "reset",
+      "zig_entrypoint": "reset",
+      "observable_contract": "The same-name detached entrypoint clears live matching, risk, user, symbol, and in-flight binary state at settlement.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api reset entrypoint clears live state and in-flight binary assembly",
+      "evidence_call": "api.reset("
+    },
+    {
+      "name": "resumeUser",
+      "zig_entrypoint": "resumeUser",
+      "observable_contract": "The same-name detached entrypoint preserves uid and service, group, and timestamp metadata.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.resumeUser("
+    },
+    {
+      "name": "submitBinaryCommandAsync",
+      "zig_entrypoint": "submitBinaryCommandAsync",
+      "observable_contract": "The alias frames and applies an encoded add-symbols payload and resolves its terminal async handle once with success.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api generic submitBinaryCommandAsync alias resolves encoded add-symbols payload",
+      "evidence_call": "api.submitBinaryCommandAsync("
+    },
+    {
+      "name": "submitBinaryDataAsync",
+      "zig_entrypoint": "submitBinaryDataAsync",
+      "observable_contract": "The same-name entrypoint frames and applies an encoded add-symbols payload and resolves its terminal async handle once with success.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api submitBinaryDataAsync entrypoint resolves encoded add-symbols payload",
+      "evidence_call": "api.submitBinaryDataAsync("
+    },
+    {
+      "name": "submitCommand",
+      "zig_entrypoint": "submitCommand",
+      "observable_contract": "Detached publication advances the global sequence without retaining a result slot, and a later synchronous barrier settles it.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api detached submit and Java list and stream barriers preserve timing",
+      "evidence_call": "api.submitCommand("
+    },
+    {
+      "name": "submitCommandAsync",
+      "zig_entrypoint": "submitCommandAsync",
+      "observable_contract": "Async publication becomes ready only after drain and transfers one successful owned result to the caller.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api async handle flow drains and returns result payload",
+      "evidence_call": "api.submitCommandAsync("
+    },
+    {
+      "name": "submitCommandAsyncFullResponse",
+      "zig_entrypoint": "submitCommandAsyncFullResponse",
+      "observable_contract": "A supported command resolves to an owned completed command response after drain.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api async full-response helper returns command response",
+      "evidence_call": "api.submitCommandAsyncFullResponse("
+    },
+    {
+      "name": "submitCommandsSync",
+      "zig_entrypoint": "submitCommandsSync",
+      "observable_contract": "A nonempty slice settles in order before return, while an empty slice is a no-op and neither path retains result slots.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api detached submit and Java list and stream barriers preserve timing",
+      "evidence_call": "api.submitCommandsSync("
+    },
+    {
+      "name": "submitQueryAsync",
+      "zig_entrypoint": "submitQueryAsync",
+      "observable_contract": "The alias publishes a state-hash query and transfers its owned exact-Java report payload exactly once.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api generic submitQueryAsync alias resolves report payload",
+      "evidence_call": "api.submitQueryAsync("
+    },
+    {
+      "name": "suspendUser",
+      "zig_entrypoint": "suspendUser",
+      "observable_contract": "The same-name detached entrypoint preserves uid and service, group, and timestamp metadata.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.suspendUser("
+    }
+  ],
   "java_declarations": [
     {
       "name": "processResult",
       "line": 64,
-      "signature": "public void processResult(final long seq, final OrderCommand cmd) {"
+      "signature": "public void processResult(final long seq, final OrderCommand cmd) {",
+      "zig_entrypoint": "processResult",
+      "observable_contract": "The same-name entrypoint invokes the callback only after readiness and consumes the completed result exactly once.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api processResult consumes callback result after drain",
+      "evidence_call": "api.processResult("
     },
     {
       "name": "submitCommand",
       "line": 75,
-      "signature": "public void submitCommand(ApiCommand cmd) {"
+      "signature": "public void submitCommand(ApiCommand cmd) {",
+      "zig_entrypoint": "submitCommand",
+      "observable_contract": "Detached publication advances the global sequence without retaining a result slot, and a later synchronous barrier settles it.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api detached submit and Java list and stream barriers preserve timing",
+      "evidence_call": "api.submitCommand("
     },
     {
       "name": "submitCommandAsync",
       "line": 111,
-      "signature": "public CompletableFuture<CommandResultCode> submitCommandAsync(ApiCommand cmd) {"
+      "signature": "public CompletableFuture<CommandResultCode> submitCommandAsync(ApiCommand cmd) {",
+      "zig_entrypoint": "submitCommandAsync",
+      "observable_contract": "Async publication becomes ready only after drain and transfers one successful owned result to the caller.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api async handle flow drains and returns result payload",
+      "evidence_call": "api.submitCommandAsync("
     },
     {
       "name": "submitCommandAsyncFullResponse",
       "line": 145,
-      "signature": "public CompletableFuture<OrderCommand> submitCommandAsyncFullResponse(ApiCommand cmd) {"
+      "signature": "public CompletableFuture<OrderCommand> submitCommandAsyncFullResponse(ApiCommand cmd) {",
+      "zig_entrypoint": "submitCommandAsyncFullResponse",
+      "observable_contract": "A supported command resolves to an owned completed command response after drain.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api async full-response helper returns command response",
+      "evidence_call": "api.submitCommandAsyncFullResponse("
     },
     {
       "name": "submitCommandsSync",
       "line": 175,
-      "signature": "public void submitCommandsSync(List<? extends ApiCommand> cmd) {"
+      "signature": "public void submitCommandsSync(List<? extends ApiCommand> cmd) {",
+      "zig_entrypoint": "submitCommandsSync",
+      "observable_contract": "A nonempty slice settles in order before return, while an empty slice is a no-op and neither path retains result slots.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api detached submit and Java list and stream barriers preserve timing",
+      "evidence_call": "api.submitCommandsSync("
     },
     {
       "name": "submitCommandsSync",
       "line": 184,
-      "signature": "public void submitCommandsSync(Stream<? extends ApiCommand> stream) {"
+      "signature": "public void submitCommandsSync(Stream<? extends ApiCommand> stream) {",
+      "zig_entrypoint": "submitCommandsSync",
+      "observable_contract": "A nonempty slice settles in order before return, while an empty slice is a no-op and neither path retains result slots.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api detached submit and Java list and stream barriers preserve timing",
+      "evidence_call": "api.submitCommandsSync("
     },
     {
       "name": "submitBinaryDataAsync",
       "line": 226,
-      "signature": "public CompletableFuture<CommandResultCode> submitBinaryDataAsync(final BinaryDataCommand data) {"
+      "signature": "public CompletableFuture<CommandResultCode> submitBinaryDataAsync(final BinaryDataCommand data) {",
+      "zig_entrypoint": "submitBinaryDataAsync",
+      "observable_contract": "The same-name entrypoint frames and applies an encoded add-symbols payload and resolves its terminal async handle once with success.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api submitBinaryDataAsync entrypoint resolves encoded add-symbols payload",
+      "evidence_call": "api.submitBinaryDataAsync("
     },
     {
       "name": "submitBinaryCommandAsync",
       "line": 241,
-      "signature": "public <R> CompletableFuture<R> submitBinaryCommandAsync("
+      "signature": "public <R> CompletableFuture<R> submitBinaryCommandAsync(",
+      "zig_entrypoint": "submitBinaryCommandAsync",
+      "observable_contract": "The alias frames and applies an encoded add-symbols payload and resolves its terminal async handle once with success.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api generic submitBinaryCommandAsync alias resolves encoded add-symbols payload",
+      "evidence_call": "api.submitBinaryCommandAsync("
     },
     {
       "name": "submitQueryAsync",
       "line": 255,
-      "signature": "public <R> CompletableFuture<R> submitQueryAsync("
+      "signature": "public <R> CompletableFuture<R> submitQueryAsync(",
+      "zig_entrypoint": "submitQueryAsync",
+      "observable_contract": "The alias publishes a state-hash query and transfers its owned exact-Java report payload exactly once.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api generic submitQueryAsync alias resolves report payload",
+      "evidence_call": "api.submitQueryAsync("
     },
     {
       "name": "processReport",
       "line": 269,
-      "signature": "public <Q extends ReportQuery<R>, R extends ReportResult> CompletableFuture<R> processReport(final Q query, final int transferId) {"
+      "signature": "public <Q extends ReportQuery<R>, R extends ReportResult> CompletableFuture<R> processReport(final Q query, final int transferId) {",
+      "zig_entrypoint": "processJavaReport",
+      "observable_contract": "The explicitly named semantic entrypoint executes the report query and returns its owned exact-Java reduced payload.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api processJavaReport returns exact Java report payload in one step",
+      "evidence_call": "api.processJavaReport("
     },
     {
       "name": "publishBinaryData",
       "line": 277,
-      "signature": "public void publishBinaryData(final ApiBinaryDataCommand apiCmd, final LongConsumer endSeqConsumer) {"
+      "signature": "public void publishBinaryData(final ApiBinaryDataCommand apiCmd, final LongConsumer endSeqConsumer) {",
+      "zig_entrypoint": "publishBinaryData",
+      "observable_contract": "The alias frames an encoded add-symbols payload, applies it, and resolves the terminal async handle successfully.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api publishBinaryData alias resolves encoded add-symbols payload",
+      "evidence_call": "api.publishBinaryData("
     },
     {
       "name": "publishQuery",
       "line": 288,
-      "signature": "public void publishQuery(final ApiReportQuery apiCmd, final LongConsumer endSeqConsumer) {"
+      "signature": "public void publishQuery(final ApiReportQuery apiCmd, final LongConsumer endSeqConsumer) {",
+      "zig_entrypoint": "publishQuery",
+      "observable_contract": "The alias publishes a state-hash query and returns the owned exact-Java report payload.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api publishQuery alias resolves report payload",
+      "evidence_call": "api.publishQuery("
     },
     {
       "name": "binaryData",
       "line": 523,
-      "signature": "public void binaryData(int serviceFlags, long eventsGroup, long timestampNs, byte lastFlag, long word0, long word1, long word2, long word3, long word4) {"
+      "signature": "public void binaryData(int serviceFlags, long eventsGroup, long timestampNs, byte lastFlag, long word0, long word1, long word2, long word3, long word4) {",
+      "zig_entrypoint": "binaryData",
+      "observable_contract": "The same-name detached entrypoint preserves all five carrier words, the last-frame marker, and service, group, and timestamp metadata.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.binaryData("
     },
     {
       "name": "createUser",
       "line": 543,
-      "signature": "public void createUser(long userId, Consumer<OrderCommand> callback) {"
+      "signature": "public void createUser(long userId, Consumer<OrderCommand> callback) {",
+      "zig_entrypoint": "createUser",
+      "observable_contract": "The same-name detached entrypoint preserves uid and service, group, and timestamp metadata.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.createUser("
     },
     {
       "name": "suspendUser",
       "line": 556,
-      "signature": "public void suspendUser(long userId, Consumer<OrderCommand> callback) {"
+      "signature": "public void suspendUser(long userId, Consumer<OrderCommand> callback) {",
+      "zig_entrypoint": "suspendUser",
+      "observable_contract": "The same-name detached entrypoint preserves uid and service, group, and timestamp metadata.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.suspendUser("
     },
     {
       "name": "resumeUser",
       "line": 569,
-      "signature": "public void resumeUser(long userId, Consumer<OrderCommand> callback) {"
+      "signature": "public void resumeUser(long userId, Consumer<OrderCommand> callback) {",
+      "zig_entrypoint": "resumeUser",
+      "observable_contract": "The same-name detached entrypoint preserves uid and service, group, and timestamp metadata.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.resumeUser("
     },
     {
       "name": "createUser",
       "line": 582,
-      "signature": "public void createUser(int serviceFlags, long eventsGroup, long timestampNs, long userId) {"
+      "signature": "public void createUser(int serviceFlags, long eventsGroup, long timestampNs, long userId) {",
+      "zig_entrypoint": "createUser",
+      "observable_contract": "The same-name detached entrypoint preserves uid and service, group, and timestamp metadata.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.createUser("
     },
     {
       "name": "suspendUser",
       "line": 598,
-      "signature": "public void suspendUser(int serviceFlags, long eventsGroup, long timestampNs, long userId) {"
+      "signature": "public void suspendUser(int serviceFlags, long eventsGroup, long timestampNs, long userId) {",
+      "zig_entrypoint": "suspendUser",
+      "observable_contract": "The same-name detached entrypoint preserves uid and service, group, and timestamp metadata.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.suspendUser("
     },
     {
       "name": "resumeUser",
       "line": 614,
-      "signature": "public void resumeUser(int serviceFlags, long eventsGroup, long timestampNs, long userId) {"
+      "signature": "public void resumeUser(int serviceFlags, long eventsGroup, long timestampNs, long userId) {",
+      "zig_entrypoint": "resumeUser",
+      "observable_contract": "The same-name detached entrypoint preserves uid and service, group, and timestamp metadata.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.resumeUser("
     },
     {
       "name": "balanceAdjustment",
       "line": 630,
-      "signature": "public void balanceAdjustment(long uid,"
+      "signature": "public void balanceAdjustment(long uid,",
+      "zig_entrypoint": "balanceAdjustment",
+      "observable_contract": "The same-name detached entrypoint maps balance fields and service, group, and timestamp metadata into the raw command carrier.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.balanceAdjustment("
     },
     {
       "name": "balanceAdjustment",
       "line": 653,
-      "signature": "public void balanceAdjustment(int serviceFlags,"
+      "signature": "public void balanceAdjustment(int serviceFlags,",
+      "zig_entrypoint": "balanceAdjustment",
+      "observable_contract": "The same-name detached entrypoint maps balance fields and service, group, and timestamp metadata into the raw command carrier.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.balanceAdjustment("
     },
     {
       "name": "orderBookRequest",
       "line": 678,
-      "signature": "public void orderBookRequest(int symbolId, int depth, Consumer<OrderCommand> callback) {"
+      "signature": "public void orderBookRequest(int symbolId, int depth, Consumer<OrderCommand> callback) {",
+      "zig_entrypoint": "orderBookRequest",
+      "observable_contract": "The callback entrypoint returns one completed command with an owned L2 snapshot for the requested symbol and depth.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api orderBookRequest callback wrapper exposes snapshot response",
+      "evidence_call": "api.orderBookRequest("
     },
     {
       "name": "requestOrderBookAsync",
       "line": 694,
-      "signature": "public CompletableFuture<L2MarketData> requestOrderBookAsync(int symbolId, int depth) {"
+      "signature": "public CompletableFuture<L2MarketData> requestOrderBookAsync(int symbolId, int depth) {",
+      "zig_entrypoint": "requestOrderBookAsync",
+      "observable_contract": "The async entrypoint retains symbol and depth and transfers ownership of the terminal L2 snapshot to the caller.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api order-book async helper returns typed snapshot ownership",
+      "evidence_call": "api.requestOrderBookAsync("
     },
     {
       "name": "placeNewOrder",
       "line": 713,
-      "signature": "public long placeNewOrder("
+      "signature": "public long placeNewOrder(",
+      "zig_entrypoint": "placeNewOrder",
+      "observable_contract": "The same-name detached entrypoint preserves order fields and service, group, and timestamp metadata in the raw carrier.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.placeNewOrder("
     },
     {
       "name": "placeNewOrder",
       "line": 749,
-      "signature": "public void placeNewOrder(int serviceFlags,"
+      "signature": "public void placeNewOrder(int serviceFlags,",
+      "zig_entrypoint": "placeNewOrder",
+      "observable_contract": "The same-name detached entrypoint preserves order fields and service, group, and timestamp metadata in the raw carrier.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.placeNewOrder("
     },
     {
       "name": "moveOrder",
       "line": 782,
-      "signature": "public void moveOrder("
+      "signature": "public void moveOrder(",
+      "zig_entrypoint": "moveOrder",
+      "observable_contract": "The same-name detached entrypoint preserves new price, order, symbol, uid, and service, group, and timestamp metadata.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.moveOrder("
     },
     {
       "name": "moveOrder",
       "line": 803,
-      "signature": "public void moveOrder(int serviceFlags,"
+      "signature": "public void moveOrder(int serviceFlags,",
+      "zig_entrypoint": "moveOrder",
+      "observable_contract": "The same-name detached entrypoint preserves new price, order, symbol, uid, and service, group, and timestamp metadata.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.moveOrder("
     },
     {
       "name": "cancelOrder",
       "line": 827,
-      "signature": "public void cancelOrder("
+      "signature": "public void cancelOrder(",
+      "zig_entrypoint": "cancelOrder",
+      "observable_contract": "The same-name detached entrypoint preserves order, symbol, uid, and service, group, and timestamp metadata.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.cancelOrder("
     },
     {
       "name": "cancelOrder",
       "line": 847,
-      "signature": "public void cancelOrder(int serviceFlags,"
+      "signature": "public void cancelOrder(int serviceFlags,",
+      "zig_entrypoint": "cancelOrder",
+      "observable_contract": "The same-name detached entrypoint preserves order, symbol, uid, and service, group, and timestamp metadata.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.cancelOrder("
     },
     {
       "name": "reduceOrder",
       "line": 869,
-      "signature": "public void reduceOrder("
+      "signature": "public void reduceOrder(",
+      "zig_entrypoint": "reduceOrder",
+      "observable_contract": "The same-name detached entrypoint preserves reduce size, order, symbol, uid, and service, group, and timestamp metadata.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.reduceOrder("
     },
     {
       "name": "reduceOrder",
       "line": 890,
-      "signature": "public void reduceOrder(int serviceFlags,"
+      "signature": "public void reduceOrder(int serviceFlags,",
+      "zig_entrypoint": "reduceOrder",
+      "observable_contract": "The same-name detached entrypoint preserves reduce size, order, symbol, uid, and service, group, and timestamp metadata.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.reduceOrder("
     },
     {
       "name": "groupingControl",
       "line": 914,
-      "signature": "public void groupingControl(long timestampNs, long mode) {"
+      "signature": "public void groupingControl(long timestampNs, long mode) {",
+      "zig_entrypoint": "groupingControl",
+      "observable_contract": "The same-name detached entrypoint preserves the grouping mode and timestamp in the raw command carrier.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api metadata entrypoints map to raw command fields in journaled input",
+      "evidence_call": "api.groupingControl("
     },
     {
       "name": "reset",
       "line": 926,
-      "signature": "public void reset(long timestampNs) {"
+      "signature": "public void reset(long timestampNs) {",
+      "zig_entrypoint": "reset",
+      "observable_contract": "The same-name detached entrypoint clears live matching, risk, user, symbol, and in-flight binary state at settlement.",
+      "evidence_file": "src/zig/core/exchange_api.zig",
+      "evidence_test": "exchange api reset entrypoint clears live state and in-flight binary assembly",
+      "evidence_call": "api.reset("
     }
   ],
   "zig_declarations": [
     {
       "name": "init",
-      "line": 127,
+      "line": 162,
       "signature": "pub fn init("
     },
     {
+      "name": "initWithIo",
+      "line": 172,
+      "signature": "pub fn initWithIo("
+    },
+    {
+      "name": "initWithPersistenceRoot",
+      "line": 182,
+      "signature": "pub fn initWithPersistenceRoot("
+    },
+    {
+      "name": "initWithIoAndPersistenceRoot",
+      "line": 197,
+      "signature": "pub fn initWithIoAndPersistenceRoot("
+    },
+    {
       "name": "initFromJavaConfig",
-      "line": 137,
+      "line": 211,
       "signature": "pub fn initFromJavaConfig("
     },
     {
       "name": "deinit",
-      "line": 144,
+      "line": 218,
       "signature": "pub fn deinit(self: *ExchangeApi) void {"
     },
     {
       "name": "kernelRef",
-      "line": 150,
+      "line": 224,
       "signature": "pub fn kernelRef(self: *ExchangeApi) *kernel_mod.ExchangeKernel {"
     },
     {
       "name": "configRef",
-      "line": 154,
+      "line": 228,
       "signature": "pub fn configRef(self: *const ExchangeApi) *const Config {"
     },
     {
+      "name": "ioContext",
+      "line": 232,
+      "signature": "pub fn ioContext(self: *const ExchangeApi) std.Io {"
+    },
+    {
       "name": "isStarted",
-      "line": 158,
+      "line": 236,
       "signature": "pub fn isStarted(self: *const ExchangeApi) bool {"
     },
     {
       "name": "isStopped",
-      "line": 162,
+      "line": 240,
       "signature": "pub fn isStopped(self: *const ExchangeApi) bool {"
     },
     {
       "name": "journalingEnabled",
-      "line": 166,
+      "line": 244,
       "signature": "pub fn journalingEnabled(self: *const ExchangeApi) bool {"
     },
     {
       "name": "journalLen",
-      "line": 170,
-      "signature": "pub fn journalLen(self: *const ExchangeApi) usize {"
+      "line": 248,
+      "signature": "pub fn journalLen(self: *const ExchangeApi) LifecycleError!usize {"
     },
     {
       "name": "asyncPendingCount",
-      "line": 174,
+      "line": 252,
       "signature": "pub fn asyncPendingCount(self: *const ExchangeApi) usize {"
     },
     {
       "name": "asyncReadyCount",
-      "line": 178,
+      "line": 256,
       "signature": "pub fn asyncReadyCount(self: *const ExchangeApi) usize {"
     },
     {
       "name": "runtimePendingCount",
-      "line": 182,
+      "line": 260,
       "signature": "pub fn runtimePendingCount(self: *const ExchangeApi) usize {"
     },
     {
+      "name": "fatalInfo",
+      "line": 264,
+      "signature": "pub fn fatalInfo(self: *const ExchangeApi) ?CoreFatalInfo {"
+    },
+    {
       "name": "enqueueRuntime",
-      "line": 186,
+      "line": 268,
       "signature": "pub fn enqueueRuntime("
     },
     {
       "name": "drainRuntime",
-      "line": 193,
+      "line": 275,
       "signature": "pub fn drainRuntime(self: *ExchangeApi) RuntimeDrainError!RuntimeDrainOutcome {"
     },
     {
       "name": "defaultPersistenceSnapshotFileName",
-      "line": 197,
+      "line": 279,
       "signature": "pub fn defaultPersistenceSnapshotFileName("
     },
     {
       "name": "defaultPersistenceJournalFileName",
-      "line": 212,
+      "line": 294,
       "signature": "pub fn defaultPersistenceJournalFileName("
     },
     {
       "name": "defaultPersistenceMainLogFileName",
-      "line": 225,
+      "line": 307,
       "signature": "pub fn defaultPersistenceMainLogFileName("
     },
     {
       "name": "defaultPersistenceSnapshotPath",
-      "line": 232,
+      "line": 314,
       "signature": "pub fn defaultPersistenceSnapshotPath("
     },
     {
+      "name": "defaultPersistenceSnapshotManifestPath",
+      "line": 329,
+      "signature": "pub fn defaultPersistenceSnapshotManifestPath("
+    },
+    {
       "name": "defaultPersistenceJournalPath",
-      "line": 247,
+      "line": 337,
       "signature": "pub fn defaultPersistenceJournalPath("
     },
     {
       "name": "defaultPersistenceMainLogPath",
-      "line": 260,
+      "line": 350,
       "signature": "pub fn defaultPersistenceMainLogPath("
     },
     {
       "name": "submitCommand",
-      "line": 267,
+      "line": 357,
       "signature": "pub fn submitCommand("
     },
     {
+      "name": "submitCommandSync",
+      "line": 366,
+      "signature": "pub fn submitCommandSync("
+    },
+    {
       "name": "addUser",
-      "line": 275,
+      "line": 373,
       "signature": "pub fn addUser("
     },
     {
       "name": "adjustUserBalance",
-      "line": 282,
+      "line": 380,
       "signature": "pub fn adjustUserBalance("
     },
     {
       "name": "placeOrder",
-      "line": 299,
+      "line": 397,
       "signature": "pub fn placeOrder("
     },
     {
       "name": "submitApiCommand",
-      "line": 324,
+      "line": 422,
       "signature": "pub fn submitApiCommand("
     },
     {
+      "name": "submitApiCommandDetached",
+      "line": 429,
+      "signature": "pub fn submitApiCommandDetached("
+    },
+    {
+      "name": "submitApiCommandSync",
+      "line": 436,
+      "signature": "pub fn submitApiCommandSync("
+    },
+    {
       "name": "submitCommandAsync",
-      "line": 331,
+      "line": 443,
       "signature": "pub fn submitCommandAsync("
     },
     {
       "name": "addUserAsync",
-      "line": 338,
+      "line": 450,
       "signature": "pub fn addUserAsync("
     },
     {
       "name": "adjustUserBalanceAsync",
-      "line": 345,
+      "line": 457,
       "signature": "pub fn adjustUserBalanceAsync("
     },
     {
       "name": "suspendUserAsync",
-      "line": 362,
+      "line": 474,
       "signature": "pub fn suspendUserAsync("
     },
     {
       "name": "resumeUserAsync",
-      "line": 369,
+      "line": 481,
       "signature": "pub fn resumeUserAsync("
     },
     {
       "name": "placeOrderAsync",
-      "line": 376,
+      "line": 488,
       "signature": "pub fn placeOrderAsync("
     },
     {
       "name": "moveOrderAsync",
-      "line": 401,
+      "line": 513,
       "signature": "pub fn moveOrderAsync("
     },
     {
       "name": "cancelOrderAsync",
-      "line": 416,
+      "line": 528,
       "signature": "pub fn cancelOrderAsync("
     },
     {
       "name": "reduceOrderAsync",
-      "line": 425,
+      "line": 537,
       "signature": "pub fn reduceOrderAsync("
     },
     {
       "name": "resetAsync",
-      "line": 435,
+      "line": 547,
       "signature": "pub fn resetAsync(self: *ExchangeApi) AsyncSubmitError!u64 {"
     },
     {
       "name": "groupingControlAsync",
-      "line": 439,
+      "line": 551,
       "signature": "pub fn groupingControlAsync("
     },
     {
       "name": "nopAsync",
-      "line": 447,
+      "line": 559,
       "signature": "pub fn nopAsync(self: *ExchangeApi) AsyncSubmitError!u64 {"
     },
     {
       "name": "submitApiCommandAsync",
-      "line": 451,
+      "line": 563,
       "signature": "pub fn submitApiCommandAsync("
     },
     {
       "name": "submitCommandAsyncResultCode",
-      "line": 458,
+      "line": 570,
       "signature": "pub fn submitCommandAsyncResultCode("
     },
     {
       "name": "submitCommandAsyncFullResponse",
-      "line": 465,
+      "line": 577,
       "signature": "pub fn submitCommandAsyncFullResponse("
     },
     {
       "name": "processCommandResultCode",
-      "line": 475,
+      "line": 587,
       "signature": "pub fn processCommandResultCode("
     },
     {
       "name": "processCommandFullResponse",
-      "line": 484,
+      "line": 597,
       "signature": "pub fn processCommandFullResponse("
     },
     {
       "name": "requestOrderBookAsync",
-      "line": 493,
+      "line": 607,
       "signature": "pub fn requestOrderBookAsync("
     },
     {
       "name": "orderBookRequestAsync",
-      "line": 506,
+      "line": 620,
       "signature": "pub fn orderBookRequestAsync("
     },
     {
       "name": "requestOrderBook",
-      "line": 514,
+      "line": 628,
       "signature": "pub fn requestOrderBook("
     },
     {
       "name": "submitCreateUserAsync",
-      "line": 522,
+      "line": 636,
       "signature": "pub fn submitCreateUserAsync("
     },
     {
       "name": "submitSuspendUserAsync",
-      "line": 529,
+      "line": 643,
       "signature": "pub fn submitSuspendUserAsync("
     },
     {
       "name": "submitResumeUserAsync",
-      "line": 536,
+      "line": 650,
       "signature": "pub fn submitResumeUserAsync("
     },
     {
       "name": "submitBalanceAdjustmentAsync",
-      "line": 543,
+      "line": 657,
       "signature": "pub fn submitBalanceAdjustmentAsync("
     },
     {
       "name": "submitPlaceNewOrderAsync",
-      "line": 562,
+      "line": 676,
       "signature": "pub fn submitPlaceNewOrderAsync("
     },
     {
       "name": "submitMoveOrderAsync",
-      "line": 589,
+      "line": 703,
       "signature": "pub fn submitMoveOrderAsync("
     },
     {
       "name": "submitCancelOrderAsync",
-      "line": 606,
+      "line": 720,
       "signature": "pub fn submitCancelOrderAsync("
     },
     {
       "name": "submitReduceOrderAsync",
-      "line": 621,
+      "line": 735,
       "signature": "pub fn submitReduceOrderAsync("
     },
     {
       "name": "submitPersistStateAsync",
-      "line": 638,
+      "line": 752,
       "signature": "pub fn submitPersistStateAsync("
     },
     {
       "name": "processPersistStateResultCode",
-      "line": 651,
+      "line": 765,
       "signature": "pub fn processPersistStateResultCode("
     },
     {
       "name": "createUserWithCallback",
-      "line": 664,
+      "line": 778,
       "signature": "pub fn createUserWithCallback("
     },
     {
       "name": "suspendUserWithCallback",
-      "line": 672,
+      "line": 786,
       "signature": "pub fn suspendUserWithCallback("
     },
     {
       "name": "resumeUserWithCallback",
-      "line": 680,
+      "line": 794,
       "signature": "pub fn resumeUserWithCallback("
     },
     {
       "name": "balanceAdjustmentWithCallback",
-      "line": 688,
+      "line": 802,
       "signature": "pub fn balanceAdjustmentWithCallback("
     },
     {
       "name": "orderBookRequest",
-      "line": 708,
+      "line": 822,
       "signature": "pub fn orderBookRequest("
     },
     {
       "name": "placeNewOrderWithCallback",
-      "line": 722,
+      "line": 836,
       "signature": "pub fn placeNewOrderWithCallback("
     },
     {
+      "name": "placeNewOrderGeneratedIdWithCallback",
+      "line": 864,
+      "signature": "pub fn placeNewOrderGeneratedIdWithCallback("
+    },
+    {
       "name": "moveOrderWithCallback",
-      "line": 750,
+      "line": 889,
       "signature": "pub fn moveOrderWithCallback("
     },
     {
       "name": "cancelOrderWithCallback",
-      "line": 768,
+      "line": 907,
       "signature": "pub fn cancelOrderWithCallback("
     },
     {
       "name": "reduceOrderWithCallback",
-      "line": 784,
+      "line": 923,
       "signature": "pub fn reduceOrderWithCallback("
     },
     {
       "name": "submitBinaryReportQueryAsync",
-      "line": 802,
+      "line": 941,
       "signature": "pub fn submitBinaryReportQueryAsync("
     },
     {
+      "name": "submitNativeReportQueryAsync",
+      "line": 958,
+      "signature": "pub fn submitNativeReportQueryAsync("
+    },
+    {
       "name": "submitBinaryDataPayloadAsync",
-      "line": 817,
+      "line": 972,
       "signature": "pub fn submitBinaryDataPayloadAsync("
     },
     {
       "name": "submitBinaryDataAsync",
-      "line": 832,
+      "line": 987,
       "signature": "pub fn submitBinaryDataAsync("
     },
     {
       "name": "submitBinaryCommandAsync",
-      "line": 841,
+      "line": 996,
       "signature": "pub fn submitBinaryCommandAsync("
     },
     {
       "name": "submitBinaryQueryPayloadAsync",
-      "line": 850,
+      "line": 1005,
       "signature": "pub fn submitBinaryQueryPayloadAsync("
     },
     {
       "name": "publishBinaryData",
-      "line": 865,
+      "line": 1020,
       "signature": "pub fn publishBinaryData("
     },
     {
       "name": "publishQuery",
-      "line": 874,
+      "line": 1029,
       "signature": "pub fn publishQuery("
     },
     {
       "name": "submitQueryAsync",
-      "line": 883,
+      "line": 1038,
       "signature": "pub fn submitQueryAsync("
     },
     {
       "name": "requestStateHashAsync",
-      "line": 892,
+      "line": 1047,
       "signature": "pub fn requestStateHashAsync("
     },
     {
       "name": "requestSingleUserReportAsync",
-      "line": 900,
+      "line": 1055,
       "signature": "pub fn requestSingleUserReportAsync("
     },
     {
       "name": "requestTotalCurrencyBalanceAsync",
-      "line": 909,
+      "line": 1064,
       "signature": "pub fn requestTotalCurrencyBalanceAsync("
     },
     {
       "name": "isResultReady",
-      "line": 917,
+      "line": 1072,
       "signature": "pub fn isResultReady("
     },
     {
       "name": "isAsyncResultReady",
-      "line": 924,
+      "line": 1079,
       "signature": "pub fn isAsyncResultReady("
     },
     {
+      "name": "isAsyncResultReadyChecked",
+      "line": 1086,
+      "signature": "pub fn isAsyncResultReadyChecked("
+    },
+    {
       "name": "isApiCommandAsyncResultReady",
-      "line": 931,
+      "line": 1093,
       "signature": "pub fn isApiCommandAsyncResultReady("
     },
     {
+      "name": "isApiCommandAsyncResultReadyChecked",
+      "line": 1100,
+      "signature": "pub fn isApiCommandAsyncResultReadyChecked("
+    },
+    {
       "name": "takeResult",
-      "line": 938,
+      "line": 1107,
       "signature": "pub fn takeResult("
     },
     {
       "name": "takeAsyncResult",
-      "line": 945,
+      "line": 1118,
       "signature": "pub fn takeAsyncResult("
     },
     {
+      "name": "takeAsyncResultChecked",
+      "line": 1129,
+      "signature": "pub fn takeAsyncResultChecked("
+    },
+    {
       "name": "takeApiCommandAsyncResult",
-      "line": 952,
+      "line": 1140,
       "signature": "pub fn takeApiCommandAsyncResult("
     },
     {
+      "name": "takeApiCommandAsyncResultChecked",
+      "line": 1147,
+      "signature": "pub fn takeApiCommandAsyncResultChecked("
+    },
+    {
       "name": "registerResultCallback",
-      "line": 959,
+      "line": 1158,
       "signature": "pub fn registerResultCallback("
     },
     {
       "name": "pendingCallbackCount",
-      "line": 967,
+      "line": 1169,
       "signature": "pub fn pendingCallbackCount(self: *const ExchangeApi) usize {"
     },
     {
       "name": "processResult",
-      "line": 971,
+      "line": 1178,
       "signature": "pub fn processResult("
     },
     {
       "name": "processRegisteredCallback",
-      "line": 985,
+      "line": 1196,
       "signature": "pub fn processRegisteredCallback("
     },
     {
       "name": "processPendingCallbacks",
-      "line": 999,
+      "line": 1222,
       "signature": "pub fn processPendingCallbacks(self: *ExchangeApi) ProcessRegisteredCallbackError!usize {"
     },
     {
       "name": "takeResultCode",
-      "line": 1015,
+      "line": 1253,
       "signature": "pub fn takeResultCode("
     },
     {
       "name": "takeFullResponse",
-      "line": 1027,
+      "line": 1265,
       "signature": "pub fn takeFullResponse("
     },
     {
       "name": "takeOrderBookSnapshot",
-      "line": 1038,
+      "line": 1276,
       "signature": "pub fn takeOrderBookSnapshot("
     },
     {
       "name": "takeReportResponse",
-      "line": 1051,
+      "line": 1289,
       "signature": "pub fn takeReportResponse("
     },
     {
+      "name": "takeJavaReportResponse",
+      "line": 1302,
+      "signature": "pub fn takeJavaReportResponse("
+    },
+    {
+      "name": "takeJavaStateHashReport",
+      "line": 1342,
+      "signature": "pub fn takeJavaStateHashReport("
+    },
+    {
+      "name": "takeJavaSingleUserReport",
+      "line": 1354,
+      "signature": "pub fn takeJavaSingleUserReport("
+    },
+    {
+      "name": "takeJavaTotalCurrencyBalanceReport",
+      "line": 1369,
+      "signature": "pub fn takeJavaTotalCurrencyBalanceReport("
+    },
+    {
       "name": "takeStateHashDetailed",
-      "line": 1064,
+      "line": 1384,
       "signature": "pub fn takeStateHashDetailed("
     },
     {
       "name": "takeSingleUserReport",
-      "line": 1076,
+      "line": 1396,
       "signature": "pub fn takeSingleUserReport("
     },
     {
       "name": "takeTotalCurrencyBalanceReport",
-      "line": 1088,
+      "line": 1408,
       "signature": "pub fn takeTotalCurrencyBalanceReport("
     },
     {
+      "name": "processNativeReport",
+      "line": 1420,
+      "signature": "pub fn processNativeReport("
+    },
+    {
       "name": "processReport",
-      "line": 1100,
+      "line": 1434,
       "signature": "pub fn processReport("
     },
     {
       "name": "processStateHashReport",
-      "line": 1111,
+      "line": 1443,
       "signature": "pub fn processStateHashReport("
     },
     {
       "name": "processSingleUserReport",
-      "line": 1121,
+      "line": 1454,
       "signature": "pub fn processSingleUserReport("
     },
     {
       "name": "processTotalCurrencyBalanceReport",
-      "line": 1132,
+      "line": 1466,
       "signature": "pub fn processTotalCurrencyBalanceReport("
     },
     {
+      "name": "processJavaReport",
+      "line": 1477,
+      "signature": "pub fn processJavaReport("
+    },
+    {
+      "name": "processJavaStateHashReport",
+      "line": 1489,
+      "signature": "pub fn processJavaStateHashReport("
+    },
+    {
+      "name": "processJavaSingleUserReport",
+      "line": 1500,
+      "signature": "pub fn processJavaSingleUserReport("
+    },
+    {
+      "name": "processJavaTotalCurrencyBalanceReport",
+      "line": 1516,
+      "signature": "pub fn processJavaTotalCurrencyBalanceReport("
+    },
+    {
       "name": "processOrderBookRequest",
-      "line": 1142,
+      "line": 1531,
       "signature": "pub fn processOrderBookRequest("
     },
     {
       "name": "queryReport",
-      "line": 1152,
+      "line": 1542,
       "signature": "pub fn queryReport("
     },
     {
       "name": "queryRiskStateHash",
-      "line": 1159,
+      "line": 1549,
       "signature": "pub fn queryRiskStateHash(self: *ExchangeApi) QueryTypedReportError!u64 {"
     },
     {
       "name": "queryFeeCollected",
-      "line": 1168,
+      "line": 1558,
       "signature": "pub fn queryFeeCollected("
     },
     {
       "name": "queryUserBalance",
-      "line": 1180,
+      "line": 1570,
       "signature": "pub fn queryUserBalance("
     },
     {
       "name": "queryOrderBook",
-      "line": 1198,
+      "line": 1588,
       "signature": "pub fn queryOrderBook("
     },
     {
       "name": "drainPending",
-      "line": 1216,
+      "line": 1606,
       "signature": "pub fn drainPending(self: *ExchangeApi) DrainPendingError!usize {"
     },
     {
       "name": "drainAsyncPending",
-      "line": 1220,
+      "line": 1610,
       "signature": "pub fn drainAsyncPending(self: *ExchangeApi) DrainPendingError!usize {"
     },
     {
       "name": "submitCommandsSync",
-      "line": 1224,
+      "line": 1614,
       "signature": "pub fn submitCommandsSync("
     },
     {
       "name": "submitApiCommandsSync",
-      "line": 1233,
+      "line": 1624,
       "signature": "pub fn submitApiCommandsSync("
     },
     {
       "name": "submitCommandsSyncWithNop",
-      "line": 1240,
+      "line": 1631,
       "signature": "pub fn submitCommandsSyncWithNop("
     },
     {
       "name": "submitApiCommandsSyncWithNop",
-      "line": 1247,
+      "line": 1639,
       "signature": "pub fn submitApiCommandsSyncWithNop("
     },
     {
       "name": "persistState",
-      "line": 1254,
+      "line": 1646,
       "signature": "pub fn persistState("
     },
     {
+      "name": "setPersistenceFaultForTesting",
+      "line": 1654,
+      "signature": "pub fn setPersistenceFaultForTesting("
+    },
+    {
       "name": "submitCommandBatch",
-      "line": 1262,
+      "line": 1661,
       "signature": "pub fn submitCommandBatch("
     },
     {
       "name": "submitBinaryPayload",
-      "line": 1269,
+      "line": 1668,
       "signature": "pub fn submitBinaryPayload("
     },
     {
       "name": "submitBinaryPayloadAsync",
-      "line": 1284,
+      "line": 1683,
       "signature": "pub fn submitBinaryPayloadAsync("
     },
     {
+      "name": "submitBinaryPayloadAsyncWithCallback",
+      "line": 1700,
+      "signature": "pub fn submitBinaryPayloadAsyncWithCallback("
+    },
+    {
+      "name": "submitBinaryPayloadDetached",
+      "line": 1718,
+      "signature": "pub fn submitBinaryPayloadDetached("
+    },
+    {
       "name": "submitBinaryReportQuery",
-      "line": 1299,
+      "line": 1733,
       "signature": "pub fn submitBinaryReportQuery("
     },
     {
+      "name": "submitNativeReportQuery",
+      "line": 1742,
+      "signature": "pub fn submitNativeReportQuery("
+    },
+    {
       "name": "persistStateAsync",
-      "line": 1308,
+      "line": 1751,
       "signature": "pub fn persistStateAsync("
     },
     {
       "name": "isPersistStateResultReady",
-      "line": 1316,
+      "line": 1759,
       "signature": "pub fn isPersistStateResultReady("
     },
     {
+      "name": "isPersistStateResultReadyChecked",
+      "line": 1766,
+      "signature": "pub fn isPersistStateResultReadyChecked("
+    },
+    {
       "name": "takePersistStateResult",
-      "line": 1323,
+      "line": 1773,
       "signature": "pub fn takePersistStateResult("
     },
     {
+      "name": "takePersistStateResultChecked",
+      "line": 1780,
+      "signature": "pub fn takePersistStateResultChecked("
+    },
+    {
       "name": "setResultSink",
-      "line": 1330,
+      "line": 1787,
       "signature": "pub fn setResultSink("
     },
     {
+      "name": "setResultSinkChecked",
+      "line": 1794,
+      "signature": "pub fn setResultSinkChecked("
+    },
+    {
+      "name": "setRawResultSink",
+      "line": 1801,
+      "signature": "pub fn setRawResultSink("
+    },
+    {
+      "name": "setRawResultSinkChecked",
+      "line": 1808,
+      "signature": "pub fn setRawResultSinkChecked("
+    },
+    {
+      "name": "clearRawResultSink",
+      "line": 1815,
+      "signature": "pub fn clearRawResultSink(self: *ExchangeApi) void {"
+    },
+    {
+      "name": "clearRawResultSinkChecked",
+      "line": 1819,
+      "signature": "pub fn clearRawResultSinkChecked(self: *ExchangeApi) CallbackConfigError!void {"
+    },
+    {
       "name": "setSimpleEventsHandler",
-      "line": 1337,
+      "line": 1823,
       "signature": "pub fn setSimpleEventsHandler("
     },
     {
+      "name": "setSimpleEventsHandlerChecked",
+      "line": 1830,
+      "signature": "pub fn setSimpleEventsHandlerChecked("
+    },
+    {
       "name": "clearSimpleEventsHandler",
-      "line": 1344,
+      "line": 1837,
       "signature": "pub fn clearSimpleEventsHandler(self: *ExchangeApi) void {"
     },
     {
+      "name": "clearSimpleEventsHandlerChecked",
+      "line": 1841,
+      "signature": "pub fn clearSimpleEventsHandlerChecked(self: *ExchangeApi) CallbackConfigError!void {"
+    },
+    {
       "name": "submitAddSymbolsBinary",
-      "line": 1348,
+      "line": 1845,
       "signature": "pub fn submitAddSymbolsBinary("
     },
     {
       "name": "submitAddSymbolsBinaryAsync",
-      "line": 1363,
+      "line": 1860,
       "signature": "pub fn submitAddSymbolsBinaryAsync("
     },
     {
       "name": "submitAddAccountsBinary",
-      "line": 1378,
+      "line": 1875,
       "signature": "pub fn submitAddAccountsBinary("
     },
     {
       "name": "submitAddAccountsBinaryAsync",
-      "line": 1393,
+      "line": 1890,
       "signature": "pub fn submitAddAccountsBinaryAsync("
     },
     {
       "name": "startup",
-      "line": 1408,
-      "signature": "pub fn startup(self: *ExchangeApi) LifecycleError!void {"
+      "line": 1905,
+      "signature": "pub fn startup(self: *ExchangeApi) StartError!void {"
+    },
+    {
+      "name": "shutdownState",
+      "line": 1909,
+      "signature": "pub fn shutdownState(self: *const ExchangeApi) ShutdownState {"
+    },
+    {
+      "name": "shutdownTimeout",
+      "line": 1913,
+      "signature": "pub fn shutdownTimeout("
     },
     {
       "name": "shutdown",
-      "line": 1412,
+      "line": 1920,
       "signature": "pub fn shutdown(self: *ExchangeApi) LifecycleError!void {"
     },
     {
       "name": "bootstrapFromPersistence",
-      "line": 1416,
+      "line": 1924,
       "signature": "pub fn bootstrapFromPersistence("
     },
     {
       "name": "startupFromPersistence",
-      "line": 1425,
+      "line": 1933,
       "signature": "pub fn startupFromPersistence("
     },
     {
       "name": "startupFromConfiguredPersistence",
-      "line": 1434,
+      "line": 1942,
       "signature": "pub fn startupFromConfiguredPersistence("
     },
     {
       "name": "writeJournalToFile",
-      "line": 1449,
+      "line": 1957,
       "signature": "pub fn writeJournalToFile("
     },
     {
       "name": "loadJournalFromFile",
-      "line": 1457,
+      "line": 1965,
       "signature": "pub fn loadJournalFromFile("
     },
     {
       "name": "replayJournalFromFile",
-      "line": 1465,
+      "line": 1973,
       "signature": "pub fn replayJournalFromFile("
     },
     {
       "name": "captureSnapshotToFile",
-      "line": 1473,
+      "line": 1981,
       "signature": "pub fn captureSnapshotToFile("
     },
     {
       "name": "validateSnapshotFile",
-      "line": 1488,
+      "line": 1996,
       "signature": "pub fn validateSnapshotFile("
     },
     {
       "name": "writeJournalToDefaultPath",
-      "line": 1496,
+      "line": 2004,
       "signature": "pub fn writeJournalToDefaultPath("
     },
     {
       "name": "loadJournalFromDefaultPath",
-      "line": 1509,
+      "line": 2017,
       "signature": "pub fn loadJournalFromDefaultPath("
     },
     {
       "name": "replayJournalFromDefaultPath",
-      "line": 1522,
+      "line": 2030,
       "signature": "pub fn replayJournalFromDefaultPath("
     },
     {
       "name": "replayJournalFromDefaultPathRange",
-      "line": 1535,
+      "line": 2043,
       "signature": "pub fn replayJournalFromDefaultPathRange("
     },
     {
       "name": "captureSnapshotToDefaultPath",
-      "line": 1548,
+      "line": 2056,
       "signature": "pub fn captureSnapshotToDefaultPath("
     },
     {
       "name": "validateSnapshotDefaultPath",
-      "line": 1567,
+      "line": 2075,
       "signature": "pub fn validateSnapshotDefaultPath("
     },
     {
       "name": "persistStateWithDefaultMainLog",
-      "line": 1582,
+      "line": 2090,
       "signature": "pub fn persistStateWithDefaultMainLog("
     },
     {
+      "name": "persistStateWithConfiguredMainLog",
+      "line": 2107,
+      "signature": "pub fn persistStateWithConfiguredMainLog("
+    },
+    {
       "name": "startupFromDiscoveredConfiguredPersistence",
-      "line": 1599,
+      "line": 2122,
       "signature": "pub fn startupFromDiscoveredConfiguredPersistence("
     },
     {
       "name": "startupFromDiscoveredConfiguredPersistenceStrictMainLog",
-      "line": 1614,
+      "line": 2137,
       "signature": "pub fn startupFromDiscoveredConfiguredPersistenceStrictMainLog("
     },
     {
       "name": "persistenceSnapshotCount",
-      "line": 1629,
-      "signature": "pub fn persistenceSnapshotCount(self: *const ExchangeApi) usize {"
+      "line": 2152,
+      "signature": "pub fn persistenceSnapshotCount(self: *const ExchangeApi) LifecycleError!usize {"
     },
     {
       "name": "persistenceJournalCount",
-      "line": 1633,
-      "signature": "pub fn persistenceJournalCount(self: *const ExchangeApi) usize {"
+      "line": 2156,
+      "signature": "pub fn persistenceJournalCount(self: *const ExchangeApi) LifecycleError!usize {"
     },
     {
       "name": "persistenceCurrentSnapshot",
-      "line": 1637,
-      "signature": "pub fn persistenceCurrentSnapshot(self: *const ExchangeApi) *const SnapshotDescriptor {"
+      "line": 2160,
+      "signature": "pub fn persistenceCurrentSnapshot(self: *const ExchangeApi) LifecycleError!SnapshotDescriptorView {"
     },
     {
       "name": "persistenceCurrentSnapshotRef",
-      "line": 1641,
-      "signature": "pub fn persistenceCurrentSnapshotRef(self: *const ExchangeApi) SnapshotRef {"
+      "line": 2164,
+      "signature": "pub fn persistenceCurrentSnapshotRef(self: *const ExchangeApi) LifecycleError!SnapshotRef {"
     },
     {
       "name": "persistenceJournalByRef",
-      "line": 1645,
-      "signature": "pub fn persistenceJournalByRef(self: *const ExchangeApi, journal_ref: JournalRef) *const JournalDescriptor {"
+      "line": 2168,
+      "signature": "pub fn persistenceJournalByRef("
     },
     {
       "name": "persistenceFindJournalForSequence",
-      "line": 1649,
-      "signature": "pub fn persistenceFindJournalForSequence(self: *const ExchangeApi, sequence: u64) ?JournalRef {"
+      "line": 2175,
+      "signature": "pub fn persistenceFindJournalForSequence("
     },
     {
       "name": "persistenceFindSnapshotById",
-      "line": 1653,
-      "signature": "pub fn persistenceFindSnapshotById(self: *const ExchangeApi, snapshot_id: u64) ?SnapshotRef {"
+      "line": 2182,
+      "signature": "pub fn persistenceFindSnapshotById("
     },
     {
       "name": "persistenceSnapshotById",
-      "line": 1657,
-      "signature": "pub fn persistenceSnapshotById(self: *const ExchangeApi, snapshot_id: u64) ?*const SnapshotDescriptor {"
+      "line": 2189,
+      "signature": "pub fn persistenceSnapshotById("
     },
     {
       "name": "snapshotExistsDefaultPath",
-      "line": 1661,
+      "line": 2196,
       "signature": "pub fn snapshotExistsDefaultPath("
     },
     {
       "name": "snapshotExistsFile",
-      "line": 1676,
+      "line": 2211,
       "signature": "pub fn snapshotExistsFile("
     },
     {
       "name": "createUser",
-      "line": 1684,
+      "line": 2219,
       "signature": "pub fn createUser("
     },
     {
       "name": "suspendUser",
-      "line": 1703,
+      "line": 2238,
       "signature": "pub fn suspendUser("
     },
     {
       "name": "resumeUser",
-      "line": 1722,
+      "line": 2257,
       "signature": "pub fn resumeUser("
     },
     {
       "name": "balanceAdjustment",
-      "line": 1741,
+      "line": 2276,
       "signature": "pub fn balanceAdjustment("
     },
     {
       "name": "placeNewOrder",
-      "line": 1770,
+      "line": 2305,
       "signature": "pub fn placeNewOrder("
     },
     {
       "name": "moveOrder",
-      "line": 1803,
+      "line": 2338,
       "signature": "pub fn moveOrder("
     },
     {
       "name": "cancelOrder",
-      "line": 1826,
+      "line": 2361,
       "signature": "pub fn cancelOrder("
     },
     {
       "name": "reduceOrder",
-      "line": 1847,
+      "line": 2382,
       "signature": "pub fn reduceOrder("
     },
     {
       "name": "binaryData",
-      "line": 1870,
+      "line": 2405,
       "signature": "pub fn binaryData("
     },
     {
       "name": "groupingControl",
-      "line": 1897,
+      "line": 2432,
       "signature": "pub fn groupingControl("
     },
     {
       "name": "reset",
-      "line": 1910,
+      "line": 2445,
       "signature": "pub fn reset("
     },
     {
       "name": "nop",
-      "line": 1921,
+      "line": 2456,
       "signature": "pub fn nop("
+    },
+    {
+      "name": "submitApiCommandWithCallback",
+      "line": 2531,
+      "signature": "pub fn submitApiCommandWithCallback("
+    },
+    {
+      "name": "submitCommandAsyncWithCallback",
+      "line": 2539,
+      "signature": "pub fn submitCommandAsyncWithCallback("
     }
   ]
 }

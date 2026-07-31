@@ -1,91 +1,117 @@
-# Legacy Persistence Adapter Spike (Phase 0-1)
+# Java Persistence Conversion Boundary
 
-Date: 2026-02-13  
-Scope: optional Chronicle/LZ4 -> Zig persistence import boundary
+Updated: 2026-07-31
+
+This file began as a phase-0/1 adapter spike. The implementation has since
+advanced into dedicated snapshot and journal converters, so this document now
+records the completed conversion boundary and its release evidence.
 
 ## Purpose
 
-Prepare a safe, bounded adapter path for legacy persistence import without changing Zig runtime readers.
+Convert supported Java Chronicle/LZ4 persistence families into native Zig
+artifacts without adding a legacy branch to runtime startup. Conversion targets
+semantic equivalence: restored users, balances, positions, symbol state, order
+books, command results, and publication frontiers must match. It does not target
+byte-identical Java output.
 
-This spike does not implement conversion. It currently implements:
-- boundary types,
-- input preflight classification,
-- legacy LZ4 frame-header parsing skeleton with typed metadata/errors,
-- explicit `NotImplemented` conversion behavior.
+## Architecture
 
-## Runtime boundary
+### Shared legacy preflight
 
-Runtime readers remain authoritative and unchanged:
-- `core/snapshot.zig` reads native `XCS1`/`XCS2`.
-- `core/journal.zig` reads native `XCJ1`.
-- legacy LZ4 inputs still fail fast with `error.UnsupportedLegacyLz4Format`.
+`core/legacy_persistence_adapter.zig` owns legacy magic classification, request
+preflight, LZ4 frame metadata validation, bounded snapshot decompression, and a
+typed failure taxonomy.
 
-No dual-format startup behavior is introduced.
+The obsolete `convertLegacyPersistenceArchives` umbrella placeholder was
+removed. Its request shape could not carry the topology, snapshot frontier,
+sequence policy, or destination metadata needed for a safe conversion. Callers
+must use the dedicated snapshot-family and journal-family converters below,
+whose typed requests make those authorities explicit.
 
-## Phase 0 Deliverables
+### Snapshot-family conversion
 
-Implemented module:
-- `src/zig/core/legacy_persistence_adapter.zig`
+- `core/java_snapshot_wire.zig` reads Java primitive/object wire values.
+- `core/java_snapshot_body.zig` decodes matching and risk module bodies.
+- `core/java_snapshot_import.zig` validates and stages decoded modules.
+- `core/java_persistence_converter.zig` requires the complete expected module
+  family and atomically advertises an `XCM2` bundle after staged import and
+  verifies the result through native XCM2 read-back.
 
-Key API:
-- `detectMagic(magic_prefix)` -> classifies `XCS1`/`XCS2`/`XCJ1`/legacy-LZ4/unknown/truncated
-- `probeFileMagic(dir, path)` -> typed file-level magic probe
-- `preflightLegacyImport(dir, request)` -> validates import request and enforces legacy-LZ4 inputs
-- `convertLegacyPersistenceArchives(...)` -> explicit `error.NotImplemented` after successful preflight
+The runtime then restores that bundle through the normal XCM2 path.
 
-Typed failure taxonomy:
-- request validation failures (`EmptyOutputFolder`, `MissingInputArchive`)
-- probe I/O failures (`OpenError`, `ReadError`)
-- preflight format mismatches (`SnapshotArchiveNotLegacyLz4`, `JournalArchiveNotLegacyLz4`)
-- conversion placeholder (`NotImplemented`)
+### Journal-family conversion
 
-## Phase 1 Deliverables
+- `core/java_journal_wire.zig` decodes partition contents with explicit limits.
+- `core/java_journal_replay.zig` replays records against staged kernels and
+  computes command results while enforcing the selected sequence policy. Java
+  journal records do not contain result codes to compare.
+- `core/java_journal_converter.zig` validates the ordered family and publishes
+  appendable `XCJ3` after staged byte-identity verification. The explicit
+  sparse compatibility policy preserves each retained Java sequence, allowing
+  the live appender to continue at the final frontier plus one without
+  fabricating omitted commands.
 
-Implemented parser skeleton in the same module:
-- `parseLegacyLz4FrameHeader(header_prefix)`
-- `parseLegacyLz4FileHeader(dir, path)`
+Java journals omit non-mutating publications, so sparse records do not prove a
+terminal high-water mark. Conversion must receive or derive that authority from
+a validated persistence boundary; it must never guess it from the final record.
 
-Header metadata model:
-- standard frame descriptor metadata (`version`, checksums/presence flags, block max-size code, header lengths)
-- skippable frame metadata (`user_magic_tag`, payload length)
+## Runtime Boundary
 
-Typed parser errors:
-- malformed magic (`InvalidLegacyMagic`)
-- truncation (`TruncatedFrameMagic`, `TruncatedStandardHeaderDescriptor`, `TruncatedSkippableHeader`)
-- unsupported/invalid descriptor bits (`UnsupportedFrameVersion`, `ReservedFlagBitSet`, `ReservedBlockDescriptorBitsSet`, `UnsupportedBlockMaxSizeCode`)
+Normal startup remains single-format:
 
-## Why this shape
+- current sharded committed snapshots use `XCM2`;
+- current live durable journals use `XCJ3`;
+- compatibility XCS/XCJ readers reject legacy LZ4 input with
+  `error.UnsupportedLegacyLz4Format`, while XCM2 treats wrong manifest magic as
+  invalid native input;
+- conversion is performed offline and produces data accepted by the ordinary
+  native restore/replay implementation.
 
-1. Safety
-- conversion logic is isolated from runtime bootstrap paths.
-- preflight rejects wrong format early and explicitly.
+## Failure Model
 
-2. Determinism
-- existing startup/replay behavior remains unchanged.
-- import concerns are moved to an offline boundary.
+The boundary must fail without publishing partial output for:
 
-3. Developer experience
-- future adapter work has a concrete entrypoint and typed errors.
-- trigger-gated work can start without reopening persistence design decisions.
+- unknown, truncated, unsupported, or checksum-invalid LZ4 frames;
+- decompression or collection sizes above configured limits;
+- missing, duplicate, swapped, or topologically inconsistent modules;
+- missing or invalid matching/risk persistence barriers;
+- journal gaps without an explicit preservation policy and trusted frontier;
+- records inconsistent with the caller-supplied execution mode, gap policy, or
+  post-snapshot sequence high-water;
+- target collisions, symbolic-link targets, ambiguous writes, failed syncs, or
+  failed native read-back.
 
-## Next phases (only if externally required)
+Conversion errors after staged replay must not leak a partially mutated live
+kernel. Failures before publication must leave the destination absent or leave
+a prior committed artifact unchanged. A failure after the atomic link but
+before parent-directory sync is ambiguous: the new path can already be visible,
+so the converter must report the ambiguity and callers must not retry blindly.
 
-1. Phase 2: semantic conversion
-- map parsed archive contents into native Zig snapshot/journal writers.
-- enforce sequence/result invariants during rewrite.
+## Verification Status
 
-2. Phase 3: fixture-backed equivalence
-- run converted outputs through existing startup/replay and report checks.
-- compare state hash and business-level report outcomes.
+The modules have focused Debug and ReleaseSafe coverage for supported layouts,
+corruption, limits, allocation failures, replay policy failures, atomic
+publication, native read-back, and Java persistence-barrier validation. A
+checksummed Chronicle-generated `.ecs`/`.ecj` family is committed under
+`fixtures/java-persistence/v1` and is regenerated and recovered by the
+compatible-JDK Java fixture gate.
 
-3. Phase 4: operational wrapping
-- package as an explicit offline command/tool.
-- keep runtime core readers unchanged.
+The authoritative Java fixture is generated with workspace-local Temurin
+11.0.32+9 because the pinned Chronicle dependency is incompatible with the
+system JDK 25. Two separate JVM invocations produced the committed
+byte-identical `.ecs`/`.ecj` family, recovered snapshot-only and
+snapshot-plus-journal business state in Java, and matched the portable
+manifest. Zig converted and recovered the same bytes in Debug and ReleaseSafe.
 
-## Trigger gate reminder
+## Completion Evidence
 
-Advance past phase 1 only when all are true:
-1. concrete producer/consumer pair exists,
-2. artifact set is bounded,
-3. migration objective is explicit (one-time import vs recurring ingestion),
-4. acceptance owner agrees on semantic equivalence criteria.
+1. A real 1ME/1RE Chronicle snapshot and journal family is generated and
+   recovered by Java; synthetic fixtures cover asymmetric topology, multiple
+   partitions, sparse sequences, corruption, and allocation failure.
+2. Dedicated converters have no test-only source-format exceptions.
+3. Converted XCM2/XCJ3 state is restored through ordinary native readers and
+   checked against Java business state and command results.
+4. Focused tests exercise torn tails, advertisement/adoption ambiguity,
+   collision policy, retry safety, and directory-sync boundaries.
+5. Converter tests pass 9/9 snapshot and 15/15 journal cases in both Debug and
+   ReleaseSafe; the aggregate gate passes 26/26 steps and 2255/2255 tests.

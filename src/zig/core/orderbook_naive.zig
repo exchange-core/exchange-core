@@ -35,6 +35,9 @@ pub const UserOrderView = struct {
 pub const HoldAggregationError = std.mem.Allocator.Error || error{
     ArithmeticOverflow,
 };
+pub const ProcessError = std.mem.Allocator.Error || error{
+    OrderBookInvariantViolation,
+};
 pub const RestoreOrdersError = std.mem.Allocator.Error || error{
     InvalidOrderSymbol,
     InvalidOrderSize,
@@ -188,7 +191,7 @@ pub const NaiveOrderBook = struct {
     pub fn processCommand(
         self: *NaiveOrderBook,
         command: *cmd.OrderCommand,
-    ) std.mem.Allocator.Error!cmd.CommandResultCode {
+    ) ProcessError!cmd.CommandResultCode {
         return self.processCommandWithEvents(command, null);
     }
 
@@ -196,13 +199,16 @@ pub const NaiveOrderBook = struct {
         self: *NaiveOrderBook,
         command: *cmd.OrderCommand,
         event_chain: ?*events.EventChain,
-    ) std.mem.Allocator.Error!cmd.CommandResultCode {
+    ) ProcessError!cmd.CommandResultCode {
         return switch (command.command) {
             .move_order => self.moveOrder(command, event_chain),
             .cancel_order => try self.cancelOrder(command, event_chain),
             .reduce_order => try self.reduceOrder(command, event_chain),
             .place_order => blk: {
                 if (command.result_code == .valid_for_matching_engine) {
+                    if (invalidPlaceOrderResult(command)) |result| {
+                        break :blk result;
+                    }
                     try self.newOrder(command, event_chain);
                     break :blk .success;
                 }
@@ -670,7 +676,11 @@ pub const NaiveOrderBook = struct {
         }
     }
 
-    fn checkBudgetToFill(self: *const NaiveOrderBook, action: common.OrderAction, size: i64) ?i128 {
+    fn checkBudgetToFill(
+        self: *const NaiveOrderBook,
+        action: common.OrderAction,
+        size: i64,
+    ) error{OrderBookInvariantViolation}!?i128 {
         if (size <= 0) return null;
         const opposite = self.sideBucketsConst(action.opposite());
 
@@ -678,12 +688,15 @@ pub const NaiveOrderBook = struct {
         var budget: i128 = 0;
 
         for (opposite.items) |bucket| {
-            const available = bucket.total_volume;
-            if (remaining > available) {
-                remaining -= available;
-                budget += @as(i128, available) * @as(i128, bucket.price);
-            } else {
-                return budget + @as(i128, remaining) * @as(i128, bucket.price);
+            for (bucket.orders.items) |order| {
+                const available = order.remaining();
+                if (available <= 0) {
+                    return error.OrderBookInvariantViolation;
+                }
+                const fill_size = @min(remaining, available);
+                budget += @as(i128, fill_size) * @as(i128, order.price);
+                remaining -= fill_size;
+                if (remaining == 0) return budget;
             }
         }
         return null;
@@ -733,13 +746,38 @@ pub const NaiveOrderBook = struct {
         if (event_chain == null) return;
         if (reject_size <= 0) return;
 
-        _ = try event_chain.?.prepend(.{
+        _ = try event_chain.?.prepend(rejectEvent(active, reject_size, order_type, reject_price));
+    }
+
+    fn rejectEvent(
+        active: ActiveOrder,
+        reject_size: i64,
+        order_type: common.OrderType,
+        reject_price: i64,
+    ) events.MatcherTradeEvent {
+        return .{
             .event_type = .reject,
             .active_order_completed = true,
             .price = if (order_type == .fok_budget) reject_price else active.price,
             .size = reject_size,
             .bidder_hold_price = if (active.action == .bid) active.reserve_bid_price else 0,
-        });
+        };
+    }
+
+    fn prependReservedRejectEvent(
+        event_chain: *events.EventChain,
+        node: *events.MatcherTradeEvent,
+        active: ActiveOrder,
+        reject_size: i64,
+        order_type: common.OrderType,
+        reject_price: i64,
+    ) void {
+        std.debug.assert(reject_size > 0);
+        node.* = rejectEvent(active, reject_size, order_type, reject_price);
+        node.next_event = event_chain.head;
+        event_chain.head = node;
+        if (event_chain.tail == null) event_chain.tail = node;
+        event_chain.len += 1;
     }
 
     fn appendReduceEvent(
@@ -748,13 +786,14 @@ pub const NaiveOrderBook = struct {
         price: i64,
         reserve_bid_price: i64,
         reduced_size: i64,
+        completed: bool,
     ) std.mem.Allocator.Error!void {
         if (event_chain == null) return;
         if (reduced_size <= 0) return;
 
         _ = try event_chain.?.append(.{
             .event_type = .reduce,
-            .active_order_completed = true,
+            .active_order_completed = completed,
             .price = price,
             .size = reduced_size,
             .bidder_hold_price = if (action == .bid) reserve_bid_price else 0,
@@ -765,13 +804,16 @@ pub const NaiveOrderBook = struct {
         self: *NaiveOrderBook,
         command: *cmd.OrderCommand,
         event_chain: ?*events.EventChain,
-    ) std.mem.Allocator.Error!void {
+    ) ProcessError!void {
         const order_type = command.order_type orelse return;
         return switch (order_type) {
             .gtc => try self.newOrderPlaceGtc(command, event_chain),
             .ioc => try self.newOrderMatchIoc(command, event_chain),
             .fok_budget => try self.newOrderMatchFokBudget(command, event_chain),
-            else => {},
+            .ioc_budget, .fok => {
+                const active = ActiveOrder.fromCommand(command) orelse return;
+                try appendRejectEvent(event_chain, active, active.remaining(), order_type, command.price);
+            },
         };
     }
 
@@ -781,10 +823,39 @@ pub const NaiveOrderBook = struct {
         event_chain: ?*events.EventChain,
     ) std.mem.Allocator.Error!void {
         var active = ActiveOrder.fromCommand(command) orelse return;
+
+        // Java checks for duplicates after matching, because matching can remove
+        // the pre-existing order with this id. Reserve the possible rejection
+        // node before any maker mutation so that its allocation failure is
+        // atomic, then either prepend it to the trade chain or release it.
+        const duplicate_before_matching = self.id_index.contains(command.order_id);
+        const reserved_reject = if (duplicate_before_matching)
+            if (event_chain) |chain| try chain.allocator.create(events.MatcherTradeEvent) else null
+        else
+            null;
+        var reject_attached = false;
+        defer if (reserved_reject) |node| {
+            if (!reject_attached) event_chain.?.allocator.destroy(node);
+        };
+
         try self.tryMatchInstantly(&active, true, event_chain);
         if (active.filled == active.size) return;
 
-        _ = try self.placeRestingOrder(active.toOrder());
+        const placed = try self.placeRestingOrder(active.toOrder());
+        if (!placed) {
+            if (event_chain) |chain| {
+                const node = reserved_reject orelse unreachable;
+                prependReservedRejectEvent(
+                    chain,
+                    node,
+                    active,
+                    active.remaining(),
+                    .gtc,
+                    command.price,
+                );
+                reject_attached = true;
+            }
+        }
     }
 
     fn newOrderMatchIoc(
@@ -804,9 +875,9 @@ pub const NaiveOrderBook = struct {
         self: *NaiveOrderBook,
         command: *cmd.OrderCommand,
         event_chain: ?*events.EventChain,
-    ) std.mem.Allocator.Error!void {
+    ) ProcessError!void {
         var active = ActiveOrder.fromCommand(command) orelse return;
-        const budget = self.checkBudgetToFill(active.action, active.size) orelse {
+        const budget = (try self.checkBudgetToFill(active.action, active.size)) orelse {
             try appendRejectEvent(event_chain, active, active.remaining(), .fok_budget, command.price);
             return;
         };
@@ -815,9 +886,8 @@ pub const NaiveOrderBook = struct {
             return;
         }
         try self.tryMatchInstantly(&active, false, event_chain);
-        const reject_size = active.remaining();
-        if (reject_size > 0) {
-            try appendRejectEvent(event_chain, active, reject_size, .fok_budget, command.price);
+        if (active.filled != active.size) {
+            return error.OrderBookInvariantViolation;
         }
     }
 
@@ -831,7 +901,7 @@ pub const NaiveOrderBook = struct {
         };
         const removed = self.removeOrderAt(location);
         command.action = removed.action;
-        try appendReduceEvent(event_chain, removed.action, removed.price, removed.reserve_bid_price, removed.remaining());
+        try appendReduceEvent(event_chain, removed.action, removed.price, removed.reserve_bid_price, removed.remaining(), true);
         return .success;
     }
 
@@ -852,17 +922,20 @@ pub const NaiveOrderBook = struct {
         var order = &bucket.orders.items[location.order_index];
         const remaining = order.remaining();
         const reduce_by: i64 = @min(remaining, command.size);
+        const completed = reduce_by == remaining;
 
-        if (reduce_by == remaining) {
+        // Event allocation is fallible in Zig. Allocate before mutating the
+        // book so an OOM cannot reduce or remove the order without an event.
+        try appendReduceEvent(event_chain, order.action, order.price, order.reserve_bid_price, reduce_by, completed);
+
+        if (completed) {
             const removed = self.removeOrderAt(location);
             command.action = removed.action;
-            try appendReduceEvent(event_chain, removed.action, removed.price, removed.reserve_bid_price, reduce_by);
         } else {
             order.size -= reduce_by;
             bucket.total_volume -= reduce_by;
             std.debug.assert(bucket.total_volume >= 0);
             command.action = order.action;
-            try appendReduceEvent(event_chain, order.action, order.price, order.reserve_bid_price, reduce_by);
         }
         return .success;
     }
@@ -924,6 +997,18 @@ fn checkedMul(a: i64, b: i64) ?i64 {
 fn checkedAdd(a: i64, b: i64) ?i64 {
     const pair = @addWithOverflow(a, b);
     return if (pair[1] == 0) pair[0] else null;
+}
+
+fn invalidPlaceOrderResult(command: *const cmd.OrderCommand) ?cmd.CommandResultCode {
+    const action = command.action orelse return .matching_unsupported_command;
+    _ = command.order_type orelse return .matching_unsupported_command;
+
+    if (command.size <= 0) return .matching_unsupported_command;
+    if (command.price < 0) return .invalid_price_step;
+    if (action == .bid and command.reserve_bid_price < 0) {
+        return .risk_invalid_reserve_bid_price;
+    }
+    return null;
 }
 
 fn calcAmountBidTakerFee(size: i64, price: i64, spec: common.CoreSymbolSpecification) ?i64 {
@@ -1051,6 +1136,164 @@ test "ioc matches immediately and never rests" {
     book.validateInternalState();
 }
 
+test "malformed place orders are rejected before naive book mutation" {
+    const allocator = std.testing.allocator;
+    var book = try NaiveOrderBook.init(allocator, try makeTestSpec());
+    defer book.deinit();
+
+    var resting = cmd.OrderCommand.newOrder(.gtc, 9_000, 500, 100, 0, 5, .ask);
+    _ = try process(&book, &resting);
+    const state_before = try book.stateHash();
+
+    var cases = [_]struct {
+        order: cmd.OrderCommand,
+        expected: cmd.CommandResultCode,
+    }{
+        .{
+            .order = cmd.OrderCommand.newOrder(.gtc, 9_101, 501, 90, 100, 0, .bid),
+            .expected = .matching_unsupported_command,
+        },
+        .{
+            .order = cmd.OrderCommand.newOrder(.gtc, 9_102, 502, 110, 0, -1, .ask),
+            .expected = .matching_unsupported_command,
+        },
+        .{
+            .order = cmd.OrderCommand.newOrder(.gtc, 9_103, 503, -1, 0, 1, .ask),
+            .expected = .invalid_price_step,
+        },
+        .{
+            .order = cmd.OrderCommand.newOrder(.fok_budget, 9_104, 504, -1, -1, 1, .bid),
+            .expected = .invalid_price_step,
+        },
+        .{
+            .order = cmd.OrderCommand.newOrder(.gtc, 9_105, 505, 90, -1, 1, .bid),
+            .expected = .risk_invalid_reserve_bid_price,
+        },
+    };
+
+    for (&cases) |*case| {
+        var event_chain = events.EventChain.init(allocator);
+        defer event_chain.deinit();
+        try std.testing.expectEqual(
+            case.expected,
+            try book.processCommandWithEvents(&case.order, &event_chain),
+        );
+        try std.testing.expectEqual(@as(usize, 0), event_chain.len);
+        try std.testing.expectEqual(state_before, try book.stateHash());
+    }
+
+    book.validateInternalState();
+}
+
+test "FOK budget rejects atomically when aggregate volume overstates makers in naive book" {
+    const allocator = std.testing.allocator;
+    var book = try NaiveOrderBook.init(allocator, try makeTestSpec());
+    defer book.deinit();
+
+    var resting = cmd.OrderCommand.newOrder(.gtc, 9_201, 510, 100, 0, 2, .ask);
+    _ = try process(&book, &resting);
+
+    // Simulate a stale aggregate counter. The prescan must derive fillability
+    // from actual maker orders, otherwise this produces a partial trade plus
+    // a financially invalid one-lot FOK reject.
+    book.asks.items[0].total_volume = 3;
+
+    var event_chain = events.EventChain.init(allocator);
+    defer event_chain.deinit();
+    var fok = cmd.OrderCommand.newOrder(.fok_budget, 9_202, 511, 300, 300, 3, .bid);
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.success,
+        try book.processCommandWithEvents(&fok, &event_chain),
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), event_chain.len);
+    const reject = event_chain.head orelse return error.TestExpectedRejectEvent;
+    try std.testing.expectEqual(events.MatcherEventType.reject, reject.event_type);
+    try std.testing.expectEqual(@as(i64, 3), reject.size);
+    try std.testing.expect(reject.next_event == null);
+    try std.testing.expectEqual(@as(usize, 1), book.ordersNum(.ask));
+    try std.testing.expectEqual(@as(i64, 0), book.asks.items[0].orders.items[0].filled);
+
+    book.asks.items[0].total_volume = 2;
+    book.asks.items[0].orders.items[0].filled = 2;
+    var corrupt_chain = events.EventChain.init(allocator);
+    defer corrupt_chain.deinit();
+    var corrupt_fok = cmd.OrderCommand.newOrder(.fok_budget, 9_203, 512, 100, 100, 1, .bid);
+    try std.testing.expectError(
+        error.OrderBookInvariantViolation,
+        book.processCommandWithEvents(&corrupt_fok, &corrupt_chain),
+    );
+    try std.testing.expectEqual(@as(usize, 0), corrupt_chain.len);
+    book.asks.items[0].orders.items[0].filled = 0;
+    book.validateInternalState();
+}
+
+test "unsupported ioc-budget and fok orders emit full reject without mutating naive book" {
+    const allocator = std.testing.allocator;
+    var book = try NaiveOrderBook.init(allocator, try makeTestSpec());
+    defer book.deinit();
+
+    var resting_ask = cmd.OrderCommand.newOrder(.gtc, 9001, 501, 100, 0, 50, .ask);
+    var resting_bid = cmd.OrderCommand.newOrder(.gtc, 9002, 502, 90, 120, 50, .bid);
+    _ = try process(&book, &resting_ask);
+    _ = try process(&book, &resting_bid);
+    const state_before = try book.stateHash();
+
+    const Case = struct {
+        order_type: common.OrderType,
+        order_id: i64,
+        uid: i64,
+        price: i64,
+        reserve_bid_price: i64,
+        size: i64,
+        action: common.OrderAction,
+    };
+    const cases = [_]Case{
+        .{ .order_type = .ioc_budget, .order_id = 9101, .uid = 601, .price = 110, .reserve_bid_price = 140, .size = 7, .action = .bid },
+        .{ .order_type = .ioc_budget, .order_id = 9102, .uid = 602, .price = 80, .reserve_bid_price = 0, .size = 8, .action = .ask },
+        .{ .order_type = .fok, .order_id = 9103, .uid = 603, .price = 110, .reserve_bid_price = 145, .size = 9, .action = .bid },
+        .{ .order_type = .fok, .order_id = 9104, .uid = 604, .price = 80, .reserve_bid_price = 0, .size = 10, .action = .ask },
+    };
+
+    for (cases) |case| {
+        var event_chain = events.EventChain.init(allocator);
+        defer event_chain.deinit();
+
+        var command = cmd.OrderCommand.newOrder(
+            case.order_type,
+            case.order_id,
+            case.uid,
+            case.price,
+            case.reserve_bid_price,
+            case.size,
+            case.action,
+        );
+        try std.testing.expectEqual(
+            cmd.CommandResultCode.success,
+            try book.processCommandWithEvents(&command, &event_chain),
+        );
+
+        try std.testing.expectEqual(@as(usize, 1), event_chain.len);
+        const reject = event_chain.head orelse return error.TestExpectedRejectEvent;
+        try std.testing.expectEqual(events.MatcherEventType.reject, reject.event_type);
+        try std.testing.expect(reject.active_order_completed);
+        try std.testing.expectEqual(@as(i64, 0), reject.matched_order_id);
+        try std.testing.expectEqual(@as(i64, 0), reject.matched_order_uid);
+        try std.testing.expect(!reject.matched_order_completed);
+        try std.testing.expectEqual(case.price, reject.price);
+        try std.testing.expectEqual(case.size, reject.size);
+        try std.testing.expectEqual(case.reserve_bid_price, reject.bidder_hold_price);
+        try std.testing.expect(reject.next_event == null);
+
+        try std.testing.expectEqual(state_before, try book.stateHash());
+        try std.testing.expectEqual(@as(usize, 1), book.ordersNum(.ask));
+        try std.testing.expectEqual(@as(usize, 1), book.ordersNum(.bid));
+        try std.testing.expectEqual(@as(i64, 50), book.totalOrdersVolume(.ask));
+        try std.testing.expectEqual(@as(i64, 50), book.totalOrdersVolume(.bid));
+        book.validateInternalState();
+    }
+}
+
 test "cancel and reduce maintain bucket/index invariants" {
     const allocator = std.testing.allocator;
     var book = try NaiveOrderBook.init(allocator, try makeTestSpec());
@@ -1072,13 +1315,39 @@ test "cancel and reduce maintain bucket/index invariants" {
     );
 
     var reduce_partial = cmd.OrderCommand.reduce(20, 300, 3);
-    try std.testing.expectEqual(cmd.CommandResultCode.success, try process(&book, &reduce_partial));
+    var partial_events = events.EventChain.init(allocator);
+    defer partial_events.deinit();
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.success,
+        try book.processCommandWithEvents(&reduce_partial, &partial_events),
+    );
     try std.testing.expectEqual(@as(?common.OrderAction, .bid), reduce_partial.action);
     try std.testing.expectEqual(@as(i64, 7), book.totalOrdersVolume(.bid));
+    try std.testing.expectEqual(@as(usize, 1), partial_events.len);
+    const partial = partial_events.head orelse return error.TestExpectedPartialReduceEvent;
+    try std.testing.expectEqual(events.MatcherEventType.reduce, partial.event_type);
+    try std.testing.expect(!partial.active_order_completed);
+    try std.testing.expectEqual(@as(i64, 3), partial.size);
+    try std.testing.expectEqual(@as(i64, 100), partial.price);
+    try std.testing.expectEqual(@as(i64, 120), partial.bidder_hold_price);
+    try std.testing.expect(partial.next_event == null);
 
     var reduce_full = cmd.OrderCommand.reduce(20, 300, 100);
-    try std.testing.expectEqual(cmd.CommandResultCode.success, try process(&book, &reduce_full));
+    var full_events = events.EventChain.init(allocator);
+    defer full_events.deinit();
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.success,
+        try book.processCommandWithEvents(&reduce_full, &full_events),
+    );
     try std.testing.expectEqual(@as(usize, 0), book.ordersNum(.bid));
+    try std.testing.expectEqual(@as(usize, 1), full_events.len);
+    const full = full_events.head orelse return error.TestExpectedFullReduceEvent;
+    try std.testing.expectEqual(events.MatcherEventType.reduce, full.event_type);
+    try std.testing.expect(full.active_order_completed);
+    try std.testing.expectEqual(@as(i64, 7), full.size);
+    try std.testing.expectEqual(@as(i64, 100), full.price);
+    try std.testing.expectEqual(@as(i64, 120), full.bidder_hold_price);
+    try std.testing.expect(full.next_event == null);
 
     book.validateInternalState();
 }
@@ -1133,22 +1402,155 @@ test "accumulateOrderHolds reports resting ask/bid currency holds" {
     try std.testing.expectEqual(@as(i64, 6_009_500), holds.get(15) orelse 0);
 }
 
-test "duplicate resting order id is ignored" {
+test "unfilled duplicate GTC emits Java-equivalent rejection" {
     const allocator = std.testing.allocator;
     var book = try NaiveOrderBook.init(allocator, try makeTestSpec());
     defer book.deinit();
 
-    var ask = cmd.OrderCommand.newOrder(.gtc, 40, 500, 100, 0, 5, .ask);
-    _ = try process(&book, &ask);
-
-    var first = cmd.OrderCommand.newOrder(.gtc, 41, 501, 100, 150, 10, .bid);
+    var first = cmd.OrderCommand.newOrder(.gtc, 41, 501, 90, 120, 5, .bid);
     _ = try process(&book, &first);
     try std.testing.expectEqual(@as(i64, 5), book.totalOrdersVolume(.bid));
 
     var duplicate = cmd.OrderCommand.newOrder(.gtc, 41, 502, 80, 120, 30, .bid);
-    _ = try process(&book, &duplicate);
+    var event_chain = events.EventChain.init(allocator);
+    defer event_chain.deinit();
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.success,
+        try book.processCommandWithEvents(&duplicate, &event_chain),
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), event_chain.len);
+    const reject = event_chain.head orelse return error.TestExpectedDuplicateRejectEvent;
+    try std.testing.expectEqual(events.MatcherEventType.reject, reject.event_type);
+    try std.testing.expect(reject.active_order_completed);
+    try std.testing.expectEqual(@as(i64, 0), reject.matched_order_id);
+    try std.testing.expectEqual(@as(i64, 0), reject.matched_order_uid);
+    try std.testing.expect(!reject.matched_order_completed);
+    try std.testing.expectEqual(@as(i64, 80), reject.price);
+    try std.testing.expectEqual(@as(i64, 30), reject.size);
+    try std.testing.expectEqual(@as(i64, 120), reject.bidder_hold_price);
+    try std.testing.expect(reject.next_event == null);
+
     try std.testing.expectEqual(@as(usize, 1), book.ordersNum(.bid));
     try std.testing.expectEqual(@as(i64, 5), book.totalOrdersVolume(.bid));
+
+    book.validateInternalState();
+}
+
+test "partially matched duplicate GTC prepends remainder rejection before trade" {
+    const allocator = std.testing.allocator;
+    var book = try NaiveOrderBook.init(allocator, try makeTestSpec());
+    defer book.deinit();
+
+    var original = cmd.OrderCommand.newOrder(.gtc, 41, 501, 90, 120, 5, .bid);
+    var maker = cmd.OrderCommand.newOrder(.gtc, 40, 500, 100, 0, 3, .ask);
+    _ = try process(&book, &original);
+    _ = try process(&book, &maker);
+
+    var duplicate = cmd.OrderCommand.newOrder(.gtc, 41, 502, 110, 150, 7, .bid);
+    var event_chain = events.EventChain.init(allocator);
+    defer event_chain.deinit();
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.success,
+        try book.processCommandWithEvents(&duplicate, &event_chain),
+    );
+
+    try std.testing.expectEqual(@as(usize, 2), event_chain.len);
+    const reject = event_chain.head orelse return error.TestExpectedDuplicateRejectEvent;
+    try std.testing.expectEqual(events.MatcherEventType.reject, reject.event_type);
+    try std.testing.expect(reject.active_order_completed);
+    try std.testing.expectEqual(@as(i64, 4), reject.size);
+    try std.testing.expectEqual(@as(i64, 110), reject.price);
+    try std.testing.expectEqual(@as(i64, 150), reject.bidder_hold_price);
+
+    const trade = reject.next_event orelse return error.TestExpectedDuplicateTradeEvent;
+    try std.testing.expectEqual(events.MatcherEventType.trade, trade.event_type);
+    try std.testing.expect(!trade.active_order_completed);
+    try std.testing.expectEqual(@as(i64, 40), trade.matched_order_id);
+    try std.testing.expectEqual(@as(i64, 500), trade.matched_order_uid);
+    try std.testing.expect(trade.matched_order_completed);
+    try std.testing.expectEqual(@as(i64, 100), trade.price);
+    try std.testing.expectEqual(@as(i64, 3), trade.size);
+    try std.testing.expectEqual(@as(i64, 150), trade.bidder_hold_price);
+    try std.testing.expect(trade.next_event == null);
+
+    try std.testing.expectEqual(@as(usize, 0), book.ordersNum(.ask));
+    try std.testing.expectEqual(@as(usize, 1), book.ordersNum(.bid));
+    try std.testing.expectEqual(@as(i64, 5), book.totalOrdersVolume(.bid));
+
+    var holds: std.AutoHashMapUnmanaged(i32, i64) = .empty;
+    defer holds.deinit(allocator);
+    try book.accumulateOrderHolds(allocator, &holds);
+    try std.testing.expectEqual(@as(i64, 6_009_500), holds.get(15) orelse 0);
+
+    book.validateInternalState();
+}
+
+test "duplicate GTC can rest remainder when matching removes original id" {
+    const allocator = std.testing.allocator;
+    var book = try NaiveOrderBook.init(allocator, try makeTestSpec());
+    defer book.deinit();
+
+    var original = cmd.OrderCommand.newOrder(.gtc, 51, 501, 100, 0, 3, .ask);
+    _ = try process(&book, &original);
+
+    var replacement = cmd.OrderCommand.newOrder(.gtc, 51, 502, 110, 150, 7, .bid);
+    var event_chain = events.EventChain.init(allocator);
+    defer event_chain.deinit();
+    try std.testing.expectEqual(
+        cmd.CommandResultCode.success,
+        try book.processCommandWithEvents(&replacement, &event_chain),
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), event_chain.len);
+    const trade = event_chain.head orelse return error.TestExpectedDuplicateTradeEvent;
+    try std.testing.expectEqual(events.MatcherEventType.trade, trade.event_type);
+    try std.testing.expect(!trade.active_order_completed);
+    try std.testing.expectEqual(@as(i64, 51), trade.matched_order_id);
+    try std.testing.expectEqual(@as(i64, 3), trade.size);
+    try std.testing.expect(trade.next_event == null);
+    try std.testing.expectEqual(@as(usize, 0), book.ordersNum(.ask));
+    try std.testing.expectEqual(@as(usize, 1), book.ordersNum(.bid));
+    try std.testing.expectEqual(@as(i64, 4), book.totalOrdersVolume(.bid));
+
+    book.validateInternalState();
+}
+
+test "duplicate rejection and reduce event OOM leave naive book unchanged" {
+    const allocator = std.testing.allocator;
+    var book = try NaiveOrderBook.init(allocator, try makeTestSpec());
+    defer book.deinit();
+
+    var original = cmd.OrderCommand.newOrder(.gtc, 61, 601, 90, 120, 5, .bid);
+    var maker = cmd.OrderCommand.newOrder(.gtc, 60, 600, 100, 0, 3, .ask);
+    _ = try process(&book, &original);
+    _ = try process(&book, &maker);
+
+    const before_duplicate = try book.stateHash();
+    var duplicate_failing = std.testing.FailingAllocator.init(allocator, .{ .fail_index = 0 });
+    var duplicate_events = events.EventChain.init(duplicate_failing.allocator());
+    defer duplicate_events.deinit();
+    var duplicate = cmd.OrderCommand.newOrder(.gtc, 61, 602, 110, 150, 7, .bid);
+    try std.testing.expectError(
+        error.OutOfMemory,
+        book.processCommandWithEvents(&duplicate, &duplicate_events),
+    );
+    try std.testing.expectEqual(@as(usize, 0), duplicate_events.len);
+    try std.testing.expectEqual(before_duplicate, try book.stateHash());
+
+    const before_reduce = try book.stateHash();
+    var reduce_failing = std.testing.FailingAllocator.init(allocator, .{ .fail_index = 0 });
+    var reduce_events = events.EventChain.init(reduce_failing.allocator());
+    defer reduce_events.deinit();
+    var reduce = cmd.OrderCommand.reduce(61, 601, 2);
+    try std.testing.expectError(
+        error.OutOfMemory,
+        book.processCommandWithEvents(&reduce, &reduce_events),
+    );
+    try std.testing.expectEqual(@as(usize, 0), reduce_events.len);
+    try std.testing.expectEqual(before_reduce, try book.stateHash());
+    try std.testing.expectEqual(@as(i64, 5), book.totalOrdersVolume(.bid));
+    try std.testing.expectEqual(@as(i64, 3), book.totalOrdersVolume(.ask));
 
     book.validateInternalState();
 }

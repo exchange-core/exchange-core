@@ -202,8 +202,11 @@ pub fn persistenceRoundTrip(allocator: std.mem.Allocator, io: std.Io) !void {
 ## 5. Java-shaped config + orchestrator (single vs sharded backend)
 
 `ExchangeOrchestrator` chooses backend from Java-style config automatically:
-- single backend for `matching_engines_num == 1` (default profile)
-- sharded backend for throughput profile (`matching_engines_num > 1`)
+- the default `persistent_grouped` pipeline uses the sharded backend, including
+  the Java-default 1ME/1RE profile
+- explicit `sharded_pipeline_mode = .immediate` retains the single backend for
+  a 1ME/1RE compatibility profile
+- multi-engine profiles use the sharded backend in either pipeline mode
 
 ```zig
 const std = @import("std");
@@ -232,7 +235,9 @@ pub fn runOrchestrator(allocator: std.mem.Allocator) !void {
 }
 ```
 
-If you use `.split` mode, ensure backend is sharded (`orchestrator.backendKind() == .sharded`) or you will get `error.SplitModeRequiresShardedBackend`.
+The promoted default supports `.split` because it selects the sharded backend.
+An explicit `.immediate` 1ME/1RE compatibility configuration selects the
+single backend and returns `error.SplitModeRequiresShardedBackend` for `.split`.
 
 ## 6. Porting workflow for new Java behavior
 
