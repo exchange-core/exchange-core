@@ -108,6 +108,23 @@ pub fn build(b: *std.Build) void {
     const run_debug_client_tests = b.addRunArtifact(debug_client_tests);
     run_debug_client_tests.step.dependOn(&run_debug_server_tests.step);
 
+    const debug_exchange_kernel = b.createModule(.{
+        .root_source_file = b.path("src/zig/core/exchange_kernel.zig"),
+        .target = target,
+        .optimize = .Debug,
+    });
+    const debug_browser_test_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/browser/wasm.zig"),
+        .target = target,
+        .optimize = .Debug,
+    });
+    debug_browser_test_module.addImport("exchange_kernel", debug_exchange_kernel);
+    const debug_browser_tests = b.addTest(.{
+        .root_module = debug_browser_test_module,
+    });
+    const run_debug_browser_tests = b.addRunArtifact(debug_browser_tests);
+    run_debug_browser_tests.step.dependOn(&run_debug_client_tests.step);
+
     const debug_simd_bench_module = b.createModule(.{
         .root_source_file = b.path("src/zig/bench/simd.zig"),
         .target = target,
@@ -118,11 +135,11 @@ pub fn build(b: *std.Build) void {
         .root_module = debug_simd_bench_module,
     });
     const run_debug_simd_bench_tests = b.addRunArtifact(debug_simd_bench_tests);
-    run_debug_simd_bench_tests.step.dependOn(&run_debug_client_tests.step);
+    run_debug_simd_bench_tests.step.dependOn(&run_debug_browser_tests.step);
 
     const test_step = b.step(
         "test",
-        "Run exchange-core, standalone app, and SIMD benchmark Zig unit tests",
+        "Run exchange-core, standalone app, browser adapter, and SIMD benchmark Zig unit tests",
     );
     test_step.dependOn(&run_debug_simd_bench_tests.step);
 
@@ -172,6 +189,23 @@ pub fn build(b: *std.Build) void {
     const run_release_safe_client_tests = b.addRunArtifact(release_safe_client_tests);
     run_release_safe_client_tests.step.dependOn(&run_release_safe_server_tests.step);
 
+    const release_safe_exchange_kernel = b.createModule(.{
+        .root_source_file = b.path("src/zig/core/exchange_kernel.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+    });
+    const release_safe_browser_test_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/browser/wasm.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+    });
+    release_safe_browser_test_module.addImport("exchange_kernel", release_safe_exchange_kernel);
+    const release_safe_browser_tests = b.addTest(.{
+        .root_module = release_safe_browser_test_module,
+    });
+    const run_release_safe_browser_tests = b.addRunArtifact(release_safe_browser_tests);
+    run_release_safe_browser_tests.step.dependOn(&run_release_safe_client_tests.step);
+
     const release_safe_simd_bench_module = b.createModule(.{
         .root_source_file = b.path("src/zig/bench/simd.zig"),
         .target = target,
@@ -182,11 +216,11 @@ pub fn build(b: *std.Build) void {
         .root_module = release_safe_simd_bench_module,
     });
     const run_release_safe_simd_bench_tests = b.addRunArtifact(release_safe_simd_bench_tests);
-    run_release_safe_simd_bench_tests.step.dependOn(&run_release_safe_client_tests.step);
+    run_release_safe_simd_bench_tests.step.dependOn(&run_release_safe_browser_tests.step);
 
     const test_release_safe_step = b.step(
         "test-release-safe",
-        "Run exchange-core, standalone app, and SIMD benchmark tests in ReleaseSafe mode",
+        "Run exchange-core, standalone app, browser adapter, and SIMD benchmark tests in ReleaseSafe mode",
     );
     test_release_safe_step.dependOn(&run_release_safe_simd_bench_tests.step);
 
@@ -369,7 +403,7 @@ pub fn build(b: *std.Build) void {
 
     const gate_step = b.step(
         "gate",
-        "Run full Zig migration gate (core/app tests, ReleaseSafe, parity diff, API surface checks and audits, Java production class map)",
+        "Run full Zig migration gate (core/app/browser tests, browser WASM compile, ReleaseSafe, parity diff, API surface checks and audits, Java production class map)",
     );
     // Some persistence tests intentionally exercise stable Java-compatible
     // artifact names. Keep the two optimization-mode runners serial inside
@@ -383,8 +417,10 @@ pub fn build(b: *std.Build) void {
     run_gate_release_safe_server_tests.step.dependOn(&run_gate_release_safe_protocol_tests.step);
     const run_gate_release_safe_client_tests = b.addRunArtifact(release_safe_client_tests);
     run_gate_release_safe_client_tests.step.dependOn(&run_gate_release_safe_server_tests.step);
+    const run_gate_release_safe_browser_tests = b.addRunArtifact(release_safe_browser_tests);
+    run_gate_release_safe_browser_tests.step.dependOn(&run_gate_release_safe_client_tests.step);
     const run_gate_release_safe_simd_bench_tests = b.addRunArtifact(release_safe_simd_bench_tests);
-    run_gate_release_safe_simd_bench_tests.step.dependOn(&run_gate_release_safe_client_tests.step);
+    run_gate_release_safe_simd_bench_tests.step.dependOn(&run_gate_release_safe_browser_tests.step);
     gate_step.dependOn(&run_gate_release_safe_simd_bench_tests.step);
     // Compile, but do not execute, the fixed-ReleaseFast benchmark as part of
     // the gate. The benchmark's functional tests run above in both safety modes.
@@ -404,4 +440,80 @@ pub fn build(b: *std.Build) void {
     gate_step.dependOn(&run_gate_java_api_surface_diff.step);
     gate_step.dependOn(tool_tests_step);
     gate_step.dependOn(&run_java_class_map_check.step);
+
+    const wasm_target = b.resolveTargetQuery(.{
+        .cpu_arch = .wasm32,
+        .os_tag = .freestanding,
+    });
+    const wasm_exchange_kernel = b.createModule(.{
+        .root_source_file = b.path("src/zig/core/exchange_kernel.zig"),
+        .target = wasm_target,
+        .optimize = .ReleaseSmall,
+        .single_threaded = true,
+    });
+    const wasm_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/browser/wasm.zig"),
+        .target = wasm_target,
+        .optimize = .ReleaseSmall,
+        .single_threaded = true,
+    });
+    wasm_module.export_symbol_names = &.{
+        "exchange_abi_version",
+        "exchange_create",
+        "exchange_destroy",
+        "exchange_reset",
+        "exchange_add_symbol",
+        "exchange_add_user",
+        "exchange_adjust_balance",
+        "exchange_place_order",
+        "exchange_move_order",
+        "exchange_cancel_order",
+        "exchange_reduce_order",
+        "exchange_query_order_book",
+        "exchange_last_event_count",
+        "exchange_order_book_ptr",
+        "exchange_order_book_len",
+    };
+    wasm_module.addImport("exchange_kernel", wasm_exchange_kernel);
+    const wasm_exe = b.addExecutable(.{
+        .name = "exchange-core",
+        .root_module = wasm_module,
+    });
+    wasm_exe.entry = .disabled;
+    wasm_exe.export_memory = true;
+
+    const install_wasm = b.addInstallArtifact(wasm_exe, .{
+        .dest_dir = .{ .override = .prefix },
+        .dest_sub_path = "browser/exchange-core.wasm",
+    });
+    const install_wasm_loader = b.addInstallFile(
+        b.path("src/zig/apps/browser/exchange-core.js"),
+        "browser/exchange-core.js",
+    );
+    const install_wasm_page = b.addInstallFile(
+        b.path("src/zig/apps/browser/index.html"),
+        "browser/index.html",
+    );
+    const install_wasm_app = b.addInstallFile(
+        b.path("src/zig/apps/browser/app.js"),
+        "browser/app.js",
+    );
+
+    const wasm_step = b.step("wasm", "Build the browser exchange and stage zig-out/browser");
+    wasm_step.dependOn(&install_wasm.step);
+    wasm_step.dependOn(&install_wasm_loader.step);
+    wasm_step.dependOn(&install_wasm_page.step);
+    wasm_step.dependOn(&install_wasm_app.step);
+
+    const run_wasm_smoke = b.addSystemCommand(&.{ "node", "src/zig/apps/browser/smoke.mjs" });
+    run_wasm_smoke.addFileArg(wasm_exe.getEmittedBin());
+    const wasm_smoke_step = b.step(
+        "wasm-smoke",
+        "Build and smoke-test the browser exchange in Node",
+    );
+    wasm_smoke_step.dependOn(&run_wasm_smoke.step);
+
+    // Keep Node out of the main migration gate while still proving that the
+    // browser target compiles with the exact artifact used by `wasm-smoke`.
+    gate_step.dependOn(&wasm_exe.step);
 }

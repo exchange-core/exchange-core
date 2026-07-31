@@ -100,7 +100,104 @@ stops accepting connections, and then shuts down the exchange core:
 $CLIENT shutdown
 ```
 
-## 2. Day-to-day commands
+## 2. Browser WebAssembly quickstart
+
+Build the browser bundle and run its funded crossing-order smoke test from the
+repository root:
+
+```sh
+zig build -j1 wasm
+zig build -j1 wasm-smoke
+```
+
+The first command stages `exchange-core.wasm`, its dependency-free JavaScript
+wrapper, and the demo page in `zig-out/browser/`. Serve that directory instead
+of opening the page as a `file:` URL:
+
+```sh
+python3 -m http.server 8000 --directory zig-out/browser
+```
+
+Open <http://127.0.0.1:8000/>. The page drives the real single-threaded
+`ExchangeKernel`, including risk checks, matching, settlement, and read-only L2
+queries.
+
+The wrapper is an exclusive-owner synchronous API. Instantiate it in one Web
+Worker for production applications so a large command stream cannot block the
+UI, and never call or share one instance concurrently. Every Zig `i64` argument
+and result is a JavaScript `bigint`; the wrapper rejects `number` values and
+out-of-range BigInts rather than silently losing precision:
+
+```js
+import {
+  BalanceAdjustmentType,
+  EngineKind,
+  Exchange,
+  OrderAction,
+  OrderType,
+  SymbolType,
+  assertCommandSuccess,
+} from "./exchange-core.js";
+
+const exchange = await Exchange.create("./exchange-core.wasm", {
+  kind: EngineKind.direct,
+});
+try {
+  assertCommandSuccess(exchange.addSymbol({
+    symbolId: 241,
+    symbolType: SymbolType.currencyExchangePair,
+    baseCurrency: 11,
+    quoteCurrency: 15,
+    baseScaleK: 1_000_000n,
+    quoteScaleK: 10_000n,
+    takerFee: 1_900n,
+    makerFee: 700n,
+    marginBuy: 0n,
+    marginSell: 0n,
+  }), "add symbol");
+
+  assertCommandSuccess(exchange.addUser(1_001n), "add user");
+  assertCommandSuccess(exchange.adjustBalance({
+    uid: 1_001n,
+    transactionId: 1n,
+    currency: 15,
+    amount: 20_000_000n,
+    adjustmentType: BalanceAdjustmentType.adjustment,
+  }), "adjust balance");
+
+  const placeResult = exchange.placeOrder({
+    orderId: 9_001n,
+    uid: 1_001n,
+    symbol: 241,
+    price: 10_500n,
+    reserveBidPrice: 10_500n,
+    size: 100n,
+    action: OrderAction.bid,
+    orderType: OrderType.gtc,
+    userCookie: 0,
+  });
+  assertCommandSuccess(placeResult, "place order");
+
+  const book = exchange.queryOrderBook(241, 20);
+  console.log(book.bids);
+} finally {
+  exchange.close();
+}
+```
+
+Mutating calls return a frozen `{ code, name, ok }` object; `result.code === 100`
+and `result.ok === true` mean the native exchange result is `SUCCESS`. Other
+command result codes are business outcomes rather than ABI failures. See
+`src/zig/apps/browser/README.md` for symbol creation, the full wrapper surface,
+opaque-handle lifecycle, packed ABI status values, the versioned little-endian
+`XCL2` order-book format, and target limitations.
+
+The WebAssembly build intentionally excludes filesystem
+persistence/journaling/snapshots and the worker-thread/sharded `ExchangeCore`
+runtime. Persist browser state in a JavaScript-owned store only after a future
+versioned byte import/export capability is added.
+
+## 3. Day-to-day commands
 
 Run from repository root:
 
@@ -127,7 +224,7 @@ zig build api-surface-check
 zig build java-api-parity-audit
 ```
 
-## 3. Minimal embedded engine lifecycle (ExchangeCore + ExchangeApi)
+## 4. Minimal embedded engine lifecycle (ExchangeCore + ExchangeApi)
 
 ```zig
 const std = @import("std");
@@ -163,7 +260,7 @@ pub fn main(init: std.process.Init) !void {
 }
 ```
 
-## 4. Exchange API usage: sync + async + order book
+## 5. Exchange API usage: sync + async + order book
 
 ```zig
 const std = @import("std");
@@ -231,7 +328,7 @@ fn run(api: *core.exchange_api.ExchangeApi, allocator: std.mem.Allocator, io: st
 }
 ```
 
-## 5. Persistence flow: write snapshot + restart from discovered default paths
+## 6. Persistence flow: write snapshot + restart from discovered default paths
 
 This is the recommended day-to-day flow for parity work: persist with main-log metadata, then restart from discovered snapshot/journal files.
 
@@ -296,7 +393,7 @@ pub fn persistenceRoundTrip(allocator: std.mem.Allocator, io: std.Io) !void {
 }
 ```
 
-## 6. Java-shaped config + orchestrator (single vs sharded backend)
+## 7. Java-shaped config + orchestrator (single vs sharded backend)
 
 `ExchangeOrchestrator` chooses backend from Java-style config automatically:
 - the default `persistent_grouped` pipeline uses the sharded backend, including
@@ -336,7 +433,7 @@ The promoted default supports `.split` because it selects the sharded backend.
 An explicit `.immediate` 1ME/1RE compatibility configuration selects the
 single backend and returns `error.SplitModeRequiresShardedBackend` for `.split`.
 
-## 7. Porting workflow for new Java behavior
+## 8. Porting workflow for new Java behavior
 
 1. Generate/update Java parity fixtures in `src/zig/fixtures/` (Maven test).
 2. Implement Zig behavior with typed command/report paths and explicit error handling.
@@ -355,7 +452,7 @@ mvn -Dtest=exchange.core2.tests.fixtures.GenerateJavaParityFixtureTest \
     test
 ```
 
-## 8. Style and safety references
+## 9. Style and safety references
 
 - Tiger style baseline: `src/zig/TIGER_STYLE_CHECKLIST.md`
 - Migration status: `src/zig/MIGRATION_COVERAGE.md`

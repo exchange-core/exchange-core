@@ -72,6 +72,27 @@ See `src/zig/USAGE_EXAMPLES.md` for the complete two-terminal transaction
 quickstart, command reference, graceful shutdown, embedded integration,
 persistence, orchestrator, and migration workflow examples.
 
+## Browser WebAssembly target
+
+`zig build -j1 wasm` compiles the real in-memory `ExchangeKernel` for
+`wasm32-freestanding` and stages a dependency-free browser bundle in
+`zig-out/browser`. Serve that directory over HTTP to run the interactive demo:
+
+```sh
+python3 -m http.server 8000 --directory zig-out/browser
+```
+
+Then open <http://127.0.0.1:8000/>. Run `zig build -j1 wasm-smoke` for the
+funded crossing-order smoke test in Node.
+
+The browser boundary is synchronous, single-threaded, and exclusive-owner;
+production browser integrations should own it in one Web Worker. JavaScript
+uses `bigint` for every Zig `i64`. This target includes the actual risk,
+matching, settlement, and read-only L2 paths, but deliberately excludes the
+filesystem persistence/journal/snapshot stack and the threaded/sharded
+`ExchangeCore` runtime. See `src/zig/apps/browser/README.md` for wrapper usage,
+the versioned integer ABI, L2 wire format, lifecycle rules, and exact scope.
+
 ## Implemented surface
 
 - Build/test scaffold via `build.zig`.

@@ -53,6 +53,30 @@ jobs:
       - name: Run native migration gate
         run: zig build -j1 gate --summary all
 
+  wasm-smoke:
+    name: Browser WASM smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: ${{ env.ZIG_VERSION }}
+          cache-key: wasm-smoke
+
+      - name: Verify toolchains
+        run: |
+          test "$(zig version)" = "$ZIG_VERSION"
+          node --version
+
+      - name: Build and smoke-test browser exchange
+        run: zig build -j1 wasm-smoke --summary all
+
   cross-compile:
     name: Cross compile (${{ matrix.name }})
     runs-on: ubuntu-24.04

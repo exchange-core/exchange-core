@@ -1,6 +1,6 @@
 # Java → Zig Migration Coverage
 
-Date: 2026-07-31
+Date: 2026-08-01
 Scope: `src/main/java/exchange/core2/core` → `src/zig/core`
 
 This is the completed-port evidence ledger for the scoped Java package. A row
@@ -51,13 +51,20 @@ Focused and broad checks on the final grouped-default and carrier boundary:
   partial failures publish no descriptor, and the next clean pair commits.
 - committed Java `DiskSerializationProcessor` fixture path: 4/4 Debug and 4/4
   ReleaseSafe after the deterministic-manifest correction
-- `zig build -j1 gate --summary all`: 43/43 steps and 2309/2309 tests,
-  comprising 1126 core tests, 13 standalone app tests, and 5 SIMD benchmark
-  tests in each of Debug and ReleaseSafe, plus 21 evidence-tool tests; the gate
-  also compiles the fixed-ReleaseFast benchmark and runs the exact 96/96
-  default fixture manifest, API surface, Java API parity audit, and executable
-  91-class production-map check;
+- `zig build -j1 gate --summary all`: 48/48 steps and 2321/2321 tests,
+  comprising 1126 core tests, 13 standalone app tests, 6 browser-adapter tests,
+  and 5 SIMD benchmark tests in each of Debug and ReleaseSafe, plus 21
+  evidence-tool tests; the gate also compiles the single-threaded
+  `wasm32-freestanding` browser artifact and fixed-ReleaseFast benchmark, then
+  runs the exact 96/96 default fixture manifest, API surface, Java API parity
+  audit, and executable 91-class production-map check;
   persistence-disabled and injected-fault warnings are expected test evidence
+- `zig build -j1 wasm-smoke --summary all`: 3/3 steps, with a zero-import ABI 1
+  module passing `WebAssembly.validate`, strict BigInt boundary checks, a funded
+  crossing trade, one matcher event, and the exact `6 @ 100` L2 remainder
+- the staged `zig-out/browser` bundle loaded over local HTTP in a real browser
+  with no console warnings or errors; the interactive trade and reset paths
+  both completed with the expected status and order-book rendering
 - pinned Zig 0.16.0 cross-target ReleaseSafe compilation: x86_64 Linux
   baseline, x86_64 Linux AVX2, RISC-V Linux scalar fallback, and s390x Linux
   big-endian all passed; AVX2 codegen contains scoped `vpshufb` carrier loops
@@ -112,6 +119,7 @@ from the portable manifest because enum/object identity is process-local.
 | Domain and command protocol | `common.zig`, `cmd.zig`, `events.zig`, `user_profile.zig` | Verified current | Types, result-code merging, event ownership, and state hashing are consumed by kernel/runtime tests. |
 | Configuration families | `config.zig`, `serialization_processor.zig`, `exchange_core_sharded.zig` | Verified current | Independent matching/risk counts, semantic settings, wait strategy, grouping, L2 policy, native book selection, custom-report registries, and an owned custom serialization-processor factory propagate through construction. Custom processors receive startup restore/replay, synchronous per-module snapshot stores, journal writes, and exactly-once shutdown/destruction. Custom callbacks remain serialized rather than adopting Java's module-thread parallelism, but a snapshot attempt still invokes every configured ME and RE instance after an earlier store failure. Matching and risk preserve independent result codes, and the snapshot descriptor is published only when every store in both halves succeeds. Configured main-log helpers reject custom backends before publication with `ConfiguredMainLogRequiresDiskBackend`. Java factories that inject JVM thread, compressor, or order-book objects map to Zig-owned lifecycle, the exact wire codec, and the closed native book enum; they are intentional native representations, not missing observable behavior. |
 | Exchange API and lifecycle | `api_command.zig`, `exchange_api.zig`, `exchange_core.zig`, `exchange_api_sharded.zig` | Verified current | Lifecycle-owned workers, FIFO async progress, callbacks, bounded results, and fatal-tail settlement exist. `drainPending`/`drainAsyncPending` capture a contiguous accepted prefix, wait for terminal callback/poll/detached ownership even after poison, include terminal grouped R2, and single-claim overlapping async-drain counts. Core `drainRuntime` separately claims its runtime frontier on success while waiting for the captured global accepted prefix before reporting poison; cold owners retain their exact grouped outcome before releasing ownership, and overlapping callers cannot double-report. `shutdownTimeout`, `shutdownState`, and typed `ShutdownOutcome` fence admission immediately, bound accepted work/callback/worker quiescence, allow timeout or callback/worker deferral to be retried, and preserve exact poisoned-tail settlement across single, sharded, and orchestrated backends. Every Java ordinary typed command family can preserve caller timestamps through single/sharded sync, detached, async, batch, and command-supported callback paths, plus orchestrated sync, detached, async, batch, full-response, and command-supported callback paths, raw observation, grouping, and journaling. Struct-backed forms retain default-zero fields and existing report behavior; `*_with_timestamp` companions preserve legacy scalar/unit literal shapes, and reset/nop remain outside the direct Consumer-callback allowlist in both forms. Barrier-owning callbacks share a nesting-safe execution context: checked foreign reconfiguration returns `CallbackReconfigurationWouldBlock`, all synchronous/lifecycle/query/wait/composite roots return `CoreReentrantCall` before publication, and async/callback/detached publication remains legal only when every target lock and capacity requirement is immediately available. The generated surface inventory is 24 Java / 207 Zig / 24 shared / 0 Java-only / 183 Zig-only. The semantic audit covers 24/24 scoped Java families by locating each exact cited test body and validating its direct-call token. |
+| Browser WebAssembly delivery | `apps/browser/wasm.zig`, `apps/browser/exchange-core.js`, browser demo and smoke | Verified current | A versioned integer-only ABI runs the real synchronous `ExchangeKernel` as a single-threaded `wasm32-freestanding` module. Stable non-reused handles, fault quarantine, exact native command codes, strict JavaScript BigInt inputs, matcher-event counts, and a non-mutating versioned `XCL2` L2 wire are covered in Debug, ReleaseSafe, Node, and a real browser. Filesystem persistence, journaling/snapshots, worker-thread lifecycle, and sharded orchestration remain explicit non-goals of this in-memory delivery target. |
 | Binary transport and state | `binary_payload.zig`, `java_binary_wire.zig`, `binary_frames.zig`, `binary_commands.zig` | Verified current | Java LZ4 envelopes, bounded multi-frame publication, reset, sharded broadcast, terminal-only completion, poison handling, and pending-transfer persistence are covered. Built-in command types are add-symbols and add-accounts. Java also hard-codes its binary command type table, so arbitrary binary commands are not an extension surface on either side. |
 | Built-in exact Java reports | `java_report_producer.zig`, `java_report_wire.zig`, kernel/API report lanes | Verified current | StateHash, SingleUser, and TotalCurrencyBalance sections, reducers, wrapping arithmetic, section labels, and event carriers exist. Exact and Zig-native projections are isolated. Live int/long Eclipse layout histories, exact query-local copies/reducers, and XMB4/XRB4 persistence/import preserve encounter history. Exact StateHash identity uses the explicit capability boundary below. |
 | StateHash identity | `java_report_producer.zig`, `exchange_kernel.zig`, `exchange_api.zig` | Verified current — explicit capability boundary | `JavaIdentityHashContext` supplies the process-specific Java enum/object identity values required for exact StateHash projection. Exact requests fail closed with `MissingJavaIdentityHashContext` when it is absent; native requests remain available. Portable persistence artifacts intentionally omit process-local identity hashes while Java regeneration verifies them within each JVM process. |
@@ -234,10 +242,11 @@ Zig capacity gate, not a cross-host Java benchmark claim. See
 
 - focused Debug and ReleaseSafe topology, persistence, lifecycle, and custom
   extension checks passed;
-- the serialized aggregate gate passed 43/43 build steps and 2305/2305 tests:
-  1124 core, 13 standalone app, and 5 SIMD benchmark tests in each of Debug and
-  ReleaseSafe, plus 21 evidence-tool tests, including the exact 96/96 default
-  fixture manifest and both API audits;
+- the serialized aggregate gate passed 48/48 build steps and 2321/2321 tests:
+  1126 core, 13 standalone app, 6 browser-adapter, and 5 SIMD benchmark tests in
+  each of Debug and ReleaseSafe, plus 21 evidence-tool tests, including the
+  exact 96/96 default fixture manifest, both API audits, and browser Wasm
+  compilation;
 - the executable 91-class Java production map passed;
 - Temurin 11.0.32+9 ran the complete Java suite: 174 tests, 0 failures, 0
   errors, and 10 intentionally skipped opt-in writers;
@@ -245,7 +254,7 @@ Zig capacity gate, not a cross-host Java benchmark claim. See
   and Zig converted and recovered the resulting fixture in both modes;
 - the ReleaseFast semantic/capacity gate passed all thresholds and returned all
   tracked allocations at deinit;
-- formatting, patch hygiene, the final aggregate rerun, and the source archive
-  checksum are recorded with the packaged worktree.
+- formatting, patch hygiene, the aggregate rerun, the exact-artifact Node smoke,
+  and the real-browser interaction check passed on the packaged worktree.
 
 There are no tracked P0/P1 parity gaps in the scoped 91-class production map.
