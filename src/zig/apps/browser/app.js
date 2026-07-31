@@ -1,12 +1,20 @@
 import {
   EngineKind,
-  OrderAction,
-  OrderType,
-  SymbolType,
   assertCommandSuccess,
   instantiate,
 } from "./exchange-core.js";
+import {
+  getScenario,
+  runMarketScenario,
+  scenarioCatalog,
+} from "./scenarios.js";
 
+const scenarioSelect = document.querySelector("#scenario-select");
+const scenarioDescription = document.querySelector("#scenario-description");
+const metricElements = [0, 1, 2].map((index) => ({
+  label: document.querySelector(`#metric-${index}-label`),
+  value: document.querySelector(`#metric-${index}-value`),
+}));
 const runButton = document.querySelector("#run");
 const resetButton = document.querySelector("#reset");
 const status = document.querySelector("#status");
@@ -18,22 +26,14 @@ const bidsBody = document.querySelector("#bids");
 
 let exchange;
 let busy = false;
-const logLines = [];
 
 function setStatus(message, state = "loading") {
   status.textContent = message;
   status.dataset.state = state;
 }
 
-function appendLog(message) {
-  logLines.push(message);
-  log.textContent = logLines.join("\n");
-  log.scrollTop = log.scrollHeight;
-}
-
-function logResult(label, result) {
-  appendLog(`${label.padEnd(24)} ${result.name} (${result.code})`);
-  return assertCommandSuccess(result, label);
+function pluralize(count, singular, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 function renderLevels(body, levels, emptyLabel) {
@@ -60,93 +60,72 @@ function renderLevels(body, levels, emptyLabel) {
   }
 }
 
+function renderEmptyBook(emptyLabel = "—") {
+  renderLevels(asksBody, [], emptyLabel);
+  renderLevels(bidsBody, [], emptyLabel);
+  bookMeta.textContent = "No snapshot";
+}
+
 function renderBook(book) {
   renderLevels(asksBody, book.asks, "No asks");
   renderLevels(bidsBody, book.bids, "No bids");
-  bookMeta.textContent = `${book.asks.length} ask · ${book.bids.length} bid`;
+  bookMeta.textContent = `${pluralize(book.asks.length, "ask")} · ${pluralize(book.bids.length, "bid")}`;
+}
+
+function renderScenarioMetadata(scenario) {
+  scenarioDescription.textContent = scenario.description;
+  for (let index = 0; index < metricElements.length; index += 1) {
+    const metric = scenario.metrics[index];
+    metricElements[index].label.textContent = metric.label;
+    metricElements[index].value.textContent = metric.value;
+  }
+}
+
+function selectedScenario() {
+  return getScenario(scenarioSelect.value);
 }
 
 function setBusy(nextBusy) {
   busy = nextBusy;
+  scenarioSelect.disabled = nextBusy || !exchange;
   runButton.disabled = nextBusy || !exchange;
   resetButton.disabled = nextBusy || !exchange;
 }
 
-async function runScenario() {
+function formatLog(summary) {
+  const commandLines = summary.logEntries.map((entry) => {
+    const events = entry.eventCount === 0
+      ? ""
+      : ` · ${pluralize(entry.eventCount, "event")}`;
+    const expectedRejection = entry.result.ok ? "" : " · expected rejection";
+    return `${entry.label.padEnd(29)} ${entry.result.name} (${entry.result.code})${events}${expectedRejection}`;
+  });
+  commandLines.push(
+    `matcher events                ${summary.eventCount}`,
+    "L2 wire                       XCL2 validated",
+  );
+  return commandLines.join("\n");
+}
+
+function runSelectedScenario() {
   if (!exchange || busy) return;
   setBusy(true);
-  setStatus("Running the market scenario…");
-  logLines.length = 0;
-  log.textContent = "";
+  const scenario = selectedScenario();
+  setStatus(`Running ${scenario.title.toLowerCase()}…`);
+  log.textContent = "Resetting and bootstrapping the exchange…";
 
   try {
-    logResult("reset", exchange.clear());
-    logResult("add symbol 241", exchange.addSymbol({
-      symbolId: 241,
-      symbolType: SymbolType.currencyExchangePair,
-      baseCurrency: 11,
-      quoteCurrency: 15,
-      baseScaleK: 1n,
-      quoteScaleK: 1n,
-    }));
-    logResult("add seller 1001", exchange.addUser(1001n));
-    logResult("add buyer 1002", exchange.addUser(1002n));
-    logResult("deposit seller base", exchange.adjustBalance({
-      uid: 1001n,
-      transactionId: 1n,
-      currency: 11,
-      amount: 1_000n,
-    }));
-    logResult("deposit buyer quote", exchange.adjustBalance({
-      uid: 1002n,
-      transactionId: 2n,
-      currency: 15,
-      amount: 100_000n,
-    }));
-    logResult("resting ask 10 @ 100", exchange.placeOrder({
-      orderId: 10_001n,
-      uid: 1001n,
-      symbol: 241,
-      price: 100n,
-      size: 10n,
-      action: OrderAction.ask,
-      orderType: OrderType.gtc,
-    }));
-    logResult("crossing bid 4 @ 105", exchange.placeOrder({
-      orderId: 10_002n,
-      uid: 1002n,
-      symbol: 241,
-      price: 105n,
-      reserveBidPrice: 105n,
-      size: 4n,
-      action: OrderAction.bid,
-      orderType: OrderType.ioc,
-    }));
-
-    const eventCount = exchange.lastEventCount();
-    appendLog(`matcher events           ${eventCount}`);
-    if (eventCount === 0) {
-      throw new Error("crossing order emitted no matcher events");
-    }
-
-    const book = exchange.orderBook(241, 16);
-    if (
-      book.asks.length !== 1 ||
-      book.bids.length !== 0 ||
-      book.asks[0].price !== 100n ||
-      book.asks[0].volume !== 6n
-    ) {
-      throw new Error("unexpected L2 remainder after crossing trade");
-    }
-    renderBook(book);
-    appendLog("L2 wire                  XCL2 validated");
+    const summary = runMarketScenario(exchange, scenario.id);
+    renderBook(summary.book);
+    log.textContent = formatLog(summary);
+    log.scrollTop = log.scrollHeight;
     setStatus(
-      `Trade complete · ${eventCount} matcher event${eventCount === 1 ? "" : "s"} · 6 units remain at 100`,
+      `${summary.status} ${pluralize(summary.eventCount, "matcher event")} observed.`,
       "ready",
     );
   } catch (error) {
     console.error(error);
-    appendLog(`ERROR                    ${error.message}`);
+    log.textContent += `\nERROR                         ${error.message}`;
     setStatus(error.message, "error");
   } finally {
     setBusy(false);
@@ -156,15 +135,12 @@ async function runScenario() {
 function resetScenario() {
   if (!exchange || busy) return;
   setBusy(true);
+  const scenario = selectedScenario();
   try {
-    const result = exchange.clear();
-    assertCommandSuccess(result, "reset");
-    logLines.length = 0;
-    log.textContent = "Exchange reset. Ready to run again.";
-    renderLevels(asksBody, [], "—");
-    renderLevels(bidsBody, [], "—");
-    bookMeta.textContent = "No snapshot";
-    setStatus("Exchange reset and ready.", "ready");
+    assertCommandSuccess(exchange.clear(), "reset exchange");
+    renderEmptyBook();
+    log.textContent = `${scenario.title} selected. Exchange reset; the runner will bootstrap fresh state.`;
+    setStatus(`${scenario.title} is reset and ready to run.`, "ready");
   } catch (error) {
     console.error(error);
     setStatus(error.message, "error");
@@ -173,16 +149,27 @@ function resetScenario() {
   }
 }
 
-runButton.addEventListener("click", runScenario);
+for (const scenario of scenarioCatalog) {
+  const option = document.createElement("option");
+  option.value = scenario.id;
+  option.textContent = scenario.title;
+  scenarioSelect.append(option);
+}
+renderScenarioMetadata(selectedScenario());
+
+scenarioSelect.addEventListener("change", () => {
+  renderScenarioMetadata(selectedScenario());
+  resetScenario();
+});
+runButton.addEventListener("click", runSelectedScenario);
 resetButton.addEventListener("click", resetScenario);
 
 try {
   const core = await instantiate("./exchange-core.wasm");
   exchange = core.create(EngineKind.direct);
   abi.textContent = `ABI ${core.abiVersion}`;
-  logLines.length = 0;
-  log.textContent = "WASM loaded. Direct order book allocated.";
-  setStatus("Exchange loaded. Run the deterministic trade.", "ready");
+  log.textContent = "WASM loaded. Choose a scenario or run the selected one.";
+  setStatus(`${selectedScenario().title} is ready to run.`, "ready");
   setBusy(false);
 } catch (error) {
   console.error(error);

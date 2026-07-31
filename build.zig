@@ -498,12 +498,17 @@ pub fn build(b: *std.Build) void {
         b.path("src/zig/apps/browser/app.js"),
         "browser/app.js",
     );
+    const install_wasm_scenarios = b.addInstallFile(
+        b.path("src/zig/apps/browser/scenarios.js"),
+        "browser/scenarios.js",
+    );
 
     const wasm_step = b.step("wasm", "Build the browser exchange and stage zig-out/browser");
     wasm_step.dependOn(&install_wasm.step);
     wasm_step.dependOn(&install_wasm_loader.step);
     wasm_step.dependOn(&install_wasm_page.step);
     wasm_step.dependOn(&install_wasm_app.step);
+    wasm_step.dependOn(&install_wasm_scenarios.step);
 
     const run_wasm_smoke = b.addSystemCommand(&.{ "node", "src/zig/apps/browser/smoke.mjs" });
     run_wasm_smoke.addFileArg(wasm_exe.getEmittedBin());

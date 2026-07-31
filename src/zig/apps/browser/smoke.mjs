@@ -5,12 +5,12 @@ import {
   CommandResultCode,
   EngineKind,
   ExchangeDestroyedError,
-  OrderAction,
-  OrderType,
-  SymbolType,
-  assertCommandSuccess,
   instantiate,
 } from "./exchange-core.js";
+import {
+  runMarketScenario,
+  scenarioCatalog,
+} from "./scenarios.js";
 
 const wasmPath = process.argv[2];
 if (!wasmPath) {
@@ -56,11 +56,39 @@ for (const requiredExport of [
 
 const core = await instantiate(bytes);
 invariant(core.abiVersion === ABI_VERSION, "ABI version mismatch");
+invariant(Object.isFrozen(scenarioCatalog), "scenario catalog must be frozen");
+invariant(scenarioCatalog.length === 5, "expected five market scenarios");
+invariant(
+  new Set(scenarioCatalog.map(({ id }) => id)).size === scenarioCatalog.length,
+  "scenario ids must be unique",
+);
+for (const scenario of scenarioCatalog) {
+  invariant(Object.isFrozen(scenario), `${scenario.id} metadata must be frozen`);
+  invariant(scenario.metrics.length === 3, `${scenario.id} must expose three metrics`);
+  invariant(Object.isFrozen(scenario.metrics), `${scenario.id} metrics must be frozen`);
+}
+
+const expectedScenarioSummaries = new Map([
+  ["partial-fill", { eventCount: 1, book: "asks=100/6/1;bids=" }],
+  ["multi-level-sweep", { eventCount: 2, book: "asks=101/1/1;bids=" }],
+  ["resting-spread", { eventCount: 0, book: "asks=105/5/1;bids=100/4/1" }],
+  ["order-lifecycle", { eventCount: 2, book: "asks=;bids=" }],
+  ["insufficient-funds", { eventCount: 0, book: "asks=;bids=" }],
+]);
+invariant(
+  expectedScenarioSummaries.size === scenarioCatalog.length,
+  "smoke expectation matrix does not cover the catalog",
+);
+
+function bookSignature(book) {
+  const sideSignature = (side) => side
+    .map(({ price, volume, orders }) => `${price}/${volume}/${orders}`)
+    .join(",");
+  return `asks=${sideSignature(book.asks)};bids=${sideSignature(book.bids)}`;
+}
 
 const exchange = core.create(EngineKind.direct);
-let crossingResult;
-let book;
-let eventCount;
+const summaries = [];
 
 try {
   let rejectedNumberI64 = false;
@@ -79,67 +107,52 @@ try {
   }
   invariant(rejectedOutOfRangeI64, "out-of-range i64 argument was not rejected");
 
-  assertCommandSuccess(exchange.addSymbol({
-    symbolId: 241,
-    symbolType: SymbolType.currencyExchangePair,
-    baseCurrency: 11,
-    quoteCurrency: 15,
-    baseScaleK: 1n,
-    quoteScaleK: 1n,
-  }), "add symbol");
-  assertCommandSuccess(exchange.addUser(1001n), "add seller");
-  assertCommandSuccess(exchange.addUser(1002n), "add buyer");
-  assertCommandSuccess(exchange.adjustBalance({
-    uid: 1001n,
-    transactionId: 1n,
-    currency: 11,
-    amount: 1_000n,
-  }), "deposit seller base");
-  assertCommandSuccess(exchange.adjustBalance({
-    uid: 1002n,
-    transactionId: 2n,
-    currency: 15,
-    amount: 100_000n,
-  }), "deposit buyer quote");
+  for (const scenario of scenarioCatalog) {
+    const summary = runMarketScenario(exchange, scenario.id);
+    const expected = expectedScenarioSummaries.get(scenario.id);
+    invariant(expected !== undefined, `${scenario.id} has no smoke expectation`);
+    invariant(Object.isFrozen(summary), `${scenario.id} summary must be frozen`);
+    invariant(summary.scenario === scenario, `${scenario.id} metadata identity changed`);
+    invariant(typeof summary.status === "string", `${scenario.id} status is missing`);
+    invariant(
+      summary.eventCount === expected.eventCount,
+      `${scenario.id} total matcher event count changed`,
+    );
+    invariant(
+      bookSignature(summary.book) === expected.book,
+      `${scenario.id} final L2 book changed`,
+    );
+    invariant(Object.isFrozen(summary.book), `${scenario.id} book must be frozen`);
+    invariant(Object.isFrozen(summary.logEntries), `${scenario.id} log must be frozen`);
+    invariant(summary.logEntries.length > 0, `${scenario.id} command log is empty`);
+    for (const entry of summary.logEntries) {
+      invariant(Object.isFrozen(entry), `${scenario.id} log entry must be frozen`);
+      invariant(Object.isFrozen(entry.result), `${scenario.id} result must be frozen`);
+      invariant(
+        entry.result.code === entry.expectedCode,
+        `${scenario.id} recorded an unexpected command result`,
+      );
+      invariant(
+        entry.eventCount === entry.expectedEventCount,
+        `${scenario.id} recorded an unexpected matcher event count`,
+      );
+    }
+    summaries.push(summary);
+    console.log(
+      `PASS scenario=${scenario.id} events=${summary.eventCount} asks=${summary.book.asks.length} bids=${summary.book.bids.length}`,
+    );
+  }
 
-  const restingResult = exchange.placeOrder({
-    orderId: 10_001n,
-    uid: 1001n,
-    symbol: 241,
-    price: 100n,
-    size: 10n,
-    action: OrderAction.ask,
-    orderType: OrderType.gtc,
-  });
-  assertCommandSuccess(restingResult, "place resting ask");
-
-  crossingResult = exchange.placeOrder({
-    orderId: 10_002n,
-    uid: 1002n,
-    symbol: 241,
-    price: 105n,
-    reserveBidPrice: 105n,
-    size: 4n,
-    action: OrderAction.bid,
-    orderType: OrderType.ioc,
-  });
-  assertCommandSuccess(crossingResult, "place crossing bid");
-  invariant(
-    crossingResult.code === CommandResultCode.success,
-    `crossing result was ${crossingResult.name}`,
+  const rejectionSummary = summaries.find(
+    ({ scenario }) => scenario.id === "insufficient-funds",
   );
-
-  eventCount = exchange.lastEventCount();
-  invariant(eventCount > 0, "crossing order produced no matcher events");
-
-  book = exchange.orderBook(241, 16);
-  invariant(book.asks.length === 1, "expected one remaining ask level");
-  invariant(book.bids.length === 0, "IOC bid should not remain in the book");
-  invariant(book.asks[0].price === 100n, "remaining ask price mismatch");
-  invariant(book.asks[0].volume === 6n, "remaining ask volume mismatch");
-  invariant(book.asks[0].orders === 1, "remaining ask order count mismatch");
-
-  assertCommandSuccess(exchange.clear(), "reset exchange");
+  invariant(rejectionSummary !== undefined, "insufficient-funds scenario did not run");
+  invariant(
+    rejectionSummary.logEntries.some(
+      ({ result }) => result.code === CommandResultCode.riskNsf && result.ok === false,
+    ),
+    "insufficient-funds scenario did not preserve riskNsf",
+  );
 } finally {
   exchange.destroy();
 }
@@ -153,5 +166,5 @@ try {
 invariant(rejectedStaleHandle, "wrapper allowed use after destroy");
 
 console.log(
-  `PASS wasm-browser abi=${core.abiVersion} result=${crossingResult.name} events=${eventCount} asks=${book.asks.length} bids=${book.bids.length}`,
+  `PASS wasm-browser abi=${core.abiVersion} scenarios=${summaries.length} total-events=${summaries.reduce((total, summary) => total + summary.eventCount, 0)}`,
 );

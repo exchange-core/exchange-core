@@ -20,11 +20,14 @@ zig build -j1 wasm-smoke
 
 - `exchange-core.wasm` - the `wasm32-freestanding`, single-threaded engine
 - `exchange-core.js` - the dependency-free JavaScript wrapper
-- `index.html` and `app.js` - a small interactive crossing-order demo
+- `scenarios.js` - the browser/Node-shared deterministic scenario catalog and runner
+- `index.html` and `app.js` - the interactive scenario explorer
 
-`wasm-smoke` compiles the same adapter and runs a funded crossing-order flow in
-Node. Node is used only as a portable WebAssembly host for this focused smoke
-test; the main Zig migration gate does not depend on Node.
+`wasm-smoke` compiles the same adapter and runs every catalog scenario through
+the exact emitted WebAssembly in Node. It also keeps the ABI export, no-import,
+strict `bigint`, and stale-handle checks around those market flows. Node is used
+only as a portable WebAssembly host for this focused smoke test; the main Zig
+migration gate does not depend on Node.
 
 ## Run in a browser
 
@@ -35,9 +38,32 @@ opening `index.html` as a `file:` URL. For example:
 python3 -m http.server 8000 --directory zig-out/browser
 ```
 
-Then open <http://127.0.0.1:8000/>. The demo creates an engine, registers a
-spot symbol, funds a buyer and seller, crosses their orders, and displays the
-resulting L2 book.
+Then open <http://127.0.0.1:8000/>. Choose and run any deterministic scenario:
+
+- **Partial fill** - a smaller IOC bid leaves part of a resting ask
+- **Multi-level sweep** - an IOC bid consumes two ask levels in price order
+- **Resting spread** - non-crossing GTC orders remain on both sides
+- **Move, reduce, cancel** - one resting order completes its full lifecycle
+- **Insufficient funds** - risk rejects an underfunded bid before matching
+
+Selecting or resetting a scenario clears the engine. Running always resets and
+bootstraps it again, so repeated runs start from identical state and produce the
+same native result codes, matcher-event counts, and L2 snapshot.
+
+## Shared scenario runner
+
+`scenarios.js` has no host-specific or third-party dependencies. The browser UI
+and Node smoke import the same frozen catalog and call
+`runMarketScenario(exchange, scenarioId)`. Each run resets and bootstraps the
+real `ExchangeKernel`, checks every command's exact native result code and
+matcher-event count, validates intermediate lifecycle snapshots where useful,
+and validates the final L2 book.
+
+The returned frozen summary contains the selected scenario metadata, a status
+message, cumulative matcher-event count, final book, and structured command-log
+entries. An expected business rejection such as `riskNsf (-2001)` is recorded
+as its frozen `{ code, name, ok }` result rather than converted into an ABI
+failure.
 
 ## JavaScript wrapper
 

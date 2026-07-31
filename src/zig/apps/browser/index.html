@@ -31,10 +31,6 @@
       }
 
       header {
-        display: flex;
-        align-items: end;
-        justify-content: space-between;
-        gap: 28px;
         margin-bottom: 28px;
       }
 
@@ -61,6 +57,59 @@
         color: #a7b8b5;
         font-size: 1.05rem;
         line-height: 1.65;
+      }
+
+      .control-panel {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 24px;
+        margin-bottom: 18px;
+        padding: 18px 20px;
+        border: 1px solid #203832;
+        border-radius: 20px;
+        background: rgba(13, 29, 26, .9);
+        box-shadow: 0 22px 70px rgba(0, 0, 0, .16);
+      }
+
+      .scenario-picker {
+        display: grid;
+        grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+        align-items: center;
+        gap: 18px;
+      }
+
+      .control-label {
+        display: block;
+        margin-bottom: 8px;
+        color: #74ddca;
+        font-size: .72rem;
+        font-weight: 750;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+      }
+
+      select {
+        width: 100%;
+        min-height: 44px;
+        padding: 0 40px 0 14px;
+        border: 1px solid #2b4540;
+        border-radius: 12px;
+        color: inherit;
+        background: #10211e;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      select:focus-visible { outline: 3px solid #e8b95f; outline-offset: 3px; }
+      select:disabled { cursor: wait; opacity: .48; }
+
+      .scenario-description {
+        margin: 0;
+        color: #a7b8b5;
+        font-size: .9rem;
+        line-height: 1.55;
       }
 
       .actions {
@@ -188,12 +237,15 @@
 
       @media (max-width: 780px) {
         main { padding: 34px 0; }
-        header { align-items: flex-start; flex-direction: column; }
+        .control-panel { grid-template-columns: 1fr; }
         .actions { justify-content: flex-start; }
         .dashboard { grid-template-columns: 1fr; }
       }
 
       @media (max-width: 520px) {
+        .scenario-picker { grid-template-columns: 1fr; gap: 12px; }
+        .actions { display: grid; grid-template-columns: 1fr; }
+        button { width: 100%; }
         .book-grid { grid-template-columns: 1fr; }
         .book-side + .book-side { border-top: 1px solid #203832; border-left: 0; }
         .scenario { grid-template-columns: 1fr; }
@@ -207,15 +259,25 @@
           <p class="eyebrow">Exchange Core · Zig + WebAssembly</p>
           <h1>A real order book, inside your browser.</h1>
           <p class="lede">
-            Run a deterministic spot-market trade locally. The direct matching engine,
-            risk checks, balances, matcher events, and L2 snapshot all execute in WebAssembly.
+            Explore deterministic spot-market behavior locally. The direct matching engine,
+            risk checks, balances, matcher events, and L2 snapshots all execute in WebAssembly.
           </p>
         </div>
-        <div class="actions" aria-label="Exchange controls">
-          <button id="reset" type="button" disabled>Reset exchange</button>
-          <button id="run" class="primary" type="button" disabled>Run market scenario</button>
-        </div>
       </header>
+
+      <section class="control-panel" aria-label="Market scenario controls">
+        <div class="scenario-picker">
+          <div>
+            <label class="control-label" for="scenario-select">Market scenario</label>
+            <select id="scenario-select" aria-describedby="scenario-description" disabled></select>
+          </div>
+          <p id="scenario-description" class="scenario-description" aria-live="polite"></p>
+        </div>
+        <div class="actions" aria-label="Exchange controls">
+          <button id="reset" type="button" disabled>Reset scenario</button>
+          <button id="run" class="primary" type="button" disabled>Run selected scenario</button>
+        </div>
+      </section>
 
       <div id="status" class="status" role="status" aria-live="polite">
         Loading exchange-core.wasm…
@@ -245,10 +307,10 @@
           </article>
 
           <article class="card">
-            <dl class="scenario">
-              <div class="metric"><dt>Resting ask</dt><dd>10 @ 100</dd></div>
-              <div class="metric"><dt>Crossing IOC bid</dt><dd>4 @ 105</dd></div>
-              <div class="metric"><dt>Expected remainder</dt><dd>6 @ 100</dd></div>
+            <dl class="scenario" aria-live="polite">
+              <div class="metric"><dt id="metric-0-label">—</dt><dd id="metric-0-value">—</dd></div>
+              <div class="metric"><dt id="metric-1-label">—</dt><dd id="metric-1-value">—</dd></div>
+              <div class="metric"><dt id="metric-2-label">—</dt><dd id="metric-2-value">—</dd></div>
             </dl>
           </article>
         </div>
