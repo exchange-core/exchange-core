@@ -202,6 +202,27 @@ pub fn build(b: *std.Build) void {
     );
     orchestrator_ab_step.dependOn(&run_orchestrator_ab.step);
 
+    const simd_bench_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/bench/simd.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    simd_bench_module.addImport("exchange_core", exchange_core);
+    const simd_bench_exe = b.addExecutable(.{
+        .name = "exchange-core-simd-bench",
+        .root_module = simd_bench_module,
+    });
+    const run_simd_bench = b.addRunArtifact(simd_bench_exe);
+    if (b.args) |args| {
+        run_simd_bench.addArgs(args);
+    }
+
+    const simd_bench_step = b.step(
+        "bench-simd",
+        "Benchmark scalar and production binary-carrier transforms",
+    );
+    simd_bench_step.dependOn(&run_simd_bench.step);
+
     const parity_diff_module = b.createModule(.{
         .root_source_file = b.path("src/zig/tools/fixture_diff.zig"),
         .target = target,

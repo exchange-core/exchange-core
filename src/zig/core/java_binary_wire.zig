@@ -370,11 +370,30 @@ pub fn packSignedWordsBigEndian(
 
     const words = try allocator.alloc(i64, word_count);
     @memset(words, 0);
-    for (0..words_without_frame_padding) |word_index| {
+
+    const complete_words = bytes.len / @sizeOf(i64);
+    var word_index: usize = 0;
+    if (std.simd.suggestVectorLength(u64)) |lanes| {
+        const WordVector = @Vector(lanes, u64);
+        const vector_bytes = lanes * @sizeOf(u64);
+        while (word_index + lanes <= complete_words) : (word_index += lanes) {
+            const byte_index = word_index * @sizeOf(u64);
+            const native_words: WordVector = @bitCast(
+                bytes[byte_index..][0..vector_bytes].*,
+            );
+            const big_endian_words = std.mem.nativeToBig(WordVector, native_words);
+            const signed_words: @Vector(lanes, i64) = @bitCast(big_endian_words);
+            words[word_index..][0..lanes].* = signed_words;
+        }
+    }
+    while (word_index < complete_words) : (word_index += 1) {
+        const start = word_index * @sizeOf(i64);
+        words[word_index] = std.mem.readInt(i64, bytes[start..][0..8], .big);
+    }
+    if (word_index < words_without_frame_padding) {
         var raw = [_]u8{0} ** 8;
         const start = word_index * 8;
-        const end = @min(start + 8, bytes.len);
-        @memcpy(raw[0 .. end - start], bytes[start..end]);
+        @memcpy(raw[0 .. bytes.len - start], bytes[start..]);
         words[word_index] = std.mem.readInt(i64, &raw, .big);
     }
     return words;
@@ -389,7 +408,21 @@ pub fn unpackSignedWordsBigEndian(
     if (words.len % words_per_frame != 0) return error.CarrierWordCountNotMultipleOfFive;
     const byte_count = std.math.mul(usize, words.len, @sizeOf(i64)) catch return error.CarrierTooLarge;
     const bytes = try allocator.alloc(u8, byte_count);
-    for (words, 0..) |word, word_index| {
+
+    var word_index: usize = 0;
+    if (std.simd.suggestVectorLength(u64)) |lanes| {
+        const WordVector = @Vector(lanes, u64);
+        const ByteVector = @Vector(lanes * @sizeOf(u64), u8);
+        while (word_index + lanes <= words.len) : (word_index += lanes) {
+            const native_words: WordVector = @bitCast(words[word_index..][0..lanes].*);
+            const big_endian_words = std.mem.nativeToBig(WordVector, native_words);
+            const big_endian_bytes: ByteVector = @bitCast(big_endian_words);
+            const byte_index = word_index * @sizeOf(i64);
+            bytes[byte_index..][0 .. lanes * @sizeOf(u64)].* = big_endian_bytes;
+        }
+    }
+    while (word_index < words.len) : (word_index += 1) {
+        const word = words[word_index];
         std.mem.writeInt(i64, bytes[word_index * 8 ..][0..8], word, .big);
     }
     return bytes;
@@ -650,6 +683,63 @@ test "signed big-endian carriers preserve 8 and 40-byte boundaries" {
         error.CarrierWordCountNotMultipleOfFive,
         unpackSignedWordsBigEndian(allocator, &.{ 1, 2, 3, 4 }),
     );
+}
+
+test "SIMD carrier transforms match scalar big-endian semantics across vector tails" {
+    const allocator = std.testing.allocator;
+    const vector_words = std.simd.suggestVectorLength(u64) orelse 1;
+    const vector_bytes = vector_words * @sizeOf(u64);
+    const lengths = [_]usize{
+        0,
+        1,
+        7,
+        8,
+        9,
+        vector_bytes - 1,
+        vector_bytes,
+        vector_bytes + 1,
+        vector_bytes * 2 - 1,
+        vector_bytes * 2,
+        vector_bytes * 2 + 1,
+        39,
+        40,
+        41,
+        127,
+        128,
+        129,
+        4099,
+    };
+
+    for (lengths) |length| {
+        const input = try allocator.alloc(u8, length);
+        defer allocator.free(input);
+        for (input, 0..) |*byte, index| {
+            byte.* = @truncate(index *% 193 +% length);
+        }
+
+        const words = try packSignedWordsBigEndian(allocator, input);
+        defer allocator.free(words);
+        try std.testing.expectEqual(@as(usize, 0), words.len % words_per_frame);
+
+        const live_words = (input.len + 7) / 8;
+        for (0..live_words) |index| {
+            var raw = [_]u8{0} ** 8;
+            const start = index * 8;
+            const end = @min(start + 8, input.len);
+            @memcpy(raw[0 .. end - start], input[start..end]);
+            try std.testing.expectEqual(std.mem.readInt(i64, &raw, .big), words[index]);
+        }
+        for (words[live_words..]) |padding_word| {
+            try std.testing.expectEqual(@as(i64, 0), padding_word);
+        }
+
+        const unpacked = try unpackSignedWordsBigEndian(allocator, words);
+        defer allocator.free(unpacked);
+        try std.testing.expectEqualSlices(u8, input, unpacked[0..input.len]);
+        for (unpacked[input.len..]) |padding_byte| {
+            try std.testing.expectEqual(@as(u8, 0), padding_byte);
+        }
+    }
 }
 
 test "Java little-endian single-user query body has exact bytes" {
