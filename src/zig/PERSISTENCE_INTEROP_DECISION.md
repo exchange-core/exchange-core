@@ -143,4 +143,8 @@ both optimization modes. Crash-boundary tests are green.
 of the queue. Concurrent suffix work is excluded; `{2,2}` suffix and
 persistent-grouped cases prove that boundary. Custom serializer callbacks keep
 end-of-batch markers but remain serialized compared with Java's module-thread
-parallelism.
+parallelism. Custom snapshot stores likewise execute serially, but they are not
+fail-fast across the configured topology: every ME instance and then every RE
+instance is attempted after an earlier store failure. Matching and risk retain
+independent result codes, and no snapshot descriptor is published unless all
+stores in both halves succeed.
