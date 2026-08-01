@@ -311,18 +311,44 @@ pub fn SettlementOutbox(comptime capacity: usize) type {
         fresh_journal_prefix_through: u64 = 0,
         fresh_frontier_gap: bool = false,
 
+        /// Returns the complete inline outbox by value, copying stack-sized
+        /// `Self` through the return path. Large capacities must use `initInto`
+        /// with heap or otherwise stable caller-owned storage.
         pub fn init(destination_id: DestinationId) OutboxError!Self {
-            if (@intFromEnum(destination_id) == 0) return error.InvalidDestination;
-            return .{ .destination_id = destination_id };
+            var out: Self = undefined;
+            try initInto(&out, destination_id);
+            return out;
         }
 
+        /// Initializes caller-owned storage in place. On error, `out` is
+        /// undefined and must not be read.
+        pub fn initInto(out: *Self, destination_id: DestinationId) OutboxError!void {
+            if (@intFromEnum(destination_id) == 0) return error.InvalidDestination;
+            out.* = .{ .destination_id = destination_id };
+        }
+
+        /// Returns the complete inline outbox by value, copying stack-sized
+        /// `Self` through the return path. Large capacities must use
+        /// `initPreparedInto` with heap or otherwise stable storage.
         pub fn initPrepared(
             destination_id: DestinationId,
             domain: PublicationDomain,
         ) OutboxError!Self {
+            var out: Self = undefined;
+            try initPreparedInto(&out, destination_id, domain);
+            return out;
+        }
+
+        /// Initializes caller-owned storage in place. On error, `out` is
+        /// undefined and must not be read.
+        pub fn initPreparedInto(
+            out: *Self,
+            destination_id: DestinationId,
+            domain: PublicationDomain,
+        ) OutboxError!void {
             if (@intFromEnum(destination_id) == 0) return error.InvalidDestination;
             domain.validate() catch return error.InvalidPublicationDomain;
-            return .{
+            out.* = .{
                 .destination_id = destination_id,
                 .outbox_mode = .two_frontier,
                 .publication_domain = domain,
@@ -886,7 +912,22 @@ pub fn SettlementOutbox(comptime capacity: usize) type {
             return output[0..total];
         }
 
+        /// Returns the complete decoded outbox by value, copying stack-sized
+        /// `Self` through the return path. Large capacities must use
+        /// `decodeInto` with stable caller-owned storage.
         pub fn decode(bytes: []const u8, expected_destination: DestinationId) CodecError!Self {
+            var out: Self = undefined;
+            try decodeInto(&out, bytes, expected_destination);
+            return out;
+        }
+
+        /// Decodes into caller-owned storage without copying `Self` through
+        /// the return stack. On error, `out` is undefined and must not be read.
+        pub fn decodeInto(
+            out: *Self,
+            bytes: []const u8,
+            expected_destination: DestinationId,
+        ) CodecError!void {
             if (bytes.len < snapshot_header_len + snapshot_digest_len) return error.Truncated;
             const digest_offset = bytes.len - snapshot_digest_len;
             const expected_digest = sha256(bytes[0..digest_offset]);
@@ -935,17 +976,18 @@ pub fn SettlementOutbox(comptime capacity: usize) type {
                     return error.InvalidSnapshotWatermark;
             }
 
-            var outbox = switch (decoded_mode) {
-                .immediate => Self.init(expected_destination) catch return error.DestinationMismatch,
-                .two_frontier => Self.initPrepared(expected_destination, domain) catch return error.InvalidSnapshotDomain,
-            };
-            outbox.count = entry_count;
-            outbox.pruned_through = pruned;
-            outbox.high_watermark = high;
+            switch (decoded_mode) {
+                .immediate => Self.initInto(out, expected_destination) catch return error.DestinationMismatch,
+                .two_frontier => Self.initPreparedInto(out, expected_destination, domain) catch
+                    return error.InvalidSnapshotDomain,
+            }
+            out.count = entry_count;
+            out.pruned_through = pruned;
+            out.high_watermark = high;
 
             var previous_group = pruned;
             var previous_publication_sequence: u64 = 0;
-            for (outbox.entries[0..outbox.len()]) |*entry| {
+            for (out.entries[0..out.len()]) |*entry| {
                 const group_id = try takeInt(u128, bytes, &index, digest_offset);
                 const publication_sequence = try takeInt(u64, bytes, &index, digest_offset);
                 const transfer_count = try takeInt(u8, bytes, &index, digest_offset);
@@ -1018,10 +1060,9 @@ pub fn SettlementOutbox(comptime capacity: usize) type {
                 previous_publication_sequence = publication_sequence;
             }
             if (index != digest_offset) return error.TrailingBytes;
-            if (outbox.len() == 0 and high != pruned) return error.InvalidSnapshotWatermark;
-            if (outbox.len() != 0 and previous_group != high) return error.InvalidSnapshotWatermark;
-            outbox.recoverAfterRestart(0);
-            return outbox;
+            if (out.len() == 0 and high != pruned) return error.InvalidSnapshotWatermark;
+            if (out.len() != 0 and previous_group != high) return error.InvalidSnapshotWatermark;
+            out.recoverAfterRestart(0);
         }
 
         fn prepareOne(
@@ -1213,13 +1254,32 @@ pub fn DurableFileOutbox(comptime capacity: usize) type {
         fail_next_write_for_testing: bool = false,
         fail_next_post_replace_for_testing: bool = false,
 
+        /// Returns the complete durable outbox by value, copying stack-sized
+        /// `Self` through the return path. Large capacities must use `openInto`
+        /// with heap or otherwise stable caller-owned storage.
         pub fn open(
             allocator: std.mem.Allocator,
             dir: std.Io.Dir,
             path: []const u8,
             destination_id: DestinationId,
         ) StoreError!Self {
-            return openMode(
+            var out: Self = undefined;
+            try openInto(&out, allocator, dir, path, destination_id);
+            return out;
+        }
+
+        /// Opens into stable caller-owned storage. Success transfers the path
+        /// allocations and lock to `out`, which must later call `deinit`. On
+        /// error all acquired resources are released and `out` must not be used.
+        pub fn openInto(
+            out: *Self,
+            allocator: std.mem.Allocator,
+            dir: std.Io.Dir,
+            path: []const u8,
+            destination_id: DestinationId,
+        ) StoreError!void {
+            return openModeInto(
+                out,
                 allocator,
                 dir,
                 path,
@@ -1229,6 +1289,9 @@ pub fn DurableFileOutbox(comptime capacity: usize) type {
             );
         }
 
+        /// Returns the complete durable outbox by value, copying stack-sized
+        /// `Self` through the return path. Large capacities must use
+        /// `openPreparedInto` with heap or otherwise stable storage.
         pub fn openPrepared(
             allocator: std.mem.Allocator,
             dir: std.Io.Dir,
@@ -1236,18 +1299,43 @@ pub fn DurableFileOutbox(comptime capacity: usize) type {
             destination_id: DestinationId,
             domain: PublicationDomain,
         ) StoreError!Self {
-            domain.validate() catch return error.InvalidPublicationDomain;
-            return openMode(allocator, dir, path, destination_id, .two_frontier, domain);
+            var out: Self = undefined;
+            try openPreparedInto(&out, allocator, dir, path, destination_id, domain);
+            return out;
         }
 
-        fn openMode(
+        /// Opens into stable caller-owned storage. Success transfers the path
+        /// allocations and lock to `out`, which must later call `deinit`. On
+        /// error all acquired resources are released and `out` must not be used.
+        pub fn openPreparedInto(
+            out: *Self,
+            allocator: std.mem.Allocator,
+            dir: std.Io.Dir,
+            path: []const u8,
+            destination_id: DestinationId,
+            domain: PublicationDomain,
+        ) StoreError!void {
+            domain.validate() catch return error.InvalidPublicationDomain;
+            return openModeInto(
+                out,
+                allocator,
+                dir,
+                path,
+                destination_id,
+                .two_frontier,
+                domain,
+            );
+        }
+
+        fn openModeInto(
+            out: *Self,
             allocator: std.mem.Allocator,
             dir: std.Io.Dir,
             path: []const u8,
             destination_id: DestinationId,
             expected_mode: OutboxMode,
             expected_domain: PublicationDomain,
-        ) StoreError!Self {
+        ) StoreError!void {
             const path_copy = try allocator.dupe(u8, path);
             errdefer allocator.free(path_copy);
             const lock_path = try std.fmt.allocPrint(allocator, "{s}.lock", .{path});
@@ -1263,10 +1351,22 @@ pub fn DurableFileOutbox(comptime capacity: usize) type {
             };
             errdefer lock_file.close(io_context.current());
 
-            var core = switch (expected_mode) {
-                .immediate => Core.init(destination_id) catch |err| return err,
-                .two_frontier => Core.initPrepared(destination_id, expected_domain) catch |err| return err,
-            };
+            out.allocator = allocator;
+            out.dir = dir;
+            out.path = path_copy;
+            out.lock_path = lock_path;
+            out.lock_file = lock_file;
+            out.poisoned = false;
+            out.fail_next_write_for_testing = false;
+            out.fail_next_post_replace_for_testing = false;
+            switch (expected_mode) {
+                .immediate => Core.initInto(&out.core, destination_id) catch |err| return err,
+                .two_frontier => Core.initPreparedInto(
+                    &out.core,
+                    destination_id,
+                    expected_domain,
+                ) catch |err| return err,
+            }
             const file = dir.openFile(io_context.current(), path, .{}) catch |err| switch (err) {
                 error.FileNotFound => null,
                 else => return error.StorageReadFailed,
@@ -1279,23 +1379,14 @@ pub fn DurableFileOutbox(comptime capacity: usize) type {
                 };
                 defer allocator.free(bytes);
                 if (bytes.len > Core.max_encoded_size) return error.StorageReadFailed;
-                core = try Core.decode(bytes, destination_id);
-                if (core.mode() != expected_mode) return error.SnapshotModeMismatch;
+                try Core.decodeInto(&out.core, bytes, destination_id);
+                if (out.core.mode() != expected_mode) return error.SnapshotModeMismatch;
                 if (expected_mode == .two_frontier and
-                    !core.publication_domain.eql(expected_domain))
+                    !out.core.publication_domain.eql(expected_domain))
                 {
                     return error.SnapshotDomainMismatch;
                 }
             }
-
-            return .{
-                .allocator = allocator,
-                .dir = dir,
-                .path = path_copy,
-                .lock_path = lock_path,
-                .lock_file = lock_file,
-                .core = core,
-            };
         }
 
         pub fn deinit(self: *Self) void {
@@ -2692,6 +2783,53 @@ test "durable settlement outbox reopens an exact maximum-size snapshot" {
     var reopened = try Store.open(std.testing.allocator, tmp.dir, "full-outbox.tso", testDestination());
     defer reopened.deinit();
     try std.testing.expectEqual(@as(usize, 2), reopened.len());
+}
+
+test "capacity 1024 durable outbox reopens a drained prepared snapshot in place" {
+    const allocator = std.testing.allocator;
+    const Store = DurableFileOutbox(1024);
+    const path = "large-drained-outbox.tso";
+    const domain = testPublicationDomain();
+    const watermark = (try testPreparedRecord(15, 0, 10_800, 1)).chain.group_id;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    {
+        const store = try allocator.create(Store);
+        defer allocator.destroy(store);
+        try Store.openPreparedInto(
+            store,
+            allocator,
+            tmp.dir,
+            path,
+            testDestination(),
+            domain,
+        );
+        defer store.deinit();
+
+        store.core.pruned_through = watermark;
+        store.core.high_watermark = watermark;
+        const snapshot = try store.core.encodeAlloc(allocator);
+        defer allocator.free(snapshot);
+        try std.testing.expectEqual(snapshot_header_len + snapshot_digest_len, snapshot.len);
+        try writeBytesAtomic(tmp.dir, path, snapshot, false);
+    }
+
+    const reopened = try allocator.create(Store);
+    defer allocator.destroy(reopened);
+    try Store.openPreparedInto(
+        reopened,
+        allocator,
+        tmp.dir,
+        path,
+        testDestination(),
+        domain,
+    );
+    defer reopened.deinit();
+    try std.testing.expectEqual(@as(usize, 0), reopened.len());
+    try std.testing.expectEqual(watermark, reopened.core.pruned_through);
+    try std.testing.expectEqual(watermark, reopened.core.high_watermark);
+    try std.testing.expect(reopened.isRecoveryRequired());
 }
 
 const PreparedFirstFrontier = enum { risk_r2, journal };

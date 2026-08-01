@@ -2,6 +2,11 @@ target/
 delombok/
 .mvn/
 
+# Local credentials and runtime configuration #
+.env
+.env.*
+!.env.example
+
 ### IntelliJ IDEA ###
 .idea
 *.iws
