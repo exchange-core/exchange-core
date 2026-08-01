@@ -2,11 +2,13 @@
 
 This runbook covers the optional **native** Parix/TigerBeetle settlement plugin. The exchange core remains usable without it. The browser/WASM build never receives Parix credentials and does not contain the native HTTP transport; browser clients send exchange commands to the native server.
 
-The supplied database is a shared Parix development-tier database. It has no production SLA and must not be used for production funds.
+The supplied database is a shared Parix development-tier database. It has no production SLA, may already contain prior smoke activity, and must not be used for production funds. The checked-in profile is a schema and reconciliation fixture, not proof that this shared ledger is safe to attach to a new empty local journal.
 
-## Fixed demo profile
+## Operator-owned profile
 
-The current integration deliberately uses a fixed roster. The canonical definitions live in `apps/parix_settlement_profile.zig`.
+Settlement requires an immutable JSON profile supplied with `--parix-profile`. The loader accepts one currency-exchange market, exactly two currency routes, up to 16 pre-provisioned users, and up to four optional initial-funding records with at most one record per user. The one-per-user rule matches the core's monotonic balance-adjustment counter and makes initial funding restart-idempotent. TigerBeetle account/transfer IDs and amounts are decimal JSON strings so the file does not lose `u128` precision. The file is bounded to 64 KiB, rejects unknown or duplicate fields, and is copied into an owned, validated profile before startup mutates local or remote state.
+
+[`fixtures/parix-settlement-profile.example.json`](fixtures/parix-settlement-profile.example.json) preserves the development profile used by the smoke commands below:
 
 | Purpose | ID | Ledger | Code | Flags | Initial funding |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -29,6 +31,12 @@ The current integration deliberately uses a fixed roster. The canonical definiti
 
 TigerBeetle account and transfer records are immutable. Records created in the live database cannot be edited or deleted; correcting a balance requires a new compensating transfer. Treat all live smoke commands as durable external mutations.
 
+Account codes, transfer codes, and account flags remain fixed by this first productization slice. Profile-controlled fields include the database UUID, publication domain, complete symbol economics, currency ledgers and treasury/fee accounts, user account routes, and initial funding. Arrays are sorted before hashing, so harmless ordering changes retain the same identity while every economic or routing change produces a different digest.
+
+On a fresh persistence root, startup atomically writes and fsyncs `settlement-profile.spf1` before opening the outbox or core persistence. The manifest binds the database UUID, publication namespace/epoch, canonical destination-registry digest, and complete profile digest. Every restart requires an exact match.
+
+A non-empty legacy root without this manifest is rejected. It is not auto-adopted, and copying a manifest into it is not a migration. Likewise, do not point a new empty local root at a database that already has exchange activity: the local journal and external ledger would no longer describe the same history. Profile or legacy-root migration requires an offline, reviewed reconciliation procedure; that procedure is intentionally outside this slice.
+
 ## Configuration
 
 Copy `.env.example` to `.env` and set exactly one credential:
@@ -50,6 +58,8 @@ set +a
 
 The demo TCP protocol has no client authentication or transport encryption. Keep the default `127.0.0.1` binding, or place it behind a trusted authenticated and encrypted gateway before accepting remote clients. The repository-relative persistence-root check does not confine operator-created symlinks; create that directory in a private, trusted workspace and do not point it at shared or untrusted storage.
 
+Keep the profile file outside the persistence root. The root must be empty when its first manifest is created.
+
 ## Start the native server
 
 Run formatting and focused tests first:
@@ -60,28 +70,53 @@ zig build test
 zig build wasm-settlement-check
 ```
 
-Start settlement with a stable, repository-relative persistence root:
+Start settlement with a stable, repository-relative persistence root and an operator-owned profile. Use a dedicated database that is known to be consistent with this local root:
 
 ```sh
 zig build run-server -- \
   --parix-settlement \
+  --parix-profile path/to/operator-profile.json \
   --persistence-root zig-out/runtime/parix
 ```
 
 Without `--parix-settlement`, the native server follows its normal in-memory path and does not contact Parix. Keep the persistence root stable across restarts; changing or deleting it breaks the local journal/outbox recovery chain.
 
+The production-safe default is validate-only: every configured account and initial-funding transfer must already exist and match exactly. Missing records stop startup without sending a mutation. Two independent, explicit development controls are available:
+
+```sh
+# Permit creation of missing configured accounts only.
+zig build run-server -- \
+  --parix-settlement \
+  --parix-profile path/to/operator-profile.json \
+  --parix-create-accounts \
+  --persistence-root zig-out/runtime/parix
+
+# Permit creation of configured initial-funding transfers. Accounts must
+# already exist, or combine this with --parix-create-accounts.
+zig build run-server -- \
+  --parix-settlement \
+  --parix-profile path/to/operator-profile.json \
+  --parix-development-seed \
+  --persistence-root zig-out/runtime/parix
+```
+
+Do not enable development seeding for production treasury.
+
 Startup is intentionally fail-closed:
 
-1. The server opens and validates the local exchange journal and durable settlement outbox before any remote write is possible.
-2. It then looks up all eight accounts and the two funding transfers.
-3. Missing records are created once.
-4. Existing records must exactly match the immutable profile; a mismatch prevents readiness.
-5. A timeout or connection loss after submission is treated as ambiguous. The bootstrap looks up the same deterministic ID and reconciles its exact fields before deciding whether another submission is safe. It never blindly retries an indeterminate create.
-6. The settlement worker starts only after local recovery and remote provisioning both succeed.
+1. The server loads and validates the bounded profile and checks that `PARIX_DATABASE_ID` names the same database.
+2. It creates or validates the durable profile manifest before opening the settlement outbox or local core persistence.
+3. It opens and validates the local exchange journal and durable settlement outbox before any remote write is possible.
+4. It looks up every configured account and initial-funding transfer. Existing records must exactly match their immutable fields.
+5. Missing records stop validate-only startup. Records are created only when the matching explicit provisioning flag is present.
+6. A timeout or connection loss after an allowed submission is treated as ambiguous. The bootstrap looks up the same deterministic ID and reconciles its exact fields before deciding whether another submission is safe. It never blindly retries an indeterminate create.
+7. The local symbol, users, and configured initial balances are bootstrapped idempotently, then the settlement worker starts.
 
 Do not route mutations to the process until `zig build run-client -- ping` returns `OK ready=true settlement=ready`. The one-time startup line reports only the settlement state and is not an admission probe. A `settling` state means durable work still exists and new mutations are rejected, while ping and read requests remain available. On shutdown, the listener stops accepting work, the exchange core shuts down, and the settlement worker is joined before its transport is released. Restart with the same persistence root; committed outbox entries are recovered idempotently by deterministic transfer ID.
 
 ## Local protocol smoke
+
+These expected values assume the checked-in development profile was provisioned into a clean dedicated database and paired with its original local root. They are not a safe bootstrap recipe for the shared sample database after prior trading activity.
 
 With the server running in another terminal:
 
@@ -140,9 +175,11 @@ After a fill, query the relevant accounts and transfer history to confirm the ex
 ## Unsupported boundaries
 
 - Deposits and withdrawals are not mirrored to TigerBeetle. The server must reject deposit-style mutations while settlement is enabled rather than updating only one system.
-- Dynamic user provisioning is not implemented. Only UIDs `1001` and `1002`, symbol `241`, and currencies `11`/`15` are routable in this demo profile.
-- Changing the roster, ledgers, account IDs, or database requires a reviewed profile migration and a new deterministic provisioning plan.
+- The roster is operator-configurable but immutable for one persistence root. Online user onboarding and profile migration are not implemented.
+- Changing symbol economics, users, ledgers, account IDs, funding, database, or publication domain requires a reviewed offline migration. Exact-digest restart rejection is intentional.
+- Legacy roots created before `settlement-profile.spf1` are not automatically adopted.
+- Client authentication and UID/role authorization are not implemented in the TCP demo. TLS/mTLS, timeouts, connection caps, and rate limiting belong at a loopback L4 proxy; application identity and authorization still need to be enforced by the Zig server.
 - This integration does not turn the shared development database into a production-grade custody or accounting service.
 - Parix credentials belong only in the native server process. Never expose them to the WASM bundle, browser storage, or client-side network requests.
 
-For a production rollout, use a dedicated database with an appropriate SLA, define deposit/withdrawal accounting, introduce controlled user provisioning, rehearse journal/outbox disaster recovery, and monitor both exchange readiness and settlement lag.
+The next productization slices are authenticated/authorized ingress behind a TLS proxy, followed by durable deposit and withdrawal sagas with explicit accepted, pending, completed, and quarantined states. Before a production rollout, use a dedicated database with an appropriate SLA, rehearse journal/outbox disaster recovery, and monitor both exchange readiness and settlement lag.

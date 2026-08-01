@@ -25,6 +25,9 @@ const ArgumentError = error{
     MissingArgumentValue,
     InvalidPersistenceRoot,
     InvalidPort,
+    MissingParixProfile,
+    ParixProfileWithoutSettlement,
+    ParixProvisioningWithoutSettlement,
 };
 
 const RequestMapError = error{
@@ -35,10 +38,12 @@ const ParixEnvironmentError = error{
     MissingParixDatabaseId,
     MissingParixCredential,
     MultipleParixCredentials,
+    ParixDatabaseIdMismatch,
 };
 
 const ParixRequestError = error{
     ParixDepositUnsupported,
+    ParixProfileUnavailable,
     UnknownParixProfileUser,
     UnsupportedParixSymbol,
 };
@@ -53,14 +58,31 @@ pub const Options = struct {
     host: []const u8 = DefaultHost,
     port: u16 = DefaultPort,
     parix_settlement: bool = false,
+    parix_profile_path: ?[]const u8 = null,
+    parix_create_accounts: bool = false,
+    parix_development_seed: bool = false,
     persistence_root: []const u8 = DefaultPersistenceRoot,
     owned_host: ?[]u8 = null,
+    owned_parix_profile_path: ?[]u8 = null,
     owned_persistence_root: ?[]u8 = null,
 
     fn deinit(self: *Options, allocator: std.mem.Allocator) void {
         if (self.owned_host) |owned| allocator.free(owned);
+        if (self.owned_parix_profile_path) |owned| allocator.free(owned);
         if (self.owned_persistence_root) |owned| allocator.free(owned);
         self.* = undefined;
+    }
+
+    fn setParixProfilePath(
+        self: *Options,
+        allocator: std.mem.Allocator,
+        path: []const u8,
+    ) (std.mem.Allocator.Error || ArgumentError)!void {
+        if (path.len == 0) return error.InvalidArguments;
+        const replacement = try allocator.dupe(u8, path);
+        if (self.owned_parix_profile_path) |owned| allocator.free(owned);
+        self.owned_parix_profile_path = replacement;
+        self.parix_profile_path = replacement;
     }
 
     fn setHost(
@@ -121,6 +143,7 @@ fn run(
     environment: *const std.process.Environ.Map,
     options: Options,
 ) !void {
+    try validateOptions(options);
     if (options.parix_settlement) {
         return runWithParixSettlement(io, allocator, environment, options);
     }
@@ -144,7 +167,7 @@ fn runInMemory(io: std.Io, allocator: std.mem.Allocator, options: Options) !void
 
     try bootstrapDefaultSymbol(&api, allocator);
 
-    try serve(io, allocator, options, &api, null);
+    try serve(io, allocator, options, &api, null, null);
 }
 
 fn runWithParixSettlement(
@@ -153,10 +176,18 @@ fn runWithParixSettlement(
     environment: *const std.process.Environ.Map,
     options: Options,
 ) !void {
-    const parix_environment = try readParixEnvironment(environment);
-    const destination_id = try parix_profile.parseUuidDestination(
-        parix_environment.database_id,
+    const profile_path = options.parix_profile_path orelse
+        return error.MissingParixProfile;
+    const configured_profile = try parix_profile.Profile.loadFile(
+        allocator,
+        io,
+        profile_path,
     );
+    defer configured_profile.deinit();
+
+    const parix_environment = try readParixEnvironment(environment);
+    try validateParixDatabaseId(parix_environment.database_id, configured_profile);
+    const destination_id = configured_profile.destinationId();
 
     var gateway_client = try parix_http_transport.GatewayClient.init(
         allocator,
@@ -182,7 +213,7 @@ fn runWithParixSettlement(
         io,
         .{
             .persistence_root = options.persistence_root,
-            .destination_id = destination_id,
+            .profile = configured_profile,
             .transport = gateway_client.asTransport(),
         },
     );
@@ -287,8 +318,12 @@ fn runWithParixSettlement(
         0,
     );
 
-    _ = try parix_account_bootstrap.ensureProfile(&gateway_client);
-    try bootstrapParixLocalProfile(&api, allocator);
+    _ = try parix_account_bootstrap.ensureProfile(
+        &gateway_client,
+        configured_profile,
+        parixBootstrapPolicy(options),
+    );
+    try bootstrapParixLocalProfile(&api, allocator, configured_profile);
     try settlement_runtime.start();
     switch (settlement_runtime.health()) {
         .failed => return error.ParixSettlementFailed,
@@ -296,7 +331,14 @@ fn runWithParixSettlement(
         else => {},
     }
 
-    try serve(io, allocator, options, &api, &settlement_runtime);
+    try serve(
+        io,
+        allocator,
+        options,
+        &api,
+        &settlement_runtime,
+        configured_profile,
+    );
 
     engine.shutdown();
     var stop_failure: ?parix_settlement_runtime.StopError = null;
@@ -326,7 +368,9 @@ fn serve(
     options: Options,
     api: *core.exchange_api.ExchangeApi,
     settlement_runtime: ?*parix_settlement_runtime.Runtime,
+    configured_profile: ?*const parix_profile.Profile,
 ) !void {
+    std.debug.assert((settlement_runtime != null) == (configured_profile != null));
     const address = try std.Io.net.IpAddress.resolve(io, options.host, options.port);
     var server = try address.listen(io, .{ .reuse_address = true });
     defer server.deinit(io);
@@ -334,14 +378,15 @@ fn serve(
     var stdout_buffer: [2048]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
     if (settlement_runtime) |runtime| {
+        const symbol = configured_profile.?.symbolSpecification();
         try stdout_writer.interface.print(
             "exchange-core server ready on {s}:{d} symbol={d} base={d} quote={d} settlement={s}\n",
             .{
                 options.host,
                 options.port,
-                DefaultSymbolId,
-                DefaultBaseCurrency,
-                DefaultQuoteCurrency,
+                symbol.symbol_id,
+                symbol.base_currency,
+                symbol.quote_currency,
                 @tagName(runtime.health()),
             },
         );
@@ -370,6 +415,7 @@ fn serve(
             stream,
             api,
             settlement_runtime,
+            configured_profile,
         ) catch |err| {
             log.warn("client connection failed: {s}", .{@errorName(err)});
             continue;
@@ -384,6 +430,7 @@ fn serveConnection(
     stream: std.Io.net.Stream,
     api: *core.exchange_api.ExchangeApi,
     settlement_runtime: ?*parix_settlement_runtime.Runtime,
+    configured_profile: ?*const parix_profile.Profile,
 ) !bool {
     defer stream.close(io);
 
@@ -420,6 +467,7 @@ fn serveConnection(
             allocator,
             api,
             settlement_runtime,
+            configured_profile,
             request,
             writer,
         ) catch |err| {
@@ -436,6 +484,7 @@ fn executeRequest(
     allocator: std.mem.Allocator,
     api: *core.exchange_api.ExchangeApi,
     settlement_runtime: ?*parix_settlement_runtime.Runtime,
+    configured_profile: ?*const parix_profile.Profile,
     request: protocol.Request,
     writer: *std.Io.Writer,
 ) !bool {
@@ -493,7 +542,12 @@ fn executeRequest(
             return true;
         },
         else => {
-            var result = try submitMutationRequest(api, settlement_runtime, request);
+            var result = try submitMutationRequest(
+                api,
+                settlement_runtime,
+                configured_profile,
+                request,
+            );
             defer result.deinit(allocator);
             try writeCommandResult(writer, result);
             return false;
@@ -513,37 +567,47 @@ fn isReady(
 fn submitMutationRequest(
     api: *core.exchange_api.ExchangeApi,
     settlement_runtime: ?*parix_settlement_runtime.Runtime,
+    configured_profile: ?*const parix_profile.Profile,
     request: protocol.Request,
 ) !core.api_command.ApiCommandResult {
     var mutation_runtime: ?*parix_settlement_runtime.Runtime = null;
     defer if (mutation_runtime) |runtime| runtime.endMutation();
 
     if (settlement_runtime) |runtime| {
-        try validateParixRequest(request);
+        const profile = configured_profile orelse
+            return error.ParixProfileUnavailable;
+        try validateParixRequest(profile, request);
         if (!runtime.tryBeginMutation()) return error.ParixSettlementNotReady;
         mutation_runtime = runtime;
     }
     return api.submitCommandSync(try apiCommandForRequest(request));
 }
 
-fn validateParixRequest(request: protocol.Request) ParixRequestError!void {
+fn validateParixRequest(
+    configured_profile: *const parix_profile.Profile,
+    request: protocol.Request,
+) ParixRequestError!void {
     switch (request) {
         .deposit => return error.ParixDepositUnsupported,
-        .add_user => |command| try validateParixMutation(command.uid, null),
-        .place => |command| try validateParixMutation(command.uid, command.symbol),
-        .move => |command| try validateParixMutation(command.uid, command.symbol),
-        .reduce => |command| try validateParixMutation(command.uid, command.symbol),
-        .cancel => |command| try validateParixMutation(command.uid, command.symbol),
+        .add_user => |command| try validateParixMutation(configured_profile, command.uid, null),
+        .place => |command| try validateParixMutation(configured_profile, command.uid, command.symbol),
+        .move => |command| try validateParixMutation(configured_profile, command.uid, command.symbol),
+        .reduce => |command| try validateParixMutation(configured_profile, command.uid, command.symbol),
+        .cancel => |command| try validateParixMutation(configured_profile, command.uid, command.symbol),
         .ping, .balance, .book, .shutdown => return,
     }
 }
 
-fn validateParixMutation(uid: i64, symbol: ?i32) ParixRequestError!void {
-    if (!parix_profile.isConfiguredUser(uid)) {
+fn validateParixMutation(
+    configured_profile: *const parix_profile.Profile,
+    uid: i64,
+    symbol: ?i32,
+) ParixRequestError!void {
+    if (!configured_profile.isConfiguredUser(uid)) {
         return error.UnknownParixProfileUser;
     }
     if (symbol) |symbol_id| {
-        if (symbol_id != parix_profile.symbol_id) {
+        if (symbol_id != configured_profile.symbolSpecification().symbol_id) {
             return error.UnsupportedParixSymbol;
         }
     }
@@ -573,6 +637,22 @@ fn readParixEnvironment(
         .base_url = base_url,
         .database_id = database_id,
         .auth = auth,
+    };
+}
+
+fn validateParixDatabaseId(
+    database_id: []const u8,
+    configured_profile: *const parix_profile.Profile,
+) ParixEnvironmentError!void {
+    if (!std.mem.eql(u8, database_id, configured_profile.databaseUuid())) {
+        return error.ParixDatabaseIdMismatch;
+    }
+}
+
+fn parixBootstrapPolicy(options: Options) parix_account_bootstrap.Policy {
+    return .{
+        .allow_account_creation = options.parix_create_accounts,
+        .allow_initial_funding = options.parix_development_seed,
     };
 }
 
@@ -687,7 +767,14 @@ fn bootstrapDefaultSymbol(
     api: *core.exchange_api.ExchangeApi,
     allocator: std.mem.Allocator,
 ) !void {
-    const symbol = try defaultSymbolSpecification();
+    try bootstrapSymbol(api, allocator, try defaultSymbolSpecification());
+}
+
+fn bootstrapSymbol(
+    api: *core.exchange_api.ExchangeApi,
+    allocator: std.mem.Allocator,
+    symbol: core.common.CoreSymbolSpecification,
+) !void {
     var result = try api.submitCommandSync(.{
         .binary_add_symbols = .{
             .transfer_id = BootstrapTransferId,
@@ -711,26 +798,22 @@ fn bootstrapDefaultSymbol(
 fn bootstrapParixLocalProfile(
     api: *core.exchange_api.ExchangeApi,
     allocator: std.mem.Allocator,
+    configured_profile: *const parix_profile.Profile,
 ) !void {
-    try bootstrapDefaultSymbol(api, allocator);
-    try bootstrapParixUser(api, allocator, parix_profile.seller_uid);
-    try bootstrapParixUser(api, allocator, parix_profile.buyer_uid);
-    try bootstrapParixBalance(
-        api,
-        allocator,
-        parix_profile.seller_uid,
-        parix_profile.base_currency,
-        @intCast(parix_profile.seller_base_initial_balance),
-        @intCast(parix_profile.base_funding_transfer_id),
-    );
-    try bootstrapParixBalance(
-        api,
-        allocator,
-        parix_profile.buyer_uid,
-        parix_profile.quote_currency,
-        @intCast(parix_profile.buyer_quote_initial_balance),
-        @intCast(parix_profile.quote_funding_transfer_id),
-    );
+    try bootstrapSymbol(api, allocator, configured_profile.symbolSpecification());
+    for (configured_profile.users()) |user| {
+        try bootstrapParixUser(api, allocator, user.uid);
+    }
+    for (configured_profile.initialFunding()) |funding| {
+        try bootstrapParixBalance(
+            api,
+            allocator,
+            funding.uid,
+            funding.currency,
+            @intCast(funding.amount),
+            @intCast(funding.id),
+        );
+    }
 }
 
 fn bootstrapParixUser(
@@ -825,6 +908,21 @@ fn parseOptions(
             options.parix_settlement = true;
             continue;
         }
+        if (std.mem.eql(u8, argument, "--parix-profile")) {
+            try options.setParixProfilePath(
+                allocator,
+                args.next() orelse return error.MissingArgumentValue,
+            );
+            continue;
+        }
+        if (std.mem.eql(u8, argument, "--parix-create-accounts")) {
+            options.parix_create_accounts = true;
+            continue;
+        }
+        if (std.mem.eql(u8, argument, "--parix-development-seed")) {
+            options.parix_development_seed = true;
+            continue;
+        }
         if (std.mem.eql(u8, argument, "--persistence-root")) {
             try options.setPersistenceRoot(
                 allocator,
@@ -835,7 +933,23 @@ fn parseOptions(
         return error.InvalidArguments;
     }
 
+    try validateOptions(options);
+
     return .{ .options = options };
+}
+
+fn validateOptions(options: Options) ArgumentError!void {
+    if (options.parix_settlement and options.parix_profile_path == null) {
+        return error.MissingParixProfile;
+    }
+    if (!options.parix_settlement and options.parix_profile_path != null) {
+        return error.ParixProfileWithoutSettlement;
+    }
+    if (!options.parix_settlement and
+        (options.parix_create_accounts or options.parix_development_seed))
+    {
+        return error.ParixProvisioningWithoutSettlement;
+    }
 }
 
 fn parsePort(raw: []const u8) ArgumentError!u16 {
@@ -885,7 +999,9 @@ fn writeArgumentError(io: std.Io, err: anyerror) !void {
 
 fn writeUsage(writer: *std.Io.Writer) std.Io.Writer.Error!void {
     try writer.writeAll(
-        \\Usage: exchange-core-server [--host HOST] [--port PORT] [--parix-settlement]
+        \\Usage: exchange-core-server [--host HOST] [--port PORT]
+        \\                            [--parix-settlement --parix-profile PATH]
+        \\                            [--parix-create-accounts] [--parix-development-seed]
         \\                            [--persistence-root RELATIVE_PATH]
         \\
         \\Starts a newline-delimited TCP exchange server.
@@ -894,6 +1010,9 @@ fn writeUsage(writer: *std.Io.Writer) std.Io.Writer.Error!void {
         \\  --host HOST                  Bind host or IP address (default: 127.0.0.1)
         \\  --port PORT                  Bind TCP port (default: 7379)
         \\  --parix-settlement           Enable native Parix/TigerBeetle settlement
+        \\  --parix-profile PATH          Required operator-owned settlement profile
+        \\  --parix-create-accounts       Create missing external accounts (default: validate only)
+        \\  --parix-development-seed      Seed configured development funding transfers
         \\  --persistence-root PATH      Safe relative durable root (default: zig-out/runtime/parix)
         \\  -h, --help                   Show this help
         \\
@@ -906,11 +1025,30 @@ fn writeUsage(writer: *std.Io.Writer) std.Io.Writer.Error!void {
     );
 }
 
+const test_parix_profile_json =
+    \\{
+    \\  "version": 1,
+    \\  "database_uuid": "11111111-2222-3333-4444-555555555555",
+    \\  "publication": {"namespace": 9, "journal_epoch": 7},
+    \\  "symbol": {"symbol_id": 9001, "symbol_type": "currency_exchange_pair", "base_currency": 31, "quote_currency": 32, "base_scale_k": 10, "quote_scale_k": 20, "taker_fee": 3, "maker_fee": 4, "margin_buy": 0, "margin_sell": 0},
+    \\  "currencies": [{"currency": 31, "ledger": 501, "treasury_account_id": "900031", "fee_account_id": "910031"}, {"currency": 32, "ledger": 502, "treasury_account_id": "900032", "fee_account_id": "910032"}],
+    \\  "users": [{"uid": 7001, "base_account_id": "920031", "quote_account_id": "920032"}, {"uid": 7002, "base_account_id": "930031", "quote_account_id": "930032"}],
+    \\  "initial_funding": [{"id": "940031", "uid": 7001, "currency": 31, "amount": "1234"}, {"id": "940032", "uid": 7002, "currency": 32, "amount": "5678"}]
+    \\}
+;
+
+fn testParixProfile(allocator: std.mem.Allocator) !*parix_profile.Profile {
+    return parix_profile.Profile.parseJson(allocator, test_parix_profile_json);
+}
+
 test "server defaults and bootstrap symbol are production-ready" {
     const options: Options = .{};
     try std.testing.expectEqualStrings(DefaultHost, options.host);
     try std.testing.expectEqual(DefaultPort, options.port);
     try std.testing.expect(!options.parix_settlement);
+    try std.testing.expectEqual(@as(?[]const u8, null), options.parix_profile_path);
+    try std.testing.expect(!options.parix_create_accounts);
+    try std.testing.expect(!options.parix_development_seed);
     try std.testing.expectEqualStrings(DefaultPersistenceRoot, options.persistence_root);
 
     const symbol = try defaultSymbolSpecification();
@@ -922,6 +1060,98 @@ test "server defaults and bootstrap symbol are production-ready" {
     try std.testing.expectEqual(@as(i64, 10), symbol.quote_scale_k);
     try std.testing.expectEqual(@as(i64, 2), symbol.taker_fee);
     try std.testing.expectEqual(@as(i64, 1), symbol.maker_fee);
+}
+
+test "Parix profile is required exactly with settlement and provisioning defaults fail closed" {
+    try validateOptions(.{});
+    try std.testing.expectError(
+        error.MissingParixProfile,
+        validateOptions(.{ .parix_settlement = true }),
+    );
+    try std.testing.expectError(
+        error.ParixProfileWithoutSettlement,
+        validateOptions(.{ .parix_profile_path = "profile.json" }),
+    );
+    try std.testing.expectError(
+        error.ParixProvisioningWithoutSettlement,
+        validateOptions(.{ .parix_create_accounts = true }),
+    );
+
+    const validate_only: Options = .{
+        .parix_settlement = true,
+        .parix_profile_path = "profile.json",
+    };
+    try validateOptions(validate_only);
+    const validate_policy = parixBootstrapPolicy(validate_only);
+    try std.testing.expect(!validate_policy.allow_account_creation);
+    try std.testing.expect(!validate_policy.allow_initial_funding);
+
+    const funding_only: Options = .{
+        .parix_settlement = true,
+        .parix_profile_path = "profile.json",
+        .parix_development_seed = true,
+    };
+    try validateOptions(funding_only);
+    const funding_policy = parixBootstrapPolicy(funding_only);
+    try std.testing.expect(!funding_policy.allow_account_creation);
+    try std.testing.expect(funding_policy.allow_initial_funding);
+
+    const provision_all: Options = .{
+        .parix_settlement = true,
+        .parix_profile_path = "profile.json",
+        .parix_create_accounts = true,
+        .parix_development_seed = true,
+    };
+    try validateOptions(provision_all);
+    const provision_policy = parixBootstrapPolicy(provision_all);
+    try std.testing.expect(provision_policy.allow_account_creation);
+    try std.testing.expect(provision_policy.allow_initial_funding);
+}
+
+test "Parix CLI owns profile path and enforces settlement pairing" {
+    const allocator = std.testing.allocator;
+
+    const missing_profile_argv = [_][*:0]const u8{
+        "exchange-core-server",
+        "--parix-settlement",
+    };
+    try std.testing.expectError(
+        error.MissingParixProfile,
+        parseOptions(.{ .vector = &missing_profile_argv }, allocator),
+    );
+
+    const unpaired_profile_argv = [_][*:0]const u8{
+        "exchange-core-server",
+        "--parix-profile",
+        "/operator/profile.json",
+    };
+    try std.testing.expectError(
+        error.ParixProfileWithoutSettlement,
+        parseOptions(.{ .vector = &unpaired_profile_argv }, allocator),
+    );
+
+    const configured_argv = [_][*:0]const u8{
+        "exchange-core-server",
+        "--parix-settlement",
+        "--parix-profile",
+        "/operator/profile.json",
+        "--parix-development-seed",
+    };
+    var parsed = try parseOptions(.{ .vector = &configured_argv }, allocator);
+    switch (parsed) {
+        .help => return error.UnexpectedHelp,
+        .options => |*options| {
+            defer options.deinit(allocator);
+            try std.testing.expect(options.parix_settlement);
+            try std.testing.expectEqualStrings(
+                "/operator/profile.json",
+                options.parix_profile_path.?,
+            );
+            try std.testing.expect(options.owned_parix_profile_path != null);
+            try std.testing.expect(!options.parix_create_accounts);
+            try std.testing.expect(options.parix_development_seed);
+        },
+    }
 }
 
 test "Parix persistence roots stay repository relative" {
@@ -943,7 +1173,7 @@ test "Parix environment requires one environment-only credential" {
         error.MissingParixDatabaseId,
         readParixEnvironment(&environment),
     );
-    try environment.put("PARIX_DATABASE_ID", parix_profile.database_uuid);
+    try environment.put("PARIX_DATABASE_ID", "0e46f90e-c38b-487a-b9f9-630f7839cc3f");
     try std.testing.expectError(
         error.MissingParixCredential,
         readParixEnvironment(&environment),
@@ -964,24 +1194,44 @@ test "Parix environment requires one environment-only credential" {
     );
 }
 
-test "Parix mode rejects deposits and unknown mutation users" {
+test "Parix database identity must exactly match profile before transport" {
+    const configured_profile = try testParixProfile(std.testing.allocator);
+    defer configured_profile.deinit();
+
+    try validateParixDatabaseId(
+        "11111111-2222-3333-4444-555555555555",
+        configured_profile,
+    );
+    try std.testing.expectError(
+        error.ParixDatabaseIdMismatch,
+        validateParixDatabaseId(
+            "0e46f90e-c38b-487a-b9f9-630f7839cc3f",
+            configured_profile,
+        ),
+    );
+}
+
+test "Parix mode uses non-default profile for mutation admission" {
+    const configured_profile = try testParixProfile(std.testing.allocator);
+    defer configured_profile.deinit();
+
     try std.testing.expectError(
         error.ParixDepositUnsupported,
-        validateParixRequest(.{ .deposit = .{
-            .uid = parix_profile.seller_uid,
-            .currency = parix_profile.base_currency,
+        validateParixRequest(configured_profile, .{ .deposit = .{
+            .uid = 7001,
+            .currency = 31,
             .amount = 1,
             .transaction_id = 1,
         } }),
     );
     try std.testing.expectError(
         error.UnknownParixProfileUser,
-        validateParixRequest(.{ .add_user = .{ .uid = 99 } }),
+        validateParixRequest(configured_profile, .{ .add_user = .{ .uid = 99 } }),
     );
-    try validateParixRequest(.{ .place = .{
+    try validateParixRequest(configured_profile, .{ .place = .{
         .order_id = 1,
-        .uid = parix_profile.buyer_uid,
-        .symbol = parix_profile.symbol_id,
+        .uid = 7002,
+        .symbol = 9001,
         .price = 5,
         .size = 1,
         .side = .bid,
@@ -989,10 +1239,10 @@ test "Parix mode rejects deposits and unknown mutation users" {
     } });
     try std.testing.expectError(
         error.UnsupportedParixSymbol,
-        validateParixRequest(.{ .place = .{
+        validateParixRequest(configured_profile, .{ .place = .{
             .order_id = 2,
-            .uid = parix_profile.buyer_uid,
-            .symbol = parix_profile.symbol_id + 1,
+            .uid = 7002,
+            .symbol = 9002,
             .price = 5,
             .size = 1,
             .side = .bid,
@@ -1001,10 +1251,10 @@ test "Parix mode rejects deposits and unknown mutation users" {
     );
     try std.testing.expectError(
         error.UnsupportedParixSymbol,
-        validateParixRequest(.{ .cancel = .{
+        validateParixRequest(configured_profile, .{ .cancel = .{
             .order_id = 1,
-            .uid = parix_profile.seller_uid,
-            .symbol = parix_profile.symbol_id + 1,
+            .uid = 7001,
+            .symbol = 9002,
         } }),
     );
 }
@@ -1077,8 +1327,10 @@ test "running server core bootstraps symbol and exposes settled balances" {
     );
 }
 
-test "Parix local profile bootstrap is idempotent" {
+test "Parix local bootstrap uses dynamic profile and is idempotent" {
     const allocator = std.testing.allocator;
+    const configured_profile = try testParixProfile(allocator);
+    defer configured_profile.deinit();
     const engine = try allocator.create(core.exchange_core.ExchangeCore);
     defer allocator.destroy(engine);
 
@@ -1092,16 +1344,21 @@ test "Parix local profile bootstrap is idempotent" {
     try engine.startup();
     defer engine.shutdown();
 
-    try bootstrapParixLocalProfile(&api, allocator);
-    try bootstrapParixLocalProfile(&api, allocator);
+    try bootstrapParixLocalProfile(&api, allocator, configured_profile);
+    try bootstrapParixLocalProfile(&api, allocator, configured_profile);
     try settleReadBarrier(&api, allocator);
 
+    var snapshot = try api.queryOrderBook(9001, 20);
+    defer snapshot.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 0), snapshot.asks.items.len);
+    try std.testing.expectEqual(@as(usize, 0), snapshot.bids.items.len);
+
     try std.testing.expectEqual(
-        @as(?i64, @intCast(parix_profile.seller_base_initial_balance)),
-        try api.queryUserBalance(parix_profile.seller_uid, parix_profile.base_currency),
+        @as(?i64, 1_234),
+        try api.queryUserBalance(7_001, 31),
     );
     try std.testing.expectEqual(
-        @as(?i64, @intCast(parix_profile.buyer_quote_initial_balance)),
-        try api.queryUserBalance(parix_profile.buyer_uid, parix_profile.quote_currency),
+        @as(?i64, 5_678),
+        try api.queryUserBalance(7_002, 32),
     );
 }

@@ -16,6 +16,20 @@ pub const Summary = struct {
     funding_transfers_reconciled: usize = 0,
 };
 
+/// Explicitly separates production validation from the two provisioning
+/// capabilities. The production-safe default performs lookups only.
+pub const Policy = struct {
+    allow_account_creation: bool = false,
+    allow_initial_funding: bool = false,
+
+    pub const validate_only: Policy = .{};
+    pub const create_accounts: Policy = .{ .allow_account_creation = true };
+    pub const development_seed: Policy = .{
+        .allow_account_creation = true,
+        .allow_initial_funding = true,
+    };
+};
+
 pub const BootstrapError = error{
     OutOfMemory,
     ProfileDestinationMismatch,
@@ -23,6 +37,7 @@ pub const BootstrapError = error{
     AccountLookupUnavailable,
     AccountLookupMalformed,
     AccountLookupRejected,
+    AccountMissing,
     AccountPartialPresence,
     AccountMismatch,
     AccountCreateNotSent,
@@ -31,6 +46,7 @@ pub const BootstrapError = error{
     FundingLookupUnavailable,
     FundingLookupMalformed,
     FundingLookupRejected,
+    FundingMissing,
     FundingPartialPresence,
     FundingMismatch,
     FundingCreateNotSent,
@@ -93,20 +109,28 @@ const Requester = struct {
     }
 };
 
-/// Ensures the fixed exchange profile exists without ever replaying a write
-/// whose commit status is unknown. Every attempted create is followed by an
-/// authoritative stable-ID lookup before success is reported.
-pub fn ensureProfile(client: *transport.GatewayClient) BootstrapError!Summary {
-    if (!std.mem.eql(u8, client.database_id, profile.database_uuid) or
-        client.destinationId() != profile.defaultDestination())
+/// Validates or provisions an explicit exchange profile without ever replaying
+/// a write whose commit status is unknown. Every attempted create is followed
+/// by an authoritative stable-ID lookup before success is reported.
+pub fn ensureProfile(
+    client: *transport.GatewayClient,
+    configured_profile: *const profile.Profile,
+    policy: Policy,
+) BootstrapError!Summary {
+    if (!std.mem.eql(u8, client.database_id, configured_profile.databaseUuid()) or
+        client.destinationId() != configured_profile.destinationId())
     {
         return error.ProfileDestinationMismatch;
     }
-    return ensureProfileWith(.{
-        .context = client,
-        .allocator = client.allocator,
-        .request_fn = gatewayRequest,
-    });
+    return ensureProfileWith(
+        .{
+            .context = client,
+            .allocator = client.allocator,
+            .request_fn = gatewayRequest,
+        },
+        configured_profile,
+        policy,
+    );
 }
 
 fn gatewayRequest(
@@ -118,17 +142,24 @@ fn gatewayRequest(
     return client.request(operation, payload);
 }
 
-fn ensureProfileWith(requester: Requester) BootstrapError!Summary {
+fn ensureProfileWith(
+    requester: Requester,
+    configured_profile: *const profile.Profile,
+    policy: Policy,
+) BootstrapError!Summary {
     var summary: Summary = .{};
+    const accounts = configured_profile.accounts();
+    const funding_transfers = configured_profile.fundingTransfers();
 
-    switch (try lookupAccounts(requester)) {
-        .all_present_exact => summary.accounts_reused = profile.accounts.len,
+    switch (try lookupAccounts(requester, configured_profile)) {
+        .all_present_exact => summary.accounts_reused = accounts.len,
         .all_absent => {
-            const evidence = try createAccounts(requester);
-            switch (try lookupAccounts(requester)) {
+            if (!policy.allow_account_creation) return error.AccountMissing;
+            const evidence = try createAccounts(requester, configured_profile);
+            switch (try lookupAccounts(requester, configured_profile)) {
                 .all_present_exact => switch (evidence) {
-                    .accepted => summary.accounts_created = profile.accounts.len,
-                    .conflict, .ambiguous, .rejected => summary.accounts_reconciled = profile.accounts.len,
+                    .accepted => summary.accounts_created = accounts.len,
+                    .conflict, .ambiguous, .rejected => summary.accounts_reconciled = accounts.len,
                 },
                 .all_absent => return switch (evidence) {
                     .rejected => error.AccountCreateRejected,
@@ -142,14 +173,17 @@ fn ensureProfileWith(requester: Requester) BootstrapError!Summary {
         .mismatch => return error.AccountMismatch,
     }
 
-    switch (try lookupFundingTransfers(requester)) {
-        .all_present_exact => summary.funding_transfers_reused = profile.funding_transfers.len,
+    if (funding_transfers.len == 0) return summary;
+
+    switch (try lookupFundingTransfers(requester, configured_profile)) {
+        .all_present_exact => summary.funding_transfers_reused = funding_transfers.len,
         .all_absent => {
-            const evidence = try createFundingTransfers(requester);
-            switch (try lookupFundingTransfers(requester)) {
+            if (!policy.allow_initial_funding) return error.FundingMissing;
+            const evidence = try createFundingTransfers(requester, configured_profile);
+            switch (try lookupFundingTransfers(requester, configured_profile)) {
                 .all_present_exact => switch (evidence) {
-                    .accepted => summary.funding_transfers_created = profile.funding_transfers.len,
-                    .conflict, .ambiguous, .rejected => summary.funding_transfers_reconciled = profile.funding_transfers.len,
+                    .accepted => summary.funding_transfers_created = funding_transfers.len,
+                    .conflict, .ambiguous, .rejected => summary.funding_transfers_reconciled = funding_transfers.len,
                 },
                 .all_absent => return switch (evidence) {
                     .rejected => error.FundingCreateRejected,
@@ -166,14 +200,18 @@ fn ensureProfileWith(requester: Requester) BootstrapError!Summary {
     return summary;
 }
 
-fn lookupAccounts(requester: Requester) BootstrapError!Presence {
+fn lookupAccounts(
+    requester: Requester,
+    configured_profile: *const profile.Profile,
+) BootstrapError!Presence {
     var storage: [transport.max_request_bytes]u8 = undefined;
     var writer = std.Io.Writer.fixed(&storage);
-    profile.writeLookupAccounts(&writer) catch return error.RequestEncodingFailed;
+    configured_profile.writeLookupAccounts(&writer) catch return error.RequestEncodingFailed;
     return switch (requester.request(.lookup_accounts, writer.buffered())) {
         .failure => error.AccountLookupUnavailable,
         .response => |response| decodeAccountLookupResponse(
             requester.allocator,
+            configured_profile,
             response.status,
             response.body,
         ) catch |err| switch (err) {
@@ -185,10 +223,13 @@ fn lookupAccounts(requester: Requester) BootstrapError!Presence {
     };
 }
 
-fn createAccounts(requester: Requester) BootstrapError!CreateEvidence {
+fn createAccounts(
+    requester: Requester,
+    configured_profile: *const profile.Profile,
+) BootstrapError!CreateEvidence {
     var storage: [transport.max_request_bytes]u8 = undefined;
     var writer = std.Io.Writer.fixed(&storage);
-    profile.writeCreateAccounts(&writer) catch return error.RequestEncodingFailed;
+    configured_profile.writeCreateAccounts(&writer) catch return error.RequestEncodingFailed;
     return switch (requester.request(.create_accounts, writer.buffered())) {
         .failure => |certainty| switch (certainty) {
             .definitely_not_sent => error.AccountCreateNotSent,
@@ -196,6 +237,7 @@ fn createAccounts(requester: Requester) BootstrapError!CreateEvidence {
         },
         .response => |response| decodeAccountCreateResponse(
             requester.allocator,
+            configured_profile,
             response.status,
             response.body,
         ) catch |err| switch (err) {
@@ -206,13 +248,16 @@ fn createAccounts(requester: Requester) BootstrapError!CreateEvidence {
     };
 }
 
-fn lookupFundingTransfers(requester: Requester) BootstrapError!Presence {
-    const chain = profile.fundingChain();
+fn lookupFundingTransfers(
+    requester: Requester,
+    configured_profile: *const profile.Profile,
+) BootstrapError!Presence {
+    const chain = configured_profile.fundingChain();
     var storage: [transport.max_request_bytes]u8 = undefined;
     var writer = std.Io.Writer.fixed(&storage);
-    profile.writeLookupFundingTransfers(&writer) catch return error.RequestEncodingFailed;
+    configured_profile.writeLookupFundingTransfers(&writer) catch return error.RequestEncodingFailed;
     const expected: adapter.RequestContext = .{
-        .destination_id = profile.defaultDestination(),
+        .destination_id = configured_profile.destinationId(),
         .operation = .lookup_transfers,
     };
     return switch (requester.request(.lookup_transfers, writer.buffered())) {
@@ -220,7 +265,7 @@ fn lookupFundingTransfers(requester: Requester) BootstrapError!Presence {
         .response => |response| response_result: {
             const decoded = transport.decodeLookupResponse(
                 requester.allocator,
-                profile.database_uuid,
+                configured_profile.databaseUuid(),
                 expected,
                 &chain,
                 response.status,
@@ -241,13 +286,16 @@ fn lookupFundingTransfers(requester: Requester) BootstrapError!Presence {
     };
 }
 
-fn createFundingTransfers(requester: Requester) BootstrapError!CreateEvidence {
-    const chain = profile.fundingChain();
+fn createFundingTransfers(
+    requester: Requester,
+    configured_profile: *const profile.Profile,
+) BootstrapError!CreateEvidence {
+    const chain = configured_profile.fundingChain();
     var storage: [transport.max_request_bytes]u8 = undefined;
     var writer = std.Io.Writer.fixed(&storage);
-    profile.writeCreateFundingTransfers(&writer) catch return error.RequestEncodingFailed;
+    configured_profile.writeCreateFundingTransfers(&writer) catch return error.RequestEncodingFailed;
     const expected: adapter.RequestContext = .{
-        .destination_id = profile.defaultDestination(),
+        .destination_id = configured_profile.destinationId(),
         .operation = .create_transfers,
     };
     return switch (requester.request(.create_transfers, writer.buffered())) {
@@ -258,7 +306,7 @@ fn createFundingTransfers(requester: Requester) BootstrapError!CreateEvidence {
         .response => |response| response_result: {
             const decoded = transport.decodeSubmitResponse(
                 requester.allocator,
-                profile.database_uuid,
+                configured_profile.databaseUuid(),
                 expected,
                 &chain,
                 response.status,
@@ -276,6 +324,7 @@ fn createFundingTransfers(requester: Requester) BootstrapError!CreateEvidence {
 
 fn decodeAccountLookupResponse(
     allocator: std.mem.Allocator,
+    configured_profile: *const profile.Profile,
     status: u16,
     body: []const u8,
 ) DecodeError!Presence {
@@ -286,15 +335,23 @@ fn decodeAccountLookupResponse(
     if (status != 200) return error.UnavailableResponse;
     var parsed = try parseJson(allocator, body);
     defer parsed.deinit();
-    const object = try validateAccountEnvelope(parsed.value, .lookup_accounts, false);
+    const object = try validateAccountEnvelope(
+        configured_profile,
+        parsed.value,
+        .lookup_accounts,
+        false,
+    );
     const payload = try requiredArray(object, "responsePayload");
-    if (payload.items.len > profile.accounts.len) return .mismatch;
+    const accounts = configured_profile.accounts();
+    if (payload.items.len > accounts.len) return .mismatch;
 
-    var seen = [_]bool{false} ** profile.accounts.len;
+    const seen = try allocator.alloc(bool, accounts.len);
+    defer allocator.free(seen);
+    @memset(seen, false);
     for (payload.items) |value| {
         const actual = try decodeAccount(value);
         var expected_index: ?usize = null;
-        for (profile.accounts, 0..) |expected, index| {
+        for (accounts, 0..) |expected, index| {
             if (actual.id == expected.id) {
                 expected_index = index;
                 if (!profile.accountMatches(expected, actual)) return .mismatch;
@@ -306,7 +363,7 @@ fn decodeAccountLookupResponse(
         seen[index] = true;
     }
     if (payload.items.len == 0) return .all_absent;
-    return if (payload.items.len == profile.accounts.len)
+    return if (payload.items.len == accounts.len)
         .all_present_exact
     else
         .partial_application;
@@ -314,11 +371,12 @@ fn decodeAccountLookupResponse(
 
 fn decodeAccountCreateResponse(
     allocator: std.mem.Allocator,
+    configured_profile: *const profile.Profile,
     status: u16,
     body: []const u8,
 ) DecodeError!CreateEvidence {
     if (status == 409) {
-        try validateAccountConflict(allocator, body);
+        try validateAccountConflict(allocator, configured_profile, body);
         return .conflict;
     }
     if (status == 429 or (status >= 500 and status < 600)) return .ambiguous;
@@ -326,7 +384,12 @@ fn decodeAccountCreateResponse(
     if (status != 200) return .ambiguous;
     var parsed = try parseJson(allocator, body);
     defer parsed.deinit();
-    const object = try validateAccountEnvelope(parsed.value, .create_accounts, true);
+    const object = try validateAccountEnvelope(
+        configured_profile,
+        parsed.value,
+        .create_accounts,
+        true,
+    );
     const payload = try requiredArray(object, "responsePayload");
     if (payload.items.len != 0) return error.MalformedResponse;
     return .accepted;
@@ -352,6 +415,7 @@ fn parseJson(
 }
 
 fn validateAccountEnvelope(
+    configured_profile: *const profile.Profile,
     value: std.json.Value,
     operation: transport.GatewayOperation,
     persisted: bool,
@@ -375,7 +439,7 @@ fn validateAccountEnvelope(
     _ = try requiredString(object, "targetHost");
     _ = try requiredArray(object, "responsePayload");
 
-    if (!std.mem.eql(u8, database_id, profile.database_uuid) or
+    if (!std.mem.eql(u8, database_id, configured_profile.databaseUuid()) or
         !std.mem.eql(u8, mode, "live") or
         !std.mem.eql(u8, response_operation, operation.pathSegment()) or
         response_persisted != persisted)
@@ -384,33 +448,41 @@ fn validateAccountEnvelope(
     }
     const request_payload = object.get("requestPayload") orelse return error.MalformedResponse;
     const matches = switch (operation) {
-        .lookup_accounts => lookupAccountPayloadMatches(request_payload),
-        .create_accounts => createAccountPayloadMatches(request_payload),
+        .lookup_accounts => lookupAccountPayloadMatches(configured_profile, request_payload),
+        .create_accounts => createAccountPayloadMatches(configured_profile, request_payload),
         else => false,
     };
     if (!matches) return error.RejectedResponse;
     return object;
 }
 
-fn lookupAccountPayloadMatches(value: std.json.Value) bool {
+fn lookupAccountPayloadMatches(
+    configured_profile: *const profile.Profile,
+    value: std.json.Value,
+) bool {
     const array = switch (value) {
         .array => |result| result,
         else => return false,
     };
-    if (array.items.len != profile.accounts.len) return false;
-    for (array.items, profile.accounts) |item, expected| {
+    const accounts = configured_profile.accounts();
+    if (array.items.len != accounts.len) return false;
+    for (array.items, accounts) |item, expected| {
         if ((parseUnsigned(u128, item) catch return false) != expected.id) return false;
     }
     return true;
 }
 
-fn createAccountPayloadMatches(value: std.json.Value) bool {
+fn createAccountPayloadMatches(
+    configured_profile: *const profile.Profile,
+    value: std.json.Value,
+) bool {
     const array = switch (value) {
         .array => |result| result,
         else => return false,
     };
-    if (array.items.len != profile.accounts.len) return false;
-    for (array.items, profile.accounts) |item, expected| {
+    const accounts = configured_profile.accounts();
+    if (array.items.len != accounts.len) return false;
+    for (array.items, accounts) |item, expected| {
         const actual = decodeAccountSpec(item) catch return false;
         if (!profile.accountMatches(expected, actual)) return false;
     }
@@ -457,7 +529,11 @@ fn decodeAccount(value: std.json.Value) DecodeError!profile.AccountRecord {
     };
 }
 
-fn validateAccountConflict(allocator: std.mem.Allocator, body: []const u8) DecodeError!void {
+fn validateAccountConflict(
+    allocator: std.mem.Allocator,
+    configured_profile: *const profile.Profile,
+    body: []const u8,
+) DecodeError!void {
     var parsed = try parseJson(allocator, body);
     defer parsed.deinit();
     const object = switch (parsed.value) {
@@ -478,10 +554,13 @@ fn validateAccountConflict(allocator: std.mem.Allocator, body: []const u8) Decod
         else => return error.MalformedResponse,
     };
     const results = try requiredArray(object, "tbResults");
-    if (results.items.len == 0 or results.items.len > profile.accounts.len) {
+    const accounts = configured_profile.accounts();
+    if (results.items.len == 0 or results.items.len > accounts.len) {
         return error.MalformedResponse;
     }
-    var seen = [_]bool{false} ** profile.accounts.len;
+    const seen = try allocator.alloc(bool, accounts.len);
+    defer allocator.free(seen);
+    @memset(seen, false);
     for (results.items) |value| {
         const entry = switch (value) {
             .object => |result| result,
@@ -490,7 +569,7 @@ fn validateAccountConflict(allocator: std.mem.Allocator, body: []const u8) Decod
         if (entry.count() != 2) return error.MalformedResponse;
         const index = try requiredJsonUnsigned(usize, entry, "index");
         _ = try requiredJsonUnsigned(u32, entry, "result");
-        if (index >= profile.accounts.len or seen[index]) return error.MalformedResponse;
+        if (index >= accounts.len or seen[index]) return error.MalformedResponse;
         seen[index] = true;
     }
 }
@@ -621,6 +700,7 @@ const ScriptStep = struct {
 };
 
 const ScriptedGateway = struct {
+    configured_profile: *const profile.Profile,
     steps: []const ScriptStep,
     next: usize = 0,
     invalid_request: bool = false,
@@ -645,7 +725,9 @@ const ScriptedGateway = struct {
         }
         const step = self.steps[self.next];
         self.next += 1;
-        if (step.operation != operation or !requestPayloadMatches(operation, payload)) {
+        if (step.operation != operation or
+            !requestPayloadMatches(self.configured_profile, operation, payload))
+        {
             self.invalid_request = true;
             return .{ .failure = .definitely_not_sent };
         }
@@ -659,28 +741,30 @@ const ScriptedGateway = struct {
 };
 
 fn requestPayloadMatches(
+    configured_profile: *const profile.Profile,
     operation: transport.GatewayOperation,
     actual: []const u8,
 ) bool {
     var storage: [transport.max_request_bytes]u8 = undefined;
     var writer = std.Io.Writer.fixed(&storage);
     switch (operation) {
-        .lookup_accounts => profile.writeLookupAccounts(&writer) catch return false,
-        .create_accounts => profile.writeCreateAccounts(&writer) catch return false,
-        .lookup_transfers => profile.writeLookupFundingTransfers(&writer) catch return false,
-        .create_transfers => profile.writeCreateFundingTransfers(&writer) catch return false,
+        .lookup_accounts => configured_profile.writeLookupAccounts(&writer) catch return false,
+        .create_accounts => configured_profile.writeCreateAccounts(&writer) catch return false,
+        .lookup_transfers => configured_profile.writeLookupFundingTransfers(&writer) catch return false,
+        .create_transfers => configured_profile.writeCreateFundingTransfers(&writer) catch return false,
     }
     return std.mem.eql(u8, writer.buffered(), actual);
 }
 
 fn writeEnvelopePrefix(
     writer: *std.Io.Writer,
+    configured_profile: *const profile.Profile,
     operation: transport.GatewayOperation,
     persisted: bool,
 ) std.Io.Writer.Error!void {
     try writer.print(
         "{{\"clusterId\":\"0\",\"databaseId\":\"{s}\",\"databaseName\":\"exchange-core\",\"docsUrl\":\"https://example.test/docs\",\"message\":\"ok\",\"mode\":\"live\",\"operation\":\"{s}\",\"operationLabel\":\"test\",\"persisted\":{},\"provider\":\"gcp\",\"replicaCount\":1,\"requestPayload\":",
-        .{ profile.database_uuid, operation.pathSegment(), persisted },
+        .{ configured_profile.databaseUuid(), operation.pathSegment(), persisted },
     );
 }
 
@@ -690,17 +774,19 @@ fn finishEnvelope(writer: *std.Io.Writer) std.Io.Writer.Error!void {
 
 fn accountLookupFixture(
     storage: *[transport.max_request_bytes]u8,
+    configured_profile: *const profile.Profile,
     fixture: AccountFixture,
 ) ![]const u8 {
     var writer = std.Io.Writer.fixed(storage);
-    try writeEnvelopePrefix(&writer, .lookup_accounts, false);
-    try profile.writeLookupAccounts(&writer);
+    try writeEnvelopePrefix(&writer, configured_profile, .lookup_accounts, false);
+    try configured_profile.writeLookupAccounts(&writer);
     try writer.writeAll(",\"responsePayload\":[");
+    const accounts = configured_profile.accounts();
     const count: usize = switch (fixture) {
         .absent => 0,
-        .exact, .mismatch => profile.accounts.len,
+        .exact, .mismatch => accounts.len,
     };
-    for (profile.accounts[0..count], 0..) |account, index| {
+    for (accounts[0..count], 0..) |account, index| {
         if (index != 0) try writer.writeByte(',');
         const credits_posted = if (index == 4)
             "3e8"
@@ -732,10 +818,13 @@ fn accountLookupFixture(
     return writer.buffered();
 }
 
-fn accountCreateFixture(storage: *[transport.max_request_bytes]u8) ![]const u8 {
+fn accountCreateFixture(
+    storage: *[transport.max_request_bytes]u8,
+    configured_profile: *const profile.Profile,
+) ![]const u8 {
     var writer = std.Io.Writer.fixed(storage);
-    try writeEnvelopePrefix(&writer, .create_accounts, true);
-    try profile.writeCreateAccounts(&writer);
+    try writeEnvelopePrefix(&writer, configured_profile, .create_accounts, true);
+    try configured_profile.writeCreateAccounts(&writer);
     try writer.writeAll(",\"responsePayload\":[]");
     try finishEnvelope(&writer);
     return writer.buffered();
@@ -743,18 +832,20 @@ fn accountCreateFixture(storage: *[transport.max_request_bytes]u8) ![]const u8 {
 
 fn fundingLookupFixture(
     storage: *[transport.max_request_bytes]u8,
+    configured_profile: *const profile.Profile,
     fixture: FundingFixture,
 ) ![]const u8 {
     var writer = std.Io.Writer.fixed(storage);
-    try writeEnvelopePrefix(&writer, .lookup_transfers, false);
-    try profile.writeLookupFundingTransfers(&writer);
+    try writeEnvelopePrefix(&writer, configured_profile, .lookup_transfers, false);
+    try configured_profile.writeLookupFundingTransfers(&writer);
     try writer.writeAll(",\"responsePayload\":[");
+    const funding_transfers = configured_profile.fundingTransfers();
     const count: usize = switch (fixture) {
         .absent => 0,
         .partial => 1,
-        .exact => profile.funding_transfers.len,
+        .exact => funding_transfers.len,
     };
-    for (profile.funding_transfers[0..count], 0..) |transfer, index| {
+    for (funding_transfers[0..count], 0..) |transfer, index| {
         if (index != 0) try writer.writeByte(',');
         const amount = if (transfer.amount == 1_000) "3e8" else "7d0";
         try writer.print(
@@ -781,10 +872,13 @@ fn fundingLookupFixture(
     return writer.buffered();
 }
 
-fn fundingCreateFixture(storage: *[transport.max_request_bytes]u8) ![]const u8 {
+fn fundingCreateFixture(
+    storage: *[transport.max_request_bytes]u8,
+    configured_profile: *const profile.Profile,
+) ![]const u8 {
     var writer = std.Io.Writer.fixed(storage);
-    try writeEnvelopePrefix(&writer, .create_transfers, true);
-    try profile.writeCreateFundingTransfers(&writer);
+    try writeEnvelopePrefix(&writer, configured_profile, .create_transfers, true);
+    try configured_profile.writeCreateFundingTransfers(&writer);
     try writer.writeAll(",\"responsePayload\":[]");
     try finishEnvelope(&writer);
     return writer.buffered();
@@ -799,18 +893,20 @@ fn fundingConflictFixture(storage: *[transport.max_request_bytes]u8) ![]const u8
 }
 
 test "empty profile creates once and reconciles exact accounts and funding" {
+    const configured_profile = try profile.Profile.developmentExample(std.testing.allocator);
+    defer configured_profile.deinit();
     var account_absent_storage: [transport.max_request_bytes]u8 = undefined;
-    const account_absent = try accountLookupFixture(&account_absent_storage, .absent);
+    const account_absent = try accountLookupFixture(&account_absent_storage, configured_profile, .absent);
     var account_create_storage: [transport.max_request_bytes]u8 = undefined;
-    const account_create = try accountCreateFixture(&account_create_storage);
+    const account_create = try accountCreateFixture(&account_create_storage, configured_profile);
     var account_exact_storage: [transport.max_request_bytes]u8 = undefined;
-    const account_exact = try accountLookupFixture(&account_exact_storage, .exact);
+    const account_exact = try accountLookupFixture(&account_exact_storage, configured_profile, .exact);
     var funding_absent_storage: [transport.max_request_bytes]u8 = undefined;
-    const funding_absent = try fundingLookupFixture(&funding_absent_storage, .absent);
+    const funding_absent = try fundingLookupFixture(&funding_absent_storage, configured_profile, .absent);
     var funding_create_storage: [transport.max_request_bytes]u8 = undefined;
-    const funding_create = try fundingCreateFixture(&funding_create_storage);
+    const funding_create = try fundingCreateFixture(&funding_create_storage, configured_profile);
     var funding_exact_storage: [transport.max_request_bytes]u8 = undefined;
-    const funding_exact = try fundingLookupFixture(&funding_exact_storage, .exact);
+    const funding_exact = try fundingLookupFixture(&funding_exact_storage, configured_profile, .exact);
 
     const steps = [_]ScriptStep{
         .{ .operation = .lookup_accounts, .outcome = .{ .response = .{ .status = 200, .body = account_absent } } },
@@ -820,247 +916,342 @@ test "empty profile creates once and reconciles exact accounts and funding" {
         .{ .operation = .create_transfers, .outcome = .{ .response = .{ .status = 200, .body = funding_create } } },
         .{ .operation = .lookup_transfers, .outcome = .{ .response = .{ .status = 200, .body = funding_exact } } },
     };
-    var gateway: ScriptedGateway = .{ .steps = &steps };
-    const summary = try ensureProfileWith(gateway.requester());
+    var gateway: ScriptedGateway = .{ .configured_profile = configured_profile, .steps = &steps };
+    const summary = try ensureProfileWith(gateway.requester(), configured_profile, .development_seed);
     try gateway.expectComplete();
-    try std.testing.expectEqual(profile.accounts.len, summary.accounts_created);
+    try std.testing.expectEqual(configured_profile.accounts().len, summary.accounts_created);
     try std.testing.expectEqual(@as(usize, 0), summary.accounts_reused);
     try std.testing.expectEqual(@as(usize, 0), summary.accounts_reconciled);
-    try std.testing.expectEqual(profile.funding_transfers.len, summary.funding_transfers_created);
+    try std.testing.expectEqual(configured_profile.fundingTransfers().len, summary.funding_transfers_created);
     try std.testing.expectEqual(@as(usize, 0), summary.funding_transfers_reused);
     try std.testing.expectEqual(@as(usize, 0), summary.funding_transfers_reconciled);
 }
 
 test "existing exact profile is reused without create" {
+    const configured_profile = try profile.Profile.developmentExample(std.testing.allocator);
+    defer configured_profile.deinit();
     var account_storage: [transport.max_request_bytes]u8 = undefined;
-    const accounts = try accountLookupFixture(&account_storage, .exact);
+    const accounts = try accountLookupFixture(&account_storage, configured_profile, .exact);
     var funding_storage: [transport.max_request_bytes]u8 = undefined;
-    const funding = try fundingLookupFixture(&funding_storage, .exact);
+    const funding = try fundingLookupFixture(&funding_storage, configured_profile, .exact);
     const steps = [_]ScriptStep{
         .{ .operation = .lookup_accounts, .outcome = .{ .response = .{ .status = 200, .body = accounts } } },
         .{ .operation = .lookup_transfers, .outcome = .{ .response = .{ .status = 200, .body = funding } } },
     };
-    var gateway: ScriptedGateway = .{ .steps = &steps };
-    const summary = try ensureProfileWith(gateway.requester());
+    var gateway: ScriptedGateway = .{ .configured_profile = configured_profile, .steps = &steps };
+    const summary = try ensureProfileWith(gateway.requester(), configured_profile, .validate_only);
     try gateway.expectComplete();
-    try std.testing.expectEqual(profile.accounts.len, summary.accounts_reused);
-    try std.testing.expectEqual(profile.funding_transfers.len, summary.funding_transfers_reused);
+    try std.testing.expectEqual(configured_profile.accounts().len, summary.accounts_reused);
+    try std.testing.expectEqual(configured_profile.fundingTransfers().len, summary.funding_transfers_reused);
     try std.testing.expectEqual(@as(usize, 0), summary.accounts_created);
     try std.testing.expectEqual(@as(usize, 0), summary.accounts_reconciled);
     try std.testing.expectEqual(@as(usize, 0), summary.funding_transfers_created);
     try std.testing.expectEqual(@as(usize, 0), summary.funding_transfers_reconciled);
 }
 
-test "immutable account mismatch fails before any create" {
+test "validate-only refuses absent accounts without issuing a create" {
+    const configured_profile = try profile.Profile.developmentExample(std.testing.allocator);
+    defer configured_profile.deinit();
     var account_storage: [transport.max_request_bytes]u8 = undefined;
-    const accounts = try accountLookupFixture(&account_storage, .mismatch);
+    const accounts = try accountLookupFixture(&account_storage, configured_profile, .absent);
     const steps = [_]ScriptStep{
         .{ .operation = .lookup_accounts, .outcome = .{ .response = .{ .status = 200, .body = accounts } } },
     };
-    var gateway: ScriptedGateway = .{ .steps = &steps };
-    try std.testing.expectError(error.AccountMismatch, ensureProfileWith(gateway.requester()));
+    var gateway: ScriptedGateway = .{ .configured_profile = configured_profile, .steps = &steps };
+    try std.testing.expectError(
+        error.AccountMissing,
+        ensureProfileWith(gateway.requester(), configured_profile, .validate_only),
+    );
+    try gateway.expectComplete();
+}
+
+test "account provisioning does not opt in to initial funding" {
+    const configured_profile = try profile.Profile.developmentExample(std.testing.allocator);
+    defer configured_profile.deinit();
+    var account_storage: [transport.max_request_bytes]u8 = undefined;
+    const accounts = try accountLookupFixture(&account_storage, configured_profile, .exact);
+    var funding_storage: [transport.max_request_bytes]u8 = undefined;
+    const funding = try fundingLookupFixture(&funding_storage, configured_profile, .absent);
+    const steps = [_]ScriptStep{
+        .{ .operation = .lookup_accounts, .outcome = .{ .response = .{ .status = 200, .body = accounts } } },
+        .{ .operation = .lookup_transfers, .outcome = .{ .response = .{ .status = 200, .body = funding } } },
+    };
+    var gateway: ScriptedGateway = .{ .configured_profile = configured_profile, .steps = &steps };
+    try std.testing.expectError(
+        error.FundingMissing,
+        ensureProfileWith(gateway.requester(), configured_profile, .create_accounts),
+    );
+    try gateway.expectComplete();
+}
+
+test "profile without initial funding makes no transfer requests" {
+    const configured_profile = try profile.Profile.developmentExampleWithoutFunding(
+        std.testing.allocator,
+    );
+    defer configured_profile.deinit();
+    var account_storage: [transport.max_request_bytes]u8 = undefined;
+    const accounts = try accountLookupFixture(&account_storage, configured_profile, .exact);
+    const steps = [_]ScriptStep{
+        .{ .operation = .lookup_accounts, .outcome = .{ .response = .{ .status = 200, .body = accounts } } },
+    };
+    var gateway: ScriptedGateway = .{ .configured_profile = configured_profile, .steps = &steps };
+    const summary = try ensureProfileWith(gateway.requester(), configured_profile, .validate_only);
+    try gateway.expectComplete();
+    try std.testing.expectEqual(configured_profile.accounts().len, summary.accounts_reused);
+    try std.testing.expectEqual(@as(usize, 0), summary.funding_transfers_reused);
+    try std.testing.expectEqual(@as(usize, 0), summary.funding_transfers_created);
+    try std.testing.expectEqual(@as(usize, 0), summary.funding_transfers_reconciled);
+}
+
+test "immutable account mismatch fails before any create" {
+    const configured_profile = try profile.Profile.developmentExample(std.testing.allocator);
+    defer configured_profile.deinit();
+    var account_storage: [transport.max_request_bytes]u8 = undefined;
+    const accounts = try accountLookupFixture(&account_storage, configured_profile, .mismatch);
+    const steps = [_]ScriptStep{
+        .{ .operation = .lookup_accounts, .outcome = .{ .response = .{ .status = 200, .body = accounts } } },
+    };
+    var gateway: ScriptedGateway = .{ .configured_profile = configured_profile, .steps = &steps };
+    try std.testing.expectError(
+        error.AccountMismatch,
+        ensureProfileWith(gateway.requester(), configured_profile, .development_seed),
+    );
     try gateway.expectComplete();
 }
 
 test "ambiguous account create reconciles a matching lookup without replay" {
+    const configured_profile = try profile.Profile.developmentExample(std.testing.allocator);
+    defer configured_profile.deinit();
     var absent_storage: [transport.max_request_bytes]u8 = undefined;
-    const absent = try accountLookupFixture(&absent_storage, .absent);
+    const absent = try accountLookupFixture(&absent_storage, configured_profile, .absent);
     var exact_storage: [transport.max_request_bytes]u8 = undefined;
-    const exact = try accountLookupFixture(&exact_storage, .exact);
+    const exact = try accountLookupFixture(&exact_storage, configured_profile, .exact);
     var funding_storage: [transport.max_request_bytes]u8 = undefined;
-    const funding = try fundingLookupFixture(&funding_storage, .exact);
+    const funding = try fundingLookupFixture(&funding_storage, configured_profile, .exact);
     const steps = [_]ScriptStep{
         .{ .operation = .lookup_accounts, .outcome = .{ .response = .{ .status = 200, .body = absent } } },
         .{ .operation = .create_accounts, .outcome = .{ .failure = .indeterminate } },
         .{ .operation = .lookup_accounts, .outcome = .{ .response = .{ .status = 200, .body = exact } } },
         .{ .operation = .lookup_transfers, .outcome = .{ .response = .{ .status = 200, .body = funding } } },
     };
-    var gateway: ScriptedGateway = .{ .steps = &steps };
-    const summary = try ensureProfileWith(gateway.requester());
+    var gateway: ScriptedGateway = .{ .configured_profile = configured_profile, .steps = &steps };
+    const summary = try ensureProfileWith(
+        gateway.requester(),
+        configured_profile,
+        .development_seed,
+    );
     try gateway.expectComplete();
     try std.testing.expectEqual(@as(usize, 0), summary.accounts_created);
-    try std.testing.expectEqual(profile.accounts.len, summary.accounts_reconciled);
-    try std.testing.expectEqual(profile.funding_transfers.len, summary.funding_transfers_reused);
+    try std.testing.expectEqual(configured_profile.accounts().len, summary.accounts_reconciled);
+    try std.testing.expectEqual(configured_profile.fundingTransfers().len, summary.funding_transfers_reused);
 }
 
 test "missing accounts after retryable create response fail without replay" {
+    const configured_profile = try profile.Profile.developmentExample(std.testing.allocator);
+    defer configured_profile.deinit();
     var first_storage: [transport.max_request_bytes]u8 = undefined;
-    const first = try accountLookupFixture(&first_storage, .absent);
+    const first = try accountLookupFixture(&first_storage, configured_profile, .absent);
     var second_storage: [transport.max_request_bytes]u8 = undefined;
-    const second = try accountLookupFixture(&second_storage, .absent);
+    const second = try accountLookupFixture(&second_storage, configured_profile, .absent);
     const steps = [_]ScriptStep{
         .{ .operation = .lookup_accounts, .outcome = .{ .response = .{ .status = 200, .body = first } } },
         .{ .operation = .create_accounts, .outcome = .{ .response = .{ .status = 503, .body = "" } } },
         .{ .operation = .lookup_accounts, .outcome = .{ .response = .{ .status = 200, .body = second } } },
     };
-    var gateway: ScriptedGateway = .{ .steps = &steps };
+    var gateway: ScriptedGateway = .{ .configured_profile = configured_profile, .steps = &steps };
     try std.testing.expectError(
         error.AccountCreateUnconfirmed,
-        ensureProfileWith(gateway.requester()),
+        ensureProfileWith(gateway.requester(), configured_profile, .create_accounts),
     );
     try gateway.expectComplete();
 }
 
 test "account HTTP status evidence separates retryable and rejected responses" {
+    const configured_profile = try profile.Profile.developmentExample(std.testing.allocator);
+    defer configured_profile.deinit();
     try std.testing.expectError(
         error.UnavailableResponse,
-        decodeAccountLookupResponse(std.testing.allocator, 429, ""),
+        decodeAccountLookupResponse(std.testing.allocator, configured_profile, 429, ""),
     );
     try std.testing.expectError(
         error.UnavailableResponse,
-        decodeAccountLookupResponse(std.testing.allocator, 503, ""),
+        decodeAccountLookupResponse(std.testing.allocator, configured_profile, 503, ""),
     );
     try std.testing.expectError(
         error.RejectedResponse,
-        decodeAccountLookupResponse(std.testing.allocator, 400, ""),
+        decodeAccountLookupResponse(std.testing.allocator, configured_profile, 400, ""),
     );
     try std.testing.expectEqual(
         CreateEvidence.ambiguous,
-        try decodeAccountCreateResponse(std.testing.allocator, 429, ""),
+        try decodeAccountCreateResponse(std.testing.allocator, configured_profile, 429, ""),
     );
     try std.testing.expectEqual(
         CreateEvidence.ambiguous,
-        try decodeAccountCreateResponse(std.testing.allocator, 503, ""),
+        try decodeAccountCreateResponse(std.testing.allocator, configured_profile, 503, ""),
     );
     try std.testing.expectEqual(
         CreateEvidence.rejected,
-        try decodeAccountCreateResponse(std.testing.allocator, 400, ""),
+        try decodeAccountCreateResponse(std.testing.allocator, configured_profile, 400, ""),
     );
     try std.testing.expect(isRetryable(error.AccountLookupUnavailable));
     try std.testing.expect(isRetryable(error.AccountCreateUnconfirmed));
     try std.testing.expect(!isRetryable(error.AccountLookupRejected));
+    try std.testing.expect(!isRetryable(error.AccountMissing));
     try std.testing.expect(!isRetryable(error.AccountCreateRejected));
+    try std.testing.expect(!isRetryable(error.FundingMissing));
 }
 
 test "account lookup status maps unavailable and rejected evidence" {
+    const configured_profile = try profile.Profile.developmentExample(std.testing.allocator);
+    defer configured_profile.deinit();
     const unavailable_steps = [_]ScriptStep{
         .{ .operation = .lookup_accounts, .outcome = .{ .response = .{ .status = 429, .body = "" } } },
     };
-    var unavailable: ScriptedGateway = .{ .steps = &unavailable_steps };
+    var unavailable: ScriptedGateway = .{
+        .configured_profile = configured_profile,
+        .steps = &unavailable_steps,
+    };
     try std.testing.expectError(
         error.AccountLookupUnavailable,
-        ensureProfileWith(unavailable.requester()),
+        ensureProfileWith(unavailable.requester(), configured_profile, .validate_only),
     );
     try unavailable.expectComplete();
 
     const rejected_steps = [_]ScriptStep{
         .{ .operation = .lookup_accounts, .outcome = .{ .response = .{ .status = 400, .body = "" } } },
     };
-    var rejected: ScriptedGateway = .{ .steps = &rejected_steps };
+    var rejected: ScriptedGateway = .{
+        .configured_profile = configured_profile,
+        .steps = &rejected_steps,
+    };
     try std.testing.expectError(
         error.AccountLookupRejected,
-        ensureProfileWith(rejected.requester()),
+        ensureProfileWith(rejected.requester(), configured_profile, .validate_only),
     );
     try rejected.expectComplete();
 }
 
 test "rejected account create with exact lookup is reconciled not created" {
+    const configured_profile = try profile.Profile.developmentExample(std.testing.allocator);
+    defer configured_profile.deinit();
     var absent_storage: [transport.max_request_bytes]u8 = undefined;
-    const absent = try accountLookupFixture(&absent_storage, .absent);
+    const absent = try accountLookupFixture(&absent_storage, configured_profile, .absent);
     var exact_storage: [transport.max_request_bytes]u8 = undefined;
-    const exact = try accountLookupFixture(&exact_storage, .exact);
+    const exact = try accountLookupFixture(&exact_storage, configured_profile, .exact);
     var funding_storage: [transport.max_request_bytes]u8 = undefined;
-    const funding = try fundingLookupFixture(&funding_storage, .exact);
+    const funding = try fundingLookupFixture(&funding_storage, configured_profile, .exact);
     const steps = [_]ScriptStep{
         .{ .operation = .lookup_accounts, .outcome = .{ .response = .{ .status = 200, .body = absent } } },
         .{ .operation = .create_accounts, .outcome = .{ .response = .{ .status = 400, .body = "" } } },
         .{ .operation = .lookup_accounts, .outcome = .{ .response = .{ .status = 200, .body = exact } } },
         .{ .operation = .lookup_transfers, .outcome = .{ .response = .{ .status = 200, .body = funding } } },
     };
-    var gateway: ScriptedGateway = .{ .steps = &steps };
-    const summary = try ensureProfileWith(gateway.requester());
+    var gateway: ScriptedGateway = .{ .configured_profile = configured_profile, .steps = &steps };
+    const summary = try ensureProfileWith(gateway.requester(), configured_profile, .create_accounts);
     try gateway.expectComplete();
     try std.testing.expectEqual(@as(usize, 0), summary.accounts_created);
-    try std.testing.expectEqual(profile.accounts.len, summary.accounts_reconciled);
+    try std.testing.expectEqual(configured_profile.accounts().len, summary.accounts_reconciled);
 }
 
 test "ambiguous funding create reconciles exact lookup without replay" {
+    const configured_profile = try profile.Profile.developmentExample(std.testing.allocator);
+    defer configured_profile.deinit();
     var account_storage: [transport.max_request_bytes]u8 = undefined;
-    const accounts = try accountLookupFixture(&account_storage, .exact);
+    const accounts = try accountLookupFixture(&account_storage, configured_profile, .exact);
     var funding_absent_storage: [transport.max_request_bytes]u8 = undefined;
-    const funding_absent = try fundingLookupFixture(&funding_absent_storage, .absent);
+    const funding_absent = try fundingLookupFixture(&funding_absent_storage, configured_profile, .absent);
     var funding_exact_storage: [transport.max_request_bytes]u8 = undefined;
-    const funding_exact = try fundingLookupFixture(&funding_exact_storage, .exact);
+    const funding_exact = try fundingLookupFixture(&funding_exact_storage, configured_profile, .exact);
     const steps = [_]ScriptStep{
         .{ .operation = .lookup_accounts, .outcome = .{ .response = .{ .status = 200, .body = accounts } } },
         .{ .operation = .lookup_transfers, .outcome = .{ .response = .{ .status = 200, .body = funding_absent } } },
         .{ .operation = .create_transfers, .outcome = .{ .failure = .indeterminate } },
         .{ .operation = .lookup_transfers, .outcome = .{ .response = .{ .status = 200, .body = funding_exact } } },
     };
-    var gateway: ScriptedGateway = .{ .steps = &steps };
-    const summary = try ensureProfileWith(gateway.requester());
+    var gateway: ScriptedGateway = .{ .configured_profile = configured_profile, .steps = &steps };
+    const summary = try ensureProfileWith(
+        gateway.requester(),
+        configured_profile,
+        .{ .allow_initial_funding = true },
+    );
     try gateway.expectComplete();
-    try std.testing.expectEqual(profile.accounts.len, summary.accounts_reused);
+    try std.testing.expectEqual(configured_profile.accounts().len, summary.accounts_reused);
     try std.testing.expectEqual(@as(usize, 0), summary.funding_transfers_created);
     try std.testing.expectEqual(
-        profile.funding_transfers.len,
+        configured_profile.fundingTransfers().len,
         summary.funding_transfers_reconciled,
     );
 }
 
 test "funding create conflict reconciles exact lookup without replay" {
+    const configured_profile = try profile.Profile.developmentExample(std.testing.allocator);
+    defer configured_profile.deinit();
     var account_storage: [transport.max_request_bytes]u8 = undefined;
-    const accounts = try accountLookupFixture(&account_storage, .exact);
+    const accounts = try accountLookupFixture(&account_storage, configured_profile, .exact);
     var funding_absent_storage: [transport.max_request_bytes]u8 = undefined;
-    const funding_absent = try fundingLookupFixture(&funding_absent_storage, .absent);
+    const funding_absent = try fundingLookupFixture(&funding_absent_storage, configured_profile, .absent);
     var conflict_storage: [transport.max_request_bytes]u8 = undefined;
     const conflict = try fundingConflictFixture(&conflict_storage);
     var funding_exact_storage: [transport.max_request_bytes]u8 = undefined;
-    const funding_exact = try fundingLookupFixture(&funding_exact_storage, .exact);
+    const funding_exact = try fundingLookupFixture(&funding_exact_storage, configured_profile, .exact);
     const steps = [_]ScriptStep{
         .{ .operation = .lookup_accounts, .outcome = .{ .response = .{ .status = 200, .body = accounts } } },
         .{ .operation = .lookup_transfers, .outcome = .{ .response = .{ .status = 200, .body = funding_absent } } },
         .{ .operation = .create_transfers, .outcome = .{ .response = .{ .status = 409, .body = conflict } } },
         .{ .operation = .lookup_transfers, .outcome = .{ .response = .{ .status = 200, .body = funding_exact } } },
     };
-    var gateway: ScriptedGateway = .{ .steps = &steps };
-    const summary = try ensureProfileWith(gateway.requester());
+    var gateway: ScriptedGateway = .{ .configured_profile = configured_profile, .steps = &steps };
+    const summary = try ensureProfileWith(gateway.requester(), configured_profile, .development_seed);
     try gateway.expectComplete();
     try std.testing.expectEqual(@as(usize, 0), summary.funding_transfers_created);
     try std.testing.expectEqual(
-        profile.funding_transfers.len,
+        configured_profile.fundingTransfers().len,
         summary.funding_transfers_reconciled,
     );
 }
 
 test "missing funding after ambiguous create fails without replay" {
+    const configured_profile = try profile.Profile.developmentExample(std.testing.allocator);
+    defer configured_profile.deinit();
     var account_storage: [transport.max_request_bytes]u8 = undefined;
-    const accounts = try accountLookupFixture(&account_storage, .exact);
+    const accounts = try accountLookupFixture(&account_storage, configured_profile, .exact);
     var first_absent_storage: [transport.max_request_bytes]u8 = undefined;
-    const first_absent = try fundingLookupFixture(&first_absent_storage, .absent);
+    const first_absent = try fundingLookupFixture(&first_absent_storage, configured_profile, .absent);
     var second_absent_storage: [transport.max_request_bytes]u8 = undefined;
-    const second_absent = try fundingLookupFixture(&second_absent_storage, .absent);
+    const second_absent = try fundingLookupFixture(&second_absent_storage, configured_profile, .absent);
     const steps = [_]ScriptStep{
         .{ .operation = .lookup_accounts, .outcome = .{ .response = .{ .status = 200, .body = accounts } } },
         .{ .operation = .lookup_transfers, .outcome = .{ .response = .{ .status = 200, .body = first_absent } } },
         .{ .operation = .create_transfers, .outcome = .{ .failure = .indeterminate } },
         .{ .operation = .lookup_transfers, .outcome = .{ .response = .{ .status = 200, .body = second_absent } } },
     };
-    var gateway: ScriptedGateway = .{ .steps = &steps };
+    var gateway: ScriptedGateway = .{ .configured_profile = configured_profile, .steps = &steps };
     try std.testing.expectError(
         error.FundingCreateUnconfirmed,
-        ensureProfileWith(gateway.requester()),
+        ensureProfileWith(gateway.requester(), configured_profile, .development_seed),
     );
     try gateway.expectComplete();
 }
 
 test "partial funding after ambiguous create fails without replay" {
+    const configured_profile = try profile.Profile.developmentExample(std.testing.allocator);
+    defer configured_profile.deinit();
     var account_storage: [transport.max_request_bytes]u8 = undefined;
-    const accounts = try accountLookupFixture(&account_storage, .exact);
+    const accounts = try accountLookupFixture(&account_storage, configured_profile, .exact);
     var absent_storage: [transport.max_request_bytes]u8 = undefined;
-    const absent = try fundingLookupFixture(&absent_storage, .absent);
+    const absent = try fundingLookupFixture(&absent_storage, configured_profile, .absent);
     var partial_storage: [transport.max_request_bytes]u8 = undefined;
-    const partial = try fundingLookupFixture(&partial_storage, .partial);
+    const partial = try fundingLookupFixture(&partial_storage, configured_profile, .partial);
     const steps = [_]ScriptStep{
         .{ .operation = .lookup_accounts, .outcome = .{ .response = .{ .status = 200, .body = accounts } } },
         .{ .operation = .lookup_transfers, .outcome = .{ .response = .{ .status = 200, .body = absent } } },
         .{ .operation = .create_transfers, .outcome = .{ .failure = .indeterminate } },
         .{ .operation = .lookup_transfers, .outcome = .{ .response = .{ .status = 200, .body = partial } } },
     };
-    var gateway: ScriptedGateway = .{ .steps = &steps };
+    var gateway: ScriptedGateway = .{ .configured_profile = configured_profile, .steps = &steps };
     try std.testing.expectError(
         error.FundingPartialPresence,
-        ensureProfileWith(gateway.requester()),
+        ensureProfileWith(gateway.requester(), configured_profile, .development_seed),
     );
     try gateway.expectComplete();
 }

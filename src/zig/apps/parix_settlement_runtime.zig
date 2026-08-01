@@ -1,6 +1,7 @@
 const std = @import("std");
 const exchange_core = @import("exchange_core");
 const profile = @import("parix_settlement_profile.zig");
+const profile_manifest = @import("parix_settlement_profile_manifest.zig");
 
 const core = exchange_core.core;
 const dispatcher = core.tigerbeetle_dispatcher;
@@ -27,6 +28,7 @@ pub const Health = enum(u8) {
 pub const ConfigError = dispatcher.PolicyError || error{
     UnsafePersistenceRoot,
     UnsafeOutboxFileName,
+    UnsafeProfileManifestFileName,
     InvalidDestinationId,
     InvalidPublicationNamespace,
     InvalidPollInterval,
@@ -38,6 +40,7 @@ pub const InitError = ConfigError ||
     std.Io.Dir.CreateDirPathOpenError ||
     std.mem.Allocator.Error ||
     registry.RegistryInitError ||
+    profile_manifest.EnsureError ||
     outbox.StoreError ||
     exchange_integration.InitError;
 
@@ -82,10 +85,11 @@ pub const Config = struct {
     /// the host deliberately selects another safe relative directory.
     persistence_root: []const u8 = "zig-out/runtime/parix",
     outbox_path: []const u8 = "settlement-outbox.tso1",
-    destination_id: registry.DestinationId,
+    profile_manifest_path: []const u8 = "settlement-profile.spf1",
+    /// Validated immutable product configuration, borrowed for `init` only.
+    /// Runtime state owns the derived destination registry thereafter.
+    profile: *const profile.Profile,
     transport: plugin.Transport,
-    publication_namespace: u8 = 1,
-    journal_epoch: u16 = 0,
     poll_interval_ms: u32 = 10,
     /// Exactly one synchronous transport call per loop keeps shutdown
     /// interruptible between every externally bounded HTTP operation.
@@ -96,19 +100,15 @@ pub const Config = struct {
     pub fn validate(self: Config) ConfigError!void {
         try validateSafeRelativePath(self.persistence_root);
         try validateSafeFileName(self.outbox_path);
-        if (@intFromEnum(self.destination_id) == 0) return error.InvalidDestinationId;
-        if (self.publication_namespace == 0) return error.InvalidPublicationNamespace;
+        try validateSafeManifestFileName(self.profile_manifest_path);
+        if (@intFromEnum(self.profile.destinationId()) == 0) return error.InvalidDestinationId;
+        if (self.profile.publicationDomain().namespace == 0) {
+            return error.InvalidPublicationNamespace;
+        }
         if (self.poll_interval_ms == 0) return error.InvalidPollInterval;
         if (self.poll_budget != 1) return error.InvalidPollBudget;
         if (self.shutdown_timeout_ms == 0) return error.InvalidShutdownTimeout;
         try self.retry_policy.validate();
-    }
-
-    pub fn publicationDomain(self: Config) settlement.PublicationDomain {
-        return .{
-            .namespace = self.publication_namespace,
-            .journal_epoch = self.journal_epoch,
-        };
     }
 };
 
@@ -150,11 +150,20 @@ pub const Runtime = struct {
         );
         errdefer persistence_root.close(io);
 
-        const destination_registry = try profile.createRegistry(
-            allocator,
-            config.destination_id,
-        );
+        const destination_registry = try config.profile.createRegistry(allocator);
         errdefer destination_registry.deinit();
+
+        try profile_manifest.ensureBound(
+            io,
+            persistence_root,
+            config.profile_manifest_path,
+            .{
+                .destination_id = config.profile.destinationId(),
+                .publication_domain = config.profile.publicationDomain(),
+                .registry_digest = destination_registry.digest(),
+                .profile_digest = config.profile.digest(),
+            },
+        );
 
         const store = try allocator.create(Outbox);
         errdefer allocator.destroy(store);
@@ -163,18 +172,18 @@ pub const Runtime = struct {
             allocator,
             persistence_root,
             config.outbox_path,
-            config.destination_id,
-            config.publicationDomain(),
+            config.profile.destinationId(),
+            config.profile.publicationDomain(),
         );
         errdefer store.deinit();
 
         const integration = try allocator.create(Integration);
         errdefer allocator.destroy(integration);
         integration.* = try Integration.init(.{
-            .destination_id = config.destination_id,
+            .destination_id = config.profile.destinationId(),
             .destination_registry = destination_registry,
             .store = store,
-            .mapper_policy = .{ .publication_domain = config.publicationDomain() },
+            .mapper_policy = .{ .publication_domain = config.profile.publicationDomain() },
             .retry_policy = config.retry_policy,
             .transport = config.transport,
         });
@@ -549,6 +558,10 @@ fn validateSafeFileName(path: []const u8) ConfigError!void {
     if (!isSafePathComponent(path)) return error.UnsafeOutboxFileName;
 }
 
+fn validateSafeManifestFileName(path: []const u8) ConfigError!void {
+    if (!isSafePathComponent(path)) return error.UnsafeProfileManifestFileName;
+}
+
 fn isSafePathComponent(component: []const u8) bool {
     if (component.len == 0 or
         std.mem.eql(u8, component, ".") or
@@ -607,10 +620,11 @@ const FakeTransport = struct {
     };
 };
 
-fn stagePendingSettlement(store: *Outbox) !void {
+fn stagePendingSettlement(store: *Outbox, settlement_profile: *const profile.Profile) !void {
+    const publication_domain = settlement_profile.publicationDomain();
     const identity: settlement.FillIdentity = .{
-        .namespace = 1,
-        .journal_epoch = 0,
+        .namespace = publication_domain.namespace,
+        .journal_epoch = publication_domain.journal_epoch,
         .publication_sequence = core.publication_sequence.PublicationSequence.fromInt(1),
         .fill_ordinal = 0,
     };
@@ -630,7 +644,7 @@ fn stagePendingSettlement(store: *Outbox) !void {
     };
     const cursor = try identity.publicationCursor();
     const prepared = try store.prepare(&.{.{
-        .destination_id = profile.defaultDestination(),
+        .destination_id = settlement_profile.destinationId(),
         .publication = cursor,
         .chain = chain,
     }});
@@ -655,11 +669,14 @@ fn expectTerminalStop(
     );
     defer allocator.free(relative_root);
 
+    const settlement_profile = try profile.Profile.developmentExample(allocator);
+    defer settlement_profile.deinit();
+
     var fake: FakeTransport = .{ .mode = mode };
     var runtime = try Runtime.init(allocator, std.testing.io, .{
         .persistence_root = relative_root,
         .outbox_path = "settlement.tso1",
-        .destination_id = profile.defaultDestination(),
+        .profile = settlement_profile,
         .transport = fake.asTransport(),
         .poll_interval_ms = 1,
         .poll_budget = 1,
@@ -683,7 +700,7 @@ fn expectTerminalStop(
     );
     try runtime.install(&exchange);
     try exchange.startup();
-    try stagePendingSettlement(runtime.store);
+    try stagePendingSettlement(runtime.store, settlement_profile);
     if (inject_storage_failure) runtime.store.injectWriteFailureForTesting();
     try runtime.start();
 
@@ -761,9 +778,13 @@ test "settlement health exposes recovery and quarantine dispatch states" {
 }
 
 test "settlement runtime config rejects unsafe paths and zero poll controls" {
+    const allocator = std.testing.allocator;
+    const settlement_profile = try profile.Profile.developmentExample(allocator);
+    defer settlement_profile.deinit();
+
     var fake: FakeTransport = .{};
     const base: Config = .{
-        .destination_id = profile.defaultDestination(),
+        .profile = settlement_profile,
         .transport = fake.asTransport(),
     };
 
@@ -778,6 +799,9 @@ test "settlement runtime config rejects unsafe paths and zero poll controls" {
     invalid.outbox_path = "nested/outbox.tso1";
     try std.testing.expectError(error.UnsafeOutboxFileName, invalid.validate());
     invalid.outbox_path = "outbox.tso1";
+    invalid.profile_manifest_path = "nested/profile.spf1";
+    try std.testing.expectError(error.UnsafeProfileManifestFileName, invalid.validate());
+    invalid.profile_manifest_path = "profile.spf1";
     invalid.poll_interval_ms = 0;
     try std.testing.expectError(error.InvalidPollInterval, invalid.validate());
     invalid.poll_interval_ms = 1;
@@ -788,6 +812,91 @@ test "settlement runtime config rejects unsafe paths and zero poll controls" {
     invalid.poll_budget = 1;
     invalid.shutdown_timeout_ms = 0;
     try std.testing.expectError(error.InvalidShutdownTimeout, invalid.validate());
+}
+
+test "settlement runtime reopens only the exact bound profile without transport calls" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const relative_root = try std.fmt.allocPrint(
+        allocator,
+        ".zig-cache/tmp/{s}/parix-profile-reopen",
+        .{tmp.sub_path},
+    );
+    defer allocator.free(relative_root);
+
+    const settlement_profile = try profile.Profile.developmentExample(allocator);
+    defer settlement_profile.deinit();
+
+    var fake: FakeTransport = .{};
+    var runtime = try Runtime.init(allocator, std.testing.io, .{
+        .persistence_root = relative_root,
+        .profile = settlement_profile,
+        .transport = fake.asTransport(),
+    });
+    try std.testing.expectEqual(@as(usize, 0), fake.submit_calls.load(.acquire));
+    try runtime.deinit();
+
+    var reopened = try Runtime.init(allocator, std.testing.io, .{
+        .persistence_root = relative_root,
+        .profile = settlement_profile,
+        .transport = fake.asTransport(),
+    });
+    defer reopened.deinit() catch {};
+    try std.testing.expectEqual(@as(usize, 0), fake.submit_calls.load(.acquire));
+}
+
+test "settlement runtime rejects a changed profile manifest before transport" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const relative_root = try std.fmt.allocPrint(
+        allocator,
+        ".zig-cache/tmp/{s}/parix-profile-mismatch",
+        .{tmp.sub_path},
+    );
+    defer allocator.free(relative_root);
+
+    const settlement_profile = try profile.Profile.developmentExample(allocator);
+    defer settlement_profile.deinit();
+    const destination_registry = try settlement_profile.createRegistry(allocator);
+    defer destination_registry.deinit();
+
+    var wrong_profile_digest = settlement_profile.digest();
+    wrong_profile_digest[0] ^= 0xff;
+
+    {
+        const persistence_root = try std.Io.Dir.cwd().createDirPathOpen(
+            std.testing.io,
+            relative_root,
+            .{},
+        );
+        defer persistence_root.close(std.testing.io);
+        try profile_manifest.ensureBound(
+            std.testing.io,
+            persistence_root,
+            "settlement-profile.spf1",
+            .{
+                .destination_id = settlement_profile.destinationId(),
+                .publication_domain = settlement_profile.publicationDomain(),
+                .registry_digest = destination_registry.digest(),
+                .profile_digest = wrong_profile_digest,
+            },
+        );
+    }
+
+    var fake: FakeTransport = .{};
+    try std.testing.expectError(
+        error.ProfileDigestMismatch,
+        Runtime.init(allocator, std.testing.io, .{
+            .persistence_root = relative_root,
+            .profile = settlement_profile,
+            .transport = fake.asTransport(),
+        }),
+    );
+    try std.testing.expectEqual(@as(usize, 0), fake.submit_calls.load(.acquire));
 }
 
 test "settlement shutdown times out with durable work under retryable outage" {
@@ -802,11 +911,14 @@ test "settlement shutdown times out with durable work under retryable outage" {
     );
     defer allocator.free(relative_root);
 
+    const settlement_profile = try profile.Profile.developmentExample(allocator);
+    defer settlement_profile.deinit();
+
     var fake: FakeTransport = .{};
     var runtime = try Runtime.init(allocator, std.testing.io, .{
         .persistence_root = relative_root,
         .outbox_path = "settlement.tso1",
-        .destination_id = profile.defaultDestination(),
+        .profile = settlement_profile,
         .transport = fake.asTransport(),
         .poll_interval_ms = 60_000,
         .poll_budget = 1,
@@ -830,7 +942,7 @@ test "settlement shutdown times out with durable work under retryable outage" {
     );
     try runtime.install(&exchange);
     try exchange.startup();
-    try stagePendingSettlement(runtime.store);
+    try stagePendingSettlement(runtime.store, settlement_profile);
     try runtime.start();
     while (fake.submit_calls.load(.acquire) == 0) {
         std.Thread.yield() catch {};
@@ -847,7 +959,7 @@ test "settlement shutdown times out with durable work under retryable outage" {
     var reopened = try Runtime.init(allocator, std.testing.io, .{
         .persistence_root = relative_root,
         .outbox_path = "settlement.tso1",
-        .destination_id = profile.defaultDestination(),
+        .profile = settlement_profile,
         .transport = fake.asTransport(),
     });
     try std.testing.expectEqual(@as(usize, 1), reopened.store.len());
@@ -871,11 +983,14 @@ test "settlement runtime owns stable state and drains its poll thread" {
     );
     defer allocator.free(relative_root);
 
+    const settlement_profile = try profile.Profile.developmentExample(allocator);
+    defer settlement_profile.deinit();
+
     var fake: FakeTransport = .{};
     var runtime = try Runtime.init(allocator, std.testing.io, .{
         .persistence_root = relative_root,
         .outbox_path = "settlement.tso1",
-        .destination_id = profile.defaultDestination(),
+        .profile = settlement_profile,
         .transport = fake.asTransport(),
         .poll_interval_ms = 1,
         .poll_budget = 1,

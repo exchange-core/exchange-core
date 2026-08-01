@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "database_uuid": "0e46f90e-c38b-487a-b9f9-630f7839cc3f",
+  "publication": {
+    "namespace": 1,
+    "journal_epoch": 0
+  },
+  "symbol": {
+    "symbol_id": 241,
+    "symbol_type": "currency_exchange_pair",
+    "base_currency": 11,
+    "quote_currency": 15,
+    "base_scale_k": 100,
+    "quote_scale_k": 10,
+    "taker_fee": 2,
+    "maker_fee": 1,
+    "margin_buy": 0,
+    "margin_sell": 0
+  },
+  "currencies": [
+    {
+      "currency": 11,
+      "ledger": 421,
+      "treasury_account_id": "420011",
+      "fee_account_id": "42011"
+    },
+    {
+      "currency": 15,
+      "ledger": 425,
+      "treasury_account_id": "420015",
+      "fee_account_id": "42015"
+    }
+  ],
+  "users": [
+    {
+      "uid": 1001,
+      "base_account_id": "421011",
+      "quote_account_id": "421015"
+    },
+    {
+      "uid": 1002,
+      "base_account_id": "422011",
+      "quote_account_id": "422015"
+    }
+  ],
+  "initial_funding": [
+    {
+      "id": "8421011",
+      "uid": 1001,
+      "currency": 11,
+      "amount": "1000"
+    },
+    {
+      "id": "8422015",
+      "uid": 1002,
+      "currency": 15,
+      "amount": "2000"
+    }
+  ]
+}
