@@ -53,6 +53,12 @@ logical client identities in it. All clients therefore trade against the same
 browser-local order book. They are not network clients, and separate tabs,
 browsers, devices, or processes do not share this state.
 
+This page does not connect to the native TCP server or exercise authenticated
+ingress. Browsers cannot speak that raw TCP protocol directly. A production
+browser client needs a separate HTTPS/WebSocket gateway that keeps ingress key
+files and Parix credentials on the server side. Never place those secrets in
+JavaScript, WebAssembly, browser storage, or the staged browser bundle.
+
 The desk starts with Alice, Bob, and Carol (UIDs 1001-1003) and gives every
 client initial funding of 1,000 base units and 100,000 quote units. Use **Add
 client** to register another logical identity; its form starts with those same

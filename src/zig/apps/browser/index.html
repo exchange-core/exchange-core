@@ -348,7 +348,8 @@
         <p class="boundary">
           <strong>Local simulation only</strong>
           Every client on this page shares one exchange instance in this tab. Reloading clears it;
-          true sharing across browsers or devices needs an authoritative server and network transport.
+          this page never connects to native authenticated ingress. True sharing across browsers or
+          devices needs a separate HTTPS/WebSocket gateway that keeps all ingress secrets server-side.
         </p>
       </header>
 

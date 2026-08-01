@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "instance_id": "0e46f90e-c38b-487a-b9f9-630f7839cc3f",
+  "credentials": [
+    {
+      "credential_id": "trader-1001-a",
+      "principal_id": "trader-1001",
+      "role": "trader",
+      "uid": 1001,
+      "secret_file_env": "EXCHANGE_INGRESS_TRADER_1001_KEY_FILE"
+    },
+    {
+      "credential_id": "trader-1002-a",
+      "principal_id": "trader-1002",
+      "role": "trader",
+      "uid": 1002,
+      "secret_file_env": "EXCHANGE_INGRESS_TRADER_1002_KEY_FILE"
+    },
+    {
+      "credential_id": "operator-a",
+      "principal_id": "local-operator",
+      "role": "operator",
+      "secret_file_env": "EXCHANGE_INGRESS_OPERATOR_KEY_FILE"
+    }
+  ]
+}

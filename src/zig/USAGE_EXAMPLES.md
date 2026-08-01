@@ -10,8 +10,9 @@ The repository builds two runnable programs:
 - `exchange-core-server` starts an in-memory exchange and listens for commands.
 - `exchange-core-client` sends one command and prints the server's one-line response.
 
-They speak a small newline-delimited **demo line protocol**. It is intended for
-local exploration of the port; it is not a FIX session and it is not a REST API.
+They speak a small newline-delimited line protocol. Without Parix settlement,
+the server runs in an unauthenticated loopback-only development mode intended
+for local exploration of the port; it is not a FIX session or REST API.
 
 Build both binaries from the repository root. A plain build installs them in
 `zig-out/bin`:
@@ -28,8 +29,8 @@ currency `11` and quote currency `15`. Start it in the first terminal:
 # equivalent: zig build run-server
 ```
 
-It binds to `127.0.0.1:7379` by default and remains in the foreground. In a
-second terminal, run a complete transaction sequence:
+It binds to `127.0.0.1:7379` by default, rejects non-loopback hosts, and remains
+in the foreground. In a second terminal, run a complete development sequence:
 
 ```sh
 CLIENT=./zig-out/bin/exchange-core-client
@@ -76,6 +77,12 @@ book SYMBOL [DEPTH]
 shutdown
 ```
 
+In authenticated Parix mode, traders may use `ping`, `book`, and the
+UID-bearing `balance`, `place`, `move`, `reduce`, and `cancel` commands only for
+their profile-bound UID. Operators may use `ping`, `book`, and `shutdown`.
+`add-user` and `deposit` are denied to every authenticated principal because
+the paired startup profiles own user and funding admission.
+
 `place` defaults to `gtc`; `book` defaults to depth `20` and accepts at most
 `1000`. Use the same `--host HOST --port PORT` options on both programs when
 changing the endpoint:
@@ -99,6 +106,55 @@ stops accepting connections, and then shuts down the exchange core:
 ```sh
 $CLIENT shutdown
 ```
+
+### Authenticated Parix ingress
+
+Parix settlement requires `--parix-profile` and `--ingress-auth-profile`
+together. The ingress profile is non-secret: it maps credential IDs to
+trader/operator principals and names environment variables containing paths to
+owner-only (`0600`) files containing 32-byte keys as 64 lowercase hexadecimal
+characters, with an optional final LF. See
+[`AUTHENTICATED_INGRESS_RUNBOOK.md`](AUTHENTICATED_INGRESS_RUNBOOK.md) for the
+strict schema, key generation, TLS proxy topology, rotation, and incident
+procedure.
+
+Start the paired server:
+
+```sh
+zig build run-server -- \
+  --parix-settlement \
+  --parix-profile path/to/operator-settlement-profile.json \
+  --ingress-auth-profile path/to/operator-ingress-profile.json \
+  --persistence-root zig-out/runtime/parix
+```
+
+The client identifies the expected instance and credential on the command line,
+but reads the key-file path only from `EXCHANGE_INGRESS_KEY_FILE`. Supply both
+flags and a non-empty variable together; supplying only part of that triad is a
+client configuration error. Omit all three only for loopback development mode:
+
+```sh
+EXCHANGE_INGRESS_KEY_FILE=/run/secrets/exchange-ingress-trader-1001.key \
+  zig build run-client -- \
+    --auth-instance 0e46f90e-c38b-487a-b9f9-630f7839cc3f \
+    --auth-credential trader-1001-a \
+    balance 1001 11
+```
+
+Each authenticated connection performs a challenge-response exchange, sends
+one signed command with sequence `1`, verifies one signed response, and closes.
+The client prints only the inner `OK` or `ERR` response, preserving one-line
+shell usage. Handshake, frame, and MAC failures exit nonzero; a verified signed
+inner `ERR` exits zero, so scripts must inspect the printed payload. One
+five-second absolute deadline covers authenticated connection setup through
+verification of the signed response; expiry prints no response and exits
+nonzero.
+
+Authentication and signed frames do not encrypt the command or response. The
+native listener remains plaintext and loopback-only. Remote clients require an
+operator-owned TLS/mTLS L4 proxy plus a TLS-capable tunnel or client; the bundled
+`exchange-core-client` does not negotiate TLS itself. Never expose port `7379`
+directly.
 
 ## 2. Browser WebAssembly quickstart
 

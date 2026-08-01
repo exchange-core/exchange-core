@@ -60,13 +60,32 @@ snapshot and journal state in Java, and excluded process-local identity hashes
 from the portable manifest. The committed fixture then restored/replayed in
 Zig in both Debug and ReleaseSafe.
 
-## Standalone TCP demo
+## Standalone TCP server and authenticated ingress
 
 `zig build` installs `exchange-core-server` and `exchange-core-client` in
 `zig-out/bin`. Start the server with `zig build run-server`, then send commands
 from another terminal with `zig build run-client -- ping`. The programs use a
-local newline-delimited demo protocol—not FIX or REST—and default to
-`127.0.0.1:7379` with symbol `241` (base `11`, quote `15`).
+newline-delimited protocol—not FIX or REST—and default to the loopback-only
+`127.0.0.1:7379` endpoint with symbol `241` (base `11`, quote `15`). Without
+Parix settlement this is an unauthenticated local-development mode.
+
+Parix settlement is paired exactly with authenticated ingress: startup requires
+both the operator-owned settlement profile and a strict non-secret ingress
+profile. The client supplies `--auth-instance` and `--auth-credential`, reads an
+owner-only key-file path from `EXCHANGE_INGRESS_KEY_FILE` (all three are
+required together), completes a mutual HMAC/HKDF challenge, sends one signed
+command, verifies one signed response, and closes. One five-second absolute
+deadline bounds authenticated connection setup through response verification.
+Traders are restricted to their profile-bound UID; operators can probe
+health/books or request shutdown. Authenticated `add-user` and `deposit` are
+always denied.
+
+The TCP listener does not implement TLS and never accepts a non-loopback bind.
+Remote access requires an operator-owned TLS/mTLS L4 proxy and a TLS-capable
+tunnel or client; `exchange-core-client` itself speaks plaintext TCP. See
+[`AUTHENTICATED_INGRESS_RUNBOOK.md`](AUTHENTICATED_INGRESS_RUNBOOK.md) for the
+profile schema, key handling, wire contract, authorization matrix, rotation,
+and incident response.
 
 See `src/zig/USAGE_EXAMPLES.md` for the complete two-terminal transaction
 quickstart, command reference, graceful shutdown, embedded integration,
@@ -84,6 +103,12 @@ python3 -m http.server 8000 --directory zig-out/browser
 
 Then open <http://127.0.0.1:8000/>. Run `zig build -j1 wasm-smoke` for the
 funded crossing-order smoke test in Node.
+
+This browser bundle never connects to native authenticated ingress. Its
+multi-client desk is one browser-local exchange with several simulated logical
+identities. A networked browser product needs a separate server-side
+HTTPS/WebSocket gateway and must not receive ingress key files or Parix
+credentials.
 
 The browser boundary is synchronous, single-threaded, and exclusive-owner;
 production browser integrations should own it in one Web Worker. JavaScript

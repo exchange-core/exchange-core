@@ -1,6 +1,6 @@
 # Parix settlement runbook
 
-This runbook covers the optional **native** Parix/TigerBeetle settlement plugin. The exchange core remains usable without it. The browser/WASM build never receives Parix credentials and does not contain the native HTTP transport; browser clients send exchange commands to the native server.
+This runbook covers the optional **native** Parix/TigerBeetle settlement plugin. The exchange core remains usable without it. Parix settlement is exposed only through the paired authenticated native ingress described in [`AUTHENTICATED_INGRESS_RUNBOOK.md`](AUTHENTICATED_INGRESS_RUNBOOK.md). The bundled browser/WASM desk is a browser-local exchange: it neither connects to the native server nor receives Parix or ingress credentials. A production browser client requires a separate server-side HTTPS/WebSocket gateway.
 
 The supplied database is a shared Parix development-tier database. It has no production SLA, may already contain prior smoke activity, and must not be used for production funds. The checked-in profile is a schema and reconciliation fixture, not proof that this shared ledger is safe to attach to a new empty local journal.
 
@@ -39,7 +39,7 @@ A non-empty legacy root without this manifest is rejected. It is not auto-adopte
 
 ## Configuration
 
-Copy `.env.example` to `.env` and set exactly one credential:
+Copy `.env.example` to `.env` and set exactly one outbound Parix credential:
 
 ```sh
 PARIX_BASE_URL=https://dev.parix.io
@@ -48,7 +48,9 @@ PARIX_API_KEY=replace-with-api-key
 # PARIX_BEARER_TOKEN=replace-with-bearer-token
 ```
 
-Credentials are environment-only: never put them in command-line flags, logs, source files, screenshots, or commits. `PARIX_API_KEY` and `PARIX_BEARER_TOKEN` are mutually exclusive. Load a local file for the current shell before starting the server:
+Parix credentials are environment-only: never put them in command-line flags, logs, source files, screenshots, or commits. `PARIX_API_KEY` and `PARIX_BEARER_TOKEN` are mutually exclusive. They authenticate outbound server-to-Parix HTTP and are never ingress credentials.
+
+Settlement also requires a strict non-secret ingress profile whose `instance_id` equals this profile's database UUID. [`fixtures/ingress-auth-profile.example.json`](fixtures/ingress-auth-profile.example.json) supplies the matching development shape. Each `secret_file_env` entry names an environment variable whose value is the path to an owner-only (`0600`) file containing one 32-byte key as 64 lowercase hexadecimal characters, with an optional final LF. Configure those paths as shown in [`AUTHENTICATED_INGRESS_RUNBOOK.md`](AUTHENTICATED_INGRESS_RUNBOOK.md), then load the environment before starting the server:
 
 ```sh
 set -a
@@ -56,7 +58,7 @@ source .env
 set +a
 ```
 
-The demo TCP protocol has no client authentication or transport encryption. Keep the default `127.0.0.1` binding, or place it behind a trusted authenticated and encrypted gateway before accepting remote clients. The repository-relative persistence-root check does not confine operator-created symlinks; create that directory in a private, trusted workspace and do not point it at shared or untrusted storage.
+The server accepts only loopback hosts. Authenticated ingress uses HMAC/HKDF proofs and signs its one command and response, but the loopback TCP hop remains plaintext. Terminate TLS or mTLS at an operator-owned L4 proxy for remote access and never expose port `7379` directly. The repository-relative persistence-root check does not confine operator-created symlinks; create that directory in a private, trusted workspace and do not point it at shared or untrusted storage.
 
 Keep the profile file outside the persistence root. The root must be empty when its first manifest is created.
 
@@ -70,12 +72,13 @@ zig build test
 zig build wasm-settlement-check
 ```
 
-Start settlement with a stable, repository-relative persistence root and an operator-owned profile. Use a dedicated database that is known to be consistent with this local root:
+Start settlement with a stable, repository-relative persistence root, the operator-owned settlement profile, and its paired non-secret ingress profile. Use a dedicated database that is known to be consistent with this local root:
 
 ```sh
 zig build run-server -- \
   --parix-settlement \
   --parix-profile path/to/operator-profile.json \
+  --ingress-auth-profile path/to/operator-ingress-profile.json \
   --persistence-root zig-out/runtime/parix
 ```
 
@@ -88,6 +91,7 @@ The production-safe default is validate-only: every configured account and initi
 zig build run-server -- \
   --parix-settlement \
   --parix-profile path/to/operator-profile.json \
+  --ingress-auth-profile path/to/operator-ingress-profile.json \
   --parix-create-accounts \
   --persistence-root zig-out/runtime/parix
 
@@ -96,6 +100,7 @@ zig build run-server -- \
 zig build run-server -- \
   --parix-settlement \
   --parix-profile path/to/operator-profile.json \
+  --ingress-auth-profile path/to/operator-ingress-profile.json \
   --parix-development-seed \
   --persistence-root zig-out/runtime/parix
 ```
@@ -104,27 +109,52 @@ Do not enable development seeding for production treasury.
 
 Startup is intentionally fail-closed:
 
-1. The server loads and validates the bounded profile and checks that `PARIX_DATABASE_ID` names the same database.
+1. The server loads both bounded profiles, resolves every ingress key file, and requires the ingress `instance_id`, settlement-profile database UUID, and `PARIX_DATABASE_ID` to match exactly.
 2. It creates or validates the durable profile manifest before opening the settlement outbox or local core persistence.
 3. It opens and validates the local exchange journal and durable settlement outbox before any remote write is possible.
 4. It looks up every configured account and initial-funding transfer. Existing records must exactly match their immutable fields.
 5. Missing records stop validate-only startup. Records are created only when the matching explicit provisioning flag is present.
 6. A timeout or connection loss after an allowed submission is treated as ambiguous. The bootstrap looks up the same deterministic ID and reconciles its exact fields before deciding whether another submission is safe. It never blindly retries an indeterminate create.
-7. The local symbol, users, and configured initial balances are bootstrapped idempotently, then the settlement worker starts.
+7. The local symbol, users, and configured initial balances are bootstrapped idempotently, then the settlement worker starts and authenticated ingress begins serving.
 
-Do not route mutations to the process until `zig build run-client -- ping` returns `OK ready=true settlement=ready`. The one-time startup line reports only the settlement state and is not an admission probe. A `settling` state means durable work still exists and new mutations are rejected, while ping and read requests remain available. On shutdown, the listener stops accepting work, the exchange core shuts down, and the settlement worker is joined before its transport is released. Restart with the same persistence root; committed outbox entries are recovered idempotently by deterministic transfer ID.
+Do not route mutations to the process until an authenticated `ping` returns `OK ready=true settlement=ready`. Use `exchange-core-client --auth-instance UUID --auth-credential ID ping` with `EXCHANGE_INGRESS_KEY_FILE` pointing to that credential's key file; the complete command is in the ingress runbook. The one-time startup line reports only the settlement state and is not an admission probe. A `settling` state means durable work still exists and new mutations are rejected, while authenticated ping and read requests remain available. On operator shutdown, the listener stops accepting work, the exchange core shuts down, and the settlement worker is joined before its transport is released. Restart with the same profiles, credentials, and persistence root; committed outbox entries are recovered idempotently by deterministic transfer ID.
 
 ## Local protocol smoke
 
 These expected values assume the checked-in development profile was provisioned into a clean dedicated database and paired with its original local root. They are not a safe bootstrap recipe for the shared sample database after prior trading activity.
 
-With the server running in another terminal:
+With the server running in another terminal, define one client wrapper per
+credential. These variables contain key-file paths, not keys:
 
 ```sh
-zig build run-client -- ping
-zig build run-client -- balance 1001 11
-zig build run-client -- balance 1002 15
-zig build run-client -- book 241 10
+trader_1001() {
+  EXCHANGE_INGRESS_KEY_FILE="$EXCHANGE_INGRESS_TRADER_1001_KEY_FILE" \
+    zig build run-client -- \
+      --auth-instance "$PARIX_DATABASE_ID" \
+      --auth-credential trader-1001-a \
+      "$@"
+}
+
+trader_1002() {
+  EXCHANGE_INGRESS_KEY_FILE="$EXCHANGE_INGRESS_TRADER_1002_KEY_FILE" \
+    zig build run-client -- \
+      --auth-instance "$PARIX_DATABASE_ID" \
+      --auth-credential trader-1002-a \
+      "$@"
+}
+
+operator() {
+  EXCHANGE_INGRESS_KEY_FILE="$EXCHANGE_INGRESS_OPERATOR_KEY_FILE" \
+    zig build run-client -- \
+      --auth-instance "$PARIX_DATABASE_ID" \
+      --auth-credential operator-a \
+      "$@"
+}
+
+operator ping
+trader_1001 balance 1001 11
+trader_1002 balance 1002 15
+operator book 241 10
 ```
 
 Submit a crossing demo trade. Use fresh order IDs for each retained persistence root:
@@ -132,12 +162,12 @@ Submit a crossing demo trade. Use fresh order IDs for each retained persistence 
 ```sh
 SELL_ORDER_ID=$(date +%s)
 BUY_ORDER_ID=$((SELL_ORDER_ID + 1))
-zig build run-client -- place "$SELL_ORDER_ID" 1001 241 5 10 ask gtc
-zig build run-client -- place "$BUY_ORDER_ID" 1002 241 5 10 bid ioc
-zig build run-client -- balance 1001 11
-zig build run-client -- balance 1001 15
-zig build run-client -- balance 1002 11
-zig build run-client -- balance 1002 15
+trader_1001 place "$SELL_ORDER_ID" 1001 241 5 10 ask gtc
+trader_1002 place "$BUY_ORDER_ID" 1002 241 5 10 bid ioc
+trader_1001 balance 1001 11
+trader_1001 balance 1001 15
+trader_1002 balance 1002 11
+trader_1002 balance 1002 15
 ```
 
 With the fixed symbol scales, size `10` moves `1000` base units and `500` quote units. The expected post-fill local balances are seller base/quote `0`/`490` and buyer base/quote `1000`/`1480`; the quote fee account receives `30`.
@@ -145,10 +175,10 @@ With the fixed symbol scales, size `10` moves `1000` base units and `500` quote 
 Wait for the server readiness/settlement status to show that the durable outbox has drained before checking Parix. Request shutdown through the protocol:
 
 ```sh
-zig build run-client -- shutdown
+operator shutdown
 ```
 
-`OK shutdown` acknowledges that the listener accepted the request; it does not certify that settlement draining has finished. The process then gives the worker its bounded drain window and joins it. A drain timeout, failed dispatch, or quarantine produces a nonzero server exit after cleanup, while leaving the durable outbox intact for recovery from the same persistence root.
+Only the operator role can send `shutdown`; traders are denied. `OK shutdown` acknowledges that the listener accepted the signed request, but it does not certify that settlement draining has finished. The process then gives the worker its bounded drain window and joins it. A drain timeout, failed dispatch, or quarantine produces a nonzero server exit after cleanup, while leaving the durable outbox intact for recovery from the same persistence root.
 
 Restart the server with the same persistence root and confirm it becomes ready without creating duplicate TigerBeetle transfers.
 
@@ -178,8 +208,9 @@ After a fill, query the relevant accounts and transfer history to confirm the ex
 - The roster is operator-configurable but immutable for one persistence root. Online user onboarding and profile migration are not implemented.
 - Changing symbol economics, users, ledgers, account IDs, funding, database, or publication domain requires a reviewed offline migration. Exact-digest restart rejection is intentional.
 - Legacy roots created before `settlement-profile.spf1` are not automatically adopted.
-- Client authentication and UID/role authorization are not implemented in the TCP demo. TLS/mTLS, timeouts, connection caps, and rate limiting belong at a loopback L4 proxy; application identity and authorization still need to be enforced by the Zig server.
+- Authenticated ingress is Parix-only, accepts one signed command per connection, and remains loopback plaintext. The native listener bounds authenticated sessions to 64 and applies a five-second POSIX idle receive timeout; the native client independently bounds connection setup through verified response with a five-second absolute deadline. TLS/mTLS, public certificates, independent proxy connection caps, server-side absolute deadlines, and rate limiting still belong at the operator-owned L4 proxy.
+- Traders can act only as their profile-bound UID. Operators can probe health and books or request shutdown, but cannot trade. Authenticated `add-user` and `deposit` are denied for every role; startup profiles and explicit provisioning flags own those operations.
 - This integration does not turn the shared development database into a production-grade custody or accounting service.
-- Parix credentials belong only in the native server process. Never expose them to the WASM bundle, browser storage, or client-side network requests.
+- Parix credentials and ingress key files belong only in native/server-side processes. Never expose them to the WASM bundle, browser storage, or client-side JavaScript.
 
-The next productization slices are authenticated/authorized ingress behind a TLS proxy, followed by durable deposit and withdrawal sagas with explicit accepted, pending, completed, and quarantined states. Before a production rollout, use a dedicated database with an appropriate SLA, rehearse journal/outbox disaster recovery, and monitor both exchange readiness and settlement lag.
+The next productization slice is durable deposit and withdrawal sagas with explicit accepted, pending, completed, and quarantined states. Before a production rollout, use a dedicated database with an appropriate SLA, rehearse journal/outbox disaster recovery and credential rotation, verify the real TLS/mTLS proxy path, and monitor authenticated readiness plus settlement lag.
