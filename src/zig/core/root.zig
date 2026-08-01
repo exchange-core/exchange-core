@@ -2,6 +2,8 @@ pub const common = @import("common.zig");
 pub const cmd = @import("cmd.zig");
 pub const api_command = @import("api_command.zig");
 pub const config = @import("config.zig");
+pub const static_pool = @import("static_pool.zig");
+pub const static_scratch = @import("static_scratch.zig");
 pub const events = @import("events.zig");
 pub const settlement_lifecycle = @import("settlement_lifecycle.zig");
 pub const tigerbeetle_settlement = @import("tigerbeetle_settlement.zig");
@@ -62,6 +64,8 @@ test {
     _ = cmd;
     _ = api_command;
     _ = config;
+    _ = static_pool;
+    _ = static_scratch;
     _ = events;
     _ = settlement_lifecycle;
     _ = tigerbeetle_settlement;

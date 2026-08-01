@@ -37,6 +37,9 @@ pub const HoldAggregationError = std.mem.Allocator.Error || error{
 };
 pub const ProcessError = std.mem.Allocator.Error || error{
     OrderBookInvariantViolation,
+    /// Internal: pure resting book pool exhaust. Mapped to
+    /// CommandResultCode.matching_engine_capacity before leaving the book.
+    RestingCapacityExhausted,
 };
 pub const RestoreOrdersError = std.mem.Allocator.Error || error{
     InvalidOrderSymbol,
@@ -830,12 +833,12 @@ pub const NaiveOrderBook = struct {
         // atomic, then either prepend it to the trade chain or release it.
         const duplicate_before_matching = self.id_index.contains(command.order_id);
         const reserved_reject = if (duplicate_before_matching)
-            if (event_chain) |chain| try chain.allocator.create(events.MatcherTradeEvent) else null
+            if (event_chain) |chain| try chain.reserveNode() else null
         else
             null;
         var reject_attached = false;
         defer if (reserved_reject) |node| {
-            if (!reject_attached) event_chain.?.allocator.destroy(node);
+            if (!reject_attached) event_chain.?.releaseReserved(node);
         };
 
         try self.tryMatchInstantly(&active, true, event_chain);

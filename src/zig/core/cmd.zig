@@ -98,6 +98,8 @@ pub const CommandResultCode = enum(i32) {
     matching_invalid_order_book_id = -3005,
     matching_move_failed_price_over_risk_limit = -3041,
     matching_reduce_failed_wrong_size = -3051,
+    /// Pure resting book capacity (static order/bucket pool). Not historical Java.
+    matching_engine_capacity = -3060,
     user_mgmt_user_already_exists = -4001,
     user_mgmt_account_balance_adjustment_already_applied_same = -4101,
     user_mgmt_account_balance_adjustment_already_applied_many = -4102,
@@ -245,6 +247,14 @@ test "command result merge matches java semantics" {
     try std.testing.expectEqual(
         CommandResultCode.matching_unknown_order_id,
         CommandResultCode.mergeToFirstFailed(&.{ .success, .matching_unknown_order_id, .accepted }),
+    );
+}
+
+test "matching_engine_capacity is -3060 and round-trips fromCode" {
+    try std.testing.expectEqual(@as(i32, -3060), CommandResultCode.matching_engine_capacity.code());
+    try std.testing.expectEqual(
+        CommandResultCode.matching_engine_capacity,
+        try CommandResultCode.fromCode(-3060),
     );
 }
 

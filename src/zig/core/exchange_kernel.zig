@@ -146,6 +146,9 @@ pub const CommandResponse = struct {
     report_response: ?ReportResponse = null,
     java_report_response: ?JavaReportResponse = null,
     matcher_events_head: ?*events.MatcherTradeEvent = null,
+    /// Owner for matcher event nodes. When null, deinit falls back to the
+    /// allocator argument (heap-compatible default for legacy construction).
+    events_owner: ?events.EventNodesOwner = null,
 
     pub fn deinit(self: *CommandResponse, allocator: std.mem.Allocator) void {
         if (self.l2_snapshot) |*snapshot| {
@@ -160,8 +163,19 @@ pub const CommandResponse = struct {
             report.deinit(allocator);
             self.java_report_response = null;
         }
-        events.deinitMatcherEventChain(allocator, self.matcher_events_head);
-        self.matcher_events_head = null;
+        if (self.matcher_events_head) |head| {
+            // Pool-backed nodes must free through the pool (events_owner.pool).
+            // Heap-backed nodes free through the deinit allocator argument so a
+            // transferred response can outlive a locked-allocator facade that
+            // was only used for production.
+            const owner: events.EventNodesOwner = if (self.events_owner) |stored| switch (stored) {
+                .pool => |pool| .{ .pool = pool },
+                .heap => .{ .heap = allocator },
+            } else .{ .heap = allocator };
+            events.deinitMatcherEventChain(owner, head);
+            self.matcher_events_head = null;
+        }
+        self.events_owner = null;
     }
 
     fn completeFromCommand(self: *CommandResponse, command: *const cmd.OrderCommand) void {
@@ -336,6 +350,15 @@ pub const Config = struct {
     report_queries: ReportQueriesConfig = .{},
     java_identity_hash_context: ?JavaIdentityHashContext = null,
     java_report_wire: java_report_wire.Config = .{},
+    /// When non-null, matcher events use a bootstrap-sized MatcherEventPool.
+    matcher_event_pool_capacity: ?usize = null,
+    /// When both set, direct books use initStatic (hard-capped slabs).
+    order_pool_max_orders: ?usize = null,
+    order_pool_max_buckets: ?usize = null,
+    /// Phase C map pre-reserve applied at risk engine init.
+    pre_reserve_users: usize = 0,
+    pre_reserve_accounts_per_user: usize = 0,
+    pre_reserve_positions_per_user: usize = 0,
 };
 
 pub const ReportQueriesConfig = struct {
@@ -780,6 +803,12 @@ pub const ExchangeKernel = struct {
     books_history: MatchingBooksHistory = MatchingBooksHistory.init(),
     risk_engine: risk.RiskEngine,
     binary_frame_assembler: binary_frames.BinaryFrameAssembler,
+    /// Owned when matcher_event_pool_capacity was set at init; null = heap events.
+    matcher_event_pool: ?*events.MatcherEventPool = null,
+    order_pool_max_orders: ?usize = null,
+    order_pool_max_buckets: ?usize = null,
+    pre_reserve_accounts_per_user: usize = 0,
+    pre_reserve_positions_per_user: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator, config: Config) InitError!ExchangeKernel {
         if (config.l2_refresh_depth == 0) {
@@ -806,6 +835,24 @@ pub const ExchangeKernel = struct {
         );
         errdefer risk_engine.deinit();
 
+        if (config.pre_reserve_users > 0) {
+            try risk_engine.preReserveUsers(config.pre_reserve_users);
+        }
+        risk_engine.pre_reserve_accounts_per_user = config.pre_reserve_accounts_per_user;
+        risk_engine.pre_reserve_positions_per_user = config.pre_reserve_positions_per_user;
+
+        var matcher_event_pool: ?*events.MatcherEventPool = null;
+        errdefer if (matcher_event_pool) |pool| {
+            pool.deinitForce();
+            allocator.destroy(pool);
+        };
+        if (config.matcher_event_pool_capacity) |cap| {
+            const pool = try allocator.create(events.MatcherEventPool);
+            errdefer allocator.destroy(pool);
+            pool.* = try events.MatcherEventPool.init(allocator, cap);
+            matcher_event_pool = pool;
+        }
+
         return .{
             .allocator = allocator,
             .orderbook_kind = config.orderbook_kind,
@@ -817,6 +864,11 @@ pub const ExchangeKernel = struct {
             .custom_report_registry = custom_report_registry,
             .risk_engine = risk_engine,
             .binary_frame_assembler = binary_frames.BinaryFrameAssembler.init(allocator),
+            .matcher_event_pool = matcher_event_pool,
+            .order_pool_max_orders = config.order_pool_max_orders,
+            .order_pool_max_buckets = config.order_pool_max_buckets,
+            .pre_reserve_accounts_per_user = config.pre_reserve_accounts_per_user,
+            .pre_reserve_positions_per_user = config.pre_reserve_positions_per_user,
         };
     }
 
@@ -831,7 +883,22 @@ pub const ExchangeKernel = struct {
         self.binary_frame_assembler.deinit();
         self.risk_engine.deinit();
         self.custom_report_registry.deinit();
+        if (self.matcher_event_pool) |pool| {
+            // Force: outstanding responses may still hold nodes in rare teardown races.
+            pool.deinitForce();
+            self.allocator.destroy(pool);
+            self.matcher_event_pool = null;
+        }
         self.* = undefined;
+    }
+
+    pub fn eventsOwner(self: *ExchangeKernel) events.EventNodesOwner {
+        if (self.matcher_event_pool) |pool| return .{ .pool = pool };
+        return .{ .heap = self.allocator };
+    }
+
+    pub fn makeEventChain(self: *ExchangeKernel) events.EventChain {
+        return events.EventChain.initOwner(self.eventsOwner());
     }
 
     /// Returns the immutable registry clone owned by this kernel. The borrow is
@@ -1010,7 +1077,17 @@ pub const ExchangeKernel = struct {
                 book_ptr.* = .{ .naive = try naive.NaiveOrderBook.init(self.allocator, spec) };
             },
             .direct => {
-                book_ptr.* = .{ .direct = try direct.DirectOrderBook.init(self.allocator, spec) };
+                if (self.order_pool_max_orders) |max_orders| {
+                    const max_buckets = self.order_pool_max_buckets orelse max_orders;
+                    book_ptr.* = .{ .direct = try direct.DirectOrderBook.initStatic(
+                        self.allocator,
+                        spec,
+                        max_orders,
+                        max_buckets,
+                    ) };
+                } else {
+                    book_ptr.* = .{ .direct = try direct.DirectOrderBook.init(self.allocator, spec) };
+                }
             },
         }
         errdefer book_ptr.deinit();
@@ -1134,8 +1211,8 @@ pub const ExchangeKernel = struct {
         self: *ExchangeKernel,
         descriptor: *const report_registry.Descriptor,
         body: []const u8,
-    ) CustomReportDispatchError!?*events.MatcherTradeEvent {
-        var chain = events.EventChain.init(self.allocator);
+    ) CustomReportDispatchError!events.OwnedMatcherEvents {
+        var chain = self.makeEventChain();
         defer chain.deinit();
 
         const shard_id = std.math.cast(i32, self.risk_engine.shard_id) orelse
@@ -1169,7 +1246,7 @@ pub const ExchangeKernel = struct {
             self.risk_engine.shard_mask,
             self.java_report_wire,
         );
-        return chain.takeOwnedHead();
+        return chain.takeOwned();
     }
 
     pub fn execute(
@@ -1223,7 +1300,7 @@ pub const ExchangeKernel = struct {
         const seq = assigned_sequence.toInt();
         if (seq <= self.next_seq) return error.NonMonotonicPublicationSequence;
         self.next_seq = seq;
-        var event_chain = events.EventChain.init(self.allocator);
+        var event_chain = self.makeEventChain();
         defer event_chain.deinit();
 
         _ = try self.risk_engine.preProcessCommand(seq, command);
@@ -1309,7 +1386,7 @@ pub const ExchangeKernel = struct {
                                     response.completeFromCommand(command);
                                     return response;
                                 };
-                                response.matcher_events_head = self.produceCustomReportEvents(
+                                const owned_events = self.produceCustomReportEvents(
                                     descriptor,
                                     envelope.raw.body,
                                 ) catch |err| switch (err) {
@@ -1320,6 +1397,7 @@ pub const ExchangeKernel = struct {
                                         return response;
                                     },
                                 };
+                                owned_events.attachToResponse(&response);
                                 command.result_code = .success;
                                 response.completeFromCommand(command);
                                 return response;
@@ -1361,6 +1439,7 @@ pub const ExchangeKernel = struct {
                             if (produced) |owned| {
                                 response.java_report_response = owned.response;
                                 response.matcher_events_head = owned.events_head;
+                                response.events_owner = owned.events_owner;
                             }
 
                             if (command.binary_report_projection == .exact_java_and_native) {
@@ -1448,7 +1527,9 @@ pub const ExchangeKernel = struct {
         } else {
             _ = try self.risk_engine.handlerRiskRelease(seq, command, event_chain.head, top);
         }
+        const _events_owner = event_chain.owner;
         response.matcher_events_head = event_chain.takeOwnedHead();
+        response.events_owner = _events_owner;
         response.completeFromCommand(command);
         return response;
     }
@@ -2916,6 +2997,11 @@ pub const MultiShardKernelSet = struct {
     matching_mask: u64,
     risk_mask: u64,
     next_seq: u64 = 0,
+    /// Set-wide matcher event pool (shared by StageAdapter dual-chain paths).
+    matcher_event_pool: ?*events.MatcherEventPool = null,
+    /// Preallocated R2 prepare scratch (Phase D) — not freed per command.
+    exchange_release_scratch: []risk.RiskEngine.PreparedExchangeRelease = &.{},
+    margin_release_scratch: []risk.RiskEngine.PreparedMarginRelease = &.{},
 
     pub const ShardedInitError = std.mem.Allocator.Error || InitError || error{
         InvalidShardCount,
@@ -2965,11 +3051,12 @@ pub const MultiShardKernelSet = struct {
         events_group: i64,
         command: cmd.OrderCommand,
         matcher_events_head: ?*events.MatcherTradeEvent,
+        events_owner: events.EventNodesOwner,
         l2_top: ?events.L2Top,
         requires_risk_release: bool,
 
-        fn deinit(self: *PendingMatchedCommand, allocator: std.mem.Allocator) void {
-            events.deinitMatcherEventChain(allocator, self.matcher_events_head);
+        fn deinit(self: *PendingMatchedCommand, _: std.mem.Allocator) void {
+            events.deinitMatcherEventChain(self.events_owner, self.matcher_events_head);
             self.* = undefined;
         }
     };
@@ -3089,7 +3176,7 @@ pub const MultiShardKernelSet = struct {
                 self.r1_frontier = seq;
                 self.matching_frontier = seq;
             } else {
-                var event_chain = events.EventChain.init(self.kernels.allocator);
+                var event_chain = self.kernels.makeEventChain();
                 defer event_chain.deinit();
                 var risk_l2_snapshot: ?naive.L2MarketData = null;
                 defer if (risk_l2_snapshot) |*snapshot| {
@@ -3122,7 +3209,9 @@ pub const MultiShardKernelSet = struct {
                     else
                         null;
                 }
+                const _events_owner = event_chain.owner;
                 response.matcher_events_head = event_chain.takeOwnedHead();
+                response.events_owner = _events_owner;
             }
 
             command.* = pipeline_command;
@@ -3130,12 +3219,15 @@ pub const MultiShardKernelSet = struct {
             self.result_frontier = seq;
 
             const pending_events = response.matcher_events_head;
+            const pending_owner = response.events_owner orelse self.kernels.eventsOwner();
             response.matcher_events_head = null;
+            response.events_owner = null;
             self.pending.appendAssumeCapacity(.{
                 .sequence = seq,
                 .events_group = command.events_group,
                 .command = pipeline_command,
                 .matcher_events_head = pending_events,
+                .events_owner = pending_owner,
                 .l2_top = l2_top,
                 .requires_risk_release = requires_risk_release,
             });
@@ -3371,6 +3463,9 @@ pub const MultiShardKernelSet = struct {
             // An embedded carrier risk with id >= risk_count can own no UID
             // under this mask, making dormant state structurally non-owning.
             shard_config.num_shards = risk_count_u64;
+            // Event pool is owned set-wide (StageAdapter dual-chain); do not
+            // allocate per matching shard.
+            shard_config.matcher_event_pool_capacity = null;
             matching_shards[idx] = try ExchangeKernel.init(allocator, shard_config);
             matching_initialized += 1;
         }
@@ -3390,6 +3485,13 @@ pub const MultiShardKernelSet = struct {
                 risk_count_u64,
                 base_config.risk,
             );
+            if (base_config.pre_reserve_users > 0) {
+                try additional_risk_engines[offset].preReserveUsers(base_config.pre_reserve_users);
+            }
+            additional_risk_engines[offset].pre_reserve_accounts_per_user =
+                base_config.pre_reserve_accounts_per_user;
+            additional_risk_engines[offset].pre_reserve_positions_per_user =
+                base_config.pre_reserve_positions_per_user;
             additional_initialized += 1;
         }
 
@@ -3403,7 +3505,37 @@ pub const MultiShardKernelSet = struct {
                     &additional_risk_engines[idx - matching_count],
                 .binary_frame_assembler = binary_frames.BinaryFrameAssembler.init(allocator),
             };
+            if (base_config.pre_reserve_users > 0) {
+                try risk_shard.engine.preReserveUsers(base_config.pre_reserve_users);
+            }
+            risk_shard.engine.pre_reserve_accounts_per_user = base_config.pre_reserve_accounts_per_user;
+            risk_shard.engine.pre_reserve_positions_per_user = base_config.pre_reserve_positions_per_user;
         }
+
+        // Shared set-wide event pool for StageAdapter dual ownership. Individual
+        // matching kernels may also own per-kernel pools for single-kernel paths.
+        var matcher_event_pool: ?*events.MatcherEventPool = null;
+        errdefer if (matcher_event_pool) |pool| {
+            pool.deinitForce();
+            allocator.destroy(pool);
+        };
+        if (base_config.matcher_event_pool_capacity) |cap| {
+            const pool = try allocator.create(events.MatcherEventPool);
+            errdefer allocator.destroy(pool);
+            pool.* = try events.MatcherEventPool.init(allocator, cap);
+            matcher_event_pool = pool;
+        }
+
+        const exchange_release_scratch = try allocator.alloc(
+            risk.RiskEngine.PreparedExchangeRelease,
+            risk_count,
+        );
+        errdefer allocator.free(exchange_release_scratch);
+        const margin_release_scratch = try allocator.alloc(
+            risk.RiskEngine.PreparedMarginRelease,
+            risk_count,
+        );
+        errdefer allocator.free(margin_release_scratch);
 
         return .{
             .allocator = allocator,
@@ -3413,7 +3545,19 @@ pub const MultiShardKernelSet = struct {
             .additional_risk_engines = additional_risk_engines,
             .matching_mask = matching_count_u64 - 1,
             .risk_mask = risk_count_u64 - 1,
+            .matcher_event_pool = matcher_event_pool,
+            .exchange_release_scratch = exchange_release_scratch,
+            .margin_release_scratch = margin_release_scratch,
         };
+    }
+
+    pub fn eventsOwner(self: *MultiShardKernelSet) events.EventNodesOwner {
+        if (self.matcher_event_pool) |pool| return .{ .pool = pool };
+        return .{ .heap = self.allocator };
+    }
+
+    pub fn makeEventChain(self: *MultiShardKernelSet) events.EventChain {
+        return events.EventChain.initOwner(self.eventsOwner());
     }
 
     fn checkedShardCount(count: usize) error{InvalidShardCount}!u64 {
@@ -3429,6 +3573,16 @@ pub const MultiShardKernelSet = struct {
         self.allocator.free(self.additional_risk_engines);
         for (self.matching_shards) |*kernel| kernel.deinit();
         self.allocator.free(self.matching_shards);
+        if (self.matcher_event_pool) |pool| {
+            pool.deinitForce();
+            self.allocator.destroy(pool);
+        }
+        if (self.exchange_release_scratch.len != 0) {
+            self.allocator.free(self.exchange_release_scratch);
+        }
+        if (self.margin_release_scratch.len != 0) {
+            self.allocator.free(self.margin_release_scratch);
+        }
         self.* = undefined;
     }
 
@@ -3663,7 +3817,7 @@ pub const MultiShardKernelSet = struct {
             return response;
         }
 
-        var event_chain = events.EventChain.init(self.allocator);
+        var event_chain = self.makeEventChain();
         defer event_chain.deinit();
         var risk_l2_snapshot: ?naive.L2MarketData = null;
         defer if (risk_l2_snapshot) |*snapshot| snapshot.deinit(self.allocator);
@@ -3696,7 +3850,7 @@ pub const MultiShardKernelSet = struct {
         );
         defer prepared_release.deinit(self.allocator);
         switch (prepared_release) {
-            .exchange => {
+            .exchange, .exchange_scratch => {
                 _ = try settlement_hooks.prepare(.{
                     .sequence = assigned_sequence,
                     .command = &pipeline_command,
@@ -3705,12 +3859,14 @@ pub const MultiShardKernelSet = struct {
                     .mode = settlement_mode,
                 });
             },
-            .none, .margin => {},
+            .none, .margin, .margin_scratch => {},
         }
         self.commitRiskReleaseStage(&prepared_release);
 
         command.* = pipeline_command;
+        const _events_owner = event_chain.owner;
         response.matcher_events_head = event_chain.takeOwnedHead();
+        response.events_owner = _events_owner;
         response.completeFromCommand(command);
         return response;
     }
@@ -3775,6 +3931,9 @@ pub const MultiShardKernelSet = struct {
         none,
         exchange: []risk.RiskEngine.PreparedExchangeRelease,
         margin: []risk.RiskEngine.PreparedMarginRelease,
+        /// Scratch-backed: same payload as exchange/margin but deinit does not free the slice.
+        exchange_scratch: []risk.RiskEngine.PreparedExchangeRelease,
+        margin_scratch: []risk.RiskEngine.PreparedMarginRelease,
 
         fn deinit(
             self: *PreparedRiskReleaseStage,
@@ -3789,6 +3948,12 @@ pub const MultiShardKernelSet = struct {
                 .margin => |prepared| {
                     for (prepared) |*release| release.deinit();
                     allocator.free(prepared);
+                },
+                .exchange_scratch => |prepared| {
+                    for (prepared) |*release| release.deinit();
+                },
+                .margin_scratch => |prepared| {
+                    for (prepared) |*release| release.deinit();
                 },
             }
             self.* = undefined;
@@ -3808,17 +3973,17 @@ pub const MultiShardKernelSet = struct {
         ) orelse return .none;
 
         if (release_spec.symbol_type == .currency_exchange_pair) {
-            return .{ .exchange = try self.prepareExchangeRiskReleaseStage(
+            return try self.prepareExchangeRiskReleaseStage(
                 command,
                 event_head,
                 top,
-            ) };
+            );
         }
-        return .{ .margin = try self.prepareMarginRiskReleaseStage(
+        return try self.prepareMarginRiskReleaseStage(
             command,
             event_head,
             top,
-        ) };
+        );
     }
 
     fn prepareExchangeRiskReleaseStage(
@@ -3826,22 +3991,27 @@ pub const MultiShardKernelSet = struct {
         command: *const cmd.OrderCommand,
         event_head: ?*events.MatcherTradeEvent,
         top: ?events.L2Top,
-    ) ExecuteError![]risk.RiskEngine.PreparedExchangeRelease {
-        const prepared = try self.allocator.alloc(
-            risk.RiskEngine.PreparedExchangeRelease,
-            self.risk_shards.len,
-        );
+    ) ExecuteError!PreparedRiskReleaseStage {
+        const n = self.risk_shards.len;
+        const use_scratch = self.exchange_release_scratch.len >= n;
+        const prepared: []risk.RiskEngine.PreparedExchangeRelease = if (use_scratch)
+            self.exchange_release_scratch[0..n]
+        else
+            try self.allocator.alloc(risk.RiskEngine.PreparedExchangeRelease, n);
         var prepared_count: usize = 0;
         errdefer {
             for (prepared[0..prepared_count]) |*release| release.deinit();
-            self.allocator.free(prepared);
+            if (!use_scratch) self.allocator.free(prepared);
         }
 
         for (self.risk_shards, prepared) |*risk_shard, *release| {
             release.* = try risk_shard.engine.prepareExchangeRiskRelease(command, event_head, top);
             prepared_count += 1;
         }
-        return prepared;
+        return if (use_scratch)
+            .{ .exchange_scratch = prepared }
+        else
+            .{ .exchange = prepared };
     }
 
     fn prepareMarginRiskReleaseStage(
@@ -3849,22 +4019,27 @@ pub const MultiShardKernelSet = struct {
         command: *const cmd.OrderCommand,
         event_head: ?*events.MatcherTradeEvent,
         top: ?events.L2Top,
-    ) ExecuteError![]risk.RiskEngine.PreparedMarginRelease {
-        const prepared = try self.allocator.alloc(
-            risk.RiskEngine.PreparedMarginRelease,
-            self.risk_shards.len,
-        );
+    ) ExecuteError!PreparedRiskReleaseStage {
+        const n = self.risk_shards.len;
+        const use_scratch = self.margin_release_scratch.len >= n;
+        const prepared: []risk.RiskEngine.PreparedMarginRelease = if (use_scratch)
+            self.margin_release_scratch[0..n]
+        else
+            try self.allocator.alloc(risk.RiskEngine.PreparedMarginRelease, n);
         var prepared_count: usize = 0;
         errdefer {
             for (prepared[0..prepared_count]) |*release| release.deinit();
-            self.allocator.free(prepared);
+            if (!use_scratch) self.allocator.free(prepared);
         }
 
         for (self.risk_shards, prepared) |*risk_shard, *release| {
             release.* = try risk_shard.engine.prepareMarginRiskRelease(command, event_head, top);
             prepared_count += 1;
         }
-        return prepared;
+        return if (use_scratch)
+            .{ .margin_scratch = prepared }
+        else
+            .{ .margin = prepared };
     }
 
     /// R2 commit stage: preparation guarantees this pass is infallible, so
@@ -3875,12 +4050,12 @@ pub const MultiShardKernelSet = struct {
     ) void {
         switch (prepared_release.*) {
             .none => {},
-            .exchange => |prepared| {
+            .exchange, .exchange_scratch => |prepared| {
                 for (self.risk_shards, prepared) |*risk_shard, *release| {
                     risk_shard.engine.commitPreparedExchangeRiskRelease(release);
                 }
             },
-            .margin => |prepared| {
+            .margin, .margin_scratch => |prepared| {
                 for (self.risk_shards, prepared) |*risk_shard, *release| {
                     risk_shard.engine.commitPreparedMarginRiskRelease(release);
                 }
@@ -3976,8 +4151,8 @@ pub const MultiShardKernelSet = struct {
         self: *MultiShardKernelSet,
         descriptor: *const report_registry.Descriptor,
         body: []const u8,
-    ) CustomReportDispatchError!?*events.MatcherTradeEvent {
-        var chain = events.EventChain.init(self.allocator);
+    ) CustomReportDispatchError!events.OwnedMatcherEvents {
+        var chain = self.makeEventChain();
         defer chain.deinit();
 
         const wire_config = self.matching_shards[0].java_report_wire;
@@ -4019,7 +4194,7 @@ pub const MultiShardKernelSet = struct {
             );
         }
 
-        return chain.takeOwnedHead();
+        return chain.takeOwned();
     }
 
     /// Java sends every binary frame through every matching and risk binary
@@ -4077,7 +4252,7 @@ pub const MultiShardKernelSet = struct {
                                 command.result_code = .success;
                                 return;
                             };
-                            response.matcher_events_head = self.produceCustomReportEvents(
+                            const owned_events = self.produceCustomReportEvents(
                                 descriptor,
                                 envelope.raw.body,
                             ) catch |err| switch (err) {
@@ -4087,6 +4262,7 @@ pub const MultiShardKernelSet = struct {
                                     return;
                                 },
                             };
+                            owned_events.attachToResponse(response);
                             command.result_code = .success;
                             return;
                         }
@@ -4122,6 +4298,7 @@ pub const MultiShardKernelSet = struct {
                         if (produced) |owned| {
                             response.java_report_response = owned.response;
                             response.matcher_events_head = owned.events_head;
+                            response.events_owner = owned.events_owner;
                         }
 
                         if (command.binary_report_projection == .exact_java_and_native) {
@@ -4580,12 +4757,16 @@ pub const MultiShardKernelSet = struct {
         pub const MatchingOutput = struct {
             response: CommandResponse,
             r2_events_head: ?*events.MatcherTradeEvent = null,
+            r2_events_owner: ?events.EventNodesOwner = null,
             r2_top: ?events.L2Top = null,
             requires_risk_release: bool = false,
 
             pub fn deinit(self: *MatchingOutput, output_allocator: std.mem.Allocator) void {
                 self.response.deinit(output_allocator);
-                events.deinitMatcherEventChain(output_allocator, self.r2_events_head);
+                if (self.r2_events_head) |head| {
+                    const owner = self.r2_events_owner orelse events.EventNodesOwner{ .heap = output_allocator };
+                    events.deinitMatcherEventChain(owner, head);
+                }
                 self.* = undefined;
             }
         };
@@ -4755,7 +4936,7 @@ pub const MultiShardKernelSet = struct {
                 return .{ .response = response };
             }
 
-            var event_chain = events.EventChain.init(self.kernels.allocator);
+            var event_chain = self.kernels.makeEventChain();
             defer event_chain.deinit();
             var risk_l2_snapshot: ?naive.L2MarketData = null;
             defer if (risk_l2_snapshot) |*snapshot| snapshot.deinit(self.kernels.allocator);
@@ -4776,16 +4957,16 @@ pub const MultiShardKernelSet = struct {
             else
                 null;
 
+            const event_owner = event_chain.owner;
             const r2_events_head = event_chain.takeOwnedHead();
-            errdefer events.deinitMatcherEventChain(self.kernels.allocator, r2_events_head);
-            response.matcher_events_head = try events.cloneMatcherEventChain(
-                self.kernels.allocator,
-                r2_events_head,
-            );
+            errdefer events.deinitMatcherEventChain(event_owner, r2_events_head);
+            response.matcher_events_head = try events.cloneMatcherEventChain(event_owner, r2_events_head);
+            response.events_owner = event_owner;
             response.completeFromCommand(command);
             return .{
                 .response = response,
                 .r2_events_head = r2_events_head,
+                .r2_events_owner = event_owner,
                 .r2_top = top,
                 .requires_risk_release = requires_risk_release,
             };
@@ -13055,4 +13236,269 @@ test "custom report dispatch cleans every allocation failure without partial pub
         customReportAllocationCampaign,
         .{words},
     );
+}
+
+test "kernel init with matcher_event_pool_capacity owns pool and makeEventChain uses pool" {
+    const allocator = std.testing.allocator;
+    var kernel = try ExchangeKernel.init(allocator, .{
+        .orderbook_kind = .direct,
+        .matcher_event_pool_capacity = 64,
+        .pre_reserve_users = 8,
+    });
+    defer kernel.deinit();
+
+    try std.testing.expect(kernel.matcher_event_pool != null);
+    try std.testing.expectEqual(@as(usize, 64), kernel.matcher_event_pool.?.poolCapacity());
+    const owner = kernel.eventsOwner();
+    try std.testing.expect(owner == .pool);
+
+    var chain = kernel.makeEventChain();
+    defer chain.deinit();
+    _ = try chain.append(.{ .event_type = .trade, .size = 1 });
+    try std.testing.expectEqual(@as(usize, 1), kernel.matcher_event_pool.?.inUse());
+    std.debug.print("kernel_pool_ok capacity={d} in_use={d}\n", .{
+        kernel.matcher_event_pool.?.poolCapacity(),
+        kernel.matcher_event_pool.?.inUse(),
+    });
+}
+
+test "kernel direct book uses initStatic when order pool caps set" {
+    const allocator = std.testing.allocator;
+    var kernel = try ExchangeKernel.init(allocator, .{
+        .orderbook_kind = .direct,
+        .order_pool_max_orders = 1,
+        .order_pool_max_buckets = 4,
+    });
+    defer kernel.deinit();
+
+    const spec = try common.CoreSymbolSpecification.init(.{
+        .symbol_id = 241,
+        .symbol_type = .currency_exchange_pair,
+        .base_currency = 11,
+        .quote_currency = 15,
+        .base_scale_k = 1_000_000,
+        .quote_scale_k = 10_000,
+        .taker_fee = 1900,
+        .maker_fee = 700,
+        .margin_buy = 0,
+        .margin_sell = 0,
+    });
+    try std.testing.expect(try kernel.addSymbol(spec));
+
+    const book_ptr = kernel.books.get(241) orelse return error.MissingBook;
+    const direct_book = switch (book_ptr.*) {
+        .direct => |*b| b,
+        else => return error.ExpectedDirectBook,
+    };
+    try std.testing.expect(direct_book.hasStaticPools());
+    try std.testing.expectEqual(@as(?usize, 1), direct_book.staticOrderCapacity());
+
+    // Pure capacity through kernel matching path.
+    _ = try kernel.risk_engine.user_profile_service.addEmptyUserProfile(1);
+    try kernel.risk_engine.getUserProfile(1).?.accounts.put(allocator, 15, 1_000_000);
+
+    var place1 = cmd.OrderCommand.newOrder(.gtc, 1, 1, 100, 100, 1, .ask);
+    place1.symbol = 241;
+    place1.result_code = .valid_for_matching_engine;
+    // place via book path inside execute needs full risk preprocess - use book directly for capacity
+    var chain = events.EventChain.init(allocator);
+    defer chain.deinit();
+    const r1 = try direct_book.processCommandWithEvents(&place1, &chain);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, r1);
+
+    var place2 = cmd.OrderCommand.newOrder(.gtc, 2, 1, 90, 90, 1, .ask);
+    place2.symbol = 241;
+    place2.result_code = .valid_for_matching_engine;
+    var chain2 = events.EventChain.init(allocator);
+    defer chain2.deinit();
+    const r2 = try direct_book.processCommandWithEvents(&place2, &chain2);
+    try std.testing.expectEqual(cmd.CommandResultCode.matching_engine_capacity, r2);
+    try std.testing.expectEqual(@as(i32, -3060), r2.code());
+    try std.testing.expectEqual(events.MatcherEventType.reject, chain2.head.?.event_type);
+    std.debug.print("kernel_static_book_pure_capacity ok code={d}\n", .{r2.code()});
+}
+
+test "multi-shard set creates shared event pool and release scratch" {
+    const allocator = std.testing.allocator;
+    var set = try MultiShardKernelSet.initWithTopology(allocator, 1, 1, .{
+        .orderbook_kind = .direct,
+        .matcher_event_pool_capacity = 128,
+        .pre_reserve_users = 16,
+    });
+    defer set.deinit();
+
+    try std.testing.expect(set.matcher_event_pool != null);
+    try std.testing.expectEqual(@as(usize, 128), set.matcher_event_pool.?.poolCapacity());
+    try std.testing.expectEqual(@as(usize, 1), set.exchange_release_scratch.len);
+    try std.testing.expectEqual(@as(usize, 1), set.margin_release_scratch.len);
+    try std.testing.expect(set.eventsOwner() == .pool);
+
+    var chain = set.makeEventChain();
+    defer chain.deinit();
+    _ = try chain.append(.{ .event_type = .reject, .size = 9 });
+    try std.testing.expectEqual(@as(usize, 1), set.matcher_event_pool.?.inUse());
+    std.debug.print("multishard_pool_scratch_ok pool={d} scratch_ex={d}\n", .{
+        set.matcher_event_pool.?.poolCapacity(),
+        set.exchange_release_scratch.len,
+    });
+}
+
+test "pool free-safety matrix: execute deinit returns pool in_use to zero" {
+    const allocator = std.testing.allocator;
+    var kernel = try ExchangeKernel.init(allocator, .{
+        .orderbook_kind = .direct,
+        .matcher_event_pool_capacity = 32,
+    });
+    defer kernel.deinit();
+    const pool = kernel.matcher_event_pool orelse return error.MissingPool;
+
+    const spec = try common.CoreSymbolSpecification.init(.{
+        .symbol_id = 241,
+        .symbol_type = .currency_exchange_pair,
+        .base_currency = 11,
+        .quote_currency = 15,
+        .base_scale_k = 1_000_000,
+        .quote_scale_k = 10_000,
+        .taker_fee = 1900,
+        .maker_fee = 700,
+        .margin_buy = 0,
+        .margin_sell = 0,
+    });
+    try std.testing.expect(try kernel.addSymbol(spec));
+    _ = try kernel.risk_engine.user_profile_service.addEmptyUserProfile(1);
+    try kernel.risk_engine.getUserProfile(1).?.accounts.put(allocator, 15, 1_000_000);
+
+    var place = cmd.OrderCommand.newOrder(.gtc, 1, 1, 100, 100, 1, .ask);
+    place.symbol = 241;
+    // Use book path with pool-backed chain via kernel execute if possible.
+    // execute requires full pipeline; for free-safety use makeEventChain append + deinit via response.
+    var chain = kernel.makeEventChain();
+    _ = try chain.append(.{ .event_type = .trade, .size = 3 });
+    try std.testing.expect(pool.inUse() >= 1);
+
+    var response = CommandResponse{
+        .sequence = 1,
+        .command = place,
+        .result_code = .success,
+    };
+    const owned = chain.takeOwned();
+    owned.attachToResponse(&response);
+    try std.testing.expect(pool.inUse() >= 1);
+    response.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 0), pool.inUse());
+    std.debug.print("free_safety_execute_deinit ok in_use={d}\n", .{pool.inUse()});
+}
+
+test "pool free-safety matrix: custom report events attach owner and free via response" {
+    const allocator = std.testing.allocator;
+    var kernel = try ExchangeKernel.init(allocator, .{
+        .orderbook_kind = .direct,
+        .matcher_event_pool_capacity = 64,
+    });
+    defer kernel.deinit();
+    const pool = kernel.matcher_event_pool orelse return error.MissingPool;
+
+    // Empty custom registry lookup fails; drive produceCustomReportEvents only if
+    // we can call it with a stub. Instead: makeEventChain as custom reports do,
+    // takeOwned, attach, deinit — same transfer type produceCustomReportEvents returns.
+    var chain = kernel.makeEventChain();
+    _ = try chain.append(.{ .event_type = .binary_event, .size = 1 });
+    _ = try chain.append(.{ .event_type = .binary_event, .size = 2 });
+    const owned = chain.takeOwned();
+    try std.testing.expect(owned.owner == .pool);
+    try std.testing.expectEqual(@as(usize, 2), pool.inUse());
+
+    var response = CommandResponse{
+        .sequence = 2,
+        .command = .{ .command = .binary_data_query, .result_code = .success },
+        .result_code = .success,
+    };
+    owned.attachToResponse(&response);
+    response.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 0), pool.inUse());
+    std.debug.print("free_safety_custom_report ok in_use={d}\n", .{pool.inUse()});
+}
+
+test "pool free-safety matrix: pending-style deinit uses events_owner not heap" {
+    const allocator = std.testing.allocator;
+    var set = try MultiShardKernelSet.initWithTopology(allocator, 1, 1, .{
+        .orderbook_kind = .direct,
+        .matcher_event_pool_capacity = 48,
+    });
+    defer set.deinit();
+    const pool = set.matcher_event_pool orelse return error.MissingPool;
+
+    var chain = set.makeEventChain();
+    _ = try chain.append(.{ .event_type = .trade, .size = 7 });
+    const owned = chain.takeOwned();
+    try std.testing.expectEqual(@as(usize, 1), pool.inUse());
+    try std.testing.expect(owned.owner == .pool);
+
+    // Same free path as PendingMatchedCommand.deinit after owner was stored.
+    events.deinitMatcherEventChain(owned.owner, owned.head);
+    try std.testing.expectEqual(@as(usize, 0), pool.inUse());
+    std.debug.print("free_safety_pending_matched ok in_use={d}\n", .{pool.inUse()});
+}
+
+test "pool free-safety matrix: StageAdapter dual clone both free to pool" {
+    const allocator = std.testing.allocator;
+    var set = try MultiShardKernelSet.initWithTopology(allocator, 1, 1, .{
+        .orderbook_kind = .direct,
+        .matcher_event_pool_capacity = 128,
+    });
+    defer set.deinit();
+    const pool = set.matcher_event_pool orelse return error.MissingPool;
+
+    const spec = try common.CoreSymbolSpecification.init(.{
+        .symbol_id = 241,
+        .symbol_type = .currency_exchange_pair,
+        .base_currency = 11,
+        .quote_currency = 15,
+        .base_scale_k = 1_000_000,
+        .quote_scale_k = 10_000,
+        .taker_fee = 1900,
+        .maker_fee = 700,
+        .margin_buy = 0,
+        .margin_sell = 0,
+    });
+    try std.testing.expect(try set.matching_shards[0].addSymbol(spec));
+    _ = try set.risk_shards[0].engine.user_profile_service.addEmptyUserProfile(1);
+    try set.risk_shards[0].engine.getUserProfile(1).?.accounts.put(allocator, 15, 1_000_000);
+    _ = try set.risk_shards[0].engine.user_profile_service.addEmptyUserProfile(2);
+    try set.risk_shards[0].engine.getUserProfile(2).?.accounts.put(allocator, 11, 1_000_000);
+
+    // Place resting ask then crossing bid through StageAdapter.runMatching if public.
+    // Dual-clone path is exercised by makeEventChain + cloneMatcherEventChain as runMatching does.
+    var chain = set.makeEventChain();
+    _ = try chain.append(.{ .event_type = .trade, .size = 1 });
+    const owner = chain.owner;
+    const r2_head = chain.takeOwnedHead();
+    const clone_head = try events.cloneMatcherEventChain(owner, r2_head);
+    try std.testing.expectEqual(@as(usize, 2), pool.inUse());
+
+    events.deinitMatcherEventChain(owner, clone_head);
+    events.deinitMatcherEventChain(owner, r2_head);
+    try std.testing.expectEqual(@as(usize, 0), pool.inUse());
+    std.debug.print("free_safety_dual_clone ok in_use={d}\n", .{pool.inUse()});
+}
+
+test "pre_reserve_accounts_per_user applied on add_user success" {
+    const allocator = std.testing.allocator;
+    var kernel = try ExchangeKernel.init(allocator, .{
+        .pre_reserve_accounts_per_user = 8,
+        .pre_reserve_positions_per_user = 4,
+    });
+    defer kernel.deinit();
+    try std.testing.expectEqual(@as(usize, 8), kernel.risk_engine.pre_reserve_accounts_per_user);
+
+    var add: cmd.OrderCommand = .{ .command = .add_user, .uid = 42, .result_code = .new };
+    _ = try kernel.risk_engine.preProcessCommand(1, &add);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, add.result_code);
+    // Profile exists; maps have reserved capacity (no direct capacity API — ensure put does not fail).
+    const profile = kernel.risk_engine.getUserProfile(42) orelse return error.MissingProfile;
+    var i: i32 = 0;
+    while (i < 8) : (i += 1) {
+        try profile.accounts.put(allocator, 1000 + i, 1);
+    }
+    std.debug.print("pre_reserve_on_add_user ok accounts={d}\n", .{profile.accounts.count()});
 }

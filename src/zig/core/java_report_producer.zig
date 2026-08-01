@@ -96,10 +96,12 @@ pub const JavaReportResponse = union(enum) {
 pub const ProducedReport = struct {
     response: JavaReportResponse,
     events_head: ?*core_events.MatcherTradeEvent,
+    /// Always heap for produce() today; field prevents future pool cross-free.
+    events_owner: core_events.EventNodesOwner,
 
     pub fn deinit(self: *ProducedReport, allocator: std.mem.Allocator) void {
         self.response.deinit(allocator);
-        core_events.deinitMatcherEventChain(allocator, self.events_head);
+        core_events.deinitMatcherEventChain(self.events_owner, self.events_head);
         self.* = undefined;
     }
 };
@@ -244,6 +246,7 @@ pub fn produce(
     return .{
         .response = response,
         .events_head = event_chain.takeOwnedHead(),
+        .events_owner = event_chain.owner,
     };
 }
 

@@ -195,6 +195,9 @@ pub const RiskEngine = struct {
     shard_mask: u64,
     cfg_ignore_risk_processing: bool,
     cfg_margin_trading_enabled: bool,
+    /// Phase C: applied after successful add_user. Zero = no per-user map reserve.
+    pre_reserve_accounts_per_user: usize = 0,
+    pre_reserve_positions_per_user: usize = 0,
     symbol_spec_provider: SymbolSpecificationProvider,
     user_profile_service: user.UserProfileService,
     last_price_cache: std.AutoHashMapUnmanaged(i32, LastPriceCacheRecord) = .empty,
@@ -264,6 +267,20 @@ pub const RiskEngine = struct {
 
     pub fn getUserProfile(self: *RiskEngine, uid: i64) ?*user.UserProfile {
         return self.user_profile_service.getUserProfile(uid);
+    }
+
+    /// Phase C: pre-grow user profile map capacity (no inserts).
+    pub fn preReserveUsers(self: *RiskEngine, additional: usize) std.mem.Allocator.Error!void {
+        try self.user_profile_service.preReserveUsers(additional);
+    }
+
+    pub fn preReserveProfileMaps(
+        self: *RiskEngine,
+        uid: i64,
+        accounts: usize,
+        positions: usize,
+    ) std.mem.Allocator.Error!void {
+        try self.user_profile_service.preReserveProfileMaps(uid, accounts, positions);
     }
 
     pub fn getLastPrice(self: *const RiskEngine, symbol: i32) ?LastPriceCacheRecord {
@@ -463,10 +480,16 @@ pub const RiskEngine = struct {
 
             .add_user => {
                 if (self.uidForThisHandler(command.uid)) {
-                    command.result_code = if (try self.user_profile_service.addEmptyUserProfile(command.uid))
-                        .success
-                    else
-                        .user_mgmt_user_already_exists;
+                    if (try self.user_profile_service.addEmptyUserProfile(command.uid)) {
+                        try self.user_profile_service.preReserveProfileMaps(
+                            command.uid,
+                            self.pre_reserve_accounts_per_user,
+                            self.pre_reserve_positions_per_user,
+                        );
+                        command.result_code = .success;
+                    } else {
+                        command.result_code = .user_mgmt_user_already_exists;
+                    }
                 }
                 return false;
             },
@@ -3922,4 +3945,63 @@ test "risk live symbol admission filters disabled futures while raw registration
     defer enabled.deinit();
     try enabled.addSymbolForLiveAdmission(futures);
     try std.testing.expect(enabled.symbol_spec_provider.getSymbolSpecification(futures.symbol_id) != null);
+}
+
+test "preReserveUsers grows profile map without inserts" {
+    const allocator = std.testing.allocator;
+    var engine = try RiskEngine.init(allocator, 0, 1, .{});
+    defer engine.deinit();
+    try engine.preReserveUsers(32);
+    try std.testing.expectEqual(@as(usize, 0), engine.user_profile_service.user_profiles.count());
+    try std.testing.expect(try engine.user_profile_service.addEmptyUserProfile(7));
+}
+
+test "pure capacity reject event restores exchange R1 hold via R2" {
+    // Models PR5 pure-capacity settlement: R1 holds, matching returns -3060 with
+    // a full-size reject, R2 refunds using existing reject math.
+    const allocator = std.testing.allocator;
+    var engine = try RiskEngine.init(allocator, 0, 1, .{});
+    defer engine.deinit();
+    try engine.addSymbol(try makeExchangeSpec());
+
+    var add_user: cmd.OrderCommand = .{
+        .command = .add_user,
+        .uid = 7701,
+        .result_code = .new,
+    };
+    _ = try engine.preProcessCommand(1, &add_user);
+
+    var deposit: cmd.OrderCommand = .{
+        .command = .balance_adjustment,
+        .uid = 7701,
+        .symbol = 15,
+        .price = 10_000,
+        .order_id = 1,
+        .order_type = .gtc,
+        .result_code = .new,
+    };
+    _ = try engine.preProcessCommand(2, &deposit);
+
+    const profile = engine.getUserProfile(7701) orelse unreachable;
+    const balance_before = profile.accountBalance(15);
+
+    var place = cmd.OrderCommand.newOrder(.gtc, 8801, 7701, 20, 20, 3, .bid);
+    place.symbol = 241;
+    _ = try engine.preProcessCommand(3, &place);
+    try std.testing.expectEqual(cmd.CommandResultCode.valid_for_matching_engine, place.result_code);
+    const held = balance_before - profile.accountBalance(15);
+    try std.testing.expect(held > 0);
+
+    // Full-size reject as pure-capacity path emits (size == remaining == 3).
+    var reject: events.MatcherTradeEvent = .{
+        .event_type = .reject,
+        .active_order_completed = true,
+        .price = 20,
+        .size = 3,
+        .bidder_hold_price = 20,
+    };
+    place.result_code = .matching_engine_capacity;
+    _ = try engine.handlerRiskRelease(3, &place, &reject, null);
+
+    try std.testing.expectEqual(balance_before, profile.accountBalance(15));
 }

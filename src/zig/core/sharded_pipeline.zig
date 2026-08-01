@@ -26,6 +26,8 @@ pub const PipelineSlot = struct {
     },
     response: ?kernel_mod.CommandResponse = null,
     r2_events_head: ?*events.MatcherTradeEvent = null,
+    /// Owner for r2_events_head; when null, reclaim falls back to heap allocator.
+    r2_events_owner: ?events.EventNodesOwner = null,
     r2_top: ?events.L2Top = null,
     requires_risk_release: bool = false,
     r2_release_kind: ?kernel_mod.MultiShardKernelSet.StageAdapter.RiskReleaseKind = null,
@@ -35,7 +37,10 @@ pub const PipelineSlot = struct {
 
     fn resetOwned(self: *PipelineSlot, allocator: std.mem.Allocator) void {
         if (self.response) |*response| response.deinit(allocator);
-        events.deinitMatcherEventChain(allocator, self.r2_events_head);
+        if (self.r2_events_head) |head| {
+            const owner = self.r2_events_owner orelse events.EventNodesOwner{ .heap = allocator };
+            events.deinitMatcherEventChain(owner, head);
+        }
         const generation = self.generation;
         self.* = .{ .generation = generation };
     }
@@ -442,7 +447,9 @@ pub const SerialGroupedPipeline = struct {
         output.response.report_response = null;
         output.response.java_report_response = null;
         slot.r2_events_head = output.r2_events_head;
+        slot.r2_events_owner = output.r2_events_owner;
         output.r2_events_head = null;
+        output.r2_events_owner = null;
         slot.r2_top = output.r2_top;
         slot.requires_risk_release = output.requires_risk_release;
         slot.phase = .matching_complete;
@@ -1684,7 +1691,9 @@ pub const PersistentGroupedRuntime = struct {
             owned.response.report_response = null;
             owned.response.java_report_response = null;
             slot.r2_events_head = owned.r2_events_head;
+            slot.r2_events_owner = owned.r2_events_owner;
             owned.r2_events_head = null;
+            owned.r2_events_owner = null;
             slot.r2_top = owned.r2_top;
             slot.requires_risk_release = owned.requires_risk_release;
             slot.r2_release_kind = if (owned.requires_risk_release)
@@ -2155,10 +2164,15 @@ pub const PersistentGroupedRuntime = struct {
             if (!slot.result_transferred or !slot.r2_complete) return;
             std.debug.assert(slot.response == null);
             const event_head = slot.r2_events_head;
+            const event_owner = slot.r2_events_owner;
             slot.r2_events_head = null;
+            slot.r2_events_owner = null;
             slot.phase = .reclaiming;
             self.mutex.unlock();
-            events.deinitMatcherEventChain(self.adapter.allocator(), event_head);
+            if (event_head) |head| {
+                const owner = event_owner orelse events.EventNodesOwner{ .heap = self.adapter.allocator() };
+                events.deinitMatcherEventChain(owner, head);
+            }
             self.mutex.lock();
             const generation = slot.generation;
             slot.* = .{ .generation = generation };

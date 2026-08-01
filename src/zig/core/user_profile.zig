@@ -629,6 +629,31 @@ pub const UserProfileService = struct {
         return self.user_profiles.getPtr(uid);
     }
 
+    /// Phase C: grow the user map capacity without inserting profiles.
+    pub fn preReserveUsers(self: *UserProfileService, additional: usize) std.mem.Allocator.Error!void {
+        if (additional == 0) return;
+        const n: u32 = std.math.cast(u32, additional) orelse return error.OutOfMemory;
+        try self.user_profiles.ensureUnusedCapacity(self.allocator, n);
+    }
+
+    /// Phase C: pre-size accounts/positions maps on an existing profile.
+    pub fn preReserveProfileMaps(
+        self: *UserProfileService,
+        uid: i64,
+        accounts: usize,
+        positions: usize,
+    ) std.mem.Allocator.Error!void {
+        const profile = self.user_profiles.getPtr(uid) orelse return;
+        if (accounts > 0) {
+            const n: u32 = std.math.cast(u32, accounts) orelse return error.OutOfMemory;
+            try profile.accounts.ensureUnusedCapacity(self.allocator, n);
+        }
+        if (positions > 0) {
+            const n: u32 = std.math.cast(u32, positions) orelse return error.OutOfMemory;
+            try profile.positions.ensureUnusedCapacity(self.allocator, n);
+        }
+    }
+
     pub fn getUserProfileOrAddSuspended(
         self: *UserProfileService,
         uid: i64,
@@ -1185,4 +1210,16 @@ test "margin math reports arithmetic overflow without partial pending mutation" 
         partial_close.updatePositionForMarginTrade(.ask, 2, std.math.maxInt(i64)),
     );
     try std.testing.expectEqualDeep(partial_close_before, partial_close);
+}
+
+test "preReserveUsers grows capacity without inserting" {
+    const allocator = std.testing.allocator;
+    var svc = UserProfileService.init(allocator);
+    defer svc.deinit();
+
+    try svc.preReserveUsers(16);
+    try std.testing.expectEqual(@as(usize, 0), svc.user_profiles.count());
+    // Inserting should not need further map growth for a single put.
+    try std.testing.expect(try svc.addEmptyUserProfile(42));
+    try std.testing.expectEqual(@as(usize, 1), svc.user_profiles.count());
 }

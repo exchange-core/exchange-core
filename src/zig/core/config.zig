@@ -24,6 +24,131 @@ pub const ShardedPipelineMode = enum {
     persistent_grouped,
 };
 
+/// How matcher event nodes are stored on the hot path.
+pub const MatcherEventStorage = union(enum) {
+    /// allocator.create/destroy per node (default; tests, WASM, gradual rollout).
+    unbounded_heap,
+    /// Static pool; capacity = ring * events_per_command_sizing * dual_factor.
+    derive,
+    /// Static pool with explicit node capacity.
+    fixed: usize,
+};
+
+pub const BookPoolCaps = struct {
+    max_orders: usize,
+    max_price_buckets: usize,
+};
+
+/// Bootstrap static-capacity policy. Never use `0` as a dual-purpose sentinel.
+pub const StaticCapacityConfig = struct {
+    matcher_events: MatcherEventStorage = .unbounded_heap,
+
+    /// Sizing input for `.derive` only — not a hard per-command enforcement.
+    events_per_command_sizing: usize = 64,
+
+    /// Optional hard max events per command. null = no enforcement (Java parity).
+    events_per_command_limit: ?usize = null,
+
+    order_pools: union(enum) {
+        unbounded_heap,
+        fixed: BookPoolCaps,
+    } = .unbounded_heap,
+
+    pre_reserve_users_per_risk_shard: usize = 0,
+    pre_reserve_accounts_per_user: usize = 0,
+    pre_reserve_positions_per_user: usize = 0,
+    strict_static_maps: bool = false,
+
+    l2_scratch_depth: usize = 64,
+    report_scratch_bytes: usize = 64 * 1024,
+
+    pub const ResolveError = error{
+        Overflow,
+        InvalidDualFactor,
+        InvalidMatcherEventPoolCapacity,
+        InvalidBookPoolCaps,
+        InvalidEventsPerCommandLimit,
+    };
+
+    /// Single source of truth for matcher event pool node capacity.
+    /// - unbounded_heap → null
+    /// - derive → ring * sizing * dual_factor (default dual_factor=2)
+    /// - fixed → configured capacity
+    pub fn resolvedMatcherEventCapacity(
+        self: StaticCapacityConfig,
+        ring_buffer_size: usize,
+        dual_factor: usize,
+    ) ResolveError!?usize {
+        if (dual_factor == 0) return error.InvalidDualFactor;
+        return switch (self.matcher_events) {
+            .unbounded_heap => null,
+            .derive => blk: {
+                const per_cmd = std.math.mul(usize, ring_buffer_size, self.events_per_command_sizing) catch
+                    return error.Overflow;
+                break :blk std.math.mul(usize, per_cmd, dual_factor) catch return error.Overflow;
+            },
+            .fixed => |n| n,
+        };
+    }
+
+    pub fn validate(self: StaticCapacityConfig, ring_buffer_size: usize) ResolveError!void {
+        _ = self.resolvedMatcherEventCapacity(ring_buffer_size, 2) catch |err| switch (err) {
+            error.Overflow, error.InvalidDualFactor => return error.InvalidMatcherEventPoolCapacity,
+            else => |e| return e,
+        };
+        switch (self.matcher_events) {
+            .fixed => |n| {
+                if (n < 2 * self.events_per_command_sizing) {
+                    return error.InvalidMatcherEventPoolCapacity;
+                }
+            },
+            else => {},
+        }
+        if (self.events_per_command_limit) |limit| {
+            if (limit == 0) return error.InvalidEventsPerCommandLimit;
+        }
+        switch (self.order_pools) {
+            .unbounded_heap => {},
+            .fixed => |caps| {
+                if (caps.max_orders == 0 or caps.max_price_buckets == 0) {
+                    return error.InvalidBookPoolCaps;
+                }
+            },
+        }
+    }
+
+    pub fn wasmSafeSmall() StaticCapacityConfig {
+        return .{
+            .matcher_events = .{ .fixed = 4096 },
+            .events_per_command_sizing = 32,
+            .order_pools = .{ .fixed = .{ .max_orders = 4096, .max_price_buckets = 512 } },
+        };
+    }
+
+    pub fn testSmall() StaticCapacityConfig {
+        return .{
+            .matcher_events = .{ .fixed = 256 },
+            .events_per_command_sizing = 16,
+            .order_pools = .{ .fixed = .{ .max_orders = 64, .max_price_buckets = 32 } },
+        };
+    }
+
+    /// PR4: latency performance preset enables derived matcher event storage.
+    /// basePreset remains unbounded_heap (product decision 2026-08-01).
+    pub fn latencyPreset() StaticCapacityConfig {
+        return .{
+            .matcher_events = .derive,
+            .events_per_command_sizing = 32,
+            .order_pools = .unbounded_heap,
+        };
+    }
+
+    /// Explicit ops override example: tiny fixed pools for WASM/browser demos.
+    pub fn browserPreset() StaticCapacityConfig {
+        return wasmSafeSmall();
+    }
+};
+
 pub const PerformanceConfig = struct {
     ring_buffer_size: usize = 16 * 1024,
     matching_engines_num: u64 = 1,
@@ -534,12 +659,14 @@ pub const ExchangeCoreConfig = struct {
     java_identity_hash_context: ?kernel_mod.JavaIdentityHashContext = null,
     logging: LoggingConfig = LoggingConfig.javaDefault(),
     serialization: SerializationConfig = SerializationConfig.javaDefault(),
+    static_capacity: StaticCapacityConfig = .{},
 
     pub const ValidationError = MatchingConfig.ValidationError ||
         RuntimeConfig.ValidationError ||
         InitialStateConfig.ValidationError ||
         ReportsQueriesConfig.ValidationError ||
         SerializationConfig.ValidationError ||
+        StaticCapacityConfig.ResolveError ||
         error{
             SnapshotLoadRequiresPersistentBackend,
             JournalReplayRequiresJournalingEnabled,
@@ -551,6 +678,7 @@ pub const ExchangeCoreConfig = struct {
         try self.initial_state.validate();
         try self.reports_queries.validate();
         try self.serialization.validate();
+        try self.static_capacity.validate(self.runtime.queue_capacity);
 
         if (self.initial_state.fromSnapshot() and self.serialization.backend == .dummy) {
             return error.SnapshotLoadRequiresPersistentBackend;
@@ -564,6 +692,26 @@ pub const ExchangeCoreConfig = struct {
         var kernel_cfg = self.matching.toKernelConfig(self.orders_processing);
         kernel_cfg.report_queries = self.reports_queries.toKernelConfig();
         kernel_cfg.java_identity_hash_context = self.java_identity_hash_context;
+
+        // Validation already ran for live configs; resolve is infallible after validate.
+        const event_cap = self.static_capacity.resolvedMatcherEventCapacity(
+            self.runtime.queue_capacity,
+            2,
+        ) catch null;
+        kernel_cfg.matcher_event_pool_capacity = event_cap;
+        switch (self.static_capacity.order_pools) {
+            .unbounded_heap => {
+                kernel_cfg.order_pool_max_orders = null;
+                kernel_cfg.order_pool_max_buckets = null;
+            },
+            .fixed => |caps| {
+                kernel_cfg.order_pool_max_orders = caps.max_orders;
+                kernel_cfg.order_pool_max_buckets = caps.max_price_buckets;
+            },
+        }
+        kernel_cfg.pre_reserve_users = self.static_capacity.pre_reserve_users_per_risk_shard;
+        kernel_cfg.pre_reserve_accounts_per_user = self.static_capacity.pre_reserve_accounts_per_user;
+        kernel_cfg.pre_reserve_positions_per_user = self.static_capacity.pre_reserve_positions_per_user;
         return kernel_cfg;
     }
 
@@ -596,6 +744,9 @@ pub const JavaExchangeConfig = struct {
     reports_queries_cfg: ReportsQueriesConfig = ReportsQueriesConfig.javaDefault(),
     logging_cfg: LoggingConfig = LoggingConfig.javaDefault(),
     serialization_cfg: SerializationConfig = SerializationConfig.javaDefault(),
+    /// Static allocation policy. Defaults to unbounded heap. Use
+    /// `StaticCapacityConfig.latencyPreset()` with `PerformanceConfig.latencyPreset()`.
+    static_capacity_cfg: StaticCapacityConfig = .{},
 
     pub const ValidationError = PerformanceConfig.MappingError || ExchangeCoreConfig.ValidationError;
 
@@ -608,6 +759,15 @@ pub const JavaExchangeConfig = struct {
             .reports_queries_cfg = ReportsQueriesConfig.javaDefault(),
             .logging_cfg = LoggingConfig.javaDefault(),
             .serialization_cfg = SerializationConfig.javaDefault(),
+            .static_capacity_cfg = .{},
+        };
+    }
+
+    /// Latency-oriented production compose: busy-spin direct book + derived matcher pools.
+    pub fn latencyProduction() JavaExchangeConfig {
+        return .{
+            .performance_cfg = PerformanceConfig.latencyPreset(),
+            .static_capacity_cfg = StaticCapacityConfig.latencyPreset(),
         };
     }
 
@@ -621,6 +781,7 @@ pub const JavaExchangeConfig = struct {
             .reports_queries = self.reports_queries_cfg,
             .logging = self.logging_cfg,
             .serialization = self.serialization_cfg,
+            .static_capacity = self.static_capacity_cfg,
         };
     }
 
@@ -1292,4 +1453,104 @@ test "exchange core config validates initial-state and serialization cross const
         .initial_state = InitialStateConfig.lastKnownStateFromJournal("EXJ", 7, 100),
         .serialization = SerializationConfig.diskJournaling(),
     }).validate();
+}
+
+test "static capacity defaults to unbounded heap" {
+    const sc = StaticCapacityConfig{};
+    try std.testing.expect(sc.matcher_events == .unbounded_heap);
+    try std.testing.expect(sc.order_pools == .unbounded_heap);
+    try std.testing.expectEqual(@as(?usize, null), try sc.resolvedMatcherEventCapacity(16 * 1024, 2));
+    try sc.validate(16 * 1024);
+}
+
+test "static capacity derive multiplies ring sizing dual_factor" {
+    const sc = StaticCapacityConfig{
+        .matcher_events = .derive,
+        .events_per_command_sizing = 32,
+    };
+    const cap = try sc.resolvedMatcherEventCapacity(2048, 2);
+    try std.testing.expectEqual(@as(usize, 2048 * 32 * 2), cap.?);
+}
+
+test "static capacity dual_factor zero is invalid" {
+    const sc = StaticCapacityConfig{ .matcher_events = .derive };
+    try std.testing.expectError(error.InvalidDualFactor, sc.resolvedMatcherEventCapacity(1024, 0));
+}
+
+test "latency preset selects derive; base and java default remain heap" {
+    const latency = StaticCapacityConfig.latencyPreset();
+    try std.testing.expect(latency.matcher_events == .derive);
+    try std.testing.expectEqual(@as(usize, 32), latency.events_per_command_sizing);
+
+    const base = StaticCapacityConfig{};
+    try std.testing.expect(base.matcher_events == .unbounded_heap);
+
+    const java = JavaExchangeConfig.javaDefault();
+    try std.testing.expect(java.static_capacity_cfg.matcher_events == .unbounded_heap);
+
+    const lat_prod = JavaExchangeConfig.latencyProduction();
+    try std.testing.expect(lat_prod.static_capacity_cfg.matcher_events == .derive);
+    try std.testing.expectEqual(kernel_mod.OrderBookKind.direct, lat_prod.performance_cfg.orderbook_kind);
+}
+
+test "wasm browser preset stays small fixed not throughput scale" {
+    const wasm = StaticCapacityConfig.browserPreset();
+    try std.testing.expect(wasm.matcher_events == .fixed);
+    switch (wasm.matcher_events) {
+        .fixed => |n| try std.testing.expect(n <= 16 * 1024),
+        else => return error.TestUnexpectedResult,
+    }
+    switch (wasm.order_pools) {
+        .fixed => |caps| {
+            try std.testing.expect(caps.max_orders <= 16 * 1024);
+            try std.testing.expect(caps.max_price_buckets <= 16 * 1024);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+    // Must not approach throughput full-derive (~640 MiB order of magnitude).
+    const thr_ring: usize = 64 * 1024;
+    const thr_sizing: usize = 64;
+    const full_derive = thr_ring * thr_sizing * 2;
+    switch (wasm.matcher_events) {
+        .fixed => |n| try std.testing.expect(n * 100 < full_derive),
+        else => {},
+    }
+}
+
+test "toKernelConfig plumbs static_capacity into kernel Config" {
+    const core = ExchangeCoreConfig{
+        .runtime = .{ .queue_capacity = 2048 },
+        .static_capacity = .{
+            .matcher_events = .derive,
+            .events_per_command_sizing = 32,
+            .order_pools = .{ .fixed = .{ .max_orders = 100, .max_price_buckets = 20 } },
+            .pre_reserve_users_per_risk_shard = 50,
+            .pre_reserve_accounts_per_user = 4,
+            .pre_reserve_positions_per_user = 2,
+        },
+    };
+    try core.validate();
+    const kcfg = core.toKernelConfig();
+    try std.testing.expectEqual(@as(?usize, 2048 * 32 * 2), kcfg.matcher_event_pool_capacity);
+    try std.testing.expectEqual(@as(?usize, 100), kcfg.order_pool_max_orders);
+    try std.testing.expectEqual(@as(?usize, 20), kcfg.order_pool_max_buckets);
+    try std.testing.expectEqual(@as(usize, 50), kcfg.pre_reserve_users);
+    try std.testing.expectEqual(@as(usize, 4), kcfg.pre_reserve_accounts_per_user);
+    try std.testing.expectEqual(@as(usize, 2), kcfg.pre_reserve_positions_per_user);
+
+    const heap_core = ExchangeCoreConfig{};
+    const heap_k = heap_core.toKernelConfig();
+    try std.testing.expectEqual(@as(?usize, null), heap_k.matcher_event_pool_capacity);
+    try std.testing.expectEqual(@as(?usize, null), heap_k.order_pool_max_orders);
+}
+
+test "latencyProduction kernel config enables derived event pool" {
+    const java = JavaExchangeConfig.latencyProduction();
+    try java.validate();
+    const core = try java.toExchangeCoreConfig();
+    const kcfg = core.toKernelConfig();
+    try std.testing.expect(kcfg.matcher_event_pool_capacity != null);
+    // ring 2k * sizing 32 * dual 2
+    try std.testing.expectEqual(@as(usize, 2048 * 32 * 2), kcfg.matcher_event_pool_capacity.?);
+    try std.testing.expectEqual(kernel_mod.OrderBookKind.direct, kcfg.orderbook_kind);
 }

@@ -253,6 +253,7 @@ because they can precede R2 and are not replayed.
   - Java-shaped performance/config adapters in `core/config.zig`:
     - `CoreWaitStrategy` enum parity surface
     - `PerformanceConfig` presets (`base`, `latency`, `throughput`) with explicit validation and single-kernel adapter fallback for multi-engine Java presets
+    - `StaticCapacityConfig` / `static_pool` / dual-backend matcher events / hard-capped direct order books — see `STATIC_ALLOCATION_DESIGN.md` and `STATIC_ALLOCATION_OPS.md` (defaults remain heap; latency compose enables derived event pools; pure capacity result `-3060`)
     - `JavaExchangeConfig` composition adapter (`orders_processing_cfg`, `performance_cfg`, `init_state_cfg`, `reports_queries_cfg`, `logging_cfg`, `serialization_cfg`) into existing `ExchangeCoreConfig`
 - Ported first matching engines:
   - `core/orderbook_naive.zig` with command flow + L2 snapshots + invariants

@@ -125,9 +125,26 @@ fn selectedScenarioCount(options: Options) usize {
     return topology_count * mode_count;
 }
 
+/// Hot-path allocation backend for A/B (does not change command semantics).
+const StaticAllocMode = enum {
+    /// Default: unbounded heap for matcher events and order/bucket pools.
+    heap,
+    /// Matcher event pool sized as ring * sizing * dual_factor (2).
+    derive,
+    /// Same as derive for events; uses latencyPreset sizing (32/cmd).
+    latency,
+    /// Fixed event pool + hard-capped direct order/bucket slabs (large caps).
+    fixed,
+
+    fn label(self: StaticAllocMode) []const u8 {
+        return @tagName(self);
+    }
+};
+
 const Options = struct {
     topology: TopologySelection = .both,
     mode: ModeSelection = .both,
+    static_alloc: StaticAllocMode = .heap,
     trials: usize = 4,
     throughput_commands: usize = 100_000,
     detached_commands: usize = 100_000,
@@ -399,6 +416,9 @@ fn parseOptions(
         } else if (std.mem.eql(u8, arg, "--memory-probe-commands")) {
             options.memory_probe_commands = try parseUsize(args.next() orelse
                 return error.MissingArgumentValue);
+        } else if (std.mem.eql(u8, arg, "--static-alloc")) {
+            options.static_alloc = try parseStaticAlloc(args.next() orelse
+                return error.MissingArgumentValue);
         } else {
             return error.InvalidArguments;
         }
@@ -418,6 +438,14 @@ fn parseMode(raw: []const u8) BenchError!ModeSelection {
     if (std.mem.eql(u8, raw, "both")) return .both;
     if (std.mem.eql(u8, raw, "immediate")) return .immediate;
     if (std.mem.eql(u8, raw, "persistent_grouped")) return .persistent_grouped;
+    return error.InvalidArguments;
+}
+
+fn parseStaticAlloc(raw: []const u8) BenchError!StaticAllocMode {
+    if (std.mem.eql(u8, raw, "heap")) return .heap;
+    if (std.mem.eql(u8, raw, "derive")) return .derive;
+    if (std.mem.eql(u8, raw, "latency")) return .latency;
+    if (std.mem.eql(u8, raw, "fixed")) return .fixed;
     return error.InvalidArguments;
 }
 
@@ -442,6 +470,12 @@ fn writeUsage(writer: anytype) !void {
         \\  --topology both|1x1|4x2          Topology selection (default: both)
         \\  --mode both|immediate|persistent_grouped
         \\                                      Pipeline mode selection (default: both)
+        \\  --static-alloc heap|derive|latency|fixed
+        \\                                      Hot-path allocation backend (default: heap)
+        \\                                        heap    = unbounded (parity default)
+        \\                                        derive  = matcher event pool (ring*64*2)
+        \\                                        latency = event pool (ring*32*2, latency sizing)
+        \\                                        fixed   = event pool + hard-capped order/bucket slabs
         \\  --trials N                         Trials per topology (default: 4)
         \\  --commands N                       Even poll-window trade count (default: 100000)
         \\  --detached-commands N              Even detached trade count (default: 100000)
@@ -453,8 +487,8 @@ fn writeUsage(writer: anytype) !void {
         \\  --smoke                            Tiny 1-trial configuration
         \\  -h, --help                         Show this help
         \\
-        \\All runs start from Java defaults, override only topology and the
-        \\explicit sharded pipeline mode, and use routed publication.
+        \\All runs start from Java defaults, override topology, pipeline mode,
+        \\and optional static-alloc backend; publication is always routed.
         \\
     );
 }
@@ -466,6 +500,7 @@ fn printHeader(writer: anytype, options: Options) !void {
             "output_schema_version=2 build_mode={s} timing_allocator=smp_allocator " ++
             "memory_allocator=separate_debug_allocator_requested_bytes\n" ++
             "config_base=JavaExchangeConfig.javaDefault publication_mode=routed " ++
+            "static_alloc={s} " ++
             "trials={d} commands={d} detached_commands={d} latency_samples={d} " ++
             "warmup={d} window={d}\n" ++
             "java_default_ring_buffer={d} java_default_msgs_in_group={d} " ++
@@ -499,6 +534,7 @@ fn printHeader(writer: anytype, options: Options) !void {
             "detached_terminal_commands_per_second\n",
         .{
             @tagName(builtin.mode),
+            options.static_alloc.label(),
             options.trials,
             options.throughput_commands,
             options.detached_commands,
@@ -548,7 +584,7 @@ fn runTimingTrial(
     trial: usize,
     run_order: usize,
 ) !TimingResult {
-    const java_config = makeJavaConfig(topology, mode);
+    const java_config = makeJavaConfig(topology, mode, options.static_alloc);
 
     const init_started = std.Io.Clock.awake.now(io);
     var orchestrator = try orchestrator_mod.ExchangeOrchestrator.initFromJavaConfig(
@@ -766,11 +802,47 @@ fn terminalSettlementBarrier(
     }
 }
 
-fn makeJavaConfig(topology: Topology, mode: PipelineMode) config_mod.JavaExchangeConfig {
+fn makeJavaConfig(
+    topology: Topology,
+    mode: PipelineMode,
+    static_alloc: StaticAllocMode,
+) config_mod.JavaExchangeConfig {
     var java_config = config_mod.JavaExchangeConfig.javaDefault();
     java_config.performance_cfg.matching_engines_num = topology.matchingShards();
     java_config.performance_cfg.risk_engines_num = topology.riskShards();
     java_config.sharded_pipeline_mode = mode.configValue();
+
+    // Direct book is required for hard-capped order/bucket slabs (fixed mode)
+    // and is the production latency/throughput choice.
+    switch (static_alloc) {
+        .heap => {
+            java_config.static_capacity_cfg = .{};
+        },
+        .derive => {
+            java_config.performance_cfg.orderbook_kind = .direct;
+            java_config.static_capacity_cfg = .{
+                .matcher_events = .derive,
+                .events_per_command_sizing = 64,
+                .order_pools = .unbounded_heap,
+            };
+        },
+        .latency => {
+            java_config.performance_cfg.orderbook_kind = .direct;
+            java_config.static_capacity_cfg = config_mod.StaticCapacityConfig.latencyPreset();
+        },
+        .fixed => {
+            java_config.performance_cfg.orderbook_kind = .direct;
+            // Large enough for 100k-command trade windows without pure-capacity rejects.
+            java_config.static_capacity_cfg = .{
+                .matcher_events = .{ .fixed = 16 * 1024 * 64 * 2 }, // ring default * sizing * dual
+                .events_per_command_sizing = 64,
+                .order_pools = .{ .fixed = .{
+                    .max_orders = 256 * 1024,
+                    .max_price_buckets = 32 * 1024,
+                } },
+            };
+        },
+    }
     return java_config;
 }
 
@@ -1114,7 +1186,7 @@ fn runMemoryProbe(
     }
     const allocator = debug_allocator.allocator();
 
-    const java_config = makeJavaConfig(topology, mode);
+    const java_config = makeJavaConfig(topology, mode, options.static_alloc);
     var orchestrator = try orchestrator_mod.ExchangeOrchestrator.initFromJavaConfig(
         allocator,
         java_config,

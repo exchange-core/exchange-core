@@ -95,21 +95,50 @@ const OrderPool = struct {
     allocations: usize = 0,
     reuses: usize = 0,
     free_count: usize = 0,
+    /// When non-null, acquire never heap-grows; only freelist (pre-linked slab).
+    slab: ?[]DirectOrder = null,
+    static_capacity: ?usize = null,
+    in_use: usize = 0,
 
     fn init(allocator: std.mem.Allocator) OrderPool {
         return .{ .allocator = allocator };
     }
 
-    fn acquire(self: *OrderPool) std.mem.Allocator.Error!*DirectOrder {
+    fn initStatic(allocator: std.mem.Allocator, capacity: usize) std.mem.Allocator.Error!OrderPool {
+        if (capacity == 0) return error.OutOfMemory;
+        const slab = try allocator.alloc(DirectOrder, capacity);
+        // Link entire slab as free list via pool_next.
+        var i: usize = 0;
+        while (i + 1 < capacity) : (i += 1) {
+            slab[i] = undefined;
+            slab[i].pool_next = &slab[i + 1];
+        }
+        slab[capacity - 1] = undefined;
+        slab[capacity - 1].pool_next = null;
+        return .{
+            .allocator = allocator,
+            .head = &slab[0],
+            .free_count = capacity,
+            .slab = slab,
+            .static_capacity = capacity,
+        };
+    }
+
+    fn acquire(self: *OrderPool) (std.mem.Allocator.Error || error{PoolExhausted})!*DirectOrder {
         if (self.head) |item| {
             self.head = item.pool_next;
             item.pool_next = null;
             self.reuses += 1;
             self.free_count -= 1;
+            self.in_use += 1;
             return item;
+        }
+        if (self.static_capacity != null) {
+            return error.PoolExhausted;
         }
         const item = try self.allocator.create(DirectOrder);
         self.allocations += 1;
+        self.in_use += 1;
         return item;
     }
 
@@ -117,15 +146,24 @@ const OrderPool = struct {
         item.pool_next = self.head;
         self.head = item;
         self.free_count += 1;
+        if (self.in_use > 0) self.in_use -= 1;
     }
 
     fn deinit(self: *OrderPool) void {
-        var node = self.head;
-        while (node) |item| {
-            node = item.pool_next;
-            self.allocator.destroy(item);
+        if (self.slab) |slab| {
+            self.allocator.free(slab);
+        } else {
+            var node = self.head;
+            while (node) |item| {
+                node = item.pool_next;
+                self.allocator.destroy(item);
+            }
         }
         self.* = undefined;
+    }
+
+    fn isStatic(self: *const OrderPool) bool {
+        return self.static_capacity != null;
     }
 };
 
@@ -135,21 +173,48 @@ const BucketPool = struct {
     allocations: usize = 0,
     reuses: usize = 0,
     free_count: usize = 0,
+    slab: ?[]Bucket = null,
+    static_capacity: ?usize = null,
+    in_use: usize = 0,
 
     fn init(allocator: std.mem.Allocator) BucketPool {
         return .{ .allocator = allocator };
     }
 
-    fn acquire(self: *BucketPool) std.mem.Allocator.Error!*Bucket {
+    fn initStatic(allocator: std.mem.Allocator, capacity: usize) std.mem.Allocator.Error!BucketPool {
+        if (capacity == 0) return error.OutOfMemory;
+        const slab = try allocator.alloc(Bucket, capacity);
+        var i: usize = 0;
+        while (i + 1 < capacity) : (i += 1) {
+            slab[i] = undefined;
+            slab[i].pool_next = &slab[i + 1];
+        }
+        slab[capacity - 1] = undefined;
+        slab[capacity - 1].pool_next = null;
+        return .{
+            .allocator = allocator,
+            .head = &slab[0],
+            .free_count = capacity,
+            .slab = slab,
+            .static_capacity = capacity,
+        };
+    }
+
+    fn acquire(self: *BucketPool) (std.mem.Allocator.Error || error{PoolExhausted})!*Bucket {
         if (self.head) |item| {
             self.head = item.pool_next;
             item.pool_next = null;
             self.reuses += 1;
             self.free_count -= 1;
+            self.in_use += 1;
             return item;
+        }
+        if (self.static_capacity != null) {
+            return error.PoolExhausted;
         }
         const item = try self.allocator.create(Bucket);
         self.allocations += 1;
+        self.in_use += 1;
         return item;
     }
 
@@ -157,15 +222,24 @@ const BucketPool = struct {
         item.pool_next = self.head;
         self.head = item;
         self.free_count += 1;
+        if (self.in_use > 0) self.in_use -= 1;
     }
 
     fn deinit(self: *BucketPool) void {
-        var node = self.head;
-        while (node) |item| {
-            node = item.pool_next;
-            self.allocator.destroy(item);
+        if (self.slab) |slab| {
+            self.allocator.free(slab);
+        } else {
+            var node = self.head;
+            while (node) |item| {
+                node = item.pool_next;
+                self.allocator.destroy(item);
+            }
         }
         self.* = undefined;
+    }
+
+    fn isStatic(self: *const BucketPool) bool {
+        return self.static_capacity != null;
     }
 };
 
@@ -207,21 +281,47 @@ pub const DirectOrderBook = struct {
         };
     }
 
+    /// Hard-capped order/bucket slabs: acquire never heap-grows.
+    pub fn initStatic(
+        allocator: std.mem.Allocator,
+        symbol_spec: common.CoreSymbolSpecification,
+        max_orders: usize,
+        max_price_buckets: usize,
+    ) (common.CoreSymbolSpecification.ValidationError || std.mem.Allocator.Error)!DirectOrderBook {
+        try symbol_spec.validate();
+        var order_pool = try OrderPool.initStatic(allocator, max_orders);
+        errdefer order_pool.deinit();
+        var bucket_pool = try BucketPool.initStatic(allocator, max_price_buckets);
+        errdefer bucket_pool.deinit();
+        return .{
+            .allocator = allocator,
+            .symbol_spec = symbol_spec,
+            .order_pool = order_pool,
+            .bucket_pool = bucket_pool,
+        };
+    }
+
     pub fn deinit(self: *DirectOrderBook) void {
-        var order_it = self.order_id_index.valueIterator();
-        while (order_it.next()) |order_ptr| {
-            self.allocator.destroy(order_ptr.*);
+        const static_orders = self.order_pool.isStatic();
+        const static_buckets = self.bucket_pool.isStatic();
+
+        if (!static_orders) {
+            var order_it = self.order_id_index.valueIterator();
+            while (order_it.next()) |order_ptr| {
+                self.allocator.destroy(order_ptr.*);
+            }
         }
         self.order_id_index.deinit(self.allocator);
 
-        for (self.ask_price_buckets.items) |bucket| {
-            self.allocator.destroy(bucket);
+        if (!static_buckets) {
+            for (self.ask_price_buckets.items) |bucket| {
+                self.allocator.destroy(bucket);
+            }
+            for (self.bid_price_buckets.items) |bucket| {
+                self.allocator.destroy(bucket);
+            }
         }
         self.ask_price_buckets.deinit(self.allocator);
-
-        for (self.bid_price_buckets.items) |bucket| {
-            self.allocator.destroy(bucket);
-        }
         self.bid_price_buckets.deinit(self.allocator);
 
         self.ask_price_index.deinit(self.allocator);
@@ -240,6 +340,15 @@ pub const DirectOrderBook = struct {
             .bucket_reuses = self.bucket_pool.reuses,
             .bucket_free_count = self.bucket_pool.free_count,
         };
+    }
+
+    /// True when order/bucket storage is hard-capped (initStatic).
+    pub fn hasStaticPools(self: *const DirectOrderBook) bool {
+        return self.order_pool.isStatic();
+    }
+
+    pub fn staticOrderCapacity(self: *const DirectOrderBook) ?usize {
+        return self.order_pool.static_capacity;
     }
 
     pub fn processCommand(
@@ -263,7 +372,10 @@ pub const DirectOrderBook = struct {
                     if (invalidPlaceOrderResult(command)) |result| {
                         break :blk result;
                     }
-                    try self.newOrder(command, event_chain);
+                    self.newOrder(command, event_chain) catch |err| switch (err) {
+                        error.RestingCapacityExhausted => break :blk .matching_engine_capacity,
+                        else => |e| return e,
+                    };
                     break :blk .success;
                 }
                 break :blk command.result_code;
@@ -461,7 +573,10 @@ pub const DirectOrderBook = struct {
             if (order.filled < 0 or order.filled >= order.size) return error.InvalidOrderFill;
             if (self.order_id_index.contains(order.order_id)) return error.DuplicateOrderId;
 
-            const node = try self.order_pool.acquire();
+            const node = self.order_pool.acquire() catch |err| switch (err) {
+                error.PoolExhausted => return error.OutOfMemory,
+                else => |e| return e,
+            };
             errdefer self.order_pool.release(node);
 
             node.* = .{
@@ -481,7 +596,10 @@ pub const DirectOrderBook = struct {
 
             try self.order_id_index.put(self.allocator, node.order_id, node);
             errdefer _ = self.order_id_index.remove(node.order_id);
-            try self.insertOrder(node);
+            self.insertOrder(node) catch |err| switch (err) {
+                error.PoolExhausted => return error.OutOfMemory,
+                else => |e| return e,
+            };
         }
 
         self.validateInternalState();
@@ -739,7 +857,9 @@ pub const DirectOrderBook = struct {
         return best;
     }
 
-    fn createBucket(self: *DirectOrderBook, side: common.OrderAction, price: i64) std.mem.Allocator.Error!*Bucket {
+    const BookPoolError = std.mem.Allocator.Error || error{PoolExhausted};
+
+    fn createBucket(self: *DirectOrderBook, side: common.OrderAction, price: i64) BookPoolError!*Bucket {
         const bucket = try self.bucket_pool.acquire();
         bucket.* = .{
             .price = price,
@@ -809,7 +929,7 @@ pub const DirectOrderBook = struct {
         self.order_pool.release(order);
     }
 
-    fn insertOrder(self: *DirectOrderBook, order: *DirectOrder) std.mem.Allocator.Error!void {
+    fn insertOrder(self: *DirectOrderBook, order: *DirectOrder) BookPoolError!void {
         const side = order.action;
         const existing_bucket = self.sideBucketIndex(side).get(order.price);
         if (existing_bucket) |bucket| {
@@ -1050,7 +1170,7 @@ pub const DirectOrderBook = struct {
         self: *DirectOrderBook,
         command: *cmd.OrderCommand,
         event_chain: ?*events.EventChain,
-    ) std.mem.Allocator.Error!void {
+    ) ProcessError!void {
         var taker = ActiveOrder.fromCommand(command) orelse return;
 
         // Java checks for duplicates after matching, because matching can remove
@@ -1059,12 +1179,12 @@ pub const DirectOrderBook = struct {
         // atomic, then either prepend it to the trade chain or release it.
         const duplicate_before_matching = self.order_id_index.contains(command.order_id);
         const reserved_reject = if (duplicate_before_matching)
-            if (event_chain) |chain| try chain.allocator.create(events.MatcherTradeEvent) else null
+            if (event_chain) |chain| try chain.reserveNode() else null
         else
             null;
         var reject_attached = false;
         defer if (reserved_reject) |node| {
-            if (!reject_attached) event_chain.?.allocator.destroy(node);
+            if (!reject_attached) event_chain.?.releaseReserved(node);
         };
 
         try self.tryMatchInstantly(&taker, taker.price, event_chain);
@@ -1086,7 +1206,14 @@ pub const DirectOrderBook = struct {
             return;
         }
 
-        const order = try self.order_pool.acquire();
+        const pure_resting = taker.filled == 0;
+        const order = self.order_pool.acquire() catch |err| switch (err) {
+            error.PoolExhausted => {
+                if (!pure_resting) return error.OutOfMemory;
+                return self.emitPureCapacityReject(event_chain, taker, command.price);
+            },
+            else => |e| return e,
+        };
         errdefer self.order_pool.release(order);
         order.* = .{
             .order_id = taker.order_id,
@@ -1106,7 +1233,29 @@ pub const DirectOrderBook = struct {
         try self.order_id_index.put(self.allocator, order.order_id, order);
         errdefer _ = self.order_id_index.remove(order.order_id);
 
-        try self.insertOrder(order);
+        self.insertOrder(order) catch |err| switch (err) {
+            error.PoolExhausted => {
+                _ = self.order_id_index.remove(order.order_id);
+                self.order_pool.release(order);
+                if (!pure_resting) return error.OutOfMemory;
+                return self.emitPureCapacityReject(event_chain, taker, command.price);
+            },
+            else => |e| return e,
+        };
+    }
+
+    fn emitPureCapacityReject(
+        self: *DirectOrderBook,
+        event_chain: ?*events.EventChain,
+        taker: ActiveOrder,
+        price: i64,
+    ) ProcessError!void {
+        _ = self;
+        // Full-size reject so R2 unwinds any R1 hold. Never empty chain.
+        appendRejectEvent(event_chain, taker, taker.remaining(), .gtc, price) catch {
+            return error.OutOfMemory;
+        };
+        return error.RestingCapacityExhausted;
     }
 
     fn newOrderMatchIoc(
@@ -1229,7 +1378,11 @@ pub const DirectOrderBook = struct {
         }
 
         order.filled = taker.filled;
-        try self.insertOrder(order);
+        // After removeOrderFromChain, any pool exhaust is residual poison.
+        self.insertOrder(order) catch |err| switch (err) {
+            error.PoolExhausted => return error.OutOfMemory,
+            else => |e| return e,
+        };
         return .success;
     }
 };
@@ -2011,4 +2164,104 @@ test "direct book pools reuse order and bucket nodes under churn" {
     try std.testing.expect(after_reuse.bucket_reuses >= 2);
 
     book.validateInternalState();
+}
+
+test "static order pool pure resting returns matching_engine_capacity with full reject" {
+    const allocator = std.testing.allocator;
+    const spec = try makeTestSpec();
+    // Capacity 1 order: fill it, then pure rest fails with capacity.
+    var book = try DirectOrderBook.initStatic(allocator, spec, 1, 8);
+    defer book.deinit();
+
+    var chain1 = events.EventChain.init(allocator);
+    defer chain1.deinit();
+    var place1 = cmd.OrderCommand.newOrder(.gtc, 1, 1001, 100, 100, 10, .ask);
+    place1.result_code = .valid_for_matching_engine;
+    const r1 = try book.processCommandWithEvents(&place1, &chain1);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, r1);
+    try std.testing.expectEqual(@as(usize, 1), book.order_id_index.count());
+
+    var chain2 = events.EventChain.init(allocator);
+    defer chain2.deinit();
+    var place2 = cmd.OrderCommand.newOrder(.gtc, 2, 1002, 90, 90, 5, .ask);
+    place2.result_code = .valid_for_matching_engine;
+    // Non-crossing ask at worse price — pure rest needs a second order node.
+    const r2 = try book.processCommandWithEvents(&place2, &chain2);
+    try std.testing.expectEqual(cmd.CommandResultCode.matching_engine_capacity, r2);
+    try std.testing.expectEqual(@as(usize, 1), book.order_id_index.count());
+    try std.testing.expectEqual(@as(usize, 1), chain2.len);
+    const rej = chain2.head orelse return error.ExpectedReject;
+    try std.testing.expectEqual(events.MatcherEventType.reject, rej.event_type);
+    try std.testing.expectEqual(@as(i64, 5), rej.size);
+    try std.testing.expect(rej.active_order_completed);
+
+    // Pipeline-alive: cancel original still works.
+    var cancel = cmd.OrderCommand.cancel(1, 1001);
+    cancel.result_code = .valid_for_matching_engine;
+    var chain3 = events.EventChain.init(allocator);
+    defer chain3.deinit();
+    const r3 = try book.processCommandWithEvents(&cancel, &chain3);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, r3);
+    try std.testing.expectEqual(@as(usize, 0), book.order_id_index.count());
+}
+
+test "static pool mid-move reinsert bucket exhaust is OutOfMemory not capacity" {
+    const allocator = std.testing.allocator;
+    const spec = try makeTestSpec();
+    // Two orders share one price bucket (capacity 1). Moving one order to a new
+    // price needs a second bucket while the sibling keeps the first → residual
+    // poison (never matching_engine_capacity), even when filled==0.
+    var book = try DirectOrderBook.initStatic(allocator, spec, 2, 1);
+    defer book.deinit();
+
+    var c1 = events.EventChain.init(allocator);
+    defer c1.deinit();
+    var a1 = cmd.OrderCommand.newOrder(.gtc, 1, 1, 100, 100, 3, .ask);
+    a1.result_code = .valid_for_matching_engine;
+    try std.testing.expectEqual(cmd.CommandResultCode.success, try book.processCommandWithEvents(&a1, &c1));
+
+    var c2 = events.EventChain.init(allocator);
+    defer c2.deinit();
+    var a2 = cmd.OrderCommand.newOrder(.gtc, 2, 1, 100, 100, 3, .ask);
+    a2.result_code = .valid_for_matching_engine;
+    try std.testing.expectEqual(cmd.CommandResultCode.success, try book.processCommandWithEvents(&a2, &c2));
+
+    var c3 = events.EventChain.init(allocator);
+    defer c3.deinit();
+    var move = cmd.OrderCommand.update(1, 1, 101);
+    move.result_code = .valid_for_matching_engine;
+    // moveOrder returns CommandResultCode on success paths; PoolExhausted → OOM error.
+    try std.testing.expectError(error.OutOfMemory, book.processCommandWithEvents(&move, &c3));
+    // Sibling still resting; moved order must not report capacity code.
+    try std.testing.expectEqual(@as(usize, 2), book.order_id_index.count());
+}
+
+test "static bucket pool pure rest capacity" {
+    const allocator = std.testing.allocator;
+    const spec = try makeTestSpec();
+    // Many orders, only 1 bucket slot: second distinct price needs new bucket.
+    var book = try DirectOrderBook.initStatic(allocator, spec, 16, 1);
+    defer book.deinit();
+
+    var c1 = events.EventChain.init(allocator);
+    defer c1.deinit();
+    var o1 = cmd.OrderCommand.newOrder(.gtc, 1, 1, 100, 100, 1, .ask);
+    o1.result_code = .valid_for_matching_engine;
+    try std.testing.expectEqual(cmd.CommandResultCode.success, try book.processCommandWithEvents(&o1, &c1));
+
+    var c2 = events.EventChain.init(allocator);
+    defer c2.deinit();
+    var o2 = cmd.OrderCommand.newOrder(.gtc, 2, 1, 101, 101, 1, .ask);
+    o2.result_code = .valid_for_matching_engine;
+    const r = try book.processCommandWithEvents(&o2, &c2);
+    try std.testing.expectEqual(cmd.CommandResultCode.matching_engine_capacity, r);
+    try std.testing.expectEqual(@as(usize, 1), c2.len);
+    try std.testing.expectEqual(events.MatcherEventType.reject, c2.head.?.event_type);
+}
+
+test "initStatic zero capacity fails closed" {
+    const allocator = std.testing.allocator;
+    const spec = try makeTestSpec();
+    try std.testing.expectError(error.OutOfMemory, DirectOrderBook.initStatic(allocator, spec, 0, 8));
+    try std.testing.expectError(error.OutOfMemory, DirectOrderBook.initStatic(allocator, spec, 8, 0));
 }
