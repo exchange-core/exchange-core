@@ -110,6 +110,12 @@ pub const SubmitDisposition = union(enum) {
     known_not_sent,
     /// The write may have committed and must be looked up.
     ambiguous,
+    /// An authoritative response proves the requested economic effect was
+    /// rejected. Adapters must not use this for policy, quota, or malformed
+    /// responses whose commit status is not proven.
+    definitely_rejected,
+    /// Operator action is required, but this alone says nothing about whether
+    /// the economic effect committed.
     permanent,
     destination_mismatch,
 };
@@ -266,6 +272,7 @@ pub fn Dispatcher(comptime Store: type) type {
                     now,
                     claim_value.token.generation,
                 ) },
+                .definitely_rejected => .{ .permanent = .permanent_submission_failure },
                 .permanent => .{ .permanent = .permanent_submission_failure },
                 .destination_mismatch => .{ .permanent = .destination_mismatch },
             };

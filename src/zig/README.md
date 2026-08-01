@@ -76,9 +76,10 @@ owner-only key-file path from `EXCHANGE_INGRESS_KEY_FILE` (all three are
 required together), completes a mutual HMAC/HKDF challenge, sends one signed
 command, verifies one signed response, and closes. One five-second absolute
 deadline bounds authenticated connection setup through response verification.
-Traders are restricted to their profile-bound UID; operators can probe
-health/books or request shutdown. Authenticated `add-user` and `deposit` are
-always denied.
+Traders are restricted to their profile-bound UID. Operators can probe
+health/books, request shutdown, submit durable `fund-deposit` and
+`fund-withdraw` operations, and inspect them with `funding-status`. The legacy
+direct `deposit` command and `add-user` remain denied in authenticated mode.
 
 The TCP listener does not implement TLS and never accepts a non-loopback bind.
 Remote access requires an operator-owned TLS/mTLS L4 proxy and a TLS-capable
@@ -183,6 +184,42 @@ reduce each response to the adapter's typed evidence and use the resulting
 dispatcher disposition; the outbox's raw semantic transition APIs are trusted
 low-level building blocks, not HTTP response classifiers. None of that mutable
 or secret configuration belongs in browser WASM.
+
+The native Parix composition also owns a durable funding saga outside the
+matching and risk core. An operator supplies a stable operation UUID to
+`fund-deposit UID CURRENCY AMOUNT OPERATION_UUID` or
+`fund-withdraw UID CURRENCY AMOUNT OPERATION_UUID`, then polls
+`funding-status OPERATION_UUID`. Exact duplicate submissions are idempotent;
+reusing a UUID with different fields is rejected. Public states are
+`accepted`, `pending`, `completed`, `failed`, and `quarantined`.
+
+A deposit settles treasury to user in TigerBeetle before applying the local
+credit. A withdrawal applies the local debit before settling user to treasury;
+only an explicit authoritative rejection permits compensation and `failed`.
+Generic permanent policy/quota/misconfiguration responses, ambiguous remote
+outcomes, immutable-field mismatches, and a local replay that cannot be proved
+quarantine the operation for operator review. Transfer IDs
+are deterministic and domain-separated into the high-bit namespace. Per-UID
+local balance-adjustment transaction IDs are monotonic and begin above the
+floor derived from configured initial funding.
+
+Reconciliation retains whether lookup followed an ambiguous write or a
+conflict response. Exact absence after ambiguity permits a safe immutable retry;
+exact absence after conflict quarantines without resubmission or compensation.
+
+The funding store retains bounded, checksummed `FSG1` snapshots and its lock
+under the persistence root. Its header binds the Parix destination and profile
+identity/digest, while per-UID reserved and confirmed transaction frontiers are
+checked against the live core on startup. State is stored before side effects;
+restart performs exact-ID TigerBeetle lookup or idempotent local replay rather
+than blind resubmission. Normal startup requires the store to exist; the
+one-shot `--parix-funding-initialize` flag creates an absent store only for a
+proven first bootstrap and rejects an existing one. Version 1 retains terminal
+records and does not prune them, so operators must
+monitor capacity, include the funding snapshot in coordinated backups, and
+stop admission before capacity is exhausted. This is an accounting bridge, not
+a payment-provider rail, and it does not model TigerBeetle pending transfers or
+a clearing account.
 
 A server composition currently installs one destination-bound
 `tigerbeetle_exchange_integration.Integration(DurableFileOutbox(capacity), max_fills_per_batch)`

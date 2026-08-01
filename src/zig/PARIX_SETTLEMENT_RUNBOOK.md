@@ -82,9 +82,33 @@ zig build run-server -- \
   --persistence-root zig-out/runtime/parix
 ```
 
+The first creation of the local funding store is a separate, one-shot ceremony.
+Add `--parix-funding-initialize` only after proving this is the first use of the
+database/profile/persistence-root tuple. The flag requires `FSG1` to be absent,
+creates it only when every live core adjustment counter equals its configured
+initial-funding floor, and rejects an existing store. Remove the flag for every
+subsequent start:
+
+```sh
+zig build run-server -- \
+  --parix-settlement \
+  --parix-profile path/to/operator-profile.json \
+  --ingress-auth-profile path/to/operator-ingress-profile.json \
+  --parix-funding-initialize \
+  --persistence-root zig-out/runtime/parix
+```
+
+Never use the initialization flag to recover a missing snapshot. An absent
+`FSG1` after initialization is loss of accounting evidence and normal startup
+must fail closed.
+
 Without `--parix-settlement`, the native server follows its normal in-memory path and does not contact Parix. Keep the persistence root stable across restarts; changing or deleting it breaks the local journal/outbox recovery chain.
 
-The production-safe default is validate-only: every configured account and initial-funding transfer must already exist and match exactly. Missing records stop startup without sending a mutation. Two independent, explicit development controls are available:
+The production-safe default is open-existing and validate-only: `FSG1` must
+already exist, and every configured account and initial-funding transfer must
+already exist and match exactly. Missing records stop startup without sending a
+remote mutation. Two independent, explicit remote development controls are
+available:
 
 ```sh
 # Permit creation of missing configured accounts only.
@@ -112,12 +136,13 @@ Startup is intentionally fail-closed:
 1. The server loads both bounded profiles, resolves every ingress key file, and requires the ingress `instance_id`, settlement-profile database UUID, and `PARIX_DATABASE_ID` to match exactly.
 2. It creates or validates the durable profile manifest before opening the settlement outbox or local core persistence.
 3. It opens and validates the local exchange journal and durable settlement outbox before any remote write is possible.
-4. It looks up every configured account and initial-funding transfer. Existing records must exactly match their immutable fields.
-5. Missing records stop validate-only startup. Records are created only when the matching explicit provisioning flag is present.
-6. A timeout or connection loss after an allowed submission is treated as ambiguous. The bootstrap looks up the same deterministic ID and reconciles its exact fields before deciding whether another submission is safe. It never blindly retries an indeterminate create.
-7. The local symbol, users, and configured initial balances are bootstrapped idempotently, then the settlement worker starts and authenticated ingress begins serving.
+4. It bootstraps the local symbol, users, and configured initial balances idempotently, then opens `FSG1`. Startup compares every live native core adjustment counter with the snapshot's confirmed counter. Only the exact transaction recorded by a durable core-replay phase may explain a one-step lead; missing, rolled-back, or unprovable state stops startup.
+5. Normal startup requires the funding store to exist. The one-shot initialization flag requires it to be absent and the core counters to equal the profile floors.
+6. It then looks up every configured account and initial-funding transfer. Existing records must exactly match their immutable fields. Missing records stop validate-only startup; records are created only when the matching explicit provisioning flag is present.
+7. A timeout or connection loss after an allowed submission is treated as ambiguous. The bootstrap looks up the same deterministic ID and reconciles its exact fields before deciding whether another submission is safe. It never blindly retries an indeterminate create.
+8. Only after those checks do the settlement and funding workers start and authenticated ingress begin serving.
 
-Do not route mutations to the process until an authenticated `ping` returns `OK ready=true settlement=ready`. Use `exchange-core-client --auth-instance UUID --auth-credential ID ping` with `EXCHANGE_INGRESS_KEY_FILE` pointing to that credential's key file; the complete command is in the ingress runbook. The one-time startup line reports only the settlement state and is not an admission probe. A `settling` state means durable work still exists and new mutations are rejected, while authenticated ping and read requests remain available. On operator shutdown, the listener stops accepting work, the exchange core shuts down, and the settlement worker is joined before its transport is released. Restart with the same profiles, credentials, and persistence root; committed outbox entries are recovered idempotently by deterministic transfer ID.
+Do not route mutations to the process until an authenticated `ping` returns `OK ready=true settlement=ready funding=ready`. Use `exchange-core-client --auth-instance UUID --auth-credential ID ping` with `EXCHANGE_INGRESS_KEY_FILE` pointing to that credential's key file; the complete command is in the ingress runbook. The one-time startup line is not an admission probe. A non-ready settlement or funding state rejects new mutations, while authenticated health and permitted reads remain available. On operator shutdown, the listener stops accepting work, the funding worker stops and joins while the core is still available for local replay/compensation, then the exchange core shuts down and the trade-settlement worker joins before its transport is released. Restart without the initialization flag and with the same profiles, credentials, and persistence root; committed outbox and funding entries are recovered idempotently by deterministic transfer ID and local transaction ID.
 
 ## Local protocol smoke
 
@@ -182,6 +207,79 @@ Only the operator role can send `shutdown`; traders are denied. `OK shutdown` ac
 
 Restart the server with the same persistence root and confirm it becomes ready without creating duplicate TigerBeetle transfers.
 
+## Durable deposit and withdrawal sagas
+
+Funding is owned by the native Parix application/plugin. It does not alter the
+matching engine, risk rules, Java parity path, or the behavior of a server that
+does not enable Parix settlement. Only an authenticated operator may submit or
+inspect these commands:
+
+```text
+fund-deposit UID CURRENCY AMOUNT OPERATION_UUID
+fund-withdraw UID CURRENCY AMOUNT OPERATION_UUID
+funding-status OPERATION_UUID
+```
+
+These are syntax examples only. Do not issue a funding mutation against the
+shared sample database. Validate the profile and existing TigerBeetle records
+read-only first, then use a dedicated database and retained persistence root.
+The legacy direct `deposit` command remains denied in authenticated mode.
+
+The operation UUID is the stable idempotency key. An exact duplicate returns
+the retained operation; the same UUID with a different direction, UID,
+currency, or amount is rejected. Public states are `accepted`, `pending`,
+`completed`, `failed`, and `quarantined`. Terminal records are retained and not
+pruned in version 1.
+
+Deposit order is TigerBeetle treasury-to-user transfer, then idempotent local
+credit. Withdrawal order is idempotent local debit, then TigerBeetle
+user-to-treasury transfer. Only an explicit authoritative
+`definitely_rejected` transport disposition permits local withdrawal
+compensation and `failed`. Generic permanent policy/quota/misconfiguration
+responses quarantine; they are not proof that the remote transfer did not
+commit. Timeout/conflict evidence is reconciled by exact deterministic transfer
+ID. An absent lookup after an ambiguous write permits a retry; an absent lookup
+after a conflict response retains that cause and quarantines instead of looping,
+resubmitting, or compensating without proof. Immutable-field mismatch or a local
+journal replay that cannot be proved also finishes `quarantined` rather than
+guessing.
+
+Funding uses domain-separated deterministic high-bit transfer IDs so it cannot
+collide with trade settlement or configured initial funding. Local adjustment
+transaction IDs are monotonic per UID, start above the floor derived from that
+user's configured initial funding, and are persisted before application.
+The bounded funding store writes checksummed `FSG1` snapshots and holds a
+single-process lock under the persistence root. Its identity header binds the
+Parix destination and profile digest. Per UID it persists both the reserved and
+confirmed local transaction frontiers. Before any side effect, the next phase
+is made durable; after a crash, remote in-flight work is looked up and local
+in-flight work is replayed with the same transaction ID. Startup observes the
+core counter through the serialized native report path and rejects a missing or
+rolled-back store before any remote provisioning or worker I/O.
+
+### Recovery and quarantine
+
+1. Stop routing funding mutations and record the operation UUID, last reported
+   state, server exit, and non-secret transport evidence.
+2. Preserve the complete persistence root. Make a coordinated backup that
+   includes XCJ3, trade-settlement state, the funding `FSG1` snapshot, manifest,
+   and lock metadata. Never restore only the funding file into a different root.
+3. Confirm the database UUID and profile digest still match. Do not edit the
+   manifest or snapshot to force startup.
+4. Use read-only `parix tb lookup-transfers` and account lookup for the exact
+   deterministic ID. Compare every immutable field, not only amount or balance.
+5. Compare local journal/recovery evidence for the persisted per-UID transaction
+   ID. Do not use legacy `deposit`, a replacement UUID, or an ad hoc compensation.
+6. Restart without `--parix-funding-initialize` and with the unchanged database,
+   profiles, credentials, and persistence root. Automatic recovery may complete
+   only when exact evidence proves the next state. A missing snapshot or
+   quarantine requires a reviewed offline reconciliation plan.
+
+Because terminal records are never pruned, monitor retained entry count and
+alert before capacity is exhausted. Stop admission before the store is full.
+Capacity growth is an offline store migration with backup and verification; it
+is not permission to delete completed, failed, or quarantined history.
+
 ## Live Parix verification
 
 The `parix` CLI uses the authenticated local session. These lookup commands are read-only:
@@ -200,17 +298,23 @@ parix tb lookup-transfers \
   --json
 ```
 
+On 2026-08-02, read-only validation of database
+`0e46f90e-c38b-487a-b9f9-630f7839cc3f` found all eight fixture accounts and
+seed transfers `8421011` and `8422015` present with exact immutable fields. No
+mutation was sent. This is point-in-time fixture evidence, not authorization to
+attach a new local root or use the shared database for funds.
+
 After a fill, query the relevant accounts and transfer history to confirm the external balances and fee movements, then restart with the same persistence root and confirm no extra transfer appears. Parix may encode TigerBeetle `u128` amount fields as hexadecimal strings in JSON; use the integration decoder or compare the decoded numeric value instead of assuming the text is decimal.
 
 ## Unsupported boundaries
 
-- Deposits and withdrawals are not mirrored to TigerBeetle. The server must reject deposit-style mutations while settlement is enabled rather than updating only one system.
+- The funding saga is an accounting bridge, not a payment-provider rail. It does not ingest bank/card events or implement TigerBeetle pending transfers and a clearing account.
 - The roster is operator-configurable but immutable for one persistence root. Online user onboarding and profile migration are not implemented.
 - Changing symbol economics, users, ledgers, account IDs, funding, database, or publication domain requires a reviewed offline migration. Exact-digest restart rejection is intentional.
 - Legacy roots created before `settlement-profile.spf1` are not automatically adopted.
 - Authenticated ingress is Parix-only, accepts one signed command per connection, and remains loopback plaintext. The native listener bounds authenticated sessions to 64 and applies a five-second POSIX idle receive timeout; the native client independently bounds connection setup through verified response with a five-second absolute deadline. TLS/mTLS, public certificates, independent proxy connection caps, server-side absolute deadlines, and rate limiting still belong at the operator-owned L4 proxy.
-- Traders can act only as their profile-bound UID. Operators can probe health and books or request shutdown, but cannot trade. Authenticated `add-user` and `deposit` are denied for every role; startup profiles and explicit provisioning flags own those operations.
+- Traders can act only as their profile-bound UID. Operators can probe health and books, request shutdown, and operate durable funding sagas, but cannot trade. Authenticated `add-user` and legacy direct `deposit` are denied for every role.
 - This integration does not turn the shared development database into a production-grade custody or accounting service.
 - Parix credentials and ingress key files belong only in native/server-side processes. Never expose them to the WASM bundle, browser storage, or client-side JavaScript.
 
-The next productization slice is durable deposit and withdrawal sagas with explicit accepted, pending, completed, and quarantined states. Before a production rollout, use a dedicated database with an appropriate SLA, rehearse journal/outbox disaster recovery and credential rotation, verify the real TLS/mTLS proxy path, and monitor authenticated readiness plus settlement lag.
+Before a production rollout, use a dedicated database with an appropriate SLA, rehearse journal/outbox/funding disaster recovery and credential rotation, verify the real TLS/mTLS proxy path, and monitor authenticated readiness, settlement lag, funding status, quarantine, and retained funding capacity.

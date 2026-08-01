@@ -1589,6 +1589,24 @@ pub const ExchangeApi = struct {
         };
     }
 
+    /// Reads the monotonic balance-adjustment frontier through the serialized
+    /// report path. App-owned durable workflows use this to reject missing or
+    /// rolled-back recovery state before performing another side effect.
+    pub fn queryUserAdjustmentCounter(
+        self: *ExchangeApi,
+        uid: i64,
+    ) QueryTypedReportError!?i64 {
+        var report = try self.queryReport(.{ .single_user = uid });
+        defer report.deinit(self.allocator);
+        return switch (report) {
+            .single_user => |single| switch (single.query_execution_status) {
+                .ok => single.adjustments_counter,
+                .user_not_found => null,
+            },
+            else => error.UnexpectedReportResponseType,
+        };
+    }
+
     pub fn queryOrderBook(
         self: *ExchangeApi,
         symbol: i32,
@@ -7301,6 +7319,11 @@ test "exchange api direct typed query helpers align with core report responses" 
     };
     try std.testing.expectEqual(expected_user_balance, try api.queryUserBalance(uid, 15));
     try std.testing.expectEqual(@as(?i64, null), try api.queryUserBalance(9_999_999, 15));
+    try std.testing.expectEqual(@as(?i64, 1), try api.queryUserAdjustmentCounter(uid));
+    try std.testing.expectEqual(
+        @as(?i64, null),
+        try api.queryUserAdjustmentCounter(9_999_999),
+    );
 
     var expected_order_book_report = try core.queryReport(.{
         .order_book = .{

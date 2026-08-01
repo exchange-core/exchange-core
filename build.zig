@@ -119,6 +119,42 @@ pub fn build(b: *std.Build) void {
     const run_debug_parix_runtime_tests = b.addRunArtifact(debug_parix_runtime_tests);
     run_debug_parix_runtime_tests.step.dependOn(&run_debug_parix_bootstrap_tests.step);
 
+    const debug_parix_funding_saga_test_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/parix_funding_saga.zig"),
+        .target = target,
+        .optimize = .Debug,
+    });
+    debug_parix_funding_saga_test_module.addImport("exchange_core", debug_exchange_core);
+    const debug_parix_funding_saga_tests = b.addTest(.{
+        .root_module = debug_parix_funding_saga_test_module,
+    });
+    const run_debug_parix_funding_saga_tests = b.addRunArtifact(debug_parix_funding_saga_tests);
+    run_debug_parix_funding_saga_tests.step.dependOn(&run_debug_parix_runtime_tests.step);
+
+    const debug_parix_funding_store_test_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/parix_funding_store.zig"),
+        .target = target,
+        .optimize = .Debug,
+    });
+    debug_parix_funding_store_test_module.addImport("exchange_core", debug_exchange_core);
+    const debug_parix_funding_store_tests = b.addTest(.{
+        .root_module = debug_parix_funding_store_test_module,
+    });
+    const run_debug_parix_funding_store_tests = b.addRunArtifact(debug_parix_funding_store_tests);
+    run_debug_parix_funding_store_tests.step.dependOn(&run_debug_parix_funding_saga_tests.step);
+
+    const debug_parix_funding_runtime_test_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/parix_funding_runtime.zig"),
+        .target = target,
+        .optimize = .Debug,
+    });
+    debug_parix_funding_runtime_test_module.addImport("exchange_core", debug_exchange_core);
+    const debug_parix_funding_runtime_tests = b.addTest(.{
+        .root_module = debug_parix_funding_runtime_test_module,
+    });
+    const run_debug_parix_funding_runtime_tests = b.addRunArtifact(debug_parix_funding_runtime_tests);
+    run_debug_parix_funding_runtime_tests.step.dependOn(&run_debug_parix_funding_store_tests.step);
+
     const debug_server_test_module = b.createModule(.{
         .root_source_file = b.path("src/zig/apps/server.zig"),
         .target = target,
@@ -130,10 +166,10 @@ pub fn build(b: *std.Build) void {
         .root_module = debug_server_test_module,
     });
     const run_debug_server_tests = b.addRunArtifact(debug_server_tests);
-    run_debug_server_tests.step.dependOn(&run_debug_parix_runtime_tests.step);
+    run_debug_server_tests.step.dependOn(&run_debug_parix_funding_runtime_tests.step);
     const test_parix_apps_step = b.step(
         "test-parix-apps",
-        "Run native Parix transport, bootstrap, runtime, and server tests in Debug mode",
+        "Run native Parix transport, bootstrap, settlement, funding, and server tests in Debug mode",
     );
     test_parix_apps_step.dependOn(&run_debug_server_tests.step);
 
@@ -241,6 +277,42 @@ pub fn build(b: *std.Build) void {
     const run_release_safe_parix_runtime_tests = b.addRunArtifact(release_safe_parix_runtime_tests);
     run_release_safe_parix_runtime_tests.step.dependOn(&run_release_safe_parix_bootstrap_tests.step);
 
+    const release_safe_parix_funding_saga_test_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/parix_funding_saga.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+    });
+    release_safe_parix_funding_saga_test_module.addImport("exchange_core", release_safe_module);
+    const release_safe_parix_funding_saga_tests = b.addTest(.{
+        .root_module = release_safe_parix_funding_saga_test_module,
+    });
+    const run_release_safe_parix_funding_saga_tests = b.addRunArtifact(release_safe_parix_funding_saga_tests);
+    run_release_safe_parix_funding_saga_tests.step.dependOn(&run_release_safe_parix_runtime_tests.step);
+
+    const release_safe_parix_funding_store_test_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/parix_funding_store.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+    });
+    release_safe_parix_funding_store_test_module.addImport("exchange_core", release_safe_module);
+    const release_safe_parix_funding_store_tests = b.addTest(.{
+        .root_module = release_safe_parix_funding_store_test_module,
+    });
+    const run_release_safe_parix_funding_store_tests = b.addRunArtifact(release_safe_parix_funding_store_tests);
+    run_release_safe_parix_funding_store_tests.step.dependOn(&run_release_safe_parix_funding_saga_tests.step);
+
+    const release_safe_parix_funding_runtime_test_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/parix_funding_runtime.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+    });
+    release_safe_parix_funding_runtime_test_module.addImport("exchange_core", release_safe_module);
+    const release_safe_parix_funding_runtime_tests = b.addTest(.{
+        .root_module = release_safe_parix_funding_runtime_test_module,
+    });
+    const run_release_safe_parix_funding_runtime_tests = b.addRunArtifact(release_safe_parix_funding_runtime_tests);
+    run_release_safe_parix_funding_runtime_tests.step.dependOn(&run_release_safe_parix_funding_store_tests.step);
+
     const release_safe_server_test_module = b.createModule(.{
         .root_source_file = b.path("src/zig/apps/server.zig"),
         .target = target,
@@ -252,10 +324,10 @@ pub fn build(b: *std.Build) void {
         .root_module = release_safe_server_test_module,
     });
     const run_release_safe_server_tests = b.addRunArtifact(release_safe_server_tests);
-    run_release_safe_server_tests.step.dependOn(&run_release_safe_parix_runtime_tests.step);
+    run_release_safe_server_tests.step.dependOn(&run_release_safe_parix_funding_runtime_tests.step);
     const test_release_safe_parix_apps_step = b.step(
         "test-parix-apps-release-safe",
-        "Run native Parix transport, bootstrap, runtime, and server tests in ReleaseSafe mode",
+        "Run native Parix transport, bootstrap, settlement, funding, and server tests in ReleaseSafe mode",
     );
     test_release_safe_parix_apps_step.dependOn(&run_release_safe_server_tests.step);
 
@@ -501,8 +573,14 @@ pub fn build(b: *std.Build) void {
     run_gate_release_safe_parix_bootstrap_tests.step.dependOn(&run_gate_release_safe_parix_transport_tests.step);
     const run_gate_release_safe_parix_runtime_tests = b.addRunArtifact(release_safe_parix_runtime_tests);
     run_gate_release_safe_parix_runtime_tests.step.dependOn(&run_gate_release_safe_parix_bootstrap_tests.step);
+    const run_gate_release_safe_parix_funding_saga_tests = b.addRunArtifact(release_safe_parix_funding_saga_tests);
+    run_gate_release_safe_parix_funding_saga_tests.step.dependOn(&run_gate_release_safe_parix_runtime_tests.step);
+    const run_gate_release_safe_parix_funding_store_tests = b.addRunArtifact(release_safe_parix_funding_store_tests);
+    run_gate_release_safe_parix_funding_store_tests.step.dependOn(&run_gate_release_safe_parix_funding_saga_tests.step);
+    const run_gate_release_safe_parix_funding_runtime_tests = b.addRunArtifact(release_safe_parix_funding_runtime_tests);
+    run_gate_release_safe_parix_funding_runtime_tests.step.dependOn(&run_gate_release_safe_parix_funding_store_tests.step);
     const run_gate_release_safe_server_tests = b.addRunArtifact(release_safe_server_tests);
-    run_gate_release_safe_server_tests.step.dependOn(&run_gate_release_safe_parix_runtime_tests.step);
+    run_gate_release_safe_server_tests.step.dependOn(&run_gate_release_safe_parix_funding_runtime_tests.step);
     const run_gate_release_safe_client_tests = b.addRunArtifact(release_safe_client_tests);
     run_gate_release_safe_client_tests.step.dependOn(&run_gate_release_safe_server_tests.step);
     const run_gate_release_safe_browser_tests = b.addRunArtifact(release_safe_browser_tests);

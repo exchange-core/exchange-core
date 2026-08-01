@@ -68,6 +68,9 @@ The full command set is:
 ping
 add-user UID
 deposit UID CURRENCY AMOUNT TRANSACTION_ID
+fund-deposit UID CURRENCY AMOUNT OPERATION_UUID
+fund-withdraw UID CURRENCY AMOUNT OPERATION_UUID
+funding-status OPERATION_UUID
 place ORDER_ID UID SYMBOL PRICE SIZE bid|ask [gtc|ioc]
 move ORDER_ID UID SYMBOL NEW_PRICE
 reduce ORDER_ID UID SYMBOL SIZE
@@ -79,9 +82,9 @@ shutdown
 
 In authenticated Parix mode, traders may use `ping`, `book`, and the
 UID-bearing `balance`, `place`, `move`, `reduce`, and `cancel` commands only for
-their profile-bound UID. Operators may use `ping`, `book`, and `shutdown`.
-`add-user` and `deposit` are denied to every authenticated principal because
-the paired startup profiles own user and funding admission.
+their profile-bound UID. Operators may use `ping`, `book`, `shutdown`,
+`fund-deposit`, `fund-withdraw`, and `funding-status`. The legacy `add-user`
+and direct `deposit` commands are denied to every authenticated principal.
 
 `place` defaults to `gtc`; `book` defaults to depth `20` and accepts at most
 `1000`. Use the same `--host HOST --port PORT` options on both programs when
@@ -125,8 +128,14 @@ zig build run-server -- \
   --parix-settlement \
   --parix-profile path/to/operator-settlement-profile.json \
   --ingress-auth-profile path/to/operator-ingress-profile.json \
+  --parix-funding-initialize \
   --persistence-root zig-out/runtime/parix
 ```
+
+`--parix-funding-initialize` is required only for the proven first creation of
+the local `FSG1` store. It requires the file to be absent and rejects an
+existing store. Remove it for every restart; never use it to replace missing or
+rolled-back recovery evidence.
 
 The client identifies the expected instance and credential on the command line,
 but reads the key-file path only from `EXCHANGE_INGRESS_KEY_FILE`. Supply both
@@ -155,6 +164,30 @@ native listener remains plaintext and loopback-only. Remote clients require an
 operator-owned TLS/mTLS L4 proxy plus a TLS-capable tunnel or client; the bundled
 `exchange-core-client` does not negotiate TLS itself. Never expose port `7379`
 directly.
+
+### Durable operator funding
+
+The following is protocol syntax, not a recommendation to mutate the shared
+development database:
+
+```text
+fund-deposit 1001 11 500 1d0ce5c2-91bb-4d3b-8e54-55e266fe44cb
+fund-withdraw 1001 11 100 4d33b92b-b62d-4e51-9770-6c77f0141f60
+funding-status 1d0ce5c2-91bb-4d3b-8e54-55e266fe44cb
+```
+
+Run mutation commands only as an authenticated operator against a dedicated
+database and a retained persistence root whose identities have already passed
+validate-only startup. The operation UUID is the idempotency key: an exact
+duplicate returns the existing operation, while the same UUID with different
+UID, currency, amount, or direction is rejected. Poll `funding-status` until
+the durable state is `completed`, `failed`, or `quarantined`; `accepted` and
+`pending` are non-terminal. A quarantined operation requires the reconciliation
+procedure in [`PARIX_SETTLEMENT_RUNBOOK.md`](PARIX_SETTLEMENT_RUNBOOK.md), not a
+new UUID or a direct local `deposit`.
+
+Funding remains native and server-side. The browser/WASM desk has no funding
+commands, network transport, Parix credential, or ingress key.
 
 ## 2. Browser WebAssembly quickstart
 

@@ -316,7 +316,11 @@ fn createFundingTransfers(
                 .success => .accepted,
                 .conflict => .conflict,
                 .ambiguous => .ambiguous,
-                .known_not_sent, .permanent, .destination_mismatch => .rejected,
+                .known_not_sent,
+                .definitely_rejected,
+                .permanent,
+                .destination_mismatch,
+                => .rejected,
             };
         },
     };

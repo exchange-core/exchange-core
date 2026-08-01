@@ -1,9 +1,9 @@
 # ExchangeApi Class-by-Class Parity Audit (Java vs Zig)
 
 - Java public declarations: **33**
-- Zig public declarations: **209**
+- Zig public declarations: **210**
 - Java method families (unique names): **24**
-- Zig method families (unique names): **209**
+- Zig method families (unique names): **210**
 - Java families with same-name Zig coverage: **24**
 - Java families without same-name Zig coverage: **0**
 
@@ -186,27 +186,27 @@ _None._
 
 ### `balanceAdjustment`
 
-- `pub fn balanceAdjustment(` (`src/zig/core/exchange_api.zig:2293`)
+- `pub fn balanceAdjustment(` (`src/zig/core/exchange_api.zig:2311`)
 
 ### `binaryData`
 
-- `pub fn binaryData(` (`src/zig/core/exchange_api.zig:2422`)
+- `pub fn binaryData(` (`src/zig/core/exchange_api.zig:2440`)
 
 ### `cancelOrder`
 
-- `pub fn cancelOrder(` (`src/zig/core/exchange_api.zig:2378`)
+- `pub fn cancelOrder(` (`src/zig/core/exchange_api.zig:2396`)
 
 ### `createUser`
 
-- `pub fn createUser(` (`src/zig/core/exchange_api.zig:2236`)
+- `pub fn createUser(` (`src/zig/core/exchange_api.zig:2254`)
 
 ### `groupingControl`
 
-- `pub fn groupingControl(` (`src/zig/core/exchange_api.zig:2449`)
+- `pub fn groupingControl(` (`src/zig/core/exchange_api.zig:2467`)
 
 ### `moveOrder`
 
-- `pub fn moveOrder(` (`src/zig/core/exchange_api.zig:2355`)
+- `pub fn moveOrder(` (`src/zig/core/exchange_api.zig:2373`)
 
 ### `orderBookRequest`
 
@@ -214,7 +214,7 @@ _None._
 
 ### `placeNewOrder`
 
-- `pub fn placeNewOrder(` (`src/zig/core/exchange_api.zig:2322`)
+- `pub fn placeNewOrder(` (`src/zig/core/exchange_api.zig:2340`)
 
 ### `processReport`
 
@@ -234,7 +234,7 @@ _None._
 
 ### `reduceOrder`
 
-- `pub fn reduceOrder(` (`src/zig/core/exchange_api.zig:2399`)
+- `pub fn reduceOrder(` (`src/zig/core/exchange_api.zig:2417`)
 
 ### `requestOrderBookAsync`
 
@@ -242,11 +242,11 @@ _None._
 
 ### `reset`
 
-- `pub fn reset(` (`src/zig/core/exchange_api.zig:2462`)
+- `pub fn reset(` (`src/zig/core/exchange_api.zig:2480`)
 
 ### `resumeUser`
 
-- `pub fn resumeUser(` (`src/zig/core/exchange_api.zig:2274`)
+- `pub fn resumeUser(` (`src/zig/core/exchange_api.zig:2292`)
 
 ### `submitBinaryCommandAsync`
 
@@ -270,7 +270,7 @@ _None._
 
 ### `submitCommandsSync`
 
-- `pub fn submitCommandsSync(` (`src/zig/core/exchange_api.zig:1618`)
+- `pub fn submitCommandsSync(` (`src/zig/core/exchange_api.zig:1636`)
 
 ### `submitQueryAsync`
 
@@ -278,5 +278,5 @@ _None._
 
 ### `suspendUser`
 
-- `pub fn suspendUser(` (`src/zig/core/exchange_api.zig:2255`)
+- `pub fn suspendUser(` (`src/zig/core/exchange_api.zig:2273`)
 

@@ -129,6 +129,12 @@ zig build run-server -- \
   --persistence-root zig-out/runtime/parix
 ```
 
+For the proven first use of this database/profile/persistence-root tuple, add
+`--parix-funding-initialize` once. It creates an absent funding store only when
+the live core counters match the configured floors and rejects an existing
+store. Remove it for restarts; a missing store after initialization is a
+recovery incident, not permission to initialize again.
+
 Startup fails before serving requests when the profiles are not paired, the
 three database identities differ, a credential entry is invalid, a named
 environment variable is absent, or a secret file fails its type, mode, size,
@@ -179,14 +185,24 @@ submission:
 | --- | --- | --- |
 | `ping`, `book` | allowed | allowed |
 | `balance`, `place`, `move`, `reduce`, `cancel` | allowed only for the profile-bound UID | denied |
+| `fund-deposit`, `fund-withdraw`, `funding-status` | denied | allowed |
 | `shutdown` | denied | allowed |
 | `add-user`, `deposit` | denied | denied |
 
 Authenticated settlement users and initial balances come from the immutable
-Parix settlement profile and its explicit provisioning controls. The ingress
-protocol cannot create users or adjust balances. A denied request must not
+Parix settlement profile and its explicit provisioning controls. Operators can
+request plugin-owned funding sagas, but cannot bypass them with the legacy
+direct `deposit`. A denied request must not
 publish a command, run a read barrier, consume exchange sequence, or reveal
 another user's state.
+
+Funding mutation syntax is
+`fund-deposit UID CURRENCY AMOUNT OPERATION_UUID` or
+`fund-withdraw UID CURRENCY AMOUNT OPERATION_UUID`; status lookup is
+`funding-status OPERATION_UUID`. The UUID is a strict idempotency key. Exact
+duplicates resolve to the retained operation, while a UUID reused with
+different fields is rejected. The public states are `accepted`, `pending`,
+`completed`, `failed`, and `quarantined`.
 
 ## Health, readiness, and shutdown
 
@@ -253,9 +269,45 @@ EXCHANGE_INGRESS_KEY_FILE="$EXCHANGE_INGRESS_TRADER_1002_KEY_FILE" \
     book 241 10
 ```
 
-A foreign UID, an operator trading command, `add-user`, or `deposit` returns a
+A foreign UID, an operator trading command, trader funding command,
+`add-user`, or legacy `deposit` returns a
 signed authorization error without changing exchange state. Do not use a live
 shared database for these examples.
+
+## Funding recovery
+
+Funding is an application/plugin-owned saga; it does not change matching or
+risk behavior. Deposits create the TigerBeetle treasury-to-user transfer before
+the idempotent local credit. Withdrawals apply the local debit before creating
+the user-to-treasury transfer; only an explicit authoritative rejection permits
+compensation and `failed`. Generic permanent policy/quota/misconfiguration
+responses, ambiguous remote evidence, immutable-field mismatch, or an
+unprovable local replay finish `quarantined` and block automated repair.
+
+The server stores checksummed `FSG1` funding snapshots and a single-process
+lock under the persistence root. The store binds the Parix destination and
+profile identity/digest, persists intent before every side effect, uses
+deterministic high-bit TigerBeetle transfer IDs, and assigns monotonic local
+transaction IDs per UID above the floor derived from configured initial
+funding. It also retains confirmed per-UID core frontiers and compares them with
+serialized native core reports before startup I/O. On restart it performs exact
+transfer lookup or idempotent core replay. The durable lookup phase retains
+whether reconciliation followed an ambiguous write or a conflict response, so
+an absent conflict lookup quarantines instead of resubmitting or compensating
+without proof. Normal startup requires `FSG1` to exist;
+`--parix-funding-initialize` is a one-shot first-bootstrap ceremony that
+requires it to be absent and rejects an existing store. Keep the same database,
+profiles, credentials, and persistence root; do not delete or hand-edit the
+snapshot or lock around a quarantine, and never use the initialization flag as
+missing-file recovery.
+
+For an incident, stop funding admission, preserve and back up the full
+persistence root, record the operation UUID and last state, and use read-only
+Parix transfer/account lookup plus local journal evidence to establish which
+side effect committed. Do not submit a replacement UUID, manually adjust the
+core, or compensate TigerBeetle until the evidence has been reviewed. Version
+1 retains terminal records without pruning, so capacity exhaustion requires a
+planned offline migration to a larger store rather than deleting history.
 
 ## Rotate a credential
 
@@ -295,5 +347,7 @@ safe; revocation and rotation are still required.
   rate limiting remain operator-owned proxy responsibilities.
 - Parix API credentials remain outbound server secrets and are independent of
   ingress credentials.
-- Deposits and withdrawals are not mirrored settlement sagas and remain outside
-  authenticated ingress.
+- Funding is not a payment-provider rail and does not implement bank/card
+  ingress, TigerBeetle pending transfers, or a clearing account.
+- Browser/WASM clients never receive funding commands, Parix credentials, or
+  ingress secrets; a networked browser requires a separate server-side gateway.

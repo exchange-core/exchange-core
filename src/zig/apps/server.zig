@@ -4,6 +4,8 @@ const exchange_core = @import("exchange_core");
 const protocol = @import("exchange_protocol");
 const ingress_auth = @import("ingress_auth.zig");
 const parix_account_bootstrap = @import("parix_account_bootstrap.zig");
+const parix_funding_runtime = @import("parix_funding_runtime.zig");
+const parix_funding_saga = @import("parix_funding_saga.zig");
 const parix_http_transport = @import("parix_http_transport.zig");
 const parix_profile = @import("parix_settlement_profile.zig");
 const parix_settlement_runtime = @import("parix_settlement_runtime.zig");
@@ -60,6 +62,7 @@ const ArgumentError = error{
     MissingIngressAuthProfile,
     IngressAuthProfileWithoutSettlement,
     ParixProvisioningWithoutSettlement,
+    ParixFundingInitializationWithoutSettlement,
 };
 
 const RequestMapError = error{
@@ -91,6 +94,57 @@ const ParixEnvironment = struct {
     auth: parix_http_transport.Auth,
 };
 
+const FundingBalanceContext = struct {
+    allocator: std.mem.Allocator,
+    api: *core.exchange_api.ExchangeApi,
+
+    const vtable: parix_funding_runtime.BalancePort.VTable = .{
+        .apply = apply,
+        .is_running = isRunning,
+        .observe_adjustment_counter = observeAdjustmentCounter,
+    };
+
+    fn asPort(self: *@This()) parix_funding_runtime.BalancePort {
+        return .{ .context = self, .vtable = &vtable };
+    }
+
+    fn apply(raw_context: *anyopaque, adjustment: parix_funding_saga.CoreAdjustment) parix_funding_saga.CoreOutcome {
+        const self: *@This() = @ptrCast(@alignCast(raw_context));
+        var result = self.api.submitCommandSync(.{ .adjust_user_balance = .{
+            .uid = adjustment.uid,
+            .transaction_id = adjustment.transaction_id,
+            .currency = adjustment.currency,
+            .amount = adjustment.amount,
+            .adjustment_type = .adjustment,
+        } }) catch return .retryable;
+        defer result.deinit(self.allocator);
+
+        return switch (result) {
+            .response => |response| fundingCoreOutcome(response.result_code),
+            .persist_state => .rejected,
+        };
+    }
+
+    fn isRunning(raw_context: *anyopaque) bool {
+        const self: *@This() = @ptrCast(@alignCast(raw_context));
+        return self.api.isStarted() and !self.api.isStopped();
+    }
+
+    fn observeAdjustmentCounter(raw_context: *anyopaque, uid: i64) ?i64 {
+        const self: *@This() = @ptrCast(@alignCast(raw_context));
+        return self.api.queryUserAdjustmentCounter(uid) catch null;
+    }
+};
+
+fn fundingCoreOutcome(result_code: core.cmd.CommandResultCode) parix_funding_saga.CoreOutcome {
+    return switch (result_code) {
+        .success => .applied,
+        .user_mgmt_account_balance_adjustment_already_applied_same => .already_applied_same,
+        .user_mgmt_account_balance_adjustment_already_applied_many => .already_applied_many,
+        else => .rejected,
+    };
+}
+
 pub const Options = struct {
     host: []const u8 = DefaultHost,
     port: u16 = DefaultPort,
@@ -99,6 +153,7 @@ pub const Options = struct {
     ingress_auth_profile_path: ?[]const u8 = null,
     parix_create_accounts: bool = false,
     parix_development_seed: bool = false,
+    parix_funding_initialize: bool = false,
     persistence_root: []const u8 = DefaultPersistenceRoot,
     owned_host: ?[]u8 = null,
     owned_parix_profile_path: ?[]u8 = null,
@@ -219,7 +274,7 @@ fn runInMemory(io: std.Io, allocator: std.mem.Allocator, options: Options) !void
 
     try bootstrapDefaultSymbol(&api, allocator);
 
-    try serve(io, allocator, options, &api, null, null, null);
+    try serve(io, allocator, options, &api, null, null, null, null);
 }
 
 fn runWithParixSettlement(
@@ -376,6 +431,27 @@ fn runWithParixSettlement(
     var api = core.exchange_api.ExchangeApi.init(allocator, engine);
     var api_deinitialized = false;
     defer if (!api_deinitialized) api.deinit();
+    var funding_balance_context: FundingBalanceContext = .{
+        .allocator = allocator,
+        .api = &api,
+    };
+    var funding_runtime: parix_funding_runtime.Runtime = undefined;
+    var funding_runtime_initialized = false;
+    var funding_runtime_started = false;
+    defer {
+        if (funding_runtime_started) {
+            funding_runtime.stopAndJoin() catch |err| {
+                log.err("Parix funding shutdown failed: {s}", .{@errorName(err)});
+            };
+            funding_runtime_started = false;
+        }
+        if (funding_runtime_initialized) {
+            funding_runtime.deinit() catch |err| {
+                log.err("Parix funding cleanup failed: {s}", .{@errorName(err)});
+            };
+            funding_runtime_initialized = false;
+        }
+    }
 
     try settlement_runtime.install(engine);
     _ = try engine.startupFromConfiguredPersistence(
@@ -385,18 +461,32 @@ fn runWithParixSettlement(
         0,
     );
 
+    try bootstrapParixLocalProfileProvisionally(&api, allocator, configured_profile);
+    funding_runtime = try parix_funding_runtime.Runtime.init(
+        allocator,
+        io,
+        .{
+            .profile = configured_profile,
+            .persistence_root = settlement_runtime.persistenceRoot(),
+            .transport = gateway_client.asTransport(),
+            .balance_port = funding_balance_context.asPort(),
+            .open_policy = fundingOpenPolicy(options),
+        },
+    );
+    funding_runtime_initialized = true;
     _ = try parix_account_bootstrap.ensureProfile(
         &gateway_client,
         configured_profile,
         parixBootstrapPolicy(options),
     );
-    try bootstrapParixLocalProfile(&api, allocator, configured_profile);
     try settlement_runtime.start();
     switch (settlement_runtime.health()) {
         .failed => return error.ParixSettlementFailed,
         .quarantined => return error.ParixSettlementQuarantined,
         else => {},
     }
+    try funding_runtime.start();
+    funding_runtime_started = true;
 
     try serve(
         io,
@@ -404,10 +494,15 @@ fn runWithParixSettlement(
         options,
         &api,
         &settlement_runtime,
+        &funding_runtime,
         configured_profile,
         authenticated_ingress,
     );
 
+    try funding_runtime.stopAndJoin();
+    funding_runtime_started = false;
+    try funding_runtime.deinit();
+    funding_runtime_initialized = false;
     engine.shutdown();
     var stop_failure: ?parix_settlement_runtime.StopError = null;
     settlement_runtime.stopAndJoin() catch |err| switch (err) {
@@ -436,11 +531,13 @@ fn serve(
     options: Options,
     api: *core.exchange_api.ExchangeApi,
     settlement_runtime: ?*parix_settlement_runtime.Runtime,
+    funding_runtime: ?*parix_funding_runtime.Runtime,
     configured_profile: ?*const parix_profile.Profile,
     authenticated_ingress: ?*const ingress_auth.Profile,
 ) !void {
     std.debug.assert((settlement_runtime != null) == (configured_profile != null));
     std.debug.assert((settlement_runtime != null) == (authenticated_ingress != null));
+    std.debug.assert((settlement_runtime != null) == (funding_runtime != null));
     const address = try std.Io.net.IpAddress.resolve(io, options.host, options.port);
     var server = try address.listen(io, .{ .reuse_address = true });
     defer server.deinit(io);
@@ -450,7 +547,7 @@ fn serve(
     if (settlement_runtime) |runtime| {
         const symbol = configured_profile.?.symbolSpecification();
         try stdout_writer.interface.print(
-            "exchange-core server ready on {s}:{d} symbol={d} base={d} quote={d} settlement={s} ingress=authenticated max_sessions={d} receive_timeout_seconds={d}\n",
+            "exchange-core server ready on {s}:{d} symbol={d} base={d} quote={d} settlement={s} funding={s} ingress=authenticated max_sessions={d} receive_timeout_seconds={d}\n",
             .{
                 options.host,
                 options.port,
@@ -458,6 +555,7 @@ fn serve(
                 symbol.base_currency,
                 symbol.quote_currency,
                 @tagName(runtime.health()),
+                @tagName(funding_runtime.?.health()),
                 MaxAuthenticatedSessions,
                 AuthenticatedReceiveTimeoutSeconds,
             },
@@ -483,6 +581,7 @@ fn serve(
             &server,
             api,
             settlement_runtime.?,
+            funding_runtime.?,
             configured_profile.?,
             ingress_profile,
         );
@@ -499,6 +598,7 @@ fn serve(
             stream,
             api,
             settlement_runtime,
+            funding_runtime,
             configured_profile,
         ) catch |err| {
             log.warn("client connection failed: {s}", .{@errorName(err)});
@@ -515,6 +615,7 @@ const AuthenticatedServerContext = struct {
     allocator: std.mem.Allocator,
     api: *core.exchange_api.ExchangeApi,
     settlement_runtime: *parix_settlement_runtime.Runtime,
+    funding_runtime: *parix_funding_runtime.Runtime,
     configured_profile: *const parix_profile.Profile,
     authenticated_ingress: *const ingress_auth.Profile,
     execution_mutex: *std.Io.Mutex,
@@ -538,6 +639,7 @@ fn serveAuthenticatedConnections(
     server: *std.Io.net.Server,
     api: *core.exchange_api.ExchangeApi,
     settlement_runtime: *parix_settlement_runtime.Runtime,
+    funding_runtime: *parix_funding_runtime.Runtime,
     configured_profile: *const parix_profile.Profile,
     authenticated_ingress: *const ingress_auth.Profile,
 ) !void {
@@ -557,6 +659,7 @@ fn serveAuthenticatedConnections(
         .allocator = allocator,
         .api = api,
         .settlement_runtime = settlement_runtime,
+        .funding_runtime = funding_runtime,
         .configured_profile = configured_profile,
         .authenticated_ingress = authenticated_ingress,
         .execution_mutex = &execution_mutex,
@@ -654,6 +757,7 @@ fn serveAuthenticatedSession(
         stream,
         context.api,
         context.settlement_runtime,
+        context.funding_runtime,
         context.configured_profile,
         context.authenticated_ingress,
         context.execution_mutex,
@@ -676,6 +780,7 @@ fn serveAuthenticatedConnection(
     stream: std.Io.net.Stream,
     api: *core.exchange_api.ExchangeApi,
     settlement_runtime: *parix_settlement_runtime.Runtime,
+    funding_runtime: *parix_funding_runtime.Runtime,
     configured_profile: *const parix_profile.Profile,
     authenticated_ingress: *const ingress_auth.Profile,
     execution_mutex: *std.Io.Mutex,
@@ -778,6 +883,7 @@ fn serveAuthenticatedConnection(
             allocator,
             api,
             settlement_runtime,
+            funding_runtime,
             configured_profile,
             request,
             &response_writer,
@@ -974,6 +1080,7 @@ fn serveLegacyConnection(
     stream: std.Io.net.Stream,
     api: *core.exchange_api.ExchangeApi,
     settlement_runtime: ?*parix_settlement_runtime.Runtime,
+    funding_runtime: ?*parix_funding_runtime.Runtime,
     configured_profile: ?*const parix_profile.Profile,
 ) !bool {
     defer stream.close(io);
@@ -1011,6 +1118,7 @@ fn serveLegacyConnection(
             allocator,
             api,
             settlement_runtime,
+            funding_runtime,
             configured_profile,
             request,
             writer,
@@ -1028,21 +1136,38 @@ fn executeRequest(
     allocator: std.mem.Allocator,
     api: *core.exchange_api.ExchangeApi,
     settlement_runtime: ?*parix_settlement_runtime.Runtime,
+    funding_runtime: ?*parix_funding_runtime.Runtime,
     configured_profile: ?*const parix_profile.Profile,
     request: protocol.Request,
     writer: *std.Io.Writer,
 ) !bool {
     switch (request) {
         .ping => {
-            const ready = if (isReady(api, settlement_runtime)) "true" else "false";
+            const ready = if (isReady(api, settlement_runtime, funding_runtime)) "true" else "false";
             if (settlement_runtime) |runtime| {
                 try writer.print(
-                    "OK ready={s} settlement={s}\n",
-                    .{ ready, @tagName(runtime.health()) },
+                    "OK ready={s} settlement={s} funding={s}\n",
+                    .{
+                        ready,
+                        @tagName(runtime.health()),
+                        @tagName(funding_runtime.?.health()),
+                    },
                 );
             } else {
                 try writer.print("OK ready={s}\n", .{ready});
             }
+            return false;
+        },
+        .fund_deposit => |command| {
+            try executeFundingSubmit(funding_runtime, .deposit, command, writer);
+            return false;
+        },
+        .fund_withdraw => |command| {
+            try executeFundingSubmit(funding_runtime, .withdrawal, command, writer);
+            return false;
+        },
+        .funding_status => |operation_id| {
+            try executeFundingStatus(funding_runtime, operation_id, writer);
             return false;
         },
         .balance => |query| {
@@ -1089,6 +1214,7 @@ fn executeRequest(
             var result = try submitMutationRequest(
                 api,
                 settlement_runtime,
+                funding_runtime,
                 configured_profile,
                 request,
             );
@@ -1099,18 +1225,108 @@ fn executeRequest(
     }
 }
 
+fn executeFundingSubmit(
+    funding_runtime: ?*parix_funding_runtime.Runtime,
+    kind: parix_funding_saga.Kind,
+    command: protocol.FundingMutation,
+    writer: *std.Io.Writer,
+) std.Io.Writer.Error!void {
+    const runtime = funding_runtime orelse {
+        try writeError(writer, "funding", "FundingUnavailable");
+        return;
+    };
+    const accepted = runtime.submit(
+        kind,
+        command.operation_id.value,
+        command.uid,
+        command.currency,
+        command.amount,
+    ) catch |err| {
+        try writeError(writer, "funding", fundingErrorMessage(err));
+        return;
+    };
+    try writeFundingStatus(writer, accepted.status);
+}
+
+fn executeFundingStatus(
+    funding_runtime: ?*parix_funding_runtime.Runtime,
+    operation_id: protocol.FundingOperationId,
+    writer: *std.Io.Writer,
+) std.Io.Writer.Error!void {
+    const runtime = funding_runtime orelse {
+        try writeError(writer, "funding", "FundingUnavailable");
+        return;
+    };
+    const status = runtime.status(operation_id.value) catch |err| {
+        try writeError(writer, "funding", fundingErrorMessage(err));
+        return;
+    };
+    try writeFundingStatus(writer, status);
+}
+
+fn writeFundingStatus(
+    writer: *std.Io.Writer,
+    status: parix_funding_saga.Status,
+) std.Io.Writer.Error!void {
+    try writer.writeAll("OK funding operation=");
+    try (protocol.FundingOperationId{ .value = status.request.operation_id }).write(writer);
+    try writer.print(
+        " kind={s} uid={d} currency={d} amount={d} state={s} reason={s}\n",
+        .{
+            @tagName(status.request.kind),
+            status.request.uid,
+            status.request.currency,
+            status.request.amount,
+            @tagName(status.state),
+            fundingReason(status),
+        },
+    );
+}
+
+fn fundingReason(status: parix_funding_saga.Status) []const u8 {
+    if (status.failure_reason) |reason| return @tagName(reason);
+    if (status.quarantine_reason) |reason| return @tagName(reason);
+    return "none";
+}
+
+fn fundingErrorMessage(err: anyerror) []const u8 {
+    return switch (err) {
+        error.NotFound => "FundingNotFound",
+        error.IdempotencyConflict => "IdempotencyConflict",
+        error.CapacityExceeded => "FundingCapacityExceeded",
+        error.RuntimeNotRunning,
+        error.RuntimeFailed,
+        error.RuntimeQuarantined,
+        error.Poisoned,
+        error.StorageReadFailed,
+        error.StorageAmbiguous,
+        => "FundingUnavailable",
+        else => "FundingFailed",
+    };
+}
+
 fn isReady(
     api: *const core.exchange_api.ExchangeApi,
     settlement_runtime: ?*const parix_settlement_runtime.Runtime,
+    funding_runtime: ?*const parix_funding_runtime.Runtime,
 ) bool {
     if (!api.isStarted() or api.isStopped()) return false;
     const runtime = settlement_runtime orelse return true;
-    return runtime.health() == .ready;
+    if (runtime.health() != .ready) return false;
+    return fundingHealthIsReady(funding_runtime.?.health());
+}
+
+fn fundingHealthIsReady(health: parix_funding_runtime.Health) bool {
+    return switch (health) {
+        .ready, .pending => true,
+        .cold, .failed, .quarantined, .stopped => false,
+    };
 }
 
 fn submitMutationRequest(
     api: *core.exchange_api.ExchangeApi,
     settlement_runtime: ?*parix_settlement_runtime.Runtime,
+    funding_runtime: ?*parix_funding_runtime.Runtime,
     configured_profile: ?*const parix_profile.Profile,
     request: protocol.Request,
 ) !core.api_command.ApiCommandResult {
@@ -1121,10 +1337,21 @@ fn submitMutationRequest(
         const profile = configured_profile orelse
             return error.ParixProfileUnavailable;
         try validateParixRequest(profile, request);
+        const funding = funding_runtime orelse return error.ParixFundingNotReady;
+        if (!fundingHealthAllowsCoreMutation(funding.health())) {
+            return error.ParixFundingNotReady;
+        }
         if (!runtime.tryBeginMutation()) return error.ParixSettlementNotReady;
         mutation_runtime = runtime;
     }
     return api.submitCommandSync(try apiCommandForRequest(request));
+}
+
+fn fundingHealthAllowsCoreMutation(health: parix_funding_runtime.Health) bool {
+    return switch (health) {
+        .ready, .pending => true,
+        .cold, .failed, .quarantined, .stopped => false,
+    };
 }
 
 fn validateParixRequest(
@@ -1138,7 +1365,14 @@ fn validateParixRequest(
         .move => |command| try validateParixMutation(configured_profile, command.uid, command.symbol),
         .reduce => |command| try validateParixMutation(configured_profile, command.uid, command.symbol),
         .cancel => |command| try validateParixMutation(configured_profile, command.uid, command.symbol),
-        .ping, .balance, .book, .shutdown => return,
+        .ping,
+        .fund_deposit,
+        .fund_withdraw,
+        .funding_status,
+        .balance,
+        .book,
+        .shutdown,
+        => return,
     }
 }
 
@@ -1228,6 +1462,10 @@ fn parixBootstrapPolicy(options: Options) parix_account_bootstrap.Policy {
     };
 }
 
+fn fundingOpenPolicy(options: Options) parix_funding_runtime.OpenPolicy {
+    return if (options.parix_funding_initialize) .initialize else .open_existing;
+}
+
 fn nonEmptyEnvironmentValue(value: ?[]const u8) ?[]const u8 {
     const present = value orelse return null;
     return if (present.len == 0) null else present;
@@ -1303,7 +1541,14 @@ fn apiCommandForRequest(request: protocol.Request) RequestMapError!core.api_comm
                 .symbol = command.symbol,
             },
         },
-        .ping, .balance, .book, .shutdown => error.NonCommandRequest,
+        .ping,
+        .fund_deposit,
+        .fund_withdraw,
+        .funding_status,
+        .balance,
+        .book,
+        .shutdown,
+        => error.NonCommandRequest,
     };
 }
 
@@ -1367,7 +1612,10 @@ fn bootstrapSymbol(
     }
 }
 
-fn bootstrapParixLocalProfile(
+/// Replays immutable profile bootstrap commands. An advanced balance counter is
+/// admitted only provisionally: production startup must call `Runtime.init`
+/// immediately afterward so FSG/core alignment is proven before side effects.
+fn bootstrapParixLocalProfileProvisionally(
     api: *core.exchange_api.ExchangeApi,
     allocator: std.mem.Allocator,
     configured_profile: *const parix_profile.Profile,
@@ -1428,8 +1676,13 @@ fn bootstrapParixBalance(
         .response => |response| response.result_code,
         .persist_state => return error.UnexpectedBootstrapResult,
     };
+    // `already_applied_many` is only provisional restart admission. The Parix
+    // startup path must immediately open the destination-bound FSG store and
+    // validate the live core counter against its phase-aware saga state before
+    // either worker or ingress can start.
     if (result_code != .success and
-        result_code != .user_mgmt_account_balance_adjustment_already_applied_same)
+        result_code != .user_mgmt_account_balance_adjustment_already_applied_same and
+        result_code != .user_mgmt_account_balance_adjustment_already_applied_many)
     {
         return error.ParixBalanceBootstrapRejected;
     }
@@ -1502,6 +1755,10 @@ fn parseOptions(
             options.parix_development_seed = true;
             continue;
         }
+        if (std.mem.eql(u8, argument, "--parix-funding-initialize")) {
+            options.parix_funding_initialize = true;
+            continue;
+        }
         if (std.mem.eql(u8, argument, "--persistence-root")) {
             try options.setPersistenceRoot(
                 allocator,
@@ -1535,6 +1792,9 @@ fn validateOptions(options: Options) ArgumentError!void {
         (options.parix_create_accounts or options.parix_development_seed))
     {
         return error.ParixProvisioningWithoutSettlement;
+    }
+    if (!options.parix_settlement and options.parix_funding_initialize) {
+        return error.ParixFundingInitializationWithoutSettlement;
     }
 }
 
@@ -1594,6 +1854,7 @@ fn writeUsage(writer: *std.Io.Writer) std.Io.Writer.Error!void {
         \\                            [--parix-settlement --parix-profile PATH
         \\                             --ingress-auth-profile PATH]
         \\                            [--parix-create-accounts] [--parix-development-seed]
+        \\                            [--parix-funding-initialize]
         \\                            [--persistence-root RELATIVE_PATH]
         \\
         \\Starts a loopback-only newline-delimited TCP exchange server.
@@ -1606,6 +1867,7 @@ fn writeUsage(writer: *std.Io.Writer) std.Io.Writer.Error!void {
         \\  --ingress-auth-profile PATH  Required non-secret authenticated-ingress profile
         \\  --parix-create-accounts       Create missing external accounts (default: validate only)
         \\  --parix-development-seed      Seed configured development funding transfers
+        \\  --parix-funding-initialize    Create an absent funding saga store once; fail if present
         \\  --persistence-root PATH      Safe relative durable root (default: zig-out/runtime/parix)
         \\  -h, --help                   Show this help
         \\
@@ -1706,6 +1968,7 @@ test "server defaults to loopback-only development mode" {
     try std.testing.expectEqual(@as(?[]const u8, null), options.ingress_auth_profile_path);
     try std.testing.expect(!options.parix_create_accounts);
     try std.testing.expect(!options.parix_development_seed);
+    try std.testing.expect(!options.parix_funding_initialize);
     try std.testing.expectEqualStrings(DefaultPersistenceRoot, options.persistence_root);
 
     const symbol = try defaultSymbolSpecification();
@@ -1721,6 +1984,10 @@ test "server defaults to loopback-only development mode" {
 
 test "Parix and ingress profiles are required exactly with settlement" {
     try validateOptions(.{});
+    try std.testing.expectEqual(
+        parix_funding_runtime.OpenPolicy.open_existing,
+        fundingOpenPolicy(.{}),
+    );
     try std.testing.expectError(
         error.MissingParixProfile,
         validateOptions(.{ .parix_settlement = true }),
@@ -1744,16 +2011,26 @@ test "Parix and ingress profiles are required exactly with settlement" {
         error.ParixProvisioningWithoutSettlement,
         validateOptions(.{ .parix_create_accounts = true }),
     );
+    try std.testing.expectError(
+        error.ParixFundingInitializationWithoutSettlement,
+        validateOptions(.{ .parix_funding_initialize = true }),
+    );
 
     const validate_only: Options = .{
         .parix_settlement = true,
         .parix_profile_path = "profile.json",
         .ingress_auth_profile_path = "ingress.json",
+        .parix_funding_initialize = true,
     };
     try validateOptions(validate_only);
     const validate_policy = parixBootstrapPolicy(validate_only);
     try std.testing.expect(!validate_policy.allow_account_creation);
     try std.testing.expect(!validate_policy.allow_initial_funding);
+    try std.testing.expect(validate_only.parix_funding_initialize);
+    try std.testing.expectEqual(
+        parix_funding_runtime.OpenPolicy.initialize,
+        fundingOpenPolicy(validate_only),
+    );
 
     const funding_only: Options = .{
         .parix_settlement = true,
@@ -1809,6 +2086,7 @@ test "Parix CLI owns profile paths and enforces settlement pairing" {
         "--ingress-auth-profile",
         "/operator/ingress.json",
         "--parix-development-seed",
+        "--parix-funding-initialize",
     };
     var parsed = try parseOptions(.{ .vector = &configured_argv }, allocator);
     switch (parsed) {
@@ -1828,6 +2106,7 @@ test "Parix CLI owns profile paths and enforces settlement pairing" {
             try std.testing.expect(options.owned_ingress_auth_profile_path != null);
             try std.testing.expect(!options.parix_create_accounts);
             try std.testing.expect(options.parix_development_seed);
+            try std.testing.expect(options.parix_funding_initialize);
         },
     }
 }
@@ -2134,6 +2413,9 @@ test "Parix database identity must exactly match profile before transport" {
 test "Parix mode uses non-default profile for mutation admission" {
     const configured_profile = try testParixProfile(std.testing.allocator);
     defer configured_profile.deinit();
+    const operation_id = try protocol.FundingOperationId.parse(
+        "123e4567-e89b-12d3-a456-426614174000",
+    );
 
     try std.testing.expectError(
         error.ParixDepositUnsupported,
@@ -2177,6 +2459,19 @@ test "Parix mode uses non-default profile for mutation admission" {
             .symbol = 9002,
         } }),
     );
+    try validateParixRequest(configured_profile, .{ .fund_deposit = .{
+        .uid = 7001,
+        .currency = 31,
+        .amount = 1,
+        .operation_id = operation_id,
+    } });
+    try validateParixRequest(configured_profile, .{ .fund_withdraw = .{
+        .uid = 7001,
+        .currency = 31,
+        .amount = 1,
+        .operation_id = operation_id,
+    } });
+    try validateParixRequest(configured_profile, .{ .funding_status = operation_id });
 }
 
 test "server port parser rejects zero, overflow, and non-numeric input" {
@@ -2206,6 +2501,142 @@ test "server maps wire place orders to settlement-safe API commands" {
             try std.testing.expectEqual(core.common.OrderType.ioc, command.order_type);
         },
         else => return error.UnexpectedApiCommand,
+    }
+
+    const operation_id = try protocol.FundingOperationId.parse(
+        "123e4567-e89b-12d3-a456-426614174000",
+    );
+    try std.testing.expectError(
+        error.NonCommandRequest,
+        apiCommandForRequest(.{ .fund_deposit = .{
+            .uid = 81,
+            .currency = DefaultQuoteCurrency,
+            .amount = 1,
+            .operation_id = operation_id,
+        } }),
+    );
+    try std.testing.expectError(
+        error.NonCommandRequest,
+        apiCommandForRequest(.{ .fund_withdraw = .{
+            .uid = 81,
+            .currency = DefaultQuoteCurrency,
+            .amount = 1,
+            .operation_id = operation_id,
+        } }),
+    );
+    try std.testing.expectError(
+        error.NonCommandRequest,
+        apiCommandForRequest(.{ .funding_status = operation_id }),
+    );
+}
+
+test "funding balance adapter maps only exact idempotent core results" {
+    try std.testing.expectEqual(
+        parix_funding_saga.CoreOutcome.applied,
+        fundingCoreOutcome(.success),
+    );
+    try std.testing.expectEqual(
+        parix_funding_saga.CoreOutcome.already_applied_same,
+        fundingCoreOutcome(.user_mgmt_account_balance_adjustment_already_applied_same),
+    );
+    try std.testing.expectEqual(
+        parix_funding_saga.CoreOutcome.already_applied_many,
+        fundingCoreOutcome(.user_mgmt_account_balance_adjustment_already_applied_many),
+    );
+    try std.testing.expectEqual(
+        parix_funding_saga.CoreOutcome.rejected,
+        fundingCoreOutcome(.user_mgmt_account_balance_adjustment_nsf),
+    );
+    try std.testing.expectEqual(
+        parix_funding_saga.CoreOutcome.rejected,
+        fundingCoreOutcome(.user_mgmt_user_not_found),
+    );
+}
+
+test "funding requests fail closed without the authenticated Parix runtime" {
+    const operation_id = try protocol.FundingOperationId.parse(
+        "123e4567-e89b-12d3-a456-426614174000",
+    );
+    const command: protocol.FundingMutation = .{
+        .uid = 7001,
+        .currency = 31,
+        .amount = 50,
+        .operation_id = operation_id,
+    };
+
+    var submit_storage: [128]u8 = undefined;
+    var submit_writer = std.Io.Writer.fixed(&submit_storage);
+    try executeFundingSubmit(null, .deposit, command, &submit_writer);
+    try std.testing.expectEqualStrings(
+        "ERR kind=funding message=FundingUnavailable\n",
+        submit_writer.buffered(),
+    );
+
+    var status_storage: [128]u8 = undefined;
+    var status_writer = std.Io.Writer.fixed(&status_storage);
+    try executeFundingStatus(null, operation_id, &status_writer);
+    try std.testing.expectEqualStrings(
+        "ERR kind=funding message=FundingUnavailable\n",
+        status_writer.buffered(),
+    );
+}
+
+test "funding status is canonical and error details stay bounded" {
+    const operation_id = try protocol.FundingOperationId.parse(
+        "123e4567-e89b-12d3-a456-426614174000",
+    );
+    const request: parix_funding_saga.Request = .{
+        .operation_id = operation_id.value,
+        .kind = .withdrawal,
+        .uid = 7002,
+        .currency = 32,
+        .amount = 125,
+    };
+
+    var accepted_storage: [256]u8 = undefined;
+    var accepted_writer = std.Io.Writer.fixed(&accepted_storage);
+    try writeFundingStatus(&accepted_writer, .{
+        .request = request,
+        .state = .accepted,
+    });
+    try std.testing.expectEqualStrings(
+        "OK funding operation=123e4567-e89b-12d3-a456-426614174000 kind=withdrawal uid=7002 currency=32 amount=125 state=accepted reason=none\n",
+        accepted_writer.buffered(),
+    );
+
+    var quarantined_storage: [256]u8 = undefined;
+    var quarantined_writer = std.Io.Writer.fixed(&quarantined_storage);
+    try writeFundingStatus(&quarantined_writer, .{
+        .request = request,
+        .state = .quarantined,
+        .quarantine_reason = .transfer_mismatch,
+    });
+    try std.testing.expectEqualStrings(
+        "OK funding operation=123e4567-e89b-12d3-a456-426614174000 kind=withdrawal uid=7002 currency=32 amount=125 state=quarantined reason=transfer_mismatch\n",
+        quarantined_writer.buffered(),
+    );
+
+    try std.testing.expectEqualStrings("FundingNotFound", fundingErrorMessage(error.NotFound));
+    try std.testing.expectEqualStrings("IdempotencyConflict", fundingErrorMessage(error.IdempotencyConflict));
+    try std.testing.expectEqualStrings("FundingCapacityExceeded", fundingErrorMessage(error.CapacityExceeded));
+    try std.testing.expectEqualStrings("FundingUnavailable", fundingErrorMessage(error.RuntimeFailed));
+    try std.testing.expectEqualStrings("FundingUnavailable", fundingErrorMessage(error.StorageAmbiguous));
+    try std.testing.expectEqualStrings("FundingFailed", fundingErrorMessage(error.UnknownFundingUser));
+}
+
+test "funding health is ready during work and fails closed otherwise" {
+    inline for (.{ parix_funding_runtime.Health.ready, .pending }) |health| {
+        try std.testing.expect(fundingHealthIsReady(health));
+        try std.testing.expect(fundingHealthAllowsCoreMutation(health));
+    }
+    inline for (.{
+        parix_funding_runtime.Health.cold,
+        .failed,
+        .quarantined,
+        .stopped,
+    }) |health| {
+        try std.testing.expect(!fundingHealthIsReady(health));
+        try std.testing.expect(!fundingHealthAllowsCoreMutation(health));
     }
 }
 
@@ -2264,8 +2695,8 @@ test "Parix local bootstrap uses dynamic profile and is idempotent" {
     try engine.startup();
     defer engine.shutdown();
 
-    try bootstrapParixLocalProfile(&api, allocator, configured_profile);
-    try bootstrapParixLocalProfile(&api, allocator, configured_profile);
+    try bootstrapParixLocalProfileProvisionally(&api, allocator, configured_profile);
+    try bootstrapParixLocalProfileProvisionally(&api, allocator, configured_profile);
     try settleReadBarrier(&api, allocator);
 
     var snapshot = try api.queryOrderBook(9001, 20);
@@ -2280,5 +2711,53 @@ test "Parix local bootstrap uses dynamic profile and is idempotent" {
     try std.testing.expectEqual(
         @as(?i64, 5_678),
         try api.queryUserBalance(7_002, 32),
+    );
+}
+
+test "Parix local bootstrap provisionally tolerates a saga-advanced counter" {
+    const allocator = std.testing.allocator;
+    const configured_profile = try testParixProfile(allocator);
+    defer configured_profile.deinit();
+    const engine = try allocator.create(core.exchange_core.ExchangeCore);
+    defer allocator.destroy(engine);
+
+    engine.* = try core.exchange_core.ExchangeCore.initWithIo(allocator, std.testing.io, .{
+        .matching = .{ .orderbook_kind = .direct },
+    });
+    defer engine.deinit();
+
+    var api = core.exchange_api.ExchangeApi.init(allocator, engine);
+    defer api.deinit();
+    try engine.startup();
+    defer engine.shutdown();
+
+    try bootstrapParixLocalProfileProvisionally(&api, allocator, configured_profile);
+    const seed_id: i64 = @intCast(configured_profile.initialFunding()[0].id);
+    var saga_adjustment = try api.submitCommandSync(.{ .adjust_user_balance = .{
+        .uid = 7_001,
+        .transaction_id = seed_id + 1,
+        .currency = 31,
+        .amount = 25,
+        .adjustment_type = .adjustment,
+    } });
+    defer saga_adjustment.deinit(allocator);
+    switch (saga_adjustment) {
+        .response => |response| try std.testing.expectEqual(
+            core.cmd.CommandResultCode.success,
+            response.result_code,
+        ),
+        .persist_state => return error.UnexpectedSagaAdjustmentResult,
+    }
+
+    // Restart replays the profile bootstrap before FSG validation. The old
+    // seed now reports already_applied_many and must remain side-effect free.
+    try bootstrapParixLocalProfileProvisionally(&api, allocator, configured_profile);
+    try std.testing.expectEqual(
+        @as(?i64, seed_id + 1),
+        try api.queryUserAdjustmentCounter(7_001),
+    );
+    try std.testing.expectEqual(
+        @as(?i64, 1_259),
+        try api.queryUserBalance(7_001, 31),
     );
 }

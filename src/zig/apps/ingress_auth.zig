@@ -236,6 +236,9 @@ pub const RequestKind = enum {
     ping,
     add_user,
     deposit,
+    fund_deposit,
+    fund_withdraw,
+    funding_status,
     place,
     move,
     reduce,
@@ -684,6 +687,9 @@ pub fn requestKind(request: protocol.Request) RequestKind {
         .ping => .ping,
         .add_user => .add_user,
         .deposit => .deposit,
+        .fund_deposit => .fund_deposit,
+        .fund_withdraw => .fund_withdraw,
+        .funding_status => .funding_status,
         .place => .place,
         .move => .move,
         .reduce => .reduce,
@@ -697,7 +703,7 @@ pub fn requestKind(request: protocol.Request) RequestKind {
 pub fn authorize(principal: Principal, request: protocol.Request) AuthorizationError!void {
     switch (principal) {
         .operator => switch (request) {
-            .ping, .book, .shutdown => {},
+            .ping, .fund_deposit, .fund_withdraw, .funding_status, .book, .shutdown => {},
             .add_user, .deposit, .place, .move, .reduce, .cancel, .balance => return error.Forbidden,
         },
         .trader => |uid| switch (request) {
@@ -707,7 +713,13 @@ pub fn authorize(principal: Principal, request: protocol.Request) AuthorizationE
             .reduce => |value| if (value.uid != uid) return error.CrossUid,
             .cancel => |value| if (value.uid != uid) return error.CrossUid,
             .balance => |value| if (value.uid != uid) return error.CrossUid,
-            .add_user, .deposit, .shutdown => return error.Forbidden,
+            .add_user,
+            .deposit,
+            .fund_deposit,
+            .fund_withdraw,
+            .funding_status,
+            .shutdown,
+            => return error.Forbidden,
         },
     }
 }
@@ -1396,6 +1408,9 @@ test "proof session server ack and payload MACs bind all context" {
 }
 
 test "authorization is exhaustive across request kinds and roles" {
+    const operation_id = try protocol.FundingOperationId.parse(
+        "123e4567-e89b-12d3-a456-426614174000",
+    );
     const requests = [_]protocol.Request{
         .ping,
         .{ .add_user = .{ .uid = 1001 } },
@@ -1405,6 +1420,19 @@ test "authorization is exhaustive across request kinds and roles" {
             .amount = 10,
             .transaction_id = 1,
         } },
+        .{ .fund_deposit = .{
+            .uid = 1001,
+            .currency = 15,
+            .amount = 10,
+            .operation_id = operation_id,
+        } },
+        .{ .fund_withdraw = .{
+            .uid = 1001,
+            .currency = 15,
+            .amount = 10,
+            .operation_id = operation_id,
+        } },
+        .{ .funding_status = operation_id },
         .{ .place = .{
             .order_id = 7,
             .uid = 1001,
@@ -1439,6 +1467,9 @@ test "authorization is exhaustive across request kinds and roles" {
         .ping,
         .add_user,
         .deposit,
+        .fund_deposit,
+        .fund_withdraw,
+        .funding_status,
         .place,
         .move,
         .reduce,
@@ -1448,10 +1479,10 @@ test "authorization is exhaustive across request kinds and roles" {
         .shutdown,
     };
     const trader_allowed = [_]bool{
-        true, false, false, true, true, true, true, true, true, false,
+        true, false, false, false, false, false, true, true, true, true, true, true, false,
     };
     const operator_allowed = [_]bool{
-        true, false, false, false, false, false, false, false, true, true,
+        true, false, false, true, true, true, false, false, false, false, false, true, true,
     };
 
     for (requests, 0..) |request, index| {
@@ -1505,6 +1536,33 @@ test "trader authorization reports every cross-UID request" {
     for (cross_uid_requests) |request| {
         try std.testing.expectError(
             error.CrossUid,
+            authorize(.{ .trader = 1001 }, request),
+        );
+    }
+}
+
+test "trader funding authorization fails closed before UID inspection" {
+    const operation_id = try protocol.FundingOperationId.parse(
+        "123e4567-e89b-12d3-a456-426614174000",
+    );
+    const requests = [_]protocol.Request{
+        .{ .fund_deposit = .{
+            .uid = 2002,
+            .currency = 15,
+            .amount = 10,
+            .operation_id = operation_id,
+        } },
+        .{ .fund_withdraw = .{
+            .uid = 2002,
+            .currency = 15,
+            .amount = 10,
+            .operation_id = operation_id,
+        } },
+        .{ .funding_status = operation_id },
+    };
+    for (requests) |request| {
+        try std.testing.expectError(
+            error.Forbidden,
             authorize(.{ .trader = 1001 }, request),
         );
     }

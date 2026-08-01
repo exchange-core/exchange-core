@@ -88,6 +88,22 @@ pub const UserSpec = struct {
     quote_account_id: u128,
 };
 
+/// Complete TigerBeetle route for an externally initiated deposit or
+/// withdrawal. This app-layer view is derived from the validated profile and
+/// does not extend the persisted profile schema.
+pub const FundingRoute = struct {
+    destination_id: registry.DestinationId,
+    ledger: u32,
+    treasury_account_id: u128,
+    user_account_id: u128,
+};
+
+pub const FundingRouteError = error{
+    UnknownFundingUser,
+    UnknownFundingCurrency,
+    InvalidFundingRoute,
+};
+
 /// Successful construction guarantees both `id` and `amount` fit a positive
 /// `i64`, matching the current core balance-adjustment command contract.
 pub const InitialFundingSpec = struct {
@@ -186,6 +202,38 @@ pub const Profile = opaque {
 
     pub fn isConfiguredUser(self: *const Profile, uid: i64) bool {
         return findUser(self.users(), uid) != null;
+    }
+
+    /// Resolves the external asset movement route for one configured user and
+    /// one of the profile's base/quote currencies.
+    pub fn fundingRoute(
+        self: *const Profile,
+        uid: i64,
+        currency: i32,
+    ) FundingRouteError!FundingRoute {
+        const impl = profileImpl(self);
+        const user = findUser(impl.users_storage[0..impl.user_count], uid) orelse
+            return error.UnknownFundingUser;
+        const currency_spec = findCurrency(impl.currencies, currency) orelse
+            return error.UnknownFundingCurrency;
+        const user_account_id = if (currency == impl.symbol.base_currency)
+            user.base_account_id
+        else if (currency == impl.symbol.quote_currency)
+            user.quote_account_id
+        else
+            return error.InvalidFundingRoute;
+        if (currency_spec.ledger == 0 or
+            !validExternalAccountId(currency_spec.treasury_account_id) or
+            !validExternalAccountId(user_account_id))
+        {
+            return error.InvalidFundingRoute;
+        }
+        return .{
+            .destination_id = impl.destination_id,
+            .ledger = currency_spec.ledger,
+            .treasury_account_id = currency_spec.treasury_account_id,
+            .user_account_id = user_account_id,
+        };
     }
 
     pub fn createRegistry(
@@ -763,10 +811,14 @@ fn userAccount(id: u128, uid: i64, currency: i32, ledger: u32) AccountSpec {
 }
 
 fn currencyFor(currencies: [2]CurrencySpec, currency_id: i32) CurrencySpec {
+    return findCurrency(currencies, currency_id) orelse unreachable;
+}
+
+fn findCurrency(currencies: [2]CurrencySpec, currency_id: i32) ?CurrencySpec {
     for (currencies) |currency| {
         if (currency.currency == currency_id) return currency;
     }
-    unreachable;
+    return null;
 }
 
 fn findUser(users: []const UserSpec, uid: i64) ?UserSpec {
@@ -890,6 +942,40 @@ test "development profile exposes canonical dynamic routing and writers" {
     try std.testing.expectEqualStrings(
         "[\"42011\",\"42015\",\"420011\",\"420015\",\"421011\",\"421015\",\"422011\",\"422015\"]",
         lookup_writer.buffered(),
+    );
+}
+
+test "funding routes resolve base and quote accounts without digest drift" {
+    const profile = try Profile.developmentExample(std.testing.allocator);
+    defer profile.deinit();
+    const digest_before = profile.digest();
+
+    const base = try profile.fundingRoute(1001, 11);
+    try std.testing.expectEqual(profile.destinationId(), base.destination_id);
+    try std.testing.expectEqual(@as(u32, 421), base.ledger);
+    try std.testing.expectEqual(@as(u128, 420_011), base.treasury_account_id);
+    try std.testing.expectEqual(@as(u128, 421_011), base.user_account_id);
+
+    const quote = try profile.fundingRoute(1002, 15);
+    try std.testing.expectEqual(profile.destinationId(), quote.destination_id);
+    try std.testing.expectEqual(@as(u32, 425), quote.ledger);
+    try std.testing.expectEqual(@as(u128, 420_015), quote.treasury_account_id);
+    try std.testing.expectEqual(@as(u128, 422_015), quote.user_account_id);
+
+    try std.testing.expectEqualSlices(u8, &digest_before, &profile.digest());
+}
+
+test "funding routes reject unknown users and currencies" {
+    const profile = try Profile.developmentExample(std.testing.allocator);
+    defer profile.deinit();
+
+    try std.testing.expectError(
+        error.UnknownFundingUser,
+        profile.fundingRoute(9_999, 11),
+    );
+    try std.testing.expectError(
+        error.UnknownFundingCurrency,
+        profile.fundingRoute(1001, 99),
     );
 }
 

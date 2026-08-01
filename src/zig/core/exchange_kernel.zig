@@ -230,6 +230,9 @@ pub const SingleUserReport = struct {
     uid: i64,
     query_execution_status: SingleUserQueryExecutionStatus,
     user_status: ?common.UserStatus = null,
+    /// Native-only risk frontier used by app-layer recovery checks. The Java
+    /// report wire remains unchanged and snapshots already persist this value.
+    adjustments_counter: ?i64 = null,
     accounts: std.AutoHashMapUnmanaged(i32, i64) = .empty,
     positions: std.AutoHashMapUnmanaged(i32, SingleUserPosition) = .empty,
     orders: std.ArrayListUnmanaged(naive.UserOrderView) = .empty,
@@ -1807,6 +1810,7 @@ pub const ExchangeKernel = struct {
 
         if (self.risk_engine.getUserProfile(uid)) |profile| {
             report.user_status = profile.user_status;
+            report.adjustments_counter = profile.adjustments_counter;
 
             var accounts_it = profile.accounts.iterator();
             while (accounts_it.next()) |entry| {
@@ -4497,6 +4501,7 @@ pub const MultiShardKernelSet = struct {
 
         if (self.riskEngineForUid(uid).getUserProfile(uid)) |profile| {
             report.user_status = profile.user_status;
+            report.adjustments_counter = profile.adjustments_counter;
             var accounts_it = profile.accounts.iterator();
             while (accounts_it.next()) |entry| {
                 try report.accounts.put(self.allocator, entry.key_ptr.*, entry.value_ptr.*);
@@ -10387,6 +10392,7 @@ test "exchange api report queries expose risk hash, fees, balances, and orderboo
         .single_user => |single| {
             try std.testing.expectEqual(SingleUserQueryExecutionStatus.ok, single.query_execution_status);
             try std.testing.expectEqual(@as(?common.UserStatus, .active), single.user_status);
+            try std.testing.expectEqual(@as(?i64, 1), single.adjustments_counter);
             try std.testing.expectEqual(@as(i64, 998), single.accounts.get(15) orelse 0);
         },
         else => unreachable,
@@ -10753,6 +10759,7 @@ test "single user report found and not-found semantics" {
         .single_user => |single| {
             try std.testing.expectEqual(SingleUserQueryExecutionStatus.user_not_found, single.query_execution_status);
             try std.testing.expect(single.user_status == null);
+            try std.testing.expect(single.adjustments_counter == null);
             try std.testing.expectEqual(@as(usize, 0), single.accounts.count());
             try std.testing.expectEqual(@as(usize, 0), single.positions.count());
             try std.testing.expectEqual(@as(usize, 0), single.orders.items.len);
