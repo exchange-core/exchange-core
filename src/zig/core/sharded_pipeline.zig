@@ -5,6 +5,7 @@ const events = @import("events.zig");
 const kernel_mod = @import("exchange_kernel.zig");
 const locked_allocator_mod = @import("locked_allocator.zig");
 const publication = @import("publication_sequence.zig");
+const settlement_lifecycle = @import("settlement_lifecycle.zig");
 
 pub const SlotPhase = enum {
     free,
@@ -311,6 +312,7 @@ pub const FailureStage = enum {
     publication_ownership,
     risk_pre_process,
     matching,
+    journal,
     risk_release,
 };
 
@@ -638,6 +640,7 @@ pub const PersistentGroupedRuntime = struct {
         start_gate: ?*StartGate = null,
         stage_gate: ?*StageGate = null,
         join_gate: ?*JoinGate = null,
+        settlement_hooks: settlement_lifecycle.Hooks = .disabled(),
     };
 
     pub const CreateError = StableSlotRing.InitError || std.mem.Allocator.Error || error{
@@ -663,6 +666,7 @@ pub const PersistentGroupedRuntime = struct {
         UnknownSequence,
         NonContiguousJournalAck,
     };
+    pub const DurableJournalError = JournalError || settlement_lifecycle.Error;
     pub const ResultMetadataError = error{
         PipelinePoisoned,
         UnknownSequence,
@@ -768,6 +772,12 @@ pub const PersistentGroupedRuntime = struct {
         active: RiskReleaseScratchKey,
     };
 
+    const SettlementPrepareState = enum {
+        idle,
+        preparing,
+        done,
+    };
+
     const RiskReleaseScratchSnapshot = struct {
         active: ?RiskReleaseScratchKey,
         prepared_count: usize,
@@ -820,6 +830,7 @@ pub const PersistentGroupedRuntime = struct {
     preparation_errors: []?anyerror,
     committed: []bool,
     risk_release_scratch: RiskReleaseScratchState = .idle,
+    settlement_prepare_state: SettlementPrepareState = .idle,
     r2_group_boundary_cache: R2GroupBoundaryCache = .{},
     mutex: RuntimeMutex,
     condition: RuntimeCondition,
@@ -839,6 +850,7 @@ pub const PersistentGroupedRuntime = struct {
     start_gate: ?*StartGate,
     stage_gate: ?*StageGate,
     join_gate: ?*JoinGate,
+    settlement_hooks: settlement_lifecycle.Hooks,
 
     pub fn create(
         allocator: std.mem.Allocator,
@@ -921,6 +933,7 @@ pub const PersistentGroupedRuntime = struct {
             .start_gate = config.start_gate,
             .stage_gate = config.stage_gate,
             .join_gate = config.join_gate,
+            .settlement_hooks = config.settlement_hooks,
             .mutex = .{ .threaded = undefined },
             .condition = .{ .threaded = undefined },
         };
@@ -1245,6 +1258,31 @@ pub const PersistentGroupedRuntime = struct {
     ) JournalError!void {
         self.mutex.lock();
         defer self.mutex.unlock();
+        const slot = try self.validateJournalAckLocked(sequence);
+        self.publishJournalAckLocked(slot, sequence);
+    }
+
+    /// Atomically publishes an integration's durable journal mark and the
+    /// runtime's logical acknowledgement. A rejected durable mark poisons the
+    /// sequence before result transfer can cross the journal frontier.
+    pub fn acknowledgeDurableJournal(
+        self: *PersistentGroupedRuntime,
+        sequence: u64,
+    ) DurableJournalError!void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        const slot = try self.validateJournalAckLocked(sequence);
+        _ = self.settlement_hooks.markJournalCommitted(.fromInt(sequence)) catch |err| {
+            self.poisonLocked(.journal, sequence, null, err);
+            return err;
+        };
+        self.publishJournalAckLocked(slot, sequence);
+    }
+
+    fn validateJournalAckLocked(
+        self: *PersistentGroupedRuntime,
+        sequence: u64,
+    ) JournalError!*PipelineSlot {
         if (self.state == .poisoned) {
             if (!self.isStrictPreFatalSequenceLocked(sequence)) {
                 return error.PipelinePoisoned;
@@ -1260,6 +1298,14 @@ pub const PersistentGroupedRuntime = struct {
         if (sequence != expected) return error.NonContiguousJournalAck;
         const slot = self.slots.getSequence(sequence) orelse
             return error.UnknownSequence;
+        return slot;
+    }
+
+    fn publishJournalAckLocked(
+        self: *PersistentGroupedRuntime,
+        slot: *PipelineSlot,
+        sequence: u64,
+    ) void {
         slot.journal_acked = true;
         self.frontiers.journal = sequence;
         self.condition.broadcast();
@@ -1672,6 +1718,7 @@ pub const PersistentGroupedRuntime = struct {
             }
             @memset(self.frontiers.risk_r2, sequence);
             slot.r2_complete = true;
+            if (!self.markSettlementRiskR2CommittedLocked(sequence)) return;
             self.reclaimLocked();
             self.condition.broadcast();
             return;
@@ -1726,6 +1773,7 @@ pub const PersistentGroupedRuntime = struct {
                 return;
             }
         }
+        if (!self.ensureSettlementPreparedLocked(slot)) return;
 
         for (0..self.risk_contexts.len) |index| {
             var prepared = self.prepared[index].?;
@@ -1740,6 +1788,7 @@ pub const PersistentGroupedRuntime = struct {
         @memset(self.frontiers.risk_r2, sequence);
         slot.r2_complete = true;
         self.finishRiskReleaseScratchLocked(slot);
+        if (!self.markSettlementRiskR2CommittedLocked(sequence)) return;
         self.reclaimLocked();
         self.condition.broadcast();
     }
@@ -1764,7 +1813,10 @@ pub const PersistentGroupedRuntime = struct {
             }
             self.frontiers.risk_r2[shard_index] = sequence;
             const group_complete = allEqual(self.frontiers.risk_r2, sequence);
-            if (group_complete) slot.r2_complete = true;
+            if (group_complete) {
+                slot.r2_complete = true;
+                if (!self.markSettlementRiskR2CommittedLocked(sequence)) return;
+            }
             self.reclaimLocked();
             if (group_complete) {
                 self.condition.broadcast();
@@ -1825,6 +1877,7 @@ pub const PersistentGroupedRuntime = struct {
                 return;
             }
         }
+        if (!self.ensureSettlementPreparedLocked(slot)) return;
         if (self.committed[shard_index]) return;
 
         var prepared = self.prepared[shard_index].?;
@@ -1839,11 +1892,78 @@ pub const PersistentGroupedRuntime = struct {
         if (allEqual(self.frontiers.risk_r2, sequence)) {
             slot.r2_complete = true;
             self.finishRiskReleaseScratchLocked(slot);
+            if (!self.markSettlementRiskR2CommittedLocked(sequence)) return;
         }
         self.reclaimLocked();
         if (allEqual(self.frontiers.risk_r2, sequence)) {
             self.condition.broadcast();
         }
+    }
+
+    /// Called with the runtime mutex held and returns with it held. Only one
+    /// risk worker may publish a durable settlement preparation for the active
+    /// scratch sequence; other workers retry after the condition broadcast.
+    fn ensureSettlementPreparedLocked(
+        self: *PersistentGroupedRuntime,
+        slot: *const PipelineSlot,
+    ) bool {
+        switch (self.settlement_prepare_state) {
+            .done => return true,
+            .preparing => return false,
+            .idle => self.settlement_prepare_state = .preparing,
+        }
+
+        // Only spot/currency-exchange risk release maps to settlement
+        // transfers. Margin and other economic release kinds still publish
+        // the monotonic R2 committed mark after their internal commit.
+        if (slot.r2_release_kind != .exchange or
+            !self.settlement_hooks.isEnabled())
+        {
+            self.settlement_prepare_state = .done;
+            return true;
+        }
+        const specification = self.adapter.canonicalSymbolSpecification(&slot.command) orelse {
+            self.poisonLocked(
+                .risk_release,
+                slot.sequence,
+                null,
+                error.MissingCanonicalSymbolSpecification,
+            );
+            return false;
+        };
+        const sequence = slot.sequence;
+        const batch: settlement_lifecycle.PreparedBatch = .{
+            .sequence = .fromInt(sequence),
+            .command = &slot.command,
+            .specification = specification,
+            .events_head = slot.r2_events_head,
+            .mode = .live,
+        };
+        self.mutex.unlock();
+        const observation = self.settlement_hooks.prepare(batch);
+        self.mutex.lock();
+        if (self.state == .poisoned) return false;
+        _ = observation catch |err| {
+            self.poisonLocked(.risk_release, sequence, null, err);
+            return false;
+        };
+        self.settlement_prepare_state = .done;
+        self.condition.broadcast();
+        return true;
+    }
+
+    /// The internal frontier is updated before this callback. Rejection is
+    /// therefore terminal evidence about an already irreversible R2 commit,
+    /// never a reason to roll the truthful frontier back.
+    fn markSettlementRiskR2CommittedLocked(
+        self: *PersistentGroupedRuntime,
+        sequence: u64,
+    ) bool {
+        _ = self.settlement_hooks.markRiskR2Committed(.fromInt(sequence)) catch |err| {
+            self.poisonLocked(.risk_release, sequence, null, err);
+            return false;
+        };
+        return true;
     }
 
     fn riskReleaseScratchIsIdleLocked(self: *const PersistentGroupedRuntime) bool {
@@ -1865,6 +1985,7 @@ pub const PersistentGroupedRuntime = struct {
         switch (self.risk_release_scratch) {
             .idle => {
                 std.debug.assert(self.prepared_count == 0);
+                std.debug.assert(self.settlement_prepare_state == .idle);
                 std.debug.assert(self.prepared.len == self.risk_contexts.len);
                 std.debug.assert(self.preparation_done.len == self.risk_contexts.len);
                 std.debug.assert(self.preparation_errors.len == self.risk_contexts.len);
@@ -1911,6 +2032,7 @@ pub const PersistentGroupedRuntime = struct {
         std.debug.assert(active.sequence == slot.sequence);
         std.debug.assert(active.generation == slot.generation);
         std.debug.assert(self.prepared_count == self.risk_contexts.len);
+        std.debug.assert(self.settlement_prepare_state == .done);
         for (
             self.prepared,
             self.preparation_done,
@@ -1926,6 +2048,7 @@ pub const PersistentGroupedRuntime = struct {
         @memset(self.preparation_done, false);
         @memset(self.preparation_errors, null);
         @memset(self.committed, false);
+        self.settlement_prepare_state = .idle;
         self.risk_release_scratch = .idle;
     }
 
@@ -2506,6 +2629,148 @@ const SpotFixture = struct {
             .ask,
         );
         command.symbol = self.symbol;
+        return command;
+    }
+};
+
+const SettlementLifecycleTestRecorder = struct {
+    prepare_calls: std.atomic.Value(usize) = .init(0),
+    risk_calls: std.atomic.Value(usize) = .init(0),
+    journal_calls: std.atomic.Value(usize) = .init(0),
+    last_prepare_sequence: std.atomic.Value(u64) = .init(0),
+    last_risk_sequence: std.atomic.Value(u64) = .init(0),
+    last_journal_sequence: std.atomic.Value(u64) = .init(0),
+    last_prepare_symbol: std.atomic.Value(i32) = .init(0),
+    last_prepare_trade_count: std.atomic.Value(usize) = .init(0),
+    last_prepare_mode: std.atomic.Value(u8) = .init(0),
+    block_prepare: bool = false,
+    reject_prepare: bool = false,
+    reject_risk: bool = false,
+    reject_journal: bool = false,
+    prepare_reached: std.atomic.Value(bool) = .init(false),
+    prepare_release: std.atomic.Value(bool) = .init(false),
+
+    fn hooks(self: *SettlementLifecycleTestRecorder) settlement_lifecycle.Hooks {
+        return .enabled(self, &.{
+            .prepare = prepare,
+            .mark_risk_r2_committed = markRiskR2Committed,
+            .mark_journal_committed = markJournalCommitted,
+            .finish_recovery = finishRecovery,
+        });
+    }
+
+    fn waitForPrepare(self: *SettlementLifecycleTestRecorder) void {
+        while (!self.prepare_reached.load(.acquire)) {
+            std.Thread.yield() catch {};
+        }
+    }
+
+    fn releasePrepare(self: *SettlementLifecycleTestRecorder) void {
+        self.prepare_release.store(true, .release);
+    }
+
+    fn prepare(
+        context: *anyopaque,
+        batch: settlement_lifecycle.PreparedBatch,
+    ) settlement_lifecycle.PrepareObservation {
+        const self: *SettlementLifecycleTestRecorder = @ptrCast(@alignCast(context));
+        _ = self.prepare_calls.fetchAdd(1, .acq_rel);
+        self.last_prepare_sequence.store(batch.sequence.toInt(), .release);
+        self.last_prepare_symbol.store(batch.specification.symbol_id, .release);
+        self.last_prepare_trade_count.store(batch.tradeCount(), .release);
+        self.last_prepare_mode.store(@intFromEnum(batch.mode), .release);
+        self.prepare_reached.store(true, .release);
+        if (self.block_prepare) {
+            while (!self.prepare_release.load(.acquire)) {
+                std.Thread.yield() catch {};
+            }
+        }
+        return if (self.reject_prepare) .rejected else .prepared;
+    }
+
+    fn markRiskR2Committed(
+        context: *anyopaque,
+        sequence: publication.PublicationSequence,
+    ) settlement_lifecycle.MarkObservation {
+        const self: *SettlementLifecycleTestRecorder = @ptrCast(@alignCast(context));
+        _ = self.risk_calls.fetchAdd(1, .acq_rel);
+        self.last_risk_sequence.store(sequence.toInt(), .release);
+        return if (self.reject_risk) .rejected else .marked;
+    }
+
+    fn markJournalCommitted(
+        context: *anyopaque,
+        sequence: publication.PublicationSequence,
+    ) settlement_lifecycle.MarkObservation {
+        const self: *SettlementLifecycleTestRecorder = @ptrCast(@alignCast(context));
+        _ = self.journal_calls.fetchAdd(1, .acq_rel);
+        self.last_journal_sequence.store(sequence.toInt(), .release);
+        return if (self.reject_journal) .rejected else .marked;
+    }
+
+    fn finishRecovery(
+        _: *anyopaque,
+        _: publication.PublicationSequence,
+    ) settlement_lifecycle.RecoveryObservation {
+        return .not_required;
+    }
+};
+
+const MarginFixture = struct {
+    symbol: i32 = 5991,
+    maker_uid: i64 = 201,
+    taker_uid: i64 = 200,
+
+    fn setup(self: MarginFixture, kernels: *kernel_mod.MultiShardKernelSet) !void {
+        try kernels.addSymbolAll(try common.CoreSymbolSpecification.init(.{
+            .symbol_id = self.symbol,
+            .symbol_type = .futures_contract,
+            .base_currency = 840,
+            .quote_currency = 392,
+            .base_scale_k = 1,
+            .quote_scale_k = 1,
+            .taker_fee = 0,
+            .maker_fee = 0,
+            .margin_buy = 10,
+            .margin_sell = 10,
+        }));
+        try executeImmediate(kernels, makeAddUser(self.maker_uid), .success);
+        try executeImmediate(kernels, makeAddUser(self.taker_uid), .success);
+        try executeImmediate(
+            kernels,
+            makeBalanceAdjustment(self.maker_uid, 392, 1_000, 1),
+            .success,
+        );
+        try executeImmediate(
+            kernels,
+            makeBalanceAdjustment(self.taker_uid, 392, 1_000, 1),
+            .success,
+        );
+        var maker = cmd.OrderCommand.newOrder(
+            .gtc,
+            20_001,
+            self.maker_uid,
+            100,
+            0,
+            2,
+            .ask,
+        );
+        maker.symbol = self.symbol;
+        try executeImmediate(kernels, maker, .success);
+    }
+
+    fn takerBid(self: MarginFixture, group: i64) cmd.OrderCommand {
+        var command = cmd.OrderCommand.newOrder(
+            .ioc,
+            20_002,
+            self.taker_uid,
+            100,
+            100,
+            2,
+            .bid,
+        );
+        command.symbol = self.symbol;
+        command.events_group = group;
         return command;
     }
 };
@@ -4278,4 +4543,277 @@ test "persistent grouped journal result and r2 chains remain ordered and non ali
         @as(u64, 2),
         runtime.r2_group_boundary_cache.probeCount(),
     );
+}
+
+test "persistent grouped settlement prepares exchange before R2 independently of journal" {
+    const allocator = std.testing.allocator;
+    const fixture: SpotFixture = .{};
+    var kernels = try kernel_mod.MultiShardKernelSet.initWithTopology(
+        allocator,
+        1,
+        2,
+        .{ .orderbook_kind = .direct },
+    );
+    defer kernels.deinit();
+    try fixture.setup(&kernels);
+    const settled = kernels.next_seq;
+    const trade_sequence = settled + 1;
+    const boundary_sequence = trade_sequence + 1;
+    var recorder: SettlementLifecycleTestRecorder = .{};
+
+    const runtime = try PersistentGroupedRuntime.create(
+        allocator,
+        &kernels,
+        .{
+            .capacity = 4,
+            .payload_allocator_is_thread_safe = true,
+            .settlement_hooks = recorder.hooks(),
+        },
+    );
+    defer runtime.destroy() catch unreachable;
+    try runtime.start();
+
+    var trade = fixture.takerBid(42_001, 3_001);
+    var boundary = makeNop(3_002);
+    const submissions = [_]Submission{
+        .{ .sequence = .fromInt(trade_sequence), .command = &trade },
+        .{ .sequence = .fromInt(boundary_sequence), .command = &boundary },
+    };
+    try runtime.submitBatchAtSequence(&submissions);
+    try runtime.waitForRiskRelease(trade_sequence);
+
+    // The pre-existing contract allows R2 to commit before journal durability.
+    // Results remain journal-gated even though risk and its durable mark moved.
+    try std.testing.expect((try runtime.takeNextResult()) == null);
+    try std.testing.expectEqual(@as(usize, 1), recorder.prepare_calls.load(.acquire));
+    try std.testing.expectEqual(@as(usize, 1), recorder.risk_calls.load(.acquire));
+    try std.testing.expectEqual(trade_sequence, recorder.last_prepare_sequence.load(.acquire));
+    try std.testing.expectEqual(fixture.symbol, recorder.last_prepare_symbol.load(.acquire));
+    try std.testing.expectEqual(@as(usize, 1), recorder.last_prepare_trade_count.load(.acquire));
+    try std.testing.expectEqual(
+        @as(u8, @intFromEnum(settlement_lifecycle.ExecutionMode.live)),
+        recorder.last_prepare_mode.load(.acquire),
+    );
+
+    try runtime.waitForMatching(boundary_sequence);
+    try runtime.acknowledgeDurableJournal(trade_sequence);
+    try runtime.acknowledgeDurableJournal(boundary_sequence);
+    try std.testing.expectEqual(@as(usize, 2), recorder.journal_calls.load(.acquire));
+    try std.testing.expectEqual(boundary_sequence, recorder.last_journal_sequence.load(.acquire));
+    for (trade_sequence..boundary_sequence + 1) |sequence| {
+        var response = (try runtime.takeNextResult()).?;
+        try std.testing.expectEqual(sequence, response.sequence);
+        response.deinit(allocator);
+    }
+
+    try std.testing.expectEqual(boundary_sequence, try runtime.terminalQuiesce());
+    try std.testing.expectEqual(@as(usize, 1), recorder.prepare_calls.load(.acquire));
+    try std.testing.expectEqual(@as(usize, 2), recorder.risk_calls.load(.acquire));
+    try std.testing.expectEqual(boundary_sequence, recorder.last_risk_sequence.load(.acquire));
+    try runtime.shutdown();
+}
+
+test "persistent grouped rejected exchange preparation commits no shard or later batch" {
+    const allocator = std.testing.allocator;
+    const fixture: SpotFixture = .{};
+    var kernels = try kernel_mod.MultiShardKernelSet.initWithTopology(
+        allocator,
+        1,
+        2,
+        .{ .orderbook_kind = .direct },
+    );
+    defer kernels.deinit();
+    try fixture.setup(&kernels);
+    const settled = kernels.next_seq;
+    const first_sequence = settled + 1;
+    var recorder: SettlementLifecycleTestRecorder = .{
+        .block_prepare = true,
+        .reject_prepare = true,
+    };
+
+    const runtime = try PersistentGroupedRuntime.create(
+        allocator,
+        &kernels,
+        .{
+            .capacity = 4,
+            .payload_allocator_is_thread_safe = true,
+            .settlement_hooks = recorder.hooks(),
+        },
+    );
+    defer runtime.destroy() catch unreachable;
+    defer recorder.releasePrepare();
+    try runtime.start();
+
+    var first = fixture.takerBid(43_001, 4_001);
+    var later = fixture.takerBid(43_002, 4_002);
+    var boundary = makeNop(4_003);
+    const submissions = [_]Submission{
+        .{ .sequence = .fromInt(first_sequence), .command = &first },
+        .{ .sequence = .fromInt(first_sequence + 1), .command = &later },
+        .{ .sequence = .fromInt(first_sequence + 2), .command = &boundary },
+    };
+    try runtime.submitBatchAtSequence(&submissions);
+    recorder.waitForPrepare();
+
+    try std.testing.expectEqual(@as(usize, 1), recorder.prepare_calls.load(.acquire));
+    try std.testing.expectEqual(first_sequence + 2, runtime.acceptedFrontier());
+    try std.testing.expectEqual(settled, runtime.riskReleaseFrontier());
+    const before_rejection = runtime.riskReleaseScratchSnapshot();
+    try std.testing.expectEqual(@as(usize, 2), before_rejection.prepared_count);
+    try std.testing.expectEqual(@as(usize, 2), before_rejection.done_count);
+    try std.testing.expectEqual(@as(usize, 2), before_rejection.owned_count);
+    try std.testing.expectEqual(@as(usize, 0), before_rejection.committed_count);
+
+    recorder.releasePrepare();
+    try std.testing.expectError(error.PipelinePoisoned, runtime.shutdown());
+    try std.testing.expectEqual(@as(usize, 1), recorder.prepare_calls.load(.acquire));
+    try std.testing.expectEqual(@as(usize, 0), recorder.risk_calls.load(.acquire));
+    try std.testing.expectEqual(settled, runtime.riskReleaseFrontier());
+    const fatal = runtime.fatalInfo() orelse return error.MissingFatalRecord;
+    try std.testing.expectEqual(FailureStage.risk_release, fatal.stage);
+    try std.testing.expectEqual(first_sequence, fatal.sequence);
+    try std.testing.expectEqual(error.SettlementPreparationRejected, fatal.cause);
+}
+
+test "persistent grouped margin R2 marks without settlement preparation" {
+    const allocator = std.testing.allocator;
+    const fixture: MarginFixture = .{};
+    var kernels = try kernel_mod.MultiShardKernelSet.initWithTopology(
+        allocator,
+        1,
+        2,
+        .{
+            .orderbook_kind = .direct,
+            .risk = .{ .margin_trading_enabled = true },
+        },
+    );
+    defer kernels.deinit();
+    try fixture.setup(&kernels);
+    const settled = kernels.next_seq;
+    const trade_sequence = settled + 1;
+    const boundary_sequence = trade_sequence + 1;
+    var recorder: SettlementLifecycleTestRecorder = .{};
+
+    const runtime = try PersistentGroupedRuntime.create(
+        allocator,
+        &kernels,
+        .{
+            .capacity = 4,
+            .payload_allocator_is_thread_safe = true,
+            .settlement_hooks = recorder.hooks(),
+        },
+    );
+    defer runtime.destroy() catch unreachable;
+    try runtime.start();
+
+    var trade = fixture.takerBid(5_001);
+    var boundary = makeNop(5_002);
+    const submissions = [_]Submission{
+        .{ .sequence = .fromInt(trade_sequence), .command = &trade },
+        .{ .sequence = .fromInt(boundary_sequence), .command = &boundary },
+    };
+    try runtime.submitBatchAtSequence(&submissions);
+    try runtime.waitForRiskRelease(trade_sequence);
+    try std.testing.expectEqual(@as(usize, 0), recorder.prepare_calls.load(.acquire));
+    try std.testing.expectEqual(@as(usize, 1), recorder.risk_calls.load(.acquire));
+
+    try runtime.waitForMatching(boundary_sequence);
+    try runtime.acknowledgeDurableJournal(trade_sequence);
+    try runtime.acknowledgeDurableJournal(boundary_sequence);
+    for (0..2) |_| {
+        var response = (try runtime.takeNextResult()).?;
+        response.deinit(allocator);
+    }
+    try std.testing.expectEqual(boundary_sequence, try runtime.terminalQuiesce());
+    try std.testing.expectEqual(@as(usize, 0), recorder.prepare_calls.load(.acquire));
+    try std.testing.expectEqual(@as(usize, 2), recorder.risk_calls.load(.acquire));
+    try runtime.shutdown();
+}
+
+test "persistent grouped rejected R2 mark preserves irreversible internal state" {
+    const allocator = std.testing.allocator;
+    const fixture: SpotFixture = .{};
+    var kernels = try kernel_mod.MultiShardKernelSet.initWithTopology(
+        allocator,
+        1,
+        2,
+        .{ .orderbook_kind = .direct },
+    );
+    defer kernels.deinit();
+    try fixture.setup(&kernels);
+    const settled = kernels.next_seq;
+    const trade_sequence = settled + 1;
+    var recorder: SettlementLifecycleTestRecorder = .{ .reject_risk = true };
+    const runtime = try PersistentGroupedRuntime.create(
+        allocator,
+        &kernels,
+        .{
+            .capacity = 4,
+            .payload_allocator_is_thread_safe = true,
+            .settlement_hooks = recorder.hooks(),
+        },
+    );
+    defer runtime.destroy() catch unreachable;
+    try runtime.start();
+
+    var trade = fixture.takerBid(44_001, 5_501);
+    var boundary = makeNop(5_502);
+    const submissions = [_]Submission{
+        .{ .sequence = .fromInt(trade_sequence), .command = &trade },
+        .{ .sequence = .fromInt(trade_sequence + 1), .command = &boundary },
+    };
+    try runtime.submitBatchAtSequence(&submissions);
+    try std.testing.expectError(error.PipelinePoisoned, runtime.shutdown());
+
+    try std.testing.expectEqual(@as(usize, 1), recorder.prepare_calls.load(.acquire));
+    try std.testing.expectEqual(@as(usize, 1), recorder.risk_calls.load(.acquire));
+    try std.testing.expectEqual(trade_sequence, runtime.riskReleaseFrontier());
+    const slot = runtime.slots.getSequence(trade_sequence) orelse
+        return error.MissingCommittedRiskReleaseSlot;
+    try std.testing.expect(slot.r2_complete);
+    const scratch = runtime.riskReleaseScratchSnapshot();
+    try std.testing.expect(scratch.active == null);
+    try std.testing.expectEqual(@as(usize, 0), scratch.prepared_count);
+    try std.testing.expectEqual(@as(usize, 0), scratch.committed_count);
+    const fatal = runtime.fatalInfo() orelse return error.MissingFatalRecord;
+    try std.testing.expectEqual(FailureStage.risk_release, fatal.stage);
+    try std.testing.expectEqual(trade_sequence, fatal.sequence);
+    try std.testing.expectEqual(error.SettlementRiskR2MarkRejected, fatal.cause);
+}
+
+test "persistent grouped durable journal rejection poisons before result" {
+    const allocator = std.testing.allocator;
+    var kernels = try kernel_mod.MultiShardKernelSet.init(allocator, 1, .direct);
+    defer kernels.deinit();
+    var recorder: SettlementLifecycleTestRecorder = .{ .reject_journal = true };
+    const runtime = try PersistentGroupedRuntime.create(
+        allocator,
+        &kernels,
+        .{
+            .capacity = 2,
+            .payload_allocator_is_thread_safe = true,
+            .settlement_hooks = recorder.hooks(),
+        },
+    );
+    defer runtime.destroy() catch unreachable;
+    try runtime.start();
+
+    var command = makeNop(6_001);
+    _ = try runtime.submitAtSequence(.fromInt(1), &command);
+    try runtime.waitForMatching(1);
+    try std.testing.expectError(
+        error.SettlementJournalMarkRejected,
+        runtime.acknowledgeDurableJournal(1),
+    );
+    try std.testing.expectEqual(@as(usize, 1), recorder.journal_calls.load(.acquire));
+    try std.testing.expectError(error.PipelinePoisoned, runtime.takeNextResult());
+    try std.testing.expectError(error.PipelinePoisoned, runtime.shutdown());
+    try std.testing.expectEqual(@as(u64, 0), runtime.frontiers.journal);
+    const slot = runtime.slots.getSequence(1) orelse return error.MissingJournalSlot;
+    try std.testing.expect(!slot.journal_acked);
+
+    const fatal = runtime.fatalInfo() orelse return error.MissingFatalRecord;
+    try std.testing.expectEqual(FailureStage.journal, fatal.stage);
+    try std.testing.expectEqual(@as(u64, 1), fatal.sequence);
+    try std.testing.expectEqual(error.SettlementJournalMarkRejected, fatal.cause);
 }

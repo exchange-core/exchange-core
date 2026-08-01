@@ -5,6 +5,7 @@ const common = @import("common.zig");
 const cmd = @import("cmd.zig");
 const kernel_mod = @import("exchange_kernel.zig");
 const publication = @import("publication_sequence.zig");
+const settlement_lifecycle = @import("settlement_lifecycle.zig");
 const snapshot_mod = @import("snapshot.zig");
 
 /// Stored here rather than in the sharded API so journal decoding stays
@@ -90,6 +91,18 @@ const XCJ3_SNAPSHOT_CHECKPOINT_TAG = "XSP1";
 const XCJ3_SNAPSHOT_CHECKPOINT_BYTES: u32 = XCJ3_SNAPSHOT_CHECKPOINT_TAG.len + @sizeOf(u64) + @sizeOf(i64) + @sizeOf(u64);
 const XCJ3_MAX_RECORD_BYTES: usize = XCJ3_RECORD_HEADER_BYTES + XCJ3_MAX_ENTRY_BYTES;
 const XCJ3_CHECKSUM_SEED: u64 = 0x5843_4A33_4348_4B31;
+
+/// Content identity of the checksum-validated XCJ3 prefix. A torn final
+/// record is deliberately excluded so reopening/truncating the authoritative
+/// appender and reading an otherwise identical copy produce the same value.
+pub const DurableJournalFingerprint = struct {
+    valid_len: u64,
+    digest: [std.crypto.hash.Blake3.digest_length]u8,
+
+    pub fn eql(a: DurableJournalFingerprint, b: DurableJournalFingerprint) bool {
+        return a.valid_len == b.valid_len and std.mem.eql(u8, &a.digest, &b.digest);
+    }
+};
 
 pub const FrontierCheckpoint = struct {
     kind: Kind = .skipped_command,
@@ -203,6 +216,23 @@ pub const DurableJournalAppender = struct {
 
     pub fn lastSequence(self: *const DurableJournalAppender) ?u64 {
         return self.last_sequence;
+    }
+
+    /// Re-reads the open file so recovery attests the bytes that are actually
+    /// durable, rather than trusting only the appender's in-memory frontier.
+    pub fn fingerprint(
+        self: *const DurableJournalAppender,
+        allocator: std.mem.Allocator,
+    ) JournalIoError!DurableJournalFingerprint {
+        const bytes = try readFileBytes(allocator, self.io, self.file);
+        defer allocator.free(bytes);
+        const scan = try scanXcj3(bytes, null);
+        if (scan.valid_len != self.end_offset or
+            scan.last_sequence != self.last_sequence)
+        {
+            return error.JournalChangedDuringRead;
+        }
+        return fingerprintXcj3Prefix(bytes, scan.valid_len);
     }
 
     /// Deterministic test seam for the otherwise platform-dependent window
@@ -357,6 +387,7 @@ pub const CommandJournal = struct {
     allocator: std.mem.Allocator,
     entries: std.ArrayListUnmanaged(JournalEntry) = .empty,
     frontier_checkpoints: std.ArrayListUnmanaged(FrontierCheckpoint) = .empty,
+    durable_prefix_fingerprint: ?DurableJournalFingerprint = null,
 
     pub fn init(allocator: std.mem.Allocator) CommandJournal {
         return .{
@@ -372,6 +403,13 @@ pub const CommandJournal = struct {
 
     pub fn len(self: *const CommandJournal) usize {
         return self.entries.items.len;
+    }
+
+    /// Present only when this journal was decoded from XCJ3. Legacy XCJ1/2
+    /// files have no native durable-prefix identity and cannot attest
+    /// settlement recovery.
+    pub fn durablePrefixFingerprint(self: *const CommandJournal) ?DurableJournalFingerprint {
+        return self.durable_prefix_fingerprint;
     }
 
     /// Returns the last durable identity whose record timestamp is inside the
@@ -468,13 +506,39 @@ pub const CommandJournal = struct {
         kernel: *kernel_mod.ExchangeKernel,
         command: *cmd.OrderCommand,
     ) kernel_mod.ExecuteError!kernel_mod.CommandResponse {
+        return self.executeAndRecordWithSettlement(
+            kernel,
+            command,
+            settlement_lifecycle.Hooks.disabled(),
+            .live,
+        ) catch |err| switch (err) {
+            error.SettlementPreparationRejected,
+            error.SettlementRiskR2MarkRejected,
+            error.SettlementJournalMarkRejected,
+            error.SettlementRecoveryRejected,
+            => unreachable,
+            else => return @errorCast(err),
+        };
+    }
+
+    pub fn executeAndRecordWithSettlement(
+        self: *CommandJournal,
+        kernel: *kernel_mod.ExchangeKernel,
+        command: *cmd.OrderCommand,
+        settlement_hooks: settlement_lifecycle.Hooks,
+        settlement_mode: settlement_lifecycle.ExecutionMode,
+    ) kernel_mod.ExecuteWithSettlementError!kernel_mod.CommandResponse {
         // A journal entry is part of the command's commit record. Reserve its
         // storage before the kernel can mutate so an allocator failure cannot
         // leave executed state without a replayable entry.
         try self.entries.ensureUnusedCapacity(self.allocator, 1);
 
         const input = command.*;
-        var response = try kernel.execute(command);
+        var response = try kernel.executeWithSettlement(
+            command,
+            settlement_hooks,
+            settlement_mode,
+        );
         errdefer response.deinit(kernel.allocator);
 
         self.entries.appendAssumeCapacity(.{
@@ -494,11 +558,37 @@ pub const CommandJournal = struct {
         sequence: publication.PublicationSequence,
         command: *cmd.OrderCommand,
     ) kernel_mod.ExecuteError!kernel_mod.CommandResponse {
-        try self.entries.ensureUnusedCapacity(self.allocator, 1);
-        return self.executeAndRecordAtSequenceAssumeCapacity(
+        return self.executeAndRecordAtSequenceWithSettlement(
             kernel,
             sequence,
             command,
+            settlement_lifecycle.Hooks.disabled(),
+            .live,
+        ) catch |err| switch (err) {
+            error.SettlementPreparationRejected,
+            error.SettlementRiskR2MarkRejected,
+            error.SettlementJournalMarkRejected,
+            error.SettlementRecoveryRejected,
+            => unreachable,
+            else => return @errorCast(err),
+        };
+    }
+
+    pub fn executeAndRecordAtSequenceWithSettlement(
+        self: *CommandJournal,
+        kernel: *kernel_mod.ExchangeKernel,
+        sequence: publication.PublicationSequence,
+        command: *cmd.OrderCommand,
+        settlement_hooks: settlement_lifecycle.Hooks,
+        settlement_mode: settlement_lifecycle.ExecutionMode,
+    ) kernel_mod.ExecuteWithSettlementError!kernel_mod.CommandResponse {
+        try self.entries.ensureUnusedCapacity(self.allocator, 1);
+        return self.executeAndRecordAtSequenceAssumeCapacityWithSettlement(
+            kernel,
+            sequence,
+            command,
+            settlement_hooks,
+            settlement_mode,
         );
     }
 
@@ -508,8 +598,37 @@ pub const CommandJournal = struct {
         sequence: publication.PublicationSequence,
         command: *cmd.OrderCommand,
     ) kernel_mod.ExecuteError!kernel_mod.CommandResponse {
+        return self.executeAndRecordAtSequenceAssumeCapacityWithSettlement(
+            kernel,
+            sequence,
+            command,
+            settlement_lifecycle.Hooks.disabled(),
+            .live,
+        ) catch |err| switch (err) {
+            error.SettlementPreparationRejected,
+            error.SettlementRiskR2MarkRejected,
+            error.SettlementJournalMarkRejected,
+            error.SettlementRecoveryRejected,
+            => unreachable,
+            else => return @errorCast(err),
+        };
+    }
+
+    pub fn executeAndRecordAtSequenceAssumeCapacityWithSettlement(
+        self: *CommandJournal,
+        kernel: *kernel_mod.ExchangeKernel,
+        sequence: publication.PublicationSequence,
+        command: *cmd.OrderCommand,
+        settlement_hooks: settlement_lifecycle.Hooks,
+        settlement_mode: settlement_lifecycle.ExecutionMode,
+    ) kernel_mod.ExecuteWithSettlementError!kernel_mod.CommandResponse {
         const input = command.*;
-        var response = try kernel.executeAtSequence(sequence, command);
+        var response = try kernel.executeAtSequenceWithSettlement(
+            sequence,
+            command,
+            settlement_hooks,
+            settlement_mode,
+        );
         errdefer response.deinit(kernel.allocator);
 
         self.entries.appendAssumeCapacity(.{
@@ -677,7 +796,8 @@ pub const CommandJournal = struct {
 
             var journal = CommandJournal.init(allocator);
             errdefer journal.deinit();
-            _ = try scanXcj3(bytes, &journal);
+            const scan = try scanXcj3(bytes, &journal);
+            journal.durable_prefix_fingerprint = fingerprintXcj3Prefix(bytes, scan.valid_len);
             return journal;
         }
 
@@ -840,6 +960,20 @@ fn scanXcj3(
         .last_sequence = last_sequence,
         .last_snapshot_checkpoint = last_snapshot_checkpoint,
         .partial_tail = false,
+    };
+}
+
+fn fingerprintXcj3Prefix(
+    bytes: []const u8,
+    valid_len: usize,
+) DurableJournalFingerprint {
+    std.debug.assert(valid_len >= XCJ3_MAGIC.len);
+    std.debug.assert(valid_len <= bytes.len);
+    var digest: [std.crypto.hash.Blake3.digest_length]u8 = undefined;
+    std.crypto.hash.Blake3.hash(bytes[0..valid_len], &digest, .{});
+    return .{
+        .valid_len = @intCast(valid_len),
+        .digest = digest,
     };
 }
 

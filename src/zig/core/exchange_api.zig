@@ -7,7 +7,9 @@ const api_command_mod = @import("api_command.zig");
 const exchange_core_mod = @import("exchange_core.zig");
 const kernel_mod = @import("exchange_kernel.zig");
 const java_report_producer = @import("java_report_producer.zig");
+const publication = @import("publication_sequence.zig");
 const runtime_mod = @import("exchange_runtime.zig");
+const settlement_lifecycle = @import("settlement_lifecycle.zig");
 const simple_events_mod = @import("simple_events_processor.zig");
 const persistence_paths = @import("persistence_paths.zig");
 
@@ -30,6 +32,7 @@ pub const PersistenceFileNameError = persistence_paths.FileNameError;
 pub const PersistencePathError = exchange_core_mod.PersistencePathError;
 pub const ResultSink = runtime_mod.ResultSink;
 pub const RawResultSink = exchange_core_mod.RawResultSink;
+pub const SettlementHooks = settlement_lifecycle.Hooks;
 pub const SimpleEventsHandler = simple_events_mod.EventsHandler;
 pub const BatchResponse = kernel_mod.BatchResponse;
 
@@ -95,6 +98,7 @@ pub const ShutdownState = exchange_core_mod.ShutdownState;
 pub const ShutdownOutcome = exchange_core_mod.ShutdownOutcome;
 pub const ShutdownError = exchange_core_mod.ShutdownError;
 pub const CallbackConfigError = exchange_core_mod.CallbackConfigError;
+pub const SettlementHooksConfigError = exchange_core_mod.SettlementHooksConfigError;
 pub const StartError = exchange_core_mod.StartError;
 pub const InitFromJavaConfigError = exchange_core_mod.InitFromJavaConfigError;
 pub const BootstrapError = exchange_core_mod.BootstrapError;
@@ -1906,6 +1910,19 @@ pub const ExchangeApi = struct {
         return self.core.startup();
     }
 
+    pub fn setSettlementHooks(
+        self: *ExchangeApi,
+        hooks: SettlementHooks,
+    ) SettlementHooksConfigError!void {
+        try self.core.setSettlementHooks(hooks);
+    }
+
+    pub fn clearSettlementHooks(
+        self: *ExchangeApi,
+    ) SettlementHooksConfigError!void {
+        try self.core.clearSettlementHooks();
+    }
+
     pub fn shutdownState(self: *const ExchangeApi) ShutdownState {
         return self.core.shutdownState();
     }
@@ -2790,6 +2807,38 @@ const CountCollector = struct {
     fn onResponse(context: ?*anyopaque, _: *const kernel_mod.CommandResponse) void {
         const self: *CountCollector = @ptrCast(@alignCast(context.?));
         self.count += 1;
+    }
+};
+
+const SettlementHooksFacadeProbe = struct {
+    fn hooks(self: *SettlementHooksFacadeProbe) SettlementHooks {
+        return .enabled(self, &.{
+            .prepare = prepare,
+            .mark_risk_r2_committed = mark,
+            .mark_journal_committed = mark,
+            .finish_recovery = finishRecovery,
+        });
+    }
+
+    fn prepare(
+        _: *anyopaque,
+        _: settlement_lifecycle.PreparedBatch,
+    ) settlement_lifecycle.PrepareObservation {
+        return .prepared;
+    }
+
+    fn mark(
+        _: *anyopaque,
+        _: publication.PublicationSequence,
+    ) settlement_lifecycle.MarkObservation {
+        return .marked;
+    }
+
+    fn finishRecovery(
+        _: *anyopaque,
+        _: publication.PublicationSequence,
+    ) settlement_lifecycle.RecoveryObservation {
+        return .not_required;
     }
 };
 
@@ -6285,6 +6334,27 @@ test "exchange api lifecycle startup/shutdown wrappers forward core state transi
     try std.testing.expect(core.isStopped());
     try std.testing.expectEqual(ShutdownState.complete, api.shutdownState());
     try std.testing.expectError(error.CoreStopped, api.startup());
+}
+
+test "exchange api settlement hook configuration forwards backend guards" {
+    const allocator = std.testing.allocator;
+    var core = try exchange_core_mod.ExchangeCore.init(allocator, .{});
+    defer core.deinit();
+    var api = ExchangeApi.init(allocator, &core);
+    var probe: SettlementHooksFacadeProbe = .{};
+
+    try std.testing.expectError(
+        error.SettlementHooksRequireNativeDurableJournal,
+        api.setSettlementHooks(probe.hooks()),
+    );
+    try api.clearSettlementHooks();
+
+    try api.startup();
+    try std.testing.expectError(
+        error.SettlementHooksRequireColdCore,
+        api.clearSettlementHooks(),
+    );
+    try api.shutdown();
 }
 
 test "exchange api bounded shutdown wrapper forwards outcome and state" {

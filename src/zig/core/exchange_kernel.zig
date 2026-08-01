@@ -16,6 +16,7 @@ const int_map_order = @import("eclipse_int_map_order.zig");
 const publication = @import("publication_sequence.zig");
 const report_query_envelope = @import("report_query_envelope.zig");
 const report_registry = @import("report_registry.zig");
+const settlement_lifecycle = @import("settlement_lifecycle.zig");
 
 pub const OrderBookKind = enum {
     naive,
@@ -358,6 +359,20 @@ pub const ExecuteError = risk.ReleaseError || naive.ProcessError || error{
     SequenceOverflow,
     NonMonotonicPublicationSequence,
 };
+pub const ExecuteWithSettlementError = ExecuteError || settlement_lifecycle.Error;
+
+fn omitDisabledSettlementErrors(
+    result: ExecuteWithSettlementError!CommandResponse,
+) ExecuteError!CommandResponse {
+    return result catch |err| switch (err) {
+        error.SettlementPreparationRejected,
+        error.SettlementRiskR2MarkRejected,
+        error.SettlementJournalMarkRejected,
+        error.SettlementRecoveryRejected,
+        => unreachable,
+        else => |execute_err| return execute_err,
+    };
+}
 const BinaryCommandWireDecodeError = binary_payload.DecodeError ||
     java_binary_wire.RequestDecodeError ||
     error{
@@ -1161,9 +1176,24 @@ pub const ExchangeKernel = struct {
         self: *ExchangeKernel,
         command: *cmd.OrderCommand,
     ) ExecuteError!CommandResponse {
-        return self.executeAtSequence(
+        return omitDisabledSettlementErrors(self.executeWithSettlement(
+            command,
+            settlement_lifecycle.Hooks.disabled(),
+            .live,
+        ));
+    }
+
+    pub fn executeWithSettlement(
+        self: *ExchangeKernel,
+        command: *cmd.OrderCommand,
+        settlement_hooks: settlement_lifecycle.Hooks,
+        settlement_mode: settlement_lifecycle.ExecutionMode,
+    ) ExecuteWithSettlementError!CommandResponse {
+        return self.executeAtSequenceWithSettlement(
             .fromInt(try self.nextSequence()),
             command,
+            settlement_hooks,
+            settlement_mode,
         );
     }
 
@@ -1175,6 +1205,21 @@ pub const ExchangeKernel = struct {
         assigned_sequence: publication.PublicationSequence,
         command: *cmd.OrderCommand,
     ) ExecuteError!CommandResponse {
+        return omitDisabledSettlementErrors(self.executeAtSequenceWithSettlement(
+            assigned_sequence,
+            command,
+            settlement_lifecycle.Hooks.disabled(),
+            .live,
+        ));
+    }
+
+    pub fn executeAtSequenceWithSettlement(
+        self: *ExchangeKernel,
+        assigned_sequence: publication.PublicationSequence,
+        command: *cmd.OrderCommand,
+        settlement_hooks: settlement_lifecycle.Hooks,
+        settlement_mode: settlement_lifecycle.ExecutionMode,
+    ) ExecuteWithSettlementError!CommandResponse {
         const seq = assigned_sequence.toInt();
         if (seq <= self.next_seq) return error.NonMonotonicPublicationSequence;
         self.next_seq = seq;
@@ -1375,14 +1420,31 @@ pub const ExchangeKernel = struct {
             null;
 
         const release_spec = self.risk_engine.symbol_spec_provider.getSymbolSpecification(command.symbol);
-        if (release_spec != null and release_spec.?.symbol_type != .currency_exchange_pair) {
-            var prepared = try self.risk_engine.prepareMarginRiskRelease(
-                command,
-                event_chain.head,
-                top,
-            );
-            defer prepared.deinit();
-            self.risk_engine.commitPreparedMarginRiskRelease(&prepared);
+        if (release_spec) |specification| {
+            if (specification.symbol_type == .currency_exchange_pair) {
+                var prepared = try self.risk_engine.prepareExchangeRiskRelease(
+                    command,
+                    event_chain.head,
+                    top,
+                );
+                defer prepared.deinit();
+                _ = try settlement_hooks.prepare(.{
+                    .sequence = assigned_sequence,
+                    .command = command,
+                    .specification = specification,
+                    .events_head = event_chain.head,
+                    .mode = settlement_mode,
+                });
+                self.risk_engine.commitPreparedExchangeRiskRelease(&prepared);
+            } else {
+                var prepared = try self.risk_engine.prepareMarginRiskRelease(
+                    command,
+                    event_chain.head,
+                    top,
+                );
+                defer prepared.deinit();
+                self.risk_engine.commitPreparedMarginRiskRelease(&prepared);
+            }
         } else {
             _ = try self.risk_engine.handlerRiskRelease(seq, command, event_chain.head, top);
         }
@@ -3453,7 +3515,20 @@ pub const MultiShardKernelSet = struct {
         self: *MultiShardKernelSet,
         command: *cmd.OrderCommand,
     ) ExecuteError!CommandResponse {
-        return self.executePipeline(command);
+        return omitDisabledSettlementErrors(self.executeRoutedWithSettlement(
+            command,
+            settlement_lifecycle.Hooks.disabled(),
+            .live,
+        ));
+    }
+
+    pub fn executeRoutedWithSettlement(
+        self: *MultiShardKernelSet,
+        command: *cmd.OrderCommand,
+        settlement_hooks: settlement_lifecycle.Hooks,
+        settlement_mode: settlement_lifecycle.ExecutionMode,
+    ) ExecuteWithSettlementError!CommandResponse {
+        return self.executePipeline(command, settlement_hooks, settlement_mode);
     }
 
     pub fn executeRoutedAtSequence(
@@ -3461,11 +3536,44 @@ pub const MultiShardKernelSet = struct {
         assigned_sequence: publication.PublicationSequence,
         command: *cmd.OrderCommand,
     ) ExecuteError!CommandResponse {
-        return self.executePipelineAtSequence(assigned_sequence, command);
+        return omitDisabledSettlementErrors(self.executeRoutedAtSequenceWithSettlement(
+            assigned_sequence,
+            command,
+            settlement_lifecycle.Hooks.disabled(),
+            .live,
+        ));
+    }
+
+    pub fn executeRoutedAtSequenceWithSettlement(
+        self: *MultiShardKernelSet,
+        assigned_sequence: publication.PublicationSequence,
+        command: *cmd.OrderCommand,
+        settlement_hooks: settlement_lifecycle.Hooks,
+        settlement_mode: settlement_lifecycle.ExecutionMode,
+    ) ExecuteWithSettlementError!CommandResponse {
+        return self.executePipelineAtSequence(
+            assigned_sequence,
+            command,
+            settlement_hooks,
+            settlement_mode,
+        );
     }
 
     pub fn executeSplit(self: *MultiShardKernelSet, command: *cmd.OrderCommand) ExecuteError!CommandResponse {
-        return self.executePipeline(command);
+        return omitDisabledSettlementErrors(self.executeSplitWithSettlement(
+            command,
+            settlement_lifecycle.Hooks.disabled(),
+            .live,
+        ));
+    }
+
+    pub fn executeSplitWithSettlement(
+        self: *MultiShardKernelSet,
+        command: *cmd.OrderCommand,
+        settlement_hooks: settlement_lifecycle.Hooks,
+        settlement_mode: settlement_lifecycle.ExecutionMode,
+    ) ExecuteWithSettlementError!CommandResponse {
+        return self.executePipeline(command, settlement_hooks, settlement_mode);
     }
 
     pub fn executeSplitAtSequence(
@@ -3473,16 +3581,40 @@ pub const MultiShardKernelSet = struct {
         assigned_sequence: publication.PublicationSequence,
         command: *cmd.OrderCommand,
     ) ExecuteError!CommandResponse {
-        return self.executePipelineAtSequence(assigned_sequence, command);
+        return omitDisabledSettlementErrors(self.executeSplitAtSequenceWithSettlement(
+            assigned_sequence,
+            command,
+            settlement_lifecycle.Hooks.disabled(),
+            .live,
+        ));
+    }
+
+    pub fn executeSplitAtSequenceWithSettlement(
+        self: *MultiShardKernelSet,
+        assigned_sequence: publication.PublicationSequence,
+        command: *cmd.OrderCommand,
+        settlement_hooks: settlement_lifecycle.Hooks,
+        settlement_mode: settlement_lifecycle.ExecutionMode,
+    ) ExecuteWithSettlementError!CommandResponse {
+        return self.executePipelineAtSequence(
+            assigned_sequence,
+            command,
+            settlement_hooks,
+            settlement_mode,
+        );
     }
 
     fn executePipeline(
         self: *MultiShardKernelSet,
         command: *cmd.OrderCommand,
-    ) ExecuteError!CommandResponse {
+        settlement_hooks: settlement_lifecycle.Hooks,
+        settlement_mode: settlement_lifecycle.ExecutionMode,
+    ) ExecuteWithSettlementError!CommandResponse {
         return self.executePipelineAtSequence(
             .fromInt(try self.nextSequence()),
             command,
+            settlement_hooks,
+            settlement_mode,
         );
     }
 
@@ -3490,7 +3622,9 @@ pub const MultiShardKernelSet = struct {
         self: *MultiShardKernelSet,
         assigned_sequence: publication.PublicationSequence,
         command: *cmd.OrderCommand,
-    ) ExecuteError!CommandResponse {
+        settlement_hooks: settlement_lifecycle.Hooks,
+        settlement_mode: settlement_lifecycle.ExecutionMode,
+    ) ExecuteWithSettlementError!CommandResponse {
         const seq = assigned_sequence.toInt();
         if (seq <= self.next_seq) return error.NonMonotonicPublicationSequence;
         for (self.matching_shards) |*kernel| {
@@ -3553,12 +3687,26 @@ pub const MultiShardKernelSet = struct {
         else
             null;
 
+        const release_spec = self.risk_shards[0].engine.symbol_spec_provider
+            .getSymbolSpecification(pipeline_command.symbol);
         var prepared_release = try self.prepareRiskReleaseStage(
             &pipeline_command,
             event_chain.head,
             top,
         );
         defer prepared_release.deinit(self.allocator);
+        switch (prepared_release) {
+            .exchange => {
+                _ = try settlement_hooks.prepare(.{
+                    .sequence = assigned_sequence,
+                    .command = &pipeline_command,
+                    .specification = release_spec orelse unreachable,
+                    .events_head = event_chain.head,
+                    .mode = settlement_mode,
+                });
+            },
+            .none, .margin => {},
+        }
         self.commitRiskReleaseStage(&prepared_release);
 
         command.* = pipeline_command;
@@ -4654,14 +4802,24 @@ pub const MultiShardKernelSet = struct {
             return try self.runMatching(sequence, command);
         }
 
+        /// Returns a value copy of the authoritative symbol definition shared
+        /// by all risk shards. Staged owners may safely retain the copy across
+        /// later shard work without borrowing mutable provider storage.
+        pub fn canonicalSymbolSpecification(
+            self: StageAdapter,
+            command: *const cmd.OrderCommand,
+        ) ?common.CoreSymbolSpecification {
+            return self.kernels.risk_shards[0].engine.symbol_spec_provider
+                .getSymbolSpecification(command.symbol);
+        }
+
         /// The canonical symbol specification is shared by every risk shard.
         /// Resolve its release family exactly once before per-shard preparation.
         pub fn riskReleaseKind(
             self: StageAdapter,
             command: *const cmd.OrderCommand,
         ) RiskReleaseKind {
-            const release_spec = self.kernels.risk_shards[0].engine.symbol_spec_provider
-                .getSymbolSpecification(command.symbol) orelse return .none;
+            const release_spec = self.canonicalSymbolSpecification(command) orelse return .none;
             return if (release_spec.symbol_type == .currency_exchange_pair)
                 .exchange
             else
@@ -4934,6 +5092,214 @@ fn groupedTestTotalFee(set: *MultiShardKernelSet, currency: i32) i64 {
     return total;
 }
 
+const SettlementPrepareRecorder = struct {
+    const Target = union(enum) {
+        single: *ExchangeKernel,
+        multi: *MultiShardKernelSet,
+    };
+
+    target: Target,
+    reject: bool = false,
+    prepare_calls: usize = 0,
+    risk_mark_calls: usize = 0,
+    journal_mark_calls: usize = 0,
+    recovery_calls: usize = 0,
+    last_sequence: u64 = 0,
+    last_mode: settlement_lifecycle.ExecutionMode = .live,
+    last_trade_count: usize = 0,
+    last_order_id: i64 = 0,
+    last_specification: ?common.CoreSymbolSpecification = null,
+    observed_total_fee: i64 = 0,
+    observed_risk_hashes: [4]u64 = .{ 0, 0, 0, 0 },
+    observed_risk_hash_count: usize = 0,
+    risk_hash_failed: bool = false,
+
+    fn hooks(self: *SettlementPrepareRecorder) settlement_lifecycle.Hooks {
+        return settlement_lifecycle.Hooks.enabled(self, &.{
+            .prepare = prepare,
+            .mark_risk_r2_committed = markRiskR2Committed,
+            .mark_journal_committed = markJournalCommitted,
+            .finish_recovery = finishRecovery,
+        });
+    }
+
+    fn prepare(
+        context: *anyopaque,
+        batch: settlement_lifecycle.PreparedBatch,
+    ) settlement_lifecycle.PrepareObservation {
+        const self: *SettlementPrepareRecorder = @ptrCast(@alignCast(context));
+        self.prepare_calls += 1;
+        self.last_sequence = batch.sequence.toInt();
+        self.last_mode = batch.mode;
+        self.last_trade_count = batch.tradeCount();
+        self.last_order_id = batch.command.order_id;
+        self.last_specification = batch.specification;
+        self.observed_total_fee = 0;
+        self.observed_risk_hash_count = 0;
+
+        switch (self.target) {
+            .single => |kernel| self.captureRiskHash(
+                &kernel.risk_engine,
+                batch.specification.quote_currency,
+            ),
+            .multi => |kernels| {
+                if (kernels.riskShardCount() > self.observed_risk_hashes.len) {
+                    self.risk_hash_failed = true;
+                } else {
+                    for (kernels.risk_shards) |*risk_shard| {
+                        self.captureRiskHash(
+                            risk_shard.engine,
+                            batch.specification.quote_currency,
+                        );
+                    }
+                }
+            },
+        }
+        return if (self.reject) .rejected else .prepared;
+    }
+
+    fn captureRiskHash(
+        self: *SettlementPrepareRecorder,
+        engine: *risk.RiskEngine,
+        quote_currency: i32,
+    ) void {
+        const index = self.observed_risk_hash_count;
+        if (index >= self.observed_risk_hashes.len) {
+            self.risk_hash_failed = true;
+            return;
+        }
+        self.observed_risk_hashes[index] = engine.stateHash() catch hash_error: {
+            self.risk_hash_failed = true;
+            break :hash_error 0;
+        };
+        self.observed_risk_hash_count += 1;
+        self.observed_total_fee += engine.getFeeCollected(quote_currency);
+    }
+
+    fn markRiskR2Committed(
+        context: *anyopaque,
+        _: publication.PublicationSequence,
+    ) settlement_lifecycle.MarkObservation {
+        const self: *SettlementPrepareRecorder = @ptrCast(@alignCast(context));
+        self.risk_mark_calls += 1;
+        return .marked;
+    }
+
+    fn markJournalCommitted(
+        context: *anyopaque,
+        _: publication.PublicationSequence,
+    ) settlement_lifecycle.MarkObservation {
+        const self: *SettlementPrepareRecorder = @ptrCast(@alignCast(context));
+        self.journal_mark_calls += 1;
+        return .marked;
+    }
+
+    fn finishRecovery(
+        context: *anyopaque,
+        _: publication.PublicationSequence,
+    ) settlement_lifecycle.RecoveryObservation {
+        const self: *SettlementPrepareRecorder = @ptrCast(@alignCast(context));
+        self.recovery_calls += 1;
+        return .completed;
+    }
+};
+
+fn executeSingleExpect(
+    allocator: std.mem.Allocator,
+    kernel: *ExchangeKernel,
+    source: cmd.OrderCommand,
+    expected: cmd.CommandResultCode,
+) !void {
+    var command = source;
+    var response = try kernel.execute(&command);
+    defer response.deinit(allocator);
+    try std.testing.expectEqual(expected, response.result_code);
+}
+
+fn setupSingleSettlementMultiFill(
+    allocator: std.mem.Allocator,
+    kernel: *ExchangeKernel,
+    symbol: i32,
+    maker_uids: [2]i64,
+    taker_uid: i64,
+) !void {
+    try std.testing.expect(try kernel.addSymbol(try makeExchangeSpecForSymbol(symbol)));
+    for ([_]i64{ maker_uids[0], maker_uids[1], taker_uid }) |uid| {
+        try executeSingleExpect(allocator, kernel, makeAddUserCommand(uid), .success);
+    }
+    for (maker_uids, 0..) |uid, index| {
+        try executeSingleExpect(
+            allocator,
+            kernel,
+            makeBalanceAdjustmentCommand(uid, 11, 100_000, 1, .adjustment),
+            .success,
+        );
+        var maker_ask = cmd.OrderCommand.newOrder(
+            .gtc,
+            91_000 + @as(i64, @intCast(index)),
+            uid,
+            100 + @as(i64, @intCast(index)),
+            0,
+            2 + @as(i64, @intCast(index)),
+            .ask,
+        );
+        maker_ask.symbol = symbol;
+        try executeSingleExpect(allocator, kernel, maker_ask, .success);
+    }
+    try executeSingleExpect(
+        allocator,
+        kernel,
+        makeBalanceAdjustmentCommand(taker_uid, 15, 100_000, 1, .adjustment),
+        .success,
+    );
+}
+
+fn setupMultiSettlementMultiFill(
+    allocator: std.mem.Allocator,
+    kernels: *MultiShardKernelSet,
+    symbol: i32,
+    maker_uids: [2]i64,
+    taker_uid: i64,
+) !void {
+    try kernels.addSymbolAll(try makeExchangeSpecForSymbol(symbol));
+    for ([_]i64{ maker_uids[0], maker_uids[1], taker_uid }) |uid| {
+        try executeMultiExpect(allocator, kernels, false, makeAddUserCommand(uid), .success);
+    }
+    for (maker_uids, 0..) |uid, index| {
+        try executeMultiExpect(
+            allocator,
+            kernels,
+            false,
+            makeBalanceAdjustmentCommand(uid, 11, 100_000, 1, .adjustment),
+            .success,
+        );
+        var maker_ask = cmd.OrderCommand.newOrder(
+            .gtc,
+            91_000 + @as(i64, @intCast(index)),
+            uid,
+            100 + @as(i64, @intCast(index)),
+            0,
+            2 + @as(i64, @intCast(index)),
+            .ask,
+        );
+        maker_ask.symbol = symbol;
+        try executeMultiExpect(allocator, kernels, false, maker_ask, .success);
+    }
+    try executeMultiExpect(
+        allocator,
+        kernels,
+        false,
+        makeBalanceAdjustmentCommand(taker_uid, 15, 100_000, 1, .adjustment),
+        .success,
+    );
+}
+
+fn settlementMultiFillBid(order_id: i64, uid: i64, symbol: i32) cmd.OrderCommand {
+    var taker_bid = cmd.OrderCommand.newOrder(.gtc, order_id, uid, 101, 101, 5, .bid);
+    taker_bid.symbol = symbol;
+    return taker_bid;
+}
+
 fn expectOperationalRiskStateEmpty(engine: *const risk.RiskEngine) !void {
     try std.testing.expectEqual(@as(usize, 0), engine.symbol_spec_provider.symbols.count());
     try std.testing.expectEqual(@as(usize, 0), engine.user_profile_service.user_profiles.count());
@@ -5197,6 +5563,59 @@ const FaultSimulationError = std.mem.Allocator.Error ||
         TestUnexpectedResult,
         UnexpectedResult,
     };
+
+fn errorSetContains(comptime ErrorSet: type, comptime error_name: []const u8) bool {
+    inline for (std.meta.fields(ErrorSet)) |field| {
+        if (std.mem.eql(u8, field.name, error_name)) return true;
+    }
+    return false;
+}
+
+test "kernel legacy and settlement execution errors remain source separated" {
+    const settlement_error_names = [_][]const u8{
+        "SettlementPreparationRejected",
+        "SettlementRiskR2MarkRejected",
+        "SettlementJournalMarkRejected",
+        "SettlementRecoveryRejected",
+    };
+    inline for (settlement_error_names) |error_name| {
+        try std.testing.expect(!errorSetContains(ExecuteError, error_name));
+        try std.testing.expect(errorSetContains(ExecuteWithSettlementError, error_name));
+    }
+
+    try std.testing.expect(
+        @typeInfo(@TypeOf(ExchangeKernel.execute)).@"fn".return_type.? ==
+            ExecuteError!CommandResponse,
+    );
+    try std.testing.expect(
+        @typeInfo(@TypeOf(ExchangeKernel.executeAtSequence)).@"fn".return_type.? ==
+            ExecuteError!CommandResponse,
+    );
+    try std.testing.expect(
+        @typeInfo(@TypeOf(ExchangeKernel.executeWithSettlement)).@"fn".return_type.? ==
+            ExecuteWithSettlementError!CommandResponse,
+    );
+    try std.testing.expect(
+        @typeInfo(@TypeOf(ExchangeKernel.executeAtSequenceWithSettlement)).@"fn".return_type.? ==
+            ExecuteWithSettlementError!CommandResponse,
+    );
+    try std.testing.expect(
+        @typeInfo(@TypeOf(MultiShardKernelSet.executeRouted)).@"fn".return_type.? ==
+            ExecuteError!CommandResponse,
+    );
+    try std.testing.expect(
+        @typeInfo(@TypeOf(MultiShardKernelSet.executeSplit)).@"fn".return_type.? ==
+            ExecuteError!CommandResponse,
+    );
+    try std.testing.expect(
+        @typeInfo(@TypeOf(MultiShardKernelSet.executeRoutedWithSettlement)).@"fn".return_type.? ==
+            ExecuteWithSettlementError!CommandResponse,
+    );
+    try std.testing.expect(
+        @typeInfo(@TypeOf(MultiShardKernelSet.executeSplitWithSettlement)).@"fn".return_type.? ==
+            ExecuteWithSettlementError!CommandResponse,
+    );
+}
 
 fn runSeededFaultSimulation(
     allocator: std.mem.Allocator,
@@ -10232,6 +10651,281 @@ test "exchange api report orderbook query fails for unknown symbol" {
                 .depth = 10,
             },
         }),
+    );
+}
+
+test "settlement preparation single kernel observes one complete multi-fill batch before R2" {
+    const allocator = std.testing.allocator;
+    const symbol: i32 = 8_701;
+    const maker_uids = [2]i64{ 87_001, 87_002 };
+    const taker_uid: i64 = 87_003;
+    const spec = try makeExchangeSpecForSymbol(symbol);
+
+    var kernel = try ExchangeKernel.init(allocator, .{ .orderbook_kind = .direct });
+    defer kernel.deinit();
+    try setupSingleSettlementMultiFill(
+        allocator,
+        &kernel,
+        symbol,
+        maker_uids,
+        taker_uid,
+    );
+
+    var recorder: SettlementPrepareRecorder = .{ .target = .{ .single = &kernel } };
+    var taker_bid = settlementMultiFillBid(91_100, taker_uid, symbol);
+    var response = try kernel.executeWithSettlement(
+        &taker_bid,
+        recorder.hooks(),
+        .replay,
+    );
+    defer response.deinit(allocator);
+
+    try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    try std.testing.expectEqual(@as(usize, 2), events.listSize(response.matcher_events_head));
+    try std.testing.expectEqual(@as(usize, 1), recorder.prepare_calls);
+    try std.testing.expectEqual(@as(usize, 2), recorder.last_trade_count);
+    try std.testing.expectEqual(response.sequence, recorder.last_sequence);
+    try std.testing.expectEqual(settlement_lifecycle.ExecutionMode.replay, recorder.last_mode);
+    try std.testing.expectEqual(taker_bid.order_id, recorder.last_order_id);
+    try std.testing.expectEqualDeep(spec, recorder.last_specification.?);
+    try std.testing.expect(!recorder.risk_hash_failed);
+    try std.testing.expectEqual(@as(usize, 1), recorder.observed_risk_hash_count);
+    try std.testing.expectEqual(@as(i64, 0), recorder.observed_total_fee);
+    try std.testing.expectEqual(@as(i64, 15), kernel.risk_engine.getFeeCollected(15));
+    try std.testing.expect(recorder.observed_risk_hashes[0] != try kernel.risk_engine.stateHash());
+    try std.testing.expectEqual(@as(usize, 0), recorder.risk_mark_calls);
+    try std.testing.expectEqual(@as(usize, 0), recorder.journal_mark_calls);
+    try std.testing.expectEqual(@as(usize, 0), recorder.recovery_calls);
+}
+
+test "settlement preparation immediate sharded path calls once after every prepare and before R2" {
+    const allocator = std.testing.allocator;
+    const symbol: i32 = 8_702;
+    const maker_uids = [2]i64{
+        uidForShard(0, 4, 87_100),
+        uidForShard(1, 4, 87_200),
+    };
+    const taker_uid = uidForShard(2, 4, 87_300);
+
+    var kernels = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        1,
+        4,
+        .{ .orderbook_kind = .direct },
+    );
+    defer kernels.deinit();
+    try setupMultiSettlementMultiFill(
+        allocator,
+        &kernels,
+        symbol,
+        maker_uids,
+        taker_uid,
+    );
+
+    var recorder: SettlementPrepareRecorder = .{ .target = .{ .multi = &kernels } };
+    var taker_bid = settlementMultiFillBid(91_200, taker_uid, symbol);
+    var response = try kernels.executeSplitWithSettlement(
+        &taker_bid,
+        recorder.hooks(),
+        .live,
+    );
+    defer response.deinit(allocator);
+
+    try std.testing.expectEqual(cmd.CommandResultCode.success, response.result_code);
+    try std.testing.expectEqual(@as(usize, 2), events.listSize(response.matcher_events_head));
+    try std.testing.expectEqual(@as(usize, 1), recorder.prepare_calls);
+    try std.testing.expectEqual(@as(usize, 2), recorder.last_trade_count);
+    try std.testing.expectEqual(@as(usize, 4), recorder.observed_risk_hash_count);
+    try std.testing.expect(!recorder.risk_hash_failed);
+    try std.testing.expectEqual(@as(i64, 0), recorder.observed_total_fee);
+    try std.testing.expectEqual(@as(i64, 15), groupedTestTotalFee(&kernels, 15));
+    for (0..3) |idx| {
+        try std.testing.expect(
+            recorder.observed_risk_hashes[idx] != try kernels.riskEngineAt(idx).stateHash(),
+        );
+    }
+    try std.testing.expectEqual(
+        recorder.observed_risk_hashes[3],
+        try kernels.riskEngineAt(3).stateHash(),
+    );
+    try std.testing.expectEqual(@as(usize, 0), recorder.risk_mark_calls);
+    try std.testing.expectEqual(@as(usize, 0), recorder.journal_mark_calls);
+    try std.testing.expectEqual(@as(usize, 0), recorder.recovery_calls);
+}
+
+test "settlement preparation rejection prevents every immediate sharded R2 commit" {
+    const allocator = std.testing.allocator;
+    const symbol: i32 = 8_703;
+    const maker_uids = [2]i64{
+        uidForShard(0, 4, 87_400),
+        uidForShard(1, 4, 87_500),
+    };
+    const taker_uid = uidForShard(2, 4, 87_600);
+
+    var kernels = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        1,
+        4,
+        .{ .orderbook_kind = .direct },
+    );
+    defer kernels.deinit();
+    try setupMultiSettlementMultiFill(
+        allocator,
+        &kernels,
+        symbol,
+        maker_uids,
+        taker_uid,
+    );
+
+    var recorder: SettlementPrepareRecorder = .{
+        .target = .{ .multi = &kernels },
+        .reject = true,
+    };
+    var taker_bid = settlementMultiFillBid(91_300, taker_uid, symbol);
+    try std.testing.expectError(
+        error.SettlementPreparationRejected,
+        kernels.executeRoutedWithSettlement(
+            &taker_bid,
+            recorder.hooks(),
+            .replay,
+        ),
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), recorder.prepare_calls);
+    try std.testing.expectEqual(@as(usize, 2), recorder.last_trade_count);
+    try std.testing.expectEqual(settlement_lifecycle.ExecutionMode.replay, recorder.last_mode);
+    try std.testing.expectEqual(@as(usize, 4), recorder.observed_risk_hash_count);
+    try std.testing.expect(!recorder.risk_hash_failed);
+    for (0..kernels.riskShardCount()) |idx| {
+        try std.testing.expectEqual(
+            recorder.observed_risk_hashes[idx],
+            try kernels.riskEngineAt(idx).stateHash(),
+        );
+        try std.testing.expectEqual(@as(i64, 0), kernels.riskEngineAt(idx).getFeeCollected(15));
+    }
+    try std.testing.expectEqual(@as(usize, 0), recorder.risk_mark_calls);
+    try std.testing.expectEqual(@as(usize, 0), recorder.journal_mark_calls);
+    try std.testing.expectEqual(@as(usize, 0), recorder.recovery_calls);
+}
+
+test "settlement preparation disabled variants are equivalent to existing immediate APIs" {
+    const allocator = std.testing.allocator;
+    const single_symbol: i32 = 8_704;
+    const single_makers = [2]i64{ 87_701, 87_702 };
+    const single_taker: i64 = 87_703;
+
+    var existing_single = try ExchangeKernel.init(allocator, .{ .orderbook_kind = .direct });
+    defer existing_single.deinit();
+    var disabled_single = try ExchangeKernel.init(allocator, .{ .orderbook_kind = .direct });
+    defer disabled_single.deinit();
+    try setupSingleSettlementMultiFill(
+        allocator,
+        &existing_single,
+        single_symbol,
+        single_makers,
+        single_taker,
+    );
+    try setupSingleSettlementMultiFill(
+        allocator,
+        &disabled_single,
+        single_symbol,
+        single_makers,
+        single_taker,
+    );
+
+    const single_sequence = publication.PublicationSequence.fromInt(existing_single.next_seq + 3);
+    var existing_single_bid = settlementMultiFillBid(91_400, single_taker, single_symbol);
+    var disabled_single_bid = existing_single_bid;
+    var existing_single_response = try existing_single.executeAtSequence(
+        single_sequence,
+        &existing_single_bid,
+    );
+    defer existing_single_response.deinit(allocator);
+    var disabled_single_response = try disabled_single.executeAtSequenceWithSettlement(
+        single_sequence,
+        &disabled_single_bid,
+        settlement_lifecycle.Hooks.disabled(),
+        .replay,
+    );
+    defer disabled_single_response.deinit(allocator);
+    try std.testing.expectEqualDeep(existing_single_response.command, disabled_single_response.command);
+    try std.testing.expectEqual(
+        events.listSize(existing_single_response.matcher_events_head),
+        events.listSize(disabled_single_response.matcher_events_head),
+    );
+    var existing_single_hash = try existing_single.buildStateHashDetailedReport();
+    defer existing_single_hash.deinit(allocator);
+    var disabled_single_hash = try disabled_single.buildStateHashDetailedReport();
+    defer disabled_single_hash.deinit(allocator);
+    try std.testing.expectEqual(
+        existing_single_hash.aggregate_hash,
+        disabled_single_hash.aggregate_hash,
+    );
+
+    const multi_symbol: i32 = 8_705;
+    const multi_makers = [2]i64{
+        uidForShard(0, 4, 87_800),
+        uidForShard(1, 4, 87_900),
+    };
+    const multi_taker = uidForShard(2, 4, 88_000);
+    var existing_multi = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        1,
+        4,
+        .{ .orderbook_kind = .direct },
+    );
+    defer existing_multi.deinit();
+    var disabled_multi = try MultiShardKernelSet.initWithTopology(
+        allocator,
+        1,
+        4,
+        .{ .orderbook_kind = .direct },
+    );
+    defer disabled_multi.deinit();
+    try setupMultiSettlementMultiFill(
+        allocator,
+        &existing_multi,
+        multi_symbol,
+        multi_makers,
+        multi_taker,
+    );
+    try setupMultiSettlementMultiFill(
+        allocator,
+        &disabled_multi,
+        multi_symbol,
+        multi_makers,
+        multi_taker,
+    );
+
+    var canonical_probe = settlementMultiFillBid(91_500, multi_taker, multi_symbol);
+    const canonical_spec = MultiShardKernelSet.StageAdapter.init(&disabled_multi)
+        .canonicalSymbolSpecification(&canonical_probe) orelse
+        return error.TestExpectedCanonicalSymbolSpecification;
+    try std.testing.expectEqualDeep(try makeExchangeSpecForSymbol(multi_symbol), canonical_spec);
+
+    const multi_sequence = publication.PublicationSequence.fromInt(existing_multi.next_seq + 2);
+    var existing_multi_bid = canonical_probe;
+    var disabled_multi_bid = canonical_probe;
+    var existing_multi_response = try existing_multi.executeSplitAtSequence(
+        multi_sequence,
+        &existing_multi_bid,
+    );
+    defer existing_multi_response.deinit(allocator);
+    var disabled_multi_response = try disabled_multi.executeSplitAtSequenceWithSettlement(
+        multi_sequence,
+        &disabled_multi_bid,
+        settlement_lifecycle.Hooks.disabled(),
+        .replay,
+    );
+    defer disabled_multi_response.deinit(allocator);
+    try std.testing.expectEqualDeep(existing_multi_response.command, disabled_multi_response.command);
+    try std.testing.expectEqual(
+        events.listSize(existing_multi_response.matcher_events_head),
+        events.listSize(disabled_multi_response.matcher_events_head),
+    );
+    try std.testing.expectEqual(
+        try existing_multi.detailedHashFingerprint(),
+        try disabled_multi.detailedHashFingerprint(),
     );
 }
 

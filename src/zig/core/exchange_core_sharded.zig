@@ -7,6 +7,7 @@ const kernel_mod = @import("exchange_kernel.zig");
 const orderbook_naive = @import("orderbook_naive.zig");
 const publication = @import("publication_sequence.zig");
 const risk = @import("risk.zig");
+const settlement_lifecycle = @import("settlement_lifecycle.zig");
 
 pub const OrderBookKind = kernel_mod.OrderBookKind;
 pub const CommandResponse = kernel_mod.CommandResponse;
@@ -14,6 +15,7 @@ pub const LifecycleError = error{
     CoreStopped,
 };
 pub const ExecuteError = LifecycleError || kernel_mod.ExecuteError;
+pub const ExecuteWithSettlementError = LifecycleError || kernel_mod.ExecuteWithSettlementError;
 pub const ReportError = kernel_mod.ReportError;
 pub const InitError = kernel_mod.MultiShardKernelSet.ShardedInitError;
 pub const AggregateError = kernel_mod.MultiShardKernelSet.AggregateError;
@@ -22,6 +24,19 @@ pub const InitFromJavaConfigError = config_mod.JavaExchangeConfig.ValidationErro
     MatchingEnginesNumOverflow,
     RiskEnginesNumOverflow,
 };
+
+fn omitDisabledSettlementErrors(
+    result: ExecuteWithSettlementError!CommandResponse,
+) ExecuteError!CommandResponse {
+    return result catch |err| switch (err) {
+        error.SettlementPreparationRejected,
+        error.SettlementRiskR2MarkRejected,
+        error.SettlementJournalMarkRejected,
+        error.SettlementRecoveryRejected,
+        => unreachable,
+        else => |execute_err| return execute_err,
+    };
+}
 
 pub const ShardedExchangeCore = struct {
     allocator: std.mem.Allocator,
@@ -166,8 +181,25 @@ pub const ShardedExchangeCore = struct {
         self: *ShardedExchangeCore,
         command: *cmd.OrderCommand,
     ) ExecuteError!CommandResponse {
+        return omitDisabledSettlementErrors(self.executeRoutedWithSettlement(
+            command,
+            settlement_lifecycle.Hooks.disabled(),
+            .live,
+        ));
+    }
+
+    pub fn executeRoutedWithSettlement(
+        self: *ShardedExchangeCore,
+        command: *cmd.OrderCommand,
+        settlement_hooks: settlement_lifecycle.Hooks,
+        settlement_mode: settlement_lifecycle.ExecutionMode,
+    ) ExecuteWithSettlementError!CommandResponse {
         try self.ensureRunning();
-        return self.kernels.executeRouted(command);
+        return self.kernels.executeRoutedWithSettlement(
+            command,
+            settlement_hooks,
+            settlement_mode,
+        );
     }
 
     pub fn executeRoutedAtSequence(
@@ -175,16 +207,53 @@ pub const ShardedExchangeCore = struct {
         sequence: publication.PublicationSequence,
         command: *cmd.OrderCommand,
     ) ExecuteError!CommandResponse {
+        return omitDisabledSettlementErrors(self.executeRoutedAtSequenceWithSettlement(
+            sequence,
+            command,
+            settlement_lifecycle.Hooks.disabled(),
+            .live,
+        ));
+    }
+
+    pub fn executeRoutedAtSequenceWithSettlement(
+        self: *ShardedExchangeCore,
+        sequence: publication.PublicationSequence,
+        command: *cmd.OrderCommand,
+        settlement_hooks: settlement_lifecycle.Hooks,
+        settlement_mode: settlement_lifecycle.ExecutionMode,
+    ) ExecuteWithSettlementError!CommandResponse {
         try self.ensureRunning();
-        return self.kernels.executeRoutedAtSequence(sequence, command);
+        return self.kernels.executeRoutedAtSequenceWithSettlement(
+            sequence,
+            command,
+            settlement_hooks,
+            settlement_mode,
+        );
     }
 
     pub fn executeSplit(
         self: *ShardedExchangeCore,
         command: *cmd.OrderCommand,
     ) ExecuteError!CommandResponse {
+        return omitDisabledSettlementErrors(self.executeSplitWithSettlement(
+            command,
+            settlement_lifecycle.Hooks.disabled(),
+            .live,
+        ));
+    }
+
+    pub fn executeSplitWithSettlement(
+        self: *ShardedExchangeCore,
+        command: *cmd.OrderCommand,
+        settlement_hooks: settlement_lifecycle.Hooks,
+        settlement_mode: settlement_lifecycle.ExecutionMode,
+    ) ExecuteWithSettlementError!CommandResponse {
         try self.ensureRunning();
-        return self.kernels.executeSplit(command);
+        return self.kernels.executeSplitWithSettlement(
+            command,
+            settlement_hooks,
+            settlement_mode,
+        );
     }
 
     pub fn executeSplitAtSequence(
@@ -192,8 +261,28 @@ pub const ShardedExchangeCore = struct {
         sequence: publication.PublicationSequence,
         command: *cmd.OrderCommand,
     ) ExecuteError!CommandResponse {
+        return omitDisabledSettlementErrors(self.executeSplitAtSequenceWithSettlement(
+            sequence,
+            command,
+            settlement_lifecycle.Hooks.disabled(),
+            .live,
+        ));
+    }
+
+    pub fn executeSplitAtSequenceWithSettlement(
+        self: *ShardedExchangeCore,
+        sequence: publication.PublicationSequence,
+        command: *cmd.OrderCommand,
+        settlement_hooks: settlement_lifecycle.Hooks,
+        settlement_mode: settlement_lifecycle.ExecutionMode,
+    ) ExecuteWithSettlementError!CommandResponse {
         try self.ensureRunning();
-        return self.kernels.executeSplitAtSequence(sequence, command);
+        return self.kernels.executeSplitAtSequenceWithSettlement(
+            sequence,
+            command,
+            settlement_hooks,
+            settlement_mode,
+        );
     }
 
     /// Snapshot/bootstrap owns the cold core and restores every shard's
@@ -365,6 +454,43 @@ fn expectMapEqualI32I64(
         try std.testing.expect(rhs.contains(key));
         try std.testing.expectEqual(entry.value_ptr.*, rhs.get(key).?);
     }
+}
+
+fn errorSetContains(comptime ErrorSet: type, comptime error_name: []const u8) bool {
+    inline for (std.meta.fields(ErrorSet)) |field| {
+        if (std.mem.eql(u8, field.name, error_name)) return true;
+    }
+    return false;
+}
+
+test "sharded core legacy and settlement execution errors remain source separated" {
+    const settlement_error_names = [_][]const u8{
+        "SettlementPreparationRejected",
+        "SettlementRiskR2MarkRejected",
+        "SettlementJournalMarkRejected",
+        "SettlementRecoveryRejected",
+    };
+    inline for (settlement_error_names) |error_name| {
+        try std.testing.expect(!errorSetContains(ExecuteError, error_name));
+        try std.testing.expect(errorSetContains(ExecuteWithSettlementError, error_name));
+    }
+
+    try std.testing.expect(
+        @typeInfo(@TypeOf(ShardedExchangeCore.executeRouted)).@"fn".return_type.? ==
+            ExecuteError!CommandResponse,
+    );
+    try std.testing.expect(
+        @typeInfo(@TypeOf(ShardedExchangeCore.executeSplit)).@"fn".return_type.? ==
+            ExecuteError!CommandResponse,
+    );
+    try std.testing.expect(
+        @typeInfo(@TypeOf(ShardedExchangeCore.executeRoutedWithSettlement)).@"fn".return_type.? ==
+            ExecuteWithSettlementError!CommandResponse,
+    );
+    try std.testing.expect(
+        @typeInfo(@TypeOf(ShardedExchangeCore.executeSplitWithSettlement)).@"fn".return_type.? ==
+            ExecuteWithSettlementError!CommandResponse,
+    );
 }
 
 test "sharded exchange core init enforces power-of-two shard counts" {

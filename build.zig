@@ -445,6 +445,30 @@ pub fn build(b: *std.Build) void {
         .cpu_arch = .wasm32,
         .os_tag = .freestanding,
     });
+    const wasm_settlement_check_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/browser/settlement_check.zig"),
+        .target = wasm_target,
+        .optimize = .ReleaseSmall,
+        .single_threaded = true,
+    });
+    const wasm_settlement_core = b.createModule(.{
+        .root_source_file = b.path("src/zig/core/root.zig"),
+        .target = wasm_target,
+        .optimize = .ReleaseSmall,
+        .single_threaded = true,
+    });
+    wasm_settlement_check_module.addImport("exchange_core", wasm_settlement_core);
+    const wasm_settlement_check = b.addExecutable(.{
+        .name = "exchange-core-settlement-check",
+        .root_module = wasm_settlement_check_module,
+    });
+    wasm_settlement_check.entry = .disabled;
+    const wasm_settlement_check_step = b.step(
+        "wasm-settlement-check",
+        "Compile the pure TigerBeetle plugin, exchange integration, and Parix adapter for browser WASM",
+    );
+    wasm_settlement_check_step.dependOn(&wasm_settlement_check.step);
+
     const wasm_exchange_kernel = b.createModule(.{
         .root_source_file = b.path("src/zig/core/exchange_kernel.zig"),
         .target = wasm_target,
@@ -524,6 +548,7 @@ pub fn build(b: *std.Build) void {
     wasm_step.dependOn(&install_wasm_scenarios_page.step);
     wasm_step.dependOn(&install_wasm_manual_app.step);
     wasm_step.dependOn(&install_wasm_manual_session.step);
+    wasm_step.dependOn(&wasm_settlement_check.step);
 
     const run_wasm_smoke = b.addSystemCommand(&.{ "node", "src/zig/apps/browser/smoke.mjs" });
     run_wasm_smoke.addFileArg(wasm_exe.getEmittedBin());
@@ -536,4 +561,5 @@ pub fn build(b: *std.Build) void {
     // Keep Node out of the main migration gate while still proving that the
     // browser target compiles with the exact artifact used by `wasm-smoke`.
     gate_step.dependOn(&wasm_exe.step);
+    gate_step.dependOn(&wasm_settlement_check.step);
 }

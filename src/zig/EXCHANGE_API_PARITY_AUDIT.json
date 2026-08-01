@@ -2,9 +2,9 @@
   "java_source": "src/main/java/exchange/core2/core/ExchangeApi.java",
   "zig_source": "src/zig/core/exchange_api.zig",
   "java_public_declaration_count": 33,
-  "zig_public_declaration_count": 207,
+  "zig_public_declaration_count": 209,
   "java_method_family_count": 24,
-  "zig_method_family_count": 207,
+  "zig_method_family_count": 209,
   "java_method_families_with_same_name_coverage": 24,
   "java_method_families_without_same_name_coverage": 0,
   "java_method_families_with_semantic_evidence": 24,
@@ -684,1037 +684,1047 @@
   "zig_declarations": [
     {
       "name": "init",
-      "line": 162,
+      "line": 166,
       "signature": "pub fn init("
     },
     {
       "name": "initWithIo",
-      "line": 172,
+      "line": 176,
       "signature": "pub fn initWithIo("
     },
     {
       "name": "initWithPersistenceRoot",
-      "line": 182,
+      "line": 186,
       "signature": "pub fn initWithPersistenceRoot("
     },
     {
       "name": "initWithIoAndPersistenceRoot",
-      "line": 197,
+      "line": 201,
       "signature": "pub fn initWithIoAndPersistenceRoot("
     },
     {
       "name": "initFromJavaConfig",
-      "line": 211,
+      "line": 215,
       "signature": "pub fn initFromJavaConfig("
     },
     {
       "name": "deinit",
-      "line": 218,
+      "line": 222,
       "signature": "pub fn deinit(self: *ExchangeApi) void {"
     },
     {
       "name": "kernelRef",
-      "line": 224,
+      "line": 228,
       "signature": "pub fn kernelRef(self: *ExchangeApi) *kernel_mod.ExchangeKernel {"
     },
     {
       "name": "configRef",
-      "line": 228,
+      "line": 232,
       "signature": "pub fn configRef(self: *const ExchangeApi) *const Config {"
     },
     {
       "name": "ioContext",
-      "line": 232,
+      "line": 236,
       "signature": "pub fn ioContext(self: *const ExchangeApi) std.Io {"
     },
     {
       "name": "isStarted",
-      "line": 236,
+      "line": 240,
       "signature": "pub fn isStarted(self: *const ExchangeApi) bool {"
     },
     {
       "name": "isStopped",
-      "line": 240,
+      "line": 244,
       "signature": "pub fn isStopped(self: *const ExchangeApi) bool {"
     },
     {
       "name": "journalingEnabled",
-      "line": 244,
+      "line": 248,
       "signature": "pub fn journalingEnabled(self: *const ExchangeApi) bool {"
     },
     {
       "name": "journalLen",
-      "line": 248,
+      "line": 252,
       "signature": "pub fn journalLen(self: *const ExchangeApi) LifecycleError!usize {"
     },
     {
       "name": "asyncPendingCount",
-      "line": 252,
+      "line": 256,
       "signature": "pub fn asyncPendingCount(self: *const ExchangeApi) usize {"
     },
     {
       "name": "asyncReadyCount",
-      "line": 256,
+      "line": 260,
       "signature": "pub fn asyncReadyCount(self: *const ExchangeApi) usize {"
     },
     {
       "name": "runtimePendingCount",
-      "line": 260,
+      "line": 264,
       "signature": "pub fn runtimePendingCount(self: *const ExchangeApi) usize {"
     },
     {
       "name": "fatalInfo",
-      "line": 264,
+      "line": 268,
       "signature": "pub fn fatalInfo(self: *const ExchangeApi) ?CoreFatalInfo {"
     },
     {
       "name": "enqueueRuntime",
-      "line": 268,
+      "line": 272,
       "signature": "pub fn enqueueRuntime("
     },
     {
       "name": "drainRuntime",
-      "line": 275,
+      "line": 279,
       "signature": "pub fn drainRuntime(self: *ExchangeApi) RuntimeDrainError!RuntimeDrainOutcome {"
     },
     {
       "name": "defaultPersistenceSnapshotFileName",
-      "line": 279,
+      "line": 283,
       "signature": "pub fn defaultPersistenceSnapshotFileName("
     },
     {
       "name": "defaultPersistenceJournalFileName",
-      "line": 294,
+      "line": 298,
       "signature": "pub fn defaultPersistenceJournalFileName("
     },
     {
       "name": "defaultPersistenceMainLogFileName",
-      "line": 307,
+      "line": 311,
       "signature": "pub fn defaultPersistenceMainLogFileName("
     },
     {
       "name": "defaultPersistenceSnapshotPath",
-      "line": 314,
+      "line": 318,
       "signature": "pub fn defaultPersistenceSnapshotPath("
     },
     {
       "name": "defaultPersistenceSnapshotManifestPath",
-      "line": 329,
+      "line": 333,
       "signature": "pub fn defaultPersistenceSnapshotManifestPath("
     },
     {
       "name": "defaultPersistenceJournalPath",
-      "line": 337,
+      "line": 341,
       "signature": "pub fn defaultPersistenceJournalPath("
     },
     {
       "name": "defaultPersistenceMainLogPath",
-      "line": 350,
+      "line": 354,
       "signature": "pub fn defaultPersistenceMainLogPath("
     },
     {
       "name": "submitCommand",
-      "line": 357,
+      "line": 361,
       "signature": "pub fn submitCommand("
     },
     {
       "name": "submitCommandSync",
-      "line": 366,
+      "line": 370,
       "signature": "pub fn submitCommandSync("
     },
     {
       "name": "addUser",
-      "line": 373,
+      "line": 377,
       "signature": "pub fn addUser("
     },
     {
       "name": "adjustUserBalance",
-      "line": 380,
+      "line": 384,
       "signature": "pub fn adjustUserBalance("
     },
     {
       "name": "placeOrder",
-      "line": 397,
+      "line": 401,
       "signature": "pub fn placeOrder("
     },
     {
       "name": "submitApiCommand",
-      "line": 422,
+      "line": 426,
       "signature": "pub fn submitApiCommand("
     },
     {
       "name": "submitApiCommandDetached",
-      "line": 429,
+      "line": 433,
       "signature": "pub fn submitApiCommandDetached("
     },
     {
       "name": "submitApiCommandSync",
-      "line": 436,
+      "line": 440,
       "signature": "pub fn submitApiCommandSync("
     },
     {
       "name": "submitCommandAsync",
-      "line": 443,
+      "line": 447,
       "signature": "pub fn submitCommandAsync("
     },
     {
       "name": "addUserAsync",
-      "line": 450,
+      "line": 454,
       "signature": "pub fn addUserAsync("
     },
     {
       "name": "adjustUserBalanceAsync",
-      "line": 457,
+      "line": 461,
       "signature": "pub fn adjustUserBalanceAsync("
     },
     {
       "name": "suspendUserAsync",
-      "line": 474,
+      "line": 478,
       "signature": "pub fn suspendUserAsync("
     },
     {
       "name": "resumeUserAsync",
-      "line": 481,
+      "line": 485,
       "signature": "pub fn resumeUserAsync("
     },
     {
       "name": "placeOrderAsync",
-      "line": 488,
+      "line": 492,
       "signature": "pub fn placeOrderAsync("
     },
     {
       "name": "moveOrderAsync",
-      "line": 513,
+      "line": 517,
       "signature": "pub fn moveOrderAsync("
     },
     {
       "name": "cancelOrderAsync",
-      "line": 528,
+      "line": 532,
       "signature": "pub fn cancelOrderAsync("
     },
     {
       "name": "reduceOrderAsync",
-      "line": 537,
+      "line": 541,
       "signature": "pub fn reduceOrderAsync("
     },
     {
       "name": "resetAsync",
-      "line": 547,
+      "line": 551,
       "signature": "pub fn resetAsync(self: *ExchangeApi) AsyncSubmitError!u64 {"
     },
     {
       "name": "groupingControlAsync",
-      "line": 551,
+      "line": 555,
       "signature": "pub fn groupingControlAsync("
     },
     {
       "name": "nopAsync",
-      "line": 559,
+      "line": 563,
       "signature": "pub fn nopAsync(self: *ExchangeApi) AsyncSubmitError!u64 {"
     },
     {
       "name": "submitApiCommandAsync",
-      "line": 563,
+      "line": 567,
       "signature": "pub fn submitApiCommandAsync("
     },
     {
       "name": "submitCommandAsyncResultCode",
-      "line": 570,
+      "line": 574,
       "signature": "pub fn submitCommandAsyncResultCode("
     },
     {
       "name": "submitCommandAsyncFullResponse",
-      "line": 577,
+      "line": 581,
       "signature": "pub fn submitCommandAsyncFullResponse("
     },
     {
       "name": "processCommandResultCode",
-      "line": 587,
+      "line": 591,
       "signature": "pub fn processCommandResultCode("
     },
     {
       "name": "processCommandFullResponse",
-      "line": 597,
+      "line": 601,
       "signature": "pub fn processCommandFullResponse("
     },
     {
       "name": "requestOrderBookAsync",
-      "line": 607,
+      "line": 611,
       "signature": "pub fn requestOrderBookAsync("
     },
     {
       "name": "orderBookRequestAsync",
-      "line": 620,
+      "line": 624,
       "signature": "pub fn orderBookRequestAsync("
     },
     {
       "name": "requestOrderBook",
-      "line": 628,
+      "line": 632,
       "signature": "pub fn requestOrderBook("
     },
     {
       "name": "submitCreateUserAsync",
-      "line": 636,
+      "line": 640,
       "signature": "pub fn submitCreateUserAsync("
     },
     {
       "name": "submitSuspendUserAsync",
-      "line": 643,
+      "line": 647,
       "signature": "pub fn submitSuspendUserAsync("
     },
     {
       "name": "submitResumeUserAsync",
-      "line": 650,
+      "line": 654,
       "signature": "pub fn submitResumeUserAsync("
     },
     {
       "name": "submitBalanceAdjustmentAsync",
-      "line": 657,
+      "line": 661,
       "signature": "pub fn submitBalanceAdjustmentAsync("
     },
     {
       "name": "submitPlaceNewOrderAsync",
-      "line": 676,
+      "line": 680,
       "signature": "pub fn submitPlaceNewOrderAsync("
     },
     {
       "name": "submitMoveOrderAsync",
-      "line": 703,
+      "line": 707,
       "signature": "pub fn submitMoveOrderAsync("
     },
     {
       "name": "submitCancelOrderAsync",
-      "line": 720,
+      "line": 724,
       "signature": "pub fn submitCancelOrderAsync("
     },
     {
       "name": "submitReduceOrderAsync",
-      "line": 735,
+      "line": 739,
       "signature": "pub fn submitReduceOrderAsync("
     },
     {
       "name": "submitPersistStateAsync",
-      "line": 752,
+      "line": 756,
       "signature": "pub fn submitPersistStateAsync("
     },
     {
       "name": "processPersistStateResultCode",
-      "line": 765,
+      "line": 769,
       "signature": "pub fn processPersistStateResultCode("
     },
     {
       "name": "createUserWithCallback",
-      "line": 778,
+      "line": 782,
       "signature": "pub fn createUserWithCallback("
     },
     {
       "name": "suspendUserWithCallback",
-      "line": 786,
+      "line": 790,
       "signature": "pub fn suspendUserWithCallback("
     },
     {
       "name": "resumeUserWithCallback",
-      "line": 794,
+      "line": 798,
       "signature": "pub fn resumeUserWithCallback("
     },
     {
       "name": "balanceAdjustmentWithCallback",
-      "line": 802,
+      "line": 806,
       "signature": "pub fn balanceAdjustmentWithCallback("
     },
     {
       "name": "orderBookRequest",
-      "line": 822,
+      "line": 826,
       "signature": "pub fn orderBookRequest("
     },
     {
       "name": "placeNewOrderWithCallback",
-      "line": 836,
+      "line": 840,
       "signature": "pub fn placeNewOrderWithCallback("
     },
     {
       "name": "placeNewOrderGeneratedIdWithCallback",
-      "line": 864,
+      "line": 868,
       "signature": "pub fn placeNewOrderGeneratedIdWithCallback("
     },
     {
       "name": "moveOrderWithCallback",
-      "line": 889,
+      "line": 893,
       "signature": "pub fn moveOrderWithCallback("
     },
     {
       "name": "cancelOrderWithCallback",
-      "line": 907,
+      "line": 911,
       "signature": "pub fn cancelOrderWithCallback("
     },
     {
       "name": "reduceOrderWithCallback",
-      "line": 923,
+      "line": 927,
       "signature": "pub fn reduceOrderWithCallback("
     },
     {
       "name": "submitBinaryReportQueryAsync",
-      "line": 941,
+      "line": 945,
       "signature": "pub fn submitBinaryReportQueryAsync("
     },
     {
       "name": "submitNativeReportQueryAsync",
-      "line": 958,
+      "line": 962,
       "signature": "pub fn submitNativeReportQueryAsync("
     },
     {
       "name": "submitBinaryDataPayloadAsync",
-      "line": 972,
+      "line": 976,
       "signature": "pub fn submitBinaryDataPayloadAsync("
     },
     {
       "name": "submitBinaryDataAsync",
-      "line": 987,
+      "line": 991,
       "signature": "pub fn submitBinaryDataAsync("
     },
     {
       "name": "submitBinaryCommandAsync",
-      "line": 996,
+      "line": 1000,
       "signature": "pub fn submitBinaryCommandAsync("
     },
     {
       "name": "submitBinaryQueryPayloadAsync",
-      "line": 1005,
+      "line": 1009,
       "signature": "pub fn submitBinaryQueryPayloadAsync("
     },
     {
       "name": "publishBinaryData",
-      "line": 1020,
+      "line": 1024,
       "signature": "pub fn publishBinaryData("
     },
     {
       "name": "publishQuery",
-      "line": 1029,
+      "line": 1033,
       "signature": "pub fn publishQuery("
     },
     {
       "name": "submitQueryAsync",
-      "line": 1038,
+      "line": 1042,
       "signature": "pub fn submitQueryAsync("
     },
     {
       "name": "requestStateHashAsync",
-      "line": 1047,
+      "line": 1051,
       "signature": "pub fn requestStateHashAsync("
     },
     {
       "name": "requestSingleUserReportAsync",
-      "line": 1055,
+      "line": 1059,
       "signature": "pub fn requestSingleUserReportAsync("
     },
     {
       "name": "requestTotalCurrencyBalanceAsync",
-      "line": 1064,
+      "line": 1068,
       "signature": "pub fn requestTotalCurrencyBalanceAsync("
     },
     {
       "name": "isResultReady",
-      "line": 1072,
+      "line": 1076,
       "signature": "pub fn isResultReady("
     },
     {
       "name": "isAsyncResultReady",
-      "line": 1079,
+      "line": 1083,
       "signature": "pub fn isAsyncResultReady("
     },
     {
       "name": "isAsyncResultReadyChecked",
-      "line": 1086,
+      "line": 1090,
       "signature": "pub fn isAsyncResultReadyChecked("
     },
     {
       "name": "isApiCommandAsyncResultReady",
-      "line": 1093,
+      "line": 1097,
       "signature": "pub fn isApiCommandAsyncResultReady("
     },
     {
       "name": "isApiCommandAsyncResultReadyChecked",
-      "line": 1100,
+      "line": 1104,
       "signature": "pub fn isApiCommandAsyncResultReadyChecked("
     },
     {
       "name": "takeResult",
-      "line": 1107,
+      "line": 1111,
       "signature": "pub fn takeResult("
     },
     {
       "name": "takeAsyncResult",
-      "line": 1118,
+      "line": 1122,
       "signature": "pub fn takeAsyncResult("
     },
     {
       "name": "takeAsyncResultChecked",
-      "line": 1129,
+      "line": 1133,
       "signature": "pub fn takeAsyncResultChecked("
     },
     {
       "name": "takeApiCommandAsyncResult",
-      "line": 1140,
+      "line": 1144,
       "signature": "pub fn takeApiCommandAsyncResult("
     },
     {
       "name": "takeApiCommandAsyncResultChecked",
-      "line": 1147,
+      "line": 1151,
       "signature": "pub fn takeApiCommandAsyncResultChecked("
     },
     {
       "name": "registerResultCallback",
-      "line": 1158,
+      "line": 1162,
       "signature": "pub fn registerResultCallback("
     },
     {
       "name": "pendingCallbackCount",
-      "line": 1169,
+      "line": 1173,
       "signature": "pub fn pendingCallbackCount(self: *const ExchangeApi) usize {"
     },
     {
       "name": "processResult",
-      "line": 1178,
+      "line": 1182,
       "signature": "pub fn processResult("
     },
     {
       "name": "processRegisteredCallback",
-      "line": 1196,
+      "line": 1200,
       "signature": "pub fn processRegisteredCallback("
     },
     {
       "name": "processPendingCallbacks",
-      "line": 1222,
+      "line": 1226,
       "signature": "pub fn processPendingCallbacks(self: *ExchangeApi) ProcessRegisteredCallbackError!usize {"
     },
     {
       "name": "takeResultCode",
-      "line": 1253,
+      "line": 1257,
       "signature": "pub fn takeResultCode("
     },
     {
       "name": "takeFullResponse",
-      "line": 1265,
+      "line": 1269,
       "signature": "pub fn takeFullResponse("
     },
     {
       "name": "takeOrderBookSnapshot",
-      "line": 1276,
+      "line": 1280,
       "signature": "pub fn takeOrderBookSnapshot("
     },
     {
       "name": "takeReportResponse",
-      "line": 1289,
+      "line": 1293,
       "signature": "pub fn takeReportResponse("
     },
     {
       "name": "takeJavaReportResponse",
-      "line": 1302,
+      "line": 1306,
       "signature": "pub fn takeJavaReportResponse("
     },
     {
       "name": "takeJavaStateHashReport",
-      "line": 1342,
+      "line": 1346,
       "signature": "pub fn takeJavaStateHashReport("
     },
     {
       "name": "takeJavaSingleUserReport",
-      "line": 1354,
+      "line": 1358,
       "signature": "pub fn takeJavaSingleUserReport("
     },
     {
       "name": "takeJavaTotalCurrencyBalanceReport",
-      "line": 1369,
+      "line": 1373,
       "signature": "pub fn takeJavaTotalCurrencyBalanceReport("
     },
     {
       "name": "takeStateHashDetailed",
-      "line": 1384,
+      "line": 1388,
       "signature": "pub fn takeStateHashDetailed("
     },
     {
       "name": "takeSingleUserReport",
-      "line": 1396,
+      "line": 1400,
       "signature": "pub fn takeSingleUserReport("
     },
     {
       "name": "takeTotalCurrencyBalanceReport",
-      "line": 1408,
+      "line": 1412,
       "signature": "pub fn takeTotalCurrencyBalanceReport("
     },
     {
       "name": "processNativeReport",
-      "line": 1420,
+      "line": 1424,
       "signature": "pub fn processNativeReport("
     },
     {
       "name": "processReport",
-      "line": 1434,
+      "line": 1438,
       "signature": "pub fn processReport("
     },
     {
       "name": "processStateHashReport",
-      "line": 1443,
+      "line": 1447,
       "signature": "pub fn processStateHashReport("
     },
     {
       "name": "processSingleUserReport",
-      "line": 1454,
+      "line": 1458,
       "signature": "pub fn processSingleUserReport("
     },
     {
       "name": "processTotalCurrencyBalanceReport",
-      "line": 1466,
+      "line": 1470,
       "signature": "pub fn processTotalCurrencyBalanceReport("
     },
     {
       "name": "processJavaReport",
-      "line": 1477,
+      "line": 1481,
       "signature": "pub fn processJavaReport("
     },
     {
       "name": "processJavaStateHashReport",
-      "line": 1489,
+      "line": 1493,
       "signature": "pub fn processJavaStateHashReport("
     },
     {
       "name": "processJavaSingleUserReport",
-      "line": 1500,
+      "line": 1504,
       "signature": "pub fn processJavaSingleUserReport("
     },
     {
       "name": "processJavaTotalCurrencyBalanceReport",
-      "line": 1516,
+      "line": 1520,
       "signature": "pub fn processJavaTotalCurrencyBalanceReport("
     },
     {
       "name": "processOrderBookRequest",
-      "line": 1531,
+      "line": 1535,
       "signature": "pub fn processOrderBookRequest("
     },
     {
       "name": "queryReport",
-      "line": 1542,
+      "line": 1546,
       "signature": "pub fn queryReport("
     },
     {
       "name": "queryRiskStateHash",
-      "line": 1549,
+      "line": 1553,
       "signature": "pub fn queryRiskStateHash(self: *ExchangeApi) QueryTypedReportError!u64 {"
     },
     {
       "name": "queryFeeCollected",
-      "line": 1558,
+      "line": 1562,
       "signature": "pub fn queryFeeCollected("
     },
     {
       "name": "queryUserBalance",
-      "line": 1570,
+      "line": 1574,
       "signature": "pub fn queryUserBalance("
     },
     {
       "name": "queryOrderBook",
-      "line": 1588,
+      "line": 1592,
       "signature": "pub fn queryOrderBook("
     },
     {
       "name": "drainPending",
-      "line": 1606,
+      "line": 1610,
       "signature": "pub fn drainPending(self: *ExchangeApi) DrainPendingError!usize {"
     },
     {
       "name": "drainAsyncPending",
-      "line": 1610,
+      "line": 1614,
       "signature": "pub fn drainAsyncPending(self: *ExchangeApi) DrainPendingError!usize {"
     },
     {
       "name": "submitCommandsSync",
-      "line": 1614,
+      "line": 1618,
       "signature": "pub fn submitCommandsSync("
     },
     {
       "name": "submitApiCommandsSync",
-      "line": 1624,
+      "line": 1628,
       "signature": "pub fn submitApiCommandsSync("
     },
     {
       "name": "submitCommandsSyncWithNop",
-      "line": 1631,
+      "line": 1635,
       "signature": "pub fn submitCommandsSyncWithNop("
     },
     {
       "name": "submitApiCommandsSyncWithNop",
-      "line": 1639,
+      "line": 1643,
       "signature": "pub fn submitApiCommandsSyncWithNop("
     },
     {
       "name": "persistState",
-      "line": 1646,
+      "line": 1650,
       "signature": "pub fn persistState("
     },
     {
       "name": "setPersistenceFaultForTesting",
-      "line": 1654,
+      "line": 1658,
       "signature": "pub fn setPersistenceFaultForTesting("
     },
     {
       "name": "submitCommandBatch",
-      "line": 1661,
+      "line": 1665,
       "signature": "pub fn submitCommandBatch("
     },
     {
       "name": "submitBinaryPayload",
-      "line": 1668,
+      "line": 1672,
       "signature": "pub fn submitBinaryPayload("
     },
     {
       "name": "submitBinaryPayloadAsync",
-      "line": 1683,
+      "line": 1687,
       "signature": "pub fn submitBinaryPayloadAsync("
     },
     {
       "name": "submitBinaryPayloadAsyncWithCallback",
-      "line": 1700,
+      "line": 1704,
       "signature": "pub fn submitBinaryPayloadAsyncWithCallback("
     },
     {
       "name": "submitBinaryPayloadDetached",
-      "line": 1718,
+      "line": 1722,
       "signature": "pub fn submitBinaryPayloadDetached("
     },
     {
       "name": "submitBinaryReportQuery",
-      "line": 1733,
+      "line": 1737,
       "signature": "pub fn submitBinaryReportQuery("
     },
     {
       "name": "submitNativeReportQuery",
-      "line": 1742,
+      "line": 1746,
       "signature": "pub fn submitNativeReportQuery("
     },
     {
       "name": "persistStateAsync",
-      "line": 1751,
+      "line": 1755,
       "signature": "pub fn persistStateAsync("
     },
     {
       "name": "isPersistStateResultReady",
-      "line": 1759,
+      "line": 1763,
       "signature": "pub fn isPersistStateResultReady("
     },
     {
       "name": "isPersistStateResultReadyChecked",
-      "line": 1766,
+      "line": 1770,
       "signature": "pub fn isPersistStateResultReadyChecked("
     },
     {
       "name": "takePersistStateResult",
-      "line": 1773,
+      "line": 1777,
       "signature": "pub fn takePersistStateResult("
     },
     {
       "name": "takePersistStateResultChecked",
-      "line": 1780,
+      "line": 1784,
       "signature": "pub fn takePersistStateResultChecked("
     },
     {
       "name": "setResultSink",
-      "line": 1787,
+      "line": 1791,
       "signature": "pub fn setResultSink("
     },
     {
       "name": "setResultSinkChecked",
-      "line": 1794,
+      "line": 1798,
       "signature": "pub fn setResultSinkChecked("
     },
     {
       "name": "setRawResultSink",
-      "line": 1801,
+      "line": 1805,
       "signature": "pub fn setRawResultSink("
     },
     {
       "name": "setRawResultSinkChecked",
-      "line": 1808,
+      "line": 1812,
       "signature": "pub fn setRawResultSinkChecked("
     },
     {
       "name": "clearRawResultSink",
-      "line": 1815,
+      "line": 1819,
       "signature": "pub fn clearRawResultSink(self: *ExchangeApi) void {"
     },
     {
       "name": "clearRawResultSinkChecked",
-      "line": 1819,
+      "line": 1823,
       "signature": "pub fn clearRawResultSinkChecked(self: *ExchangeApi) CallbackConfigError!void {"
     },
     {
       "name": "setSimpleEventsHandler",
-      "line": 1823,
+      "line": 1827,
       "signature": "pub fn setSimpleEventsHandler("
     },
     {
       "name": "setSimpleEventsHandlerChecked",
-      "line": 1830,
+      "line": 1834,
       "signature": "pub fn setSimpleEventsHandlerChecked("
     },
     {
       "name": "clearSimpleEventsHandler",
-      "line": 1837,
+      "line": 1841,
       "signature": "pub fn clearSimpleEventsHandler(self: *ExchangeApi) void {"
     },
     {
       "name": "clearSimpleEventsHandlerChecked",
-      "line": 1841,
+      "line": 1845,
       "signature": "pub fn clearSimpleEventsHandlerChecked(self: *ExchangeApi) CallbackConfigError!void {"
     },
     {
       "name": "submitAddSymbolsBinary",
-      "line": 1845,
+      "line": 1849,
       "signature": "pub fn submitAddSymbolsBinary("
     },
     {
       "name": "submitAddSymbolsBinaryAsync",
-      "line": 1860,
+      "line": 1864,
       "signature": "pub fn submitAddSymbolsBinaryAsync("
     },
     {
       "name": "submitAddAccountsBinary",
-      "line": 1875,
+      "line": 1879,
       "signature": "pub fn submitAddAccountsBinary("
     },
     {
       "name": "submitAddAccountsBinaryAsync",
-      "line": 1890,
+      "line": 1894,
       "signature": "pub fn submitAddAccountsBinaryAsync("
     },
     {
       "name": "startup",
-      "line": 1905,
+      "line": 1909,
       "signature": "pub fn startup(self: *ExchangeApi) StartError!void {"
     },
     {
+      "name": "setSettlementHooks",
+      "line": 1913,
+      "signature": "pub fn setSettlementHooks("
+    },
+    {
+      "name": "clearSettlementHooks",
+      "line": 1920,
+      "signature": "pub fn clearSettlementHooks("
+    },
+    {
       "name": "shutdownState",
-      "line": 1909,
+      "line": 1926,
       "signature": "pub fn shutdownState(self: *const ExchangeApi) ShutdownState {"
     },
     {
       "name": "shutdownTimeout",
-      "line": 1913,
+      "line": 1930,
       "signature": "pub fn shutdownTimeout("
     },
     {
       "name": "shutdown",
-      "line": 1920,
+      "line": 1937,
       "signature": "pub fn shutdown(self: *ExchangeApi) LifecycleError!void {"
     },
     {
       "name": "bootstrapFromPersistence",
-      "line": 1924,
+      "line": 1941,
       "signature": "pub fn bootstrapFromPersistence("
     },
     {
       "name": "startupFromPersistence",
-      "line": 1933,
+      "line": 1950,
       "signature": "pub fn startupFromPersistence("
     },
     {
       "name": "startupFromConfiguredPersistence",
-      "line": 1942,
+      "line": 1959,
       "signature": "pub fn startupFromConfiguredPersistence("
     },
     {
       "name": "writeJournalToFile",
-      "line": 1957,
+      "line": 1974,
       "signature": "pub fn writeJournalToFile("
     },
     {
       "name": "loadJournalFromFile",
-      "line": 1965,
+      "line": 1982,
       "signature": "pub fn loadJournalFromFile("
     },
     {
       "name": "replayJournalFromFile",
-      "line": 1973,
+      "line": 1990,
       "signature": "pub fn replayJournalFromFile("
     },
     {
       "name": "captureSnapshotToFile",
-      "line": 1981,
+      "line": 1998,
       "signature": "pub fn captureSnapshotToFile("
     },
     {
       "name": "validateSnapshotFile",
-      "line": 1996,
+      "line": 2013,
       "signature": "pub fn validateSnapshotFile("
     },
     {
       "name": "writeJournalToDefaultPath",
-      "line": 2004,
+      "line": 2021,
       "signature": "pub fn writeJournalToDefaultPath("
     },
     {
       "name": "loadJournalFromDefaultPath",
-      "line": 2017,
+      "line": 2034,
       "signature": "pub fn loadJournalFromDefaultPath("
     },
     {
       "name": "replayJournalFromDefaultPath",
-      "line": 2030,
+      "line": 2047,
       "signature": "pub fn replayJournalFromDefaultPath("
     },
     {
       "name": "replayJournalFromDefaultPathRange",
-      "line": 2043,
+      "line": 2060,
       "signature": "pub fn replayJournalFromDefaultPathRange("
     },
     {
       "name": "captureSnapshotToDefaultPath",
-      "line": 2056,
+      "line": 2073,
       "signature": "pub fn captureSnapshotToDefaultPath("
     },
     {
       "name": "validateSnapshotDefaultPath",
-      "line": 2075,
+      "line": 2092,
       "signature": "pub fn validateSnapshotDefaultPath("
     },
     {
       "name": "persistStateWithDefaultMainLog",
-      "line": 2090,
+      "line": 2107,
       "signature": "pub fn persistStateWithDefaultMainLog("
     },
     {
       "name": "persistStateWithConfiguredMainLog",
-      "line": 2107,
+      "line": 2124,
       "signature": "pub fn persistStateWithConfiguredMainLog("
     },
     {
       "name": "startupFromDiscoveredConfiguredPersistence",
-      "line": 2122,
+      "line": 2139,
       "signature": "pub fn startupFromDiscoveredConfiguredPersistence("
     },
     {
       "name": "startupFromDiscoveredConfiguredPersistenceStrictMainLog",
-      "line": 2137,
+      "line": 2154,
       "signature": "pub fn startupFromDiscoveredConfiguredPersistenceStrictMainLog("
     },
     {
       "name": "persistenceSnapshotCount",
-      "line": 2152,
+      "line": 2169,
       "signature": "pub fn persistenceSnapshotCount(self: *const ExchangeApi) LifecycleError!usize {"
     },
     {
       "name": "persistenceJournalCount",
-      "line": 2156,
+      "line": 2173,
       "signature": "pub fn persistenceJournalCount(self: *const ExchangeApi) LifecycleError!usize {"
     },
     {
       "name": "persistenceCurrentSnapshot",
-      "line": 2160,
+      "line": 2177,
       "signature": "pub fn persistenceCurrentSnapshot(self: *const ExchangeApi) LifecycleError!SnapshotDescriptorView {"
     },
     {
       "name": "persistenceCurrentSnapshotRef",
-      "line": 2164,
+      "line": 2181,
       "signature": "pub fn persistenceCurrentSnapshotRef(self: *const ExchangeApi) LifecycleError!SnapshotRef {"
     },
     {
       "name": "persistenceJournalByRef",
-      "line": 2168,
+      "line": 2185,
       "signature": "pub fn persistenceJournalByRef("
     },
     {
       "name": "persistenceFindJournalForSequence",
-      "line": 2175,
+      "line": 2192,
       "signature": "pub fn persistenceFindJournalForSequence("
     },
     {
       "name": "persistenceFindSnapshotById",
-      "line": 2182,
+      "line": 2199,
       "signature": "pub fn persistenceFindSnapshotById("
     },
     {
       "name": "persistenceSnapshotById",
-      "line": 2189,
+      "line": 2206,
       "signature": "pub fn persistenceSnapshotById("
     },
     {
       "name": "snapshotExistsDefaultPath",
-      "line": 2196,
+      "line": 2213,
       "signature": "pub fn snapshotExistsDefaultPath("
     },
     {
       "name": "snapshotExistsFile",
-      "line": 2211,
+      "line": 2228,
       "signature": "pub fn snapshotExistsFile("
     },
     {
       "name": "createUser",
-      "line": 2219,
+      "line": 2236,
       "signature": "pub fn createUser("
     },
     {
       "name": "suspendUser",
-      "line": 2238,
+      "line": 2255,
       "signature": "pub fn suspendUser("
     },
     {
       "name": "resumeUser",
-      "line": 2257,
+      "line": 2274,
       "signature": "pub fn resumeUser("
     },
     {
       "name": "balanceAdjustment",
-      "line": 2276,
+      "line": 2293,
       "signature": "pub fn balanceAdjustment("
     },
     {
       "name": "placeNewOrder",
-      "line": 2305,
+      "line": 2322,
       "signature": "pub fn placeNewOrder("
     },
     {
       "name": "moveOrder",
-      "line": 2338,
+      "line": 2355,
       "signature": "pub fn moveOrder("
     },
     {
       "name": "cancelOrder",
-      "line": 2361,
+      "line": 2378,
       "signature": "pub fn cancelOrder("
     },
     {
       "name": "reduceOrder",
-      "line": 2382,
+      "line": 2399,
       "signature": "pub fn reduceOrder("
     },
     {
       "name": "binaryData",
-      "line": 2405,
+      "line": 2422,
       "signature": "pub fn binaryData("
     },
     {
       "name": "groupingControl",
-      "line": 2432,
+      "line": 2449,
       "signature": "pub fn groupingControl("
     },
     {
       "name": "reset",
-      "line": 2445,
+      "line": 2462,
       "signature": "pub fn reset("
     },
     {
       "name": "nop",
-      "line": 2456,
+      "line": 2473,
       "signature": "pub fn nop("
     },
     {
       "name": "submitApiCommandWithCallback",
-      "line": 2531,
+      "line": 2548,
       "signature": "pub fn submitApiCommandWithCallback("
     },
     {
       "name": "submitCommandAsyncWithCallback",
-      "line": 2539,
+      "line": 2556,
       "signature": "pub fn submitCommandAsyncWithCallback("
     }
   ]

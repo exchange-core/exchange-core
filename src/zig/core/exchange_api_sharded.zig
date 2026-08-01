@@ -23,6 +23,7 @@ const publication = @import("publication_sequence.zig");
 const report_registry = @import("report_registry.zig");
 const runtime_queue_mod = @import("runtime_queue.zig");
 const runtime_mod = @import("exchange_runtime.zig");
+const settlement_lifecycle = @import("settlement_lifecycle.zig");
 const serialization_processor = @import("serialization_processor.zig");
 const sharded_core_mod = @import("exchange_core_sharded.zig");
 const sharded_pipeline = @import("sharded_pipeline.zig");
@@ -56,6 +57,11 @@ pub const LifecycleError = error{
 pub const CallbackConfigError = error{
     CallbackReconfigurationWouldBlock,
     CallbackRevisionOverflow,
+};
+pub const SettlementHooksConfigError = error{
+    SettlementHooksRequireNativeDurableJournal,
+    SettlementHooksRequireColdCore,
+    SettlementHooksReconfigurationWouldBlock,
 };
 pub const StartError = LifecycleError ||
     std.Thread.SpawnError ||
@@ -705,6 +711,8 @@ pub const ExchangeApiSharded = struct {
     current_snapshot_ref: SnapshotRef,
     journal: ?journal_mod.CommandJournal = null,
     durable_journal: ?journal_mod.DurableJournalAppender = null,
+    settlement_hooks: settlement_lifecycle.Hooks = settlement_lifecycle.Hooks.disabled(),
+    settlement_recovery_finished: bool = false,
     next_request_id: u64 = 0,
     ready_results: std.AutoHashMapUnmanaged(u64, kernel_mod.CommandResponse) = .empty,
     custom_ready_results: std.AutoHashMapUnmanaged(u64, CustomReportReady) = .empty,
@@ -726,6 +734,7 @@ pub const ExchangeApiSharded = struct {
     persistent_grouped_spawn_failure_after: ?usize = null,
     persistent_grouped_driver_spawn_failure: bool = false,
     persistent_grouped_stage_gate: ?*sharded_pipeline.PersistentGroupedRuntime.StageGate = null,
+    strict_snapshot_disappeared_after_validation_for_testing: bool = false,
     available_batch_test_gate: ?*AvailableBatchPauseTestGate = null,
     journal_capacity_test_gate: ?*JournalCapacityTestGate = null,
     grouped_poison_reacquire_test_gate: ?*GroupedPoisonReacquireTestGate = null,
@@ -1247,6 +1256,57 @@ pub const ExchangeApiSharded = struct {
         };
     }
 
+    /// Installs the synchronous local settlement boundary before any restore,
+    /// replay, or live publication. Enabled hooks require the native XCJ3
+    /// appender: a custom serialization callback is not a durability proof.
+    /// Hooks may inspect non-blocking state, but blocking exchange calls are
+    /// rejected with `CoreReentrantCall` while any hook is executing.
+    pub fn setSettlementHooks(
+        self: *ExchangeApiSharded,
+        hooks: settlement_lifecycle.Hooks,
+    ) SettlementHooksConfigError!void {
+        self.assertWiring();
+        if (runtime_mod.isCallbackExecutionActive() or active_worker_api != null) {
+            return error.SettlementHooksReconfigurationWouldBlock;
+        }
+
+        const driver = self.driver;
+        driver.mutex.lockUncancelable(driver.io);
+        defer driver.mutex.unlock(driver.io);
+        if (driver.lifecycle.current() != .cold or
+            driver.close_requested.load(.acquire))
+        {
+            return error.SettlementHooksRequireColdCore;
+        }
+        if (driver.active_cold_calls != 0 or
+            driver.manual_drain_active or
+            driver.bootstrap_owner != null or
+            driver.active_binary_stream)
+        {
+            return error.SettlementHooksReconfigurationWouldBlock;
+        }
+
+        if (self.initial_state_bootstrapped or
+            self.settlement_recovery_finished or
+            driver.publication_sequencer.highWater() != 0 or
+            self.core.kernels.next_seq != 0)
+        {
+            return error.SettlementHooksRequireColdCore;
+        }
+        if (hooks.isEnabled() and self.durable_journal == null) {
+            return error.SettlementHooksRequireNativeDurableJournal;
+        }
+
+        self.settlement_hooks = hooks;
+        self.settlement_recovery_finished = false;
+    }
+
+    pub fn clearSettlementHooks(
+        self: *ExchangeApiSharded,
+    ) SettlementHooksConfigError!void {
+        try self.setSettlementHooks(settlement_lifecycle.Hooks.disabled());
+    }
+
     /// Starts the sole queue consumer. Once this succeeds, the API value must
     /// remain at this address until `shutdown`/`deinit` joins the worker.
     pub fn startup(self: *ExchangeApiSharded) StartError!void {
@@ -1290,6 +1350,7 @@ pub const ExchangeApiSharded = struct {
             return error.ConfiguredPersistenceBootstrapRequired;
         }
         try self.validateDurableJournalFrontier();
+        self.finishSettlementRecoveryLocked() catch return error.CorePoisoned;
 
         try self.core.startup();
         driver.owner = self;
@@ -1337,6 +1398,7 @@ pub const ExchangeApiSharded = struct {
                 .payload_allocator_is_thread_safe = true,
                 .spawn_failure_after = self.persistent_grouped_spawn_failure_after,
                 .stage_gate = self.persistent_grouped_stage_gate,
+                .settlement_hooks = self.scopedSettlementHooks(),
             },
         );
         errdefer runtime.destroy() catch unreachable;
@@ -1564,6 +1626,7 @@ pub const ExchangeApiSharded = struct {
         defer self.finishBootstrap();
         const outcome = try self.bootstrapFromPersistenceColdOwned(dir, snapshot_path, journal_path);
         try self.validateDurableJournalFrontier();
+        self.finishSettlementRecovery() catch return error.CorePoisoned;
         self.initial_state_bootstrapped = true;
         return outcome;
     }
@@ -1596,6 +1659,7 @@ pub const ExchangeApiSharded = struct {
         defer self.finishBootstrap();
         const outcome = try self.bootstrapFromPersistenceColdOwned(dir, snapshot_path, journal_path);
         try self.validateDurableJournalFrontier();
+        self.finishSettlementRecovery() catch return error.CorePoisoned;
         self.initial_state_bootstrapped = true;
         try self.startup();
         return outcome;
@@ -1625,7 +1689,14 @@ pub const ExchangeApiSharded = struct {
         }
 
         var first_partition_found = false;
-        if (initial_state.journal_timestamp_ns != 0) {
+        if (initial_state.journal_timestamp_ns != 0 and
+            self.settlement_hooks.isEnabled())
+        {
+            first_partition_found = true;
+            outcome.journal_replayed_commands = try self.replayNativeSettlementJournalColdOwnedAfterSequence(
+                snapshot_frontier,
+            );
+        } else if (initial_state.journal_timestamp_ns != 0) {
             const path = try self.defaultPersistenceJournalPath(
                 self.allocator,
                 initial_state.snapshot_id,
@@ -1646,7 +1717,10 @@ pub const ExchangeApiSharded = struct {
             };
         }
 
-        if (first_partition_found and journal_partition_id < std.math.maxInt(u16)) {
+        if (!self.settlement_hooks.isEnabled() and
+            first_partition_found and
+            journal_partition_id < std.math.maxInt(u16))
+        {
             const replayed_tail = try self.replayJournalFromDefaultPathRangeColdOwnedAfterSequence(
                 persistence_root,
                 initial_state.snapshot_id,
@@ -1661,6 +1735,7 @@ pub const ExchangeApiSharded = struct {
         }
 
         try self.validateDurableJournalFrontier();
+        self.finishSettlementRecovery() catch return error.CorePoisoned;
         self.initial_state_bootstrapped = true;
         try self.startup();
         return outcome;
@@ -1706,6 +1781,7 @@ pub const ExchangeApiSharded = struct {
             .journal_replayed_commands = 0,
         };
         try self.validateDurableJournalFrontier();
+        self.finishSettlementRecovery() catch return error.CorePoisoned;
         self.initial_state_bootstrapped = true;
         try self.startup();
         return outcome;
@@ -1749,6 +1825,7 @@ pub const ExchangeApiSharded = struct {
             .journal_replayed_commands = 0,
         };
         try self.validateDurableJournalFrontier();
+        self.finishSettlementRecovery() catch return error.CorePoisoned;
         self.initial_state_bootstrapped = true;
         try self.startup();
         return outcome;
@@ -1821,6 +1898,16 @@ pub const ExchangeApiSharded = struct {
             var loaded = try journal_mod.CommandJournal.readFromFile(self.allocator, dir, path);
             errdefer loaded.deinit();
 
+            if (self.settlement_hooks.isEnabled()) {
+                const replay_fingerprint = loaded.durablePrefixFingerprint() orelse
+                    return error.JournalEntryMismatch;
+                const appender = &(self.durable_journal orelse unreachable);
+                const native_fingerprint = try appender.fingerprint(self.allocator);
+                if (!replay_fingerprint.eql(native_fingerprint)) {
+                    return error.JournalEntryMismatch;
+                }
+            }
+
             // The restored sharded kernel is authoritative. This matters when
             // an XCM2 manifest is newer than the configured snapshot base and
             // when a journal range advances across multiple partitions.
@@ -1876,11 +1963,27 @@ pub const ExchangeApiSharded = struct {
                 try self.driver.publication_sequencer.observe(assigned_sequence);
                 replay_mutation_started = true;
                 var replay_command = entry.input;
-                var replay_response = try self.executeWithModeNoJournalAtSequence(
+                var replay_response = self.executeWithModeNoJournalAtSequence(
                     entry.mode,
                     assigned_sequence,
                     &replay_command,
-                );
+                    .replay,
+                ) catch |failure| {
+                    self.poisonDirectExecution(
+                        replay_failure_sequence,
+                        &replay_failure_command,
+                        failure,
+                    );
+                    replay_mutation_started = false;
+                    return switch (failure) {
+                        error.SettlementPreparationRejected,
+                        error.SettlementRiskR2MarkRejected,
+                        error.SettlementJournalMarkRejected,
+                        error.SettlementRecoveryRejected,
+                        => error.CorePoisoned,
+                        else => @errorCast(failure),
+                    };
+                };
                 defer replay_response.deinit(self.allocator);
                 try self.registerPersistDescriptorIfNeeded(
                     &replay_command,
@@ -1912,6 +2015,24 @@ pub const ExchangeApiSharded = struct {
             return replayed;
         }
         return error.JournalingDisabled;
+    }
+
+    /// Configured recovery normally follows Java-numbered partitions. Enabled
+    /// settlement instead replays the exact native XCJ3 file owned by the
+    /// appender; its content fingerprint is checked before mutation below.
+    fn replayNativeSettlementJournalColdOwnedAfterSequence(
+        self: *ExchangeApiSharded,
+        sequence_exclusive: u64,
+    ) DefaultJournalReplayError!usize {
+        std.debug.assert(self.settlement_hooks.isEnabled());
+        const persistence_root = self.persistence_root orelse unreachable;
+        const native_path = try nativeJournalPartitionPath(self.allocator, &self.config);
+        defer self.allocator.free(native_path);
+        return self.replayJournalFromFileColdOwnedAfterSequence(
+            persistence_root,
+            native_path,
+            sequence_exclusive,
+        );
     }
 
     pub fn captureSnapshotToFile(
@@ -5445,7 +5566,14 @@ pub const ExchangeApiSharded = struct {
         ) catch |err| {
             self.execution_mutex.unlock(self.driver.io);
             self.poisonDirectExecution(sequence, command, err);
-            return err;
+            return switch (err) {
+                error.SettlementPreparationRejected,
+                error.SettlementRiskR2MarkRejected,
+                error.SettlementJournalMarkRejected,
+                error.SettlementRecoveryRejected,
+                => error.CorePoisoned,
+                else => @errorCast(err),
+            };
         };
         self.execution_mutex.unlock(self.driver.io);
         self.publishCompletionObservers(command, &response, null);
@@ -5458,9 +5586,14 @@ pub const ExchangeApiSharded = struct {
         sequence: publication.PublicationSequence,
         command: *cmd.OrderCommand,
         journal_batch_position: serialization_processor.JournalBatchPosition,
-    ) (sharded_core_mod.ExecuteError || DescriptorTrackingError || journal_mod.JournalIoError || serialization_processor.JournalError)!kernel_mod.CommandResponse {
+    ) (sharded_core_mod.ExecuteWithSettlementError || DescriptorTrackingError || journal_mod.JournalIoError || serialization_processor.JournalError)!kernel_mod.CommandResponse {
         const input = command.*;
-        var response = try self.executeWithModeNoJournalAtSequence(mode, sequence, command);
+        var response = try self.executeWithModeNoJournalAtSequence(
+            mode,
+            sequence,
+            command,
+            .live,
+        );
         errdefer response.deinit(self.allocator);
         self.coordinatePersistenceCommand(mode, command, &response);
         try self.appendJournalEntry(
@@ -5470,6 +5603,7 @@ pub const ExchangeApiSharded = struct {
             response.result_code,
             journal_batch_position,
         );
+        _ = try self.scopedSettlementHooks().markJournalCommitted(sequence);
         return response;
     }
 
@@ -5625,9 +5759,10 @@ pub const ExchangeApiSharded = struct {
             result_code,
             journal_batch_position,
         );
-        // Journaling-disabled execution still advances the logical journal
-        // frontier; durable failure returns before this acknowledgement.
-        try runtime.acknowledgeJournal(sequence.toInt());
+        // Disabled compatibility still advances the logical frontier. Enabled
+        // settlement reaches this combined boundary only after native sync, so
+        // a rejected durable mark poisons before result transfer.
+        try runtime.acknowledgeDurableJournal(sequence.toInt());
         var response = (try runtime.takeNextResult()) orelse
             return error.MissingGroupedResult;
         errdefer response.deinit(self.allocator);
@@ -5665,11 +5800,24 @@ pub const ExchangeApiSharded = struct {
         self: *ExchangeApiSharded,
         mode: ExecutionMode,
         command: *cmd.OrderCommand,
-    ) sharded_core_mod.ExecuteError!kernel_mod.CommandResponse {
-        return switch (mode) {
-            .routed => self.core.executeRouted(command),
-            .split => self.core.executeSplit(command),
+    ) sharded_core_mod.ExecuteWithSettlementError!kernel_mod.CommandResponse {
+        var response = switch (mode) {
+            .routed => try self.core.executeRoutedWithSettlement(
+                command,
+                self.scopedSettlementHooks(),
+                .live,
+            ),
+            .split => try self.core.executeSplitWithSettlement(
+                command,
+                self.scopedSettlementHooks(),
+                .live,
+            ),
         };
+        errdefer response.deinit(self.allocator);
+        _ = try self.scopedSettlementHooks().markRiskR2Committed(
+            publication.PublicationSequence.fromInt(response.sequence),
+        );
+        return response;
     }
 
     fn executeWithModeNoJournalAtSequence(
@@ -5677,11 +5825,27 @@ pub const ExchangeApiSharded = struct {
         mode: ExecutionMode,
         sequence: publication.PublicationSequence,
         command: *cmd.OrderCommand,
-    ) sharded_core_mod.ExecuteError!kernel_mod.CommandResponse {
-        return switch (mode) {
-            .routed => self.core.executeRoutedAtSequence(sequence, command),
-            .split => self.core.executeSplitAtSequence(sequence, command),
+        settlement_mode: settlement_lifecycle.ExecutionMode,
+    ) sharded_core_mod.ExecuteWithSettlementError!kernel_mod.CommandResponse {
+        var response = switch (mode) {
+            .routed => try self.core.executeRoutedAtSequenceWithSettlement(
+                sequence,
+                command,
+                self.scopedSettlementHooks(),
+                settlement_mode,
+            ),
+            .split => try self.core.executeSplitAtSequenceWithSettlement(
+                sequence,
+                command,
+                self.scopedSettlementHooks(),
+                settlement_mode,
+            ),
         };
+        errdefer response.deinit(self.allocator);
+        if (settlement_mode == .live) {
+            _ = try self.scopedSettlementHooks().markRiskR2Committed(sequence);
+        }
+        return response;
     }
 
     fn shouldUseWorkerForSynchronousCall(self: *ExchangeApiSharded) LifecycleError!bool {
@@ -6308,6 +6472,9 @@ pub const ExchangeApiSharded = struct {
             .poisoned => return error.CorePoisoned,
             .closing, .stopped => return error.CoreStopped,
             .cold => {},
+        }
+        if (self.settlement_hooks.isEnabled() and self.settlement_recovery_finished) {
+            return error.CoreAlreadyStarted;
         }
         if (driver.close_requested.load(.acquire)) return error.CoreStopped;
         if (!driver.queue.isEmpty() or
@@ -7386,6 +7553,7 @@ pub const ExchangeApiSharded = struct {
         std.debug.assert(self.config.serialization.enable_journaling == (self.journal != null));
         std.debug.assert(self.durable_journal == null or
             (self.journal != null and self.config.serialization.backend == .disk));
+        std.debug.assert(!self.settlement_hooks.isEnabled() or self.durable_journal != null);
     }
 
     fn assertWiringConst(self: *const ExchangeApiSharded) void {
@@ -7396,6 +7564,7 @@ pub const ExchangeApiSharded = struct {
         std.debug.assert(self.config.serialization.enable_journaling == (self.journal != null));
         std.debug.assert(self.durable_journal == null or
             (self.journal != null and self.config.serialization.backend == .disk));
+        std.debug.assert(!self.settlement_hooks.isEnabled() or self.durable_journal != null);
     }
 
     fn validateDurableJournalFrontier(
@@ -7409,6 +7578,133 @@ pub const ExchangeApiSharded = struct {
             return error.DurableJournalFrontierMismatch;
         };
         if (last != publication_high_water) return error.DurableJournalFrontierMismatch;
+    }
+
+    /// Publishes the recovered R2/journal frontier only after the complete
+    /// snapshot plus journal suffix has passed native durable validation.
+    /// Standalone replay deliberately never calls this boundary.
+    fn finishSettlementRecovery(
+        self: *ExchangeApiSharded,
+    ) settlement_lifecycle.Error!void {
+        const driver = self.driver;
+        driver.mutex.lockUncancelable(driver.io);
+        defer driver.mutex.unlock(driver.io);
+        try self.finishSettlementRecoveryLocked();
+    }
+
+    /// Requires `driver.mutex`. The startup path already owns that lock, so a
+    /// rejected hook must publish its fatal record directly instead of entering
+    /// the ordinary poison helper and recursively acquiring the mutex.
+    fn finishSettlementRecoveryLocked(
+        self: *ExchangeApiSharded,
+    ) settlement_lifecycle.Error!void {
+        const driver = self.driver;
+        if (!self.settlement_hooks.isEnabled() or self.settlement_recovery_finished) return;
+        const sequence = publication.PublicationSequence.fromInt(
+            driver.publication_sequencer.highWater(),
+        );
+
+        // Recovery hooks are application code. Keep the cold bootstrap fence
+        // published, but release the driver mutex so read-only API inspection
+        // cannot recursively acquire it. The callback execution scope makes
+        // every blocking/reentrant public call fail with CoreReentrantCall.
+        const current_thread = std.Thread.getCurrentId();
+        const installed_bootstrap_fence = driver.bootstrap_owner == null;
+        if (installed_bootstrap_fence) {
+            driver.bootstrap_owner = current_thread;
+        } else {
+            std.debug.assert(driver.bootstrap_owner == current_thread);
+        }
+        driver.mutex.unlock(driver.io);
+        const recovery = self.scopedSettlementHooks().finishRecovery(sequence);
+        driver.mutex.lockUncancelable(driver.io);
+        if (installed_bootstrap_fence) {
+            std.debug.assert(driver.bootstrap_owner == current_thread);
+            driver.bootstrap_owner = null;
+            driver.completion_available.broadcast(driver.io);
+        }
+
+        _ = recovery catch |err| {
+            const fatal: runtime_mod.FatalRecord = .{
+                .stage = .startup,
+                .sequence = sequence.toInt(),
+                .request_id = null,
+                .command = .nop,
+                .cause = err,
+            };
+            if (driver.lifecycle.poison(fatal)) {
+                self.core.shutdown();
+                driver.prepared_available_remaining = 0;
+                driver.work_available.broadcast(driver.io);
+                driver.space_available.broadcast(driver.io);
+                driver.completion_available.broadcast(driver.io);
+            }
+            return err;
+        };
+        self.settlement_recovery_finished = true;
+    }
+
+    /// Wraps every application-owned settlement callback in the same global
+    /// callback scope used by result observers. The wrapper context is the
+    /// heap-stable API address; the configured user hook remains immutable
+    /// after startup/bootstrap begins.
+    fn scopedSettlementHooks(self: *ExchangeApiSharded) settlement_lifecycle.Hooks {
+        if (!self.settlement_hooks.isEnabled()) return .disabled();
+        return .enabled(self, &.{
+            .prepare = settlementPrepareInCallbackScope,
+            .mark_risk_r2_committed = settlementMarkRiskInCallbackScope,
+            .mark_journal_committed = settlementMarkJournalInCallbackScope,
+            .finish_recovery = settlementFinishRecoveryInCallbackScope,
+        });
+    }
+
+    fn settlementPrepareInCallbackScope(
+        context: *anyopaque,
+        batch: settlement_lifecycle.PreparedBatch,
+    ) settlement_lifecycle.PrepareObservation {
+        const self: *ExchangeApiSharded = @ptrCast(@alignCast(context));
+        var callback_scope = runtime_mod.CallbackExecutionScope.enter();
+        defer callback_scope.leave();
+        _ = self.settlement_hooks.prepare(batch) catch return .rejected;
+        return .prepared;
+    }
+
+    fn settlementMarkRiskInCallbackScope(
+        context: *anyopaque,
+        sequence: publication.PublicationSequence,
+    ) settlement_lifecycle.MarkObservation {
+        const self: *ExchangeApiSharded = @ptrCast(@alignCast(context));
+        var callback_scope = runtime_mod.CallbackExecutionScope.enter();
+        defer callback_scope.leave();
+        _ = self.settlement_hooks.markRiskR2Committed(sequence) catch return .rejected;
+        return .marked;
+    }
+
+    fn settlementMarkJournalInCallbackScope(
+        context: *anyopaque,
+        sequence: publication.PublicationSequence,
+    ) settlement_lifecycle.MarkObservation {
+        const self: *ExchangeApiSharded = @ptrCast(@alignCast(context));
+        var callback_scope = runtime_mod.CallbackExecutionScope.enter();
+        defer callback_scope.leave();
+        _ = self.settlement_hooks.markJournalCommitted(sequence) catch return .rejected;
+        return .marked;
+    }
+
+    fn settlementFinishRecoveryInCallbackScope(
+        context: *anyopaque,
+        sequence: publication.PublicationSequence,
+    ) settlement_lifecycle.RecoveryObservation {
+        const self: *ExchangeApiSharded = @ptrCast(@alignCast(context));
+        var callback_scope = runtime_mod.CallbackExecutionScope.enter();
+        defer callback_scope.leave();
+        const disposition = self.settlement_hooks.finishRecovery(sequence) catch
+            return .rejected;
+        return switch (disposition) {
+            .completed => .completed,
+            .not_required => .not_required,
+            .disabled => unreachable,
+        };
     }
 
     fn adoptDurableSnapshotFrontier(
@@ -8016,7 +8312,9 @@ pub const ExchangeApiSharded = struct {
 
         var journal_path: ?[]u8 = null;
         defer if (journal_path) |path| self.allocator.free(path);
-        if (self.config.initial_state.journal_timestamp_ns != 0) {
+        if (self.config.initial_state.journal_timestamp_ns != 0 and
+            !self.settlement_hooks.isEnabled())
+        {
             journal_path = try self.defaultPersistenceJournalPath(
                 self.allocator,
                 snapshot_id,
@@ -8036,7 +8334,14 @@ pub const ExchangeApiSharded = struct {
             self.config.initial_state.snapshot_base_seq;
 
         var first_partition_found = false;
-        if (self.config.initial_state.journal_timestamp_ns != 0) {
+        if (self.config.initial_state.journal_timestamp_ns != 0 and
+            self.settlement_hooks.isEnabled())
+        {
+            first_partition_found = true;
+            outcome.journal_replayed_commands = try self.replayNativeSettlementJournalColdOwnedAfterSequence(
+                snapshot_frontier,
+            );
+        } else if (self.config.initial_state.journal_timestamp_ns != 0) {
             const path = journal_path orelse return error.JournalPathRequired;
             first_partition_found = true;
             outcome.journal_replayed_commands = self.replayJournalFromFileColdOwnedAfterSequence(
@@ -8052,7 +8357,10 @@ pub const ExchangeApiSharded = struct {
             };
         }
 
-        if (first_partition_found and journal_partition_id < std.math.maxInt(u16)) {
+        if (!self.settlement_hooks.isEnabled() and
+            first_partition_found and
+            journal_partition_id < std.math.maxInt(u16))
+        {
             const replayed_tail = try self.replayJournalFromDefaultPathRangeColdOwnedAfterSequence(
                 dir,
                 snapshot_id,
@@ -8067,6 +8375,7 @@ pub const ExchangeApiSharded = struct {
         }
 
         try self.validateDurableJournalFrontier();
+        self.finishSettlementRecovery() catch return error.CorePoisoned;
         self.initial_state_bootstrapped = true;
         try self.startup();
         return outcome;
@@ -8082,7 +8391,9 @@ pub const ExchangeApiSharded = struct {
     ) StartupFromDiscoveredConfiguredPersistenceStrictError!BootstrapOutcome {
         var journal_path: ?[]u8 = null;
         defer if (journal_path) |path| self.allocator.free(path);
-        if (self.config.initial_state.journal_timestamp_ns != 0) {
+        if (self.config.initial_state.journal_timestamp_ns != 0 and
+            !self.settlement_hooks.isEnabled())
+        {
             journal_path = try self.defaultPersistenceJournalPath(
                 self.allocator,
                 snapshot_id,
@@ -8122,15 +8433,30 @@ pub const ExchangeApiSharded = struct {
         }
 
         var outcome: BootstrapOutcome = .{};
-        const snapshot_info = (try self.bootstrapXcm2SnapshotWithId(
-            dir,
-            snapshot_id,
-            &outcome,
-        )) orelse return outcome;
-        const snapshot_frontier = snapshot_info.publication_high_water;
+        const snapshot_info = if (self.strict_snapshot_disappeared_after_validation_for_testing)
+            null
+        else
+            try self.bootstrapXcm2SnapshotWithId(
+                dir,
+                snapshot_id,
+                &outcome,
+            );
+        // Discovery and strict main-log validation selected this exact
+        // committed snapshot. If it disappears before restore, success would
+        // otherwise return a cold core without durable validation or recovery.
+        const committed_snapshot = snapshot_info orelse
+            return error.SnapshotFileNotFound;
+        const snapshot_frontier = committed_snapshot.publication_high_water;
 
         var first_partition_found = false;
-        if (self.config.initial_state.journal_timestamp_ns != 0) {
+        if (self.config.initial_state.journal_timestamp_ns != 0 and
+            self.settlement_hooks.isEnabled())
+        {
+            first_partition_found = true;
+            outcome.journal_replayed_commands = try self.replayNativeSettlementJournalColdOwnedAfterSequence(
+                snapshot_frontier,
+            );
+        } else if (self.config.initial_state.journal_timestamp_ns != 0) {
             const path = journal_path orelse return error.JournalPathRequired;
             first_partition_found = true;
             outcome.journal_replayed_commands = self.replayJournalFromFileColdOwnedAfterSequence(
@@ -8146,7 +8472,10 @@ pub const ExchangeApiSharded = struct {
             };
         }
 
-        if (first_partition_found and journal_partition_id < std.math.maxInt(u16)) {
+        if (!self.settlement_hooks.isEnabled() and
+            first_partition_found and
+            journal_partition_id < std.math.maxInt(u16))
+        {
             const replayed_tail = try self.replayJournalFromDefaultPathRangeColdOwnedAfterSequence(
                 dir,
                 snapshot_id,
@@ -8161,6 +8490,7 @@ pub const ExchangeApiSharded = struct {
         }
 
         try self.validateDurableJournalFrontier();
+        self.finishSettlementRecovery() catch return error.CorePoisoned;
         self.initial_state_bootstrapped = true;
         try self.startup();
         return outcome;
@@ -8594,10 +8924,14 @@ fn failureStage(failure: anyerror) runtime_mod.FailureStage {
         error.AppenderPoisoned,
         error.SequenceGap,
         error.JournalEntryMismatch,
+        error.SettlementJournalMarkRejected,
         => .journal,
         error.PositionRecordCorrupted,
         error.UserProfileCorrupted,
+        error.SettlementPreparationRejected,
+        error.SettlementRiskR2MarkRejected,
         => .r2,
+        error.SettlementRecoveryRejected => .startup,
         error.OrderBookInvariantViolation => .matching,
         error.SequenceOverflow => .grouping,
         error.OutOfMemory => .store_result,
@@ -8612,9 +8946,271 @@ fn groupedFailureStage(
         .accept, .publication_ownership => .grouping,
         .risk_pre_process => .r1,
         .matching => .matching,
+        .journal => .journal,
         .risk_release => .r2,
     };
 }
+
+const SettlementLifecycleTestEvent = enum {
+    prepare,
+    risk_r2,
+    journal,
+    recovery,
+};
+
+fn apiErrorSetContains(comptime ErrorSet: type, comptime error_name: []const u8) bool {
+    inline for (std.meta.fields(ErrorSet)) |field| {
+        if (std.mem.eql(u8, field.name, error_name)) return true;
+    }
+    return false;
+}
+
+const SettlementLifecycleTestRecorder = struct {
+    api: ?*ExchangeApiSharded = null,
+    reject_prepare: bool = false,
+    reject_risk: bool = false,
+    reject_journal: bool = false,
+    reject_recovery: bool = false,
+    prepare_calls: usize = 0,
+    risk_calls: usize = 0,
+    journal_calls: usize = 0,
+    recovery_calls: usize = 0,
+    last_prepare_mode: settlement_lifecycle.ExecutionMode = .live,
+    last_prepare_trade_count: usize = 0,
+    last_sequence: u64 = 0,
+    journal_marks_followed_native_sync: bool = true,
+    recovery_saw_validated_frontier: bool = true,
+    events: [32]SettlementLifecycleTestEvent = undefined,
+    events_len: usize = 0,
+
+    fn hooks(self: *SettlementLifecycleTestRecorder) settlement_lifecycle.Hooks {
+        return settlement_lifecycle.Hooks.enabled(self, &.{
+            .prepare = prepare,
+            .mark_risk_r2_committed = markRiskR2Committed,
+            .mark_journal_committed = markJournalCommitted,
+            .finish_recovery = finishRecovery,
+        });
+    }
+
+    fn resetObservations(self: *SettlementLifecycleTestRecorder) void {
+        self.prepare_calls = 0;
+        self.risk_calls = 0;
+        self.journal_calls = 0;
+        self.recovery_calls = 0;
+        self.last_prepare_mode = .live;
+        self.last_prepare_trade_count = 0;
+        self.last_sequence = 0;
+        self.journal_marks_followed_native_sync = true;
+        self.recovery_saw_validated_frontier = true;
+        self.events_len = 0;
+    }
+
+    fn record(self: *SettlementLifecycleTestRecorder, event: SettlementLifecycleTestEvent) void {
+        std.debug.assert(self.events_len < self.events.len);
+        self.events[self.events_len] = event;
+        self.events_len += 1;
+    }
+
+    fn prepare(
+        context: *anyopaque,
+        batch: settlement_lifecycle.PreparedBatch,
+    ) settlement_lifecycle.PrepareObservation {
+        const self: *SettlementLifecycleTestRecorder = @ptrCast(@alignCast(context));
+        self.record(.prepare);
+        self.prepare_calls += 1;
+        self.last_prepare_mode = batch.mode;
+        self.last_prepare_trade_count = batch.tradeCount();
+        self.last_sequence = batch.sequence.toInt();
+        return if (self.reject_prepare) .rejected else .prepared;
+    }
+
+    fn markRiskR2Committed(
+        context: *anyopaque,
+        sequence: publication.PublicationSequence,
+    ) settlement_lifecycle.MarkObservation {
+        const self: *SettlementLifecycleTestRecorder = @ptrCast(@alignCast(context));
+        self.record(.risk_r2);
+        self.risk_calls += 1;
+        self.last_sequence = sequence.toInt();
+        return if (self.reject_risk) .rejected else .marked;
+    }
+
+    fn markJournalCommitted(
+        context: *anyopaque,
+        sequence: publication.PublicationSequence,
+    ) settlement_lifecycle.MarkObservation {
+        const self: *SettlementLifecycleTestRecorder = @ptrCast(@alignCast(context));
+        self.record(.journal);
+        self.journal_calls += 1;
+        self.last_sequence = sequence.toInt();
+        const api = self.api orelse unreachable;
+        const appender = &(api.durable_journal orelse unreachable);
+        self.journal_marks_followed_native_sync =
+            self.journal_marks_followed_native_sync and
+            appender.lastSequence() == @as(?u64, sequence.toInt());
+        return if (self.reject_journal) .rejected else .marked;
+    }
+
+    fn finishRecovery(
+        context: *anyopaque,
+        sequence: publication.PublicationSequence,
+    ) settlement_lifecycle.RecoveryObservation {
+        const self: *SettlementLifecycleTestRecorder = @ptrCast(@alignCast(context));
+        self.record(.recovery);
+        self.recovery_calls += 1;
+        self.last_sequence = sequence.toInt();
+        const api = self.api orelse unreachable;
+        const appender = &(api.durable_journal orelse unreachable);
+        self.recovery_saw_validated_frontier =
+            self.recovery_saw_validated_frontier and
+            appender.lastSequence() == @as(?u64, sequence.toInt()) and
+            api.core.kernels.next_seq == sequence.toInt() and
+            api.driver.publication_sequencer.highWater() == sequence.toInt();
+        return if (self.reject_recovery) .rejected else .completed;
+    }
+};
+
+const ConcurrentSettlementLifecycleTestRecorder = struct {
+    api: *ExchangeApiSharded,
+    prepare_calls: std.atomic.Value(usize) = .init(0),
+    risk_calls: std.atomic.Value(usize) = .init(0),
+    journal_calls: std.atomic.Value(usize) = .init(0),
+    recovery_calls: std.atomic.Value(usize) = .init(0),
+    last_sequence: std.atomic.Value(u64) = .init(0),
+    last_prepare_mode: std.atomic.Value(u8) = .init(
+        @intFromEnum(settlement_lifecycle.ExecutionMode.live),
+    ),
+    journal_marks_followed_native_sync: std.atomic.Value(bool) = .init(true),
+
+    fn hooks(self: *ConcurrentSettlementLifecycleTestRecorder) settlement_lifecycle.Hooks {
+        return settlement_lifecycle.Hooks.enabled(self, &.{
+            .prepare = prepare,
+            .mark_risk_r2_committed = markRiskR2Committed,
+            .mark_journal_committed = markJournalCommitted,
+            .finish_recovery = finishRecovery,
+        });
+    }
+
+    fn prepare(
+        context: *anyopaque,
+        batch: settlement_lifecycle.PreparedBatch,
+    ) settlement_lifecycle.PrepareObservation {
+        const self: *ConcurrentSettlementLifecycleTestRecorder = @ptrCast(@alignCast(context));
+        _ = self.prepare_calls.fetchAdd(1, .acq_rel);
+        self.last_sequence.store(batch.sequence.toInt(), .release);
+        self.last_prepare_mode.store(@intFromEnum(batch.mode), .release);
+        return .prepared;
+    }
+
+    fn markRiskR2Committed(
+        context: *anyopaque,
+        sequence: publication.PublicationSequence,
+    ) settlement_lifecycle.MarkObservation {
+        const self: *ConcurrentSettlementLifecycleTestRecorder = @ptrCast(@alignCast(context));
+        _ = self.risk_calls.fetchAdd(1, .acq_rel);
+        self.last_sequence.store(sequence.toInt(), .release);
+        return .marked;
+    }
+
+    fn markJournalCommitted(
+        context: *anyopaque,
+        sequence: publication.PublicationSequence,
+    ) settlement_lifecycle.MarkObservation {
+        const self: *ConcurrentSettlementLifecycleTestRecorder = @ptrCast(@alignCast(context));
+        _ = self.journal_calls.fetchAdd(1, .acq_rel);
+        self.last_sequence.store(sequence.toInt(), .release);
+        const appender = &(self.api.durable_journal orelse unreachable);
+        if (appender.lastSequence() != @as(?u64, sequence.toInt())) {
+            self.journal_marks_followed_native_sync.store(false, .release);
+        }
+        return .marked;
+    }
+
+    fn finishRecovery(
+        context: *anyopaque,
+        sequence: publication.PublicationSequence,
+    ) settlement_lifecycle.RecoveryObservation {
+        const self: *ConcurrentSettlementLifecycleTestRecorder = @ptrCast(@alignCast(context));
+        _ = self.recovery_calls.fetchAdd(1, .acq_rel);
+        self.last_sequence.store(sequence.toInt(), .release);
+        return .completed;
+    }
+};
+
+const SettlementCallbackReentryProbe = struct {
+    const Outcome = enum(u8) {
+        not_called,
+        core_reentrant,
+        unexpected_error,
+        unexpected_success,
+    };
+
+    api: *ExchangeApiSharded,
+    probe_prepare: bool = false,
+    probe_recovery: bool = false,
+    prepare_outcome: std.atomic.Value(u8) = .init(@intFromEnum(Outcome.not_called)),
+    recovery_outcome: std.atomic.Value(u8) = .init(@intFromEnum(Outcome.not_called)),
+    recovery_saw_started: std.atomic.Value(bool) = .init(true),
+
+    fn hooks(self: *SettlementCallbackReentryProbe) settlement_lifecycle.Hooks {
+        return .enabled(self, &.{
+            .prepare = prepare,
+            .mark_risk_r2_committed = markRisk,
+            .mark_journal_committed = markJournal,
+            .finish_recovery = finishRecovery,
+        });
+    }
+
+    fn attemptBlockingCall(
+        self: *SettlementCallbackReentryProbe,
+        outcome: *std.atomic.Value(u8),
+    ) void {
+        var response = self.api.nop(.routed) catch |err| {
+            outcome.store(@intFromEnum(if (err == error.CoreReentrantCall)
+                Outcome.core_reentrant
+            else
+                Outcome.unexpected_error), .release);
+            return;
+        };
+        response.deinit(self.api.allocator);
+        outcome.store(@intFromEnum(Outcome.unexpected_success), .release);
+    }
+
+    fn prepare(
+        context: *anyopaque,
+        _: settlement_lifecycle.PreparedBatch,
+    ) settlement_lifecycle.PrepareObservation {
+        const self: *SettlementCallbackReentryProbe = @ptrCast(@alignCast(context));
+        if (self.probe_prepare) self.attemptBlockingCall(&self.prepare_outcome);
+        return .prepared;
+    }
+
+    fn markRisk(
+        _: *anyopaque,
+        _: publication.PublicationSequence,
+    ) settlement_lifecycle.MarkObservation {
+        return .marked;
+    }
+
+    fn markJournal(
+        _: *anyopaque,
+        _: publication.PublicationSequence,
+    ) settlement_lifecycle.MarkObservation {
+        return .marked;
+    }
+
+    fn finishRecovery(
+        context: *anyopaque,
+        _: publication.PublicationSequence,
+    ) settlement_lifecycle.RecoveryObservation {
+        const self: *SettlementCallbackReentryProbe = @ptrCast(@alignCast(context));
+        if (self.probe_recovery) {
+            self.recovery_saw_started.store(self.api.isStarted(), .release);
+            self.attemptBlockingCall(&self.recovery_outcome);
+        }
+        return .completed;
+    }
+};
 
 fn makeBalanceAdjustmentCommand(
     uid: i64,
@@ -19305,6 +19901,973 @@ test "sharded Java durable journal predicate matches source mutability" {
     for (appended) |command_type| {
         try std.testing.expect(shouldAppendToJavaDurableJournal(command_type));
     }
+}
+
+test "sharded settlement hooks require a pristine cold core and native durable journal" {
+    const allocator = std.testing.allocator;
+    var recorder: SettlementLifecycleTestRecorder = .{};
+
+    var dummy = try ExchangeApiSharded.init(allocator, 1, .direct);
+    defer dummy.deinit();
+    recorder.api = &dummy;
+    try std.testing.expect(!dummy.settlement_hooks.isEnabled());
+    try std.testing.expectError(
+        error.SettlementHooksRequireNativeDurableJournal,
+        dummy.setSettlementHooks(recorder.hooks()),
+    );
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var durable_config = Config.javaDefault();
+    durable_config.initial_state = config_mod.InitialStateConfig.cleanStart("SHSETHOOKCFG");
+    durable_config.matching.num_shards = 1;
+    durable_config.sharded_pipeline_mode = .immediate;
+    durable_config.serialization = .{
+        .enable_journaling = true,
+        .backend = .disk,
+        .storage_folder = "hook-store",
+    };
+    var durable = try ExchangeApiSharded.initWithPersistenceRoot(
+        allocator,
+        tmp.dir,
+        durable_config,
+    );
+    defer durable.deinit();
+    recorder.api = &durable;
+    try durable.setSettlementHooks(recorder.hooks());
+    try std.testing.expect(durable.settlement_hooks.isEnabled());
+    try durable.clearSettlementHooks();
+    try std.testing.expect(!durable.settlement_hooks.isEnabled());
+    try durable.setSettlementHooks(recorder.hooks());
+
+    var response = try durable.nop(.routed);
+    defer response.deinit(allocator);
+    try std.testing.expectError(
+        error.SettlementHooksRequireColdCore,
+        durable.clearSettlementHooks(),
+    );
+}
+
+test "sharded legacy API error sets exclude settlement-only failures" {
+    const settlement_error_names = [_][]const u8{
+        "SettlementPreparationRejected",
+        "SettlementRiskR2MarkRejected",
+        "SettlementJournalMarkRejected",
+        "SettlementRecoveryRejected",
+    };
+    inline for (settlement_error_names) |error_name| {
+        try std.testing.expect(!apiErrorSetContains(ExecuteError, error_name));
+        try std.testing.expect(!apiErrorSetContains(StartError, error_name));
+        try std.testing.expect(!apiErrorSetContains(JournalReplayError, error_name));
+    }
+    try std.testing.expect(
+        !apiErrorSetContains(JournalReplayError, "DurableJournalIdentityMismatch"),
+    );
+}
+
+test "sharded settlement callbacks reject blocking API reentry without holding driver locks" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var config = Config.javaDefault();
+    config.initial_state = config_mod.InitialStateConfig.cleanStart("SHSETREENTRY");
+    config.matching.num_shards = 2;
+    config.sharded_pipeline_mode = .persistent_grouped;
+    config.serialization = .{
+        .enable_journaling = true,
+        .backend = .disk,
+        .storage_folder = "reentry-store",
+    };
+    var api = try ExchangeApiSharded.initWithPersistenceRoot(allocator, tmp.dir, config);
+    defer api.deinit();
+    var probe: SettlementCallbackReentryProbe = .{
+        .api = &api,
+        .probe_prepare = true,
+        .probe_recovery = true,
+    };
+    try api.setSettlementHooks(probe.hooks());
+
+    const symbol: i32 = 61_050;
+    const maker_uid: i64 = 610_501;
+    const taker_uid: i64 = 610_502;
+    try api.addSymbolAll(try common.CoreSymbolSpecification.init(.{
+        .symbol_id = symbol,
+        .symbol_type = .currency_exchange_pair,
+        .base_currency = 11,
+        .quote_currency = 15,
+        .base_scale_k = 1,
+        .quote_scale_k = 1,
+        .taker_fee = 1,
+        .maker_fee = 1,
+    }));
+    try api.startup();
+    try std.testing.expect(!probe.recovery_saw_started.load(.acquire));
+    try std.testing.expectEqual(
+        @as(u8, @intFromEnum(SettlementCallbackReentryProbe.Outcome.core_reentrant)),
+        probe.recovery_outcome.load(.acquire),
+    );
+    var add_maker = try api.addUser(.routed, maker_uid);
+    defer add_maker.deinit(allocator);
+    var add_taker = try api.addUser(.split, taker_uid);
+    defer add_taker.deinit(allocator);
+    var fund_maker = try api.adjustUserBalance(
+        .routed,
+        maker_uid,
+        1,
+        11,
+        100_000,
+        .adjustment,
+    );
+    defer fund_maker.deinit(allocator);
+    var fund_taker = try api.adjustUserBalance(
+        .split,
+        taker_uid,
+        1,
+        15,
+        100_000,
+        .adjustment,
+    );
+    defer fund_taker.deinit(allocator);
+    var maker = try api.placeOrder(
+        .routed,
+        610_511,
+        maker_uid,
+        symbol,
+        100,
+        0,
+        2,
+        .ask,
+        .gtc,
+        0,
+    );
+    defer maker.deinit(allocator);
+    var taker = try api.placeOrder(
+        .split,
+        610_512,
+        taker_uid,
+        symbol,
+        100,
+        100,
+        2,
+        .bid,
+        .ioc,
+        0,
+    );
+    defer taker.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, taker.result_code);
+    api.shutdown();
+    try std.testing.expectEqual(
+        @as(u8, @intFromEnum(SettlementCallbackReentryProbe.Outcome.core_reentrant)),
+        probe.prepare_outcome.load(.acquire),
+    );
+}
+
+test "strict discovered sharded startup fails if selected snapshot disappears before restore" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const exchange_id = "SHSETSTRICTGONE";
+    const snapshot_id: i64 = 61_075;
+    var source_config = Config.javaDefault();
+    source_config.initial_state = config_mod.InitialStateConfig.cleanStart(exchange_id);
+    source_config.matching.num_shards = 2;
+    source_config.sharded_pipeline_mode = .immediate;
+    source_config.serialization = .{
+        .enable_journaling = true,
+        .backend = .disk,
+        .storage_folder = "strict-gone-store",
+    };
+    {
+        var source = try ExchangeApiSharded.initWithPersistenceRoot(
+            allocator,
+            tmp.dir,
+            source_config,
+        );
+        defer source.deinit();
+        var add = try source.addUser(.routed, 610_751);
+        defer add.deinit(allocator);
+        try std.testing.expectEqual(
+            cmd.CommandResultCode.success,
+            try source.persistStateWithDefaultMainLog(
+                tmp.dir,
+                snapshot_id,
+                9_961_075_001,
+                .matching_engine_router,
+                0,
+            ),
+        );
+    }
+
+    var target_config = source_config;
+    target_config.initial_state = config_mod.InitialStateConfig.fromSnapshotOnly(
+        exchange_id,
+        @intCast(snapshot_id),
+        0,
+    );
+    var target = try ExchangeApiSharded.initWithPersistenceRoot(
+        allocator,
+        tmp.dir,
+        target_config,
+    );
+    defer target.deinit();
+    var recorder: SettlementLifecycleTestRecorder = .{ .api = &target };
+    try target.setSettlementHooks(recorder.hooks());
+    target.strict_snapshot_disappeared_after_validation_for_testing = true;
+
+    try std.testing.expectError(
+        error.SnapshotFileNotFound,
+        target.startupFromDiscoveredConfiguredPersistenceStrictMainLog(
+            tmp.dir,
+            .matching_engine_router,
+            0,
+            0,
+        ),
+    );
+    try std.testing.expect(!target.isStarted());
+    try std.testing.expect(!target.initial_state_bootstrapped);
+    try std.testing.expect(!target.settlement_recovery_finished);
+    try std.testing.expectEqual(@as(usize, 0), recorder.recovery_calls);
+}
+
+test "sharded immediate settlement marks every durable sequence and publishes only afterward" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var config = Config.javaDefault();
+    config.initial_state = config_mod.InitialStateConfig.cleanStart("SHSETLIVE");
+    config.matching.num_shards = 4;
+    config.sharded_pipeline_mode = .immediate;
+    config.serialization = .{
+        .enable_journaling = true,
+        .backend = .disk,
+        .storage_folder = "live-store",
+    };
+    var api = try ExchangeApiSharded.initWithPersistenceRoot(allocator, tmp.dir, config);
+    defer api.deinit();
+    var recorder: SettlementLifecycleTestRecorder = .{ .api = &api };
+    try api.setSettlementHooks(recorder.hooks());
+    var raw_probe: RawR2Probe = .{};
+    api.setRawResultSink(.{
+        .context = &raw_probe,
+        .on_result = RawR2Probe.onResult,
+    });
+
+    const symbol: i32 = 61_001;
+    const maker_uid: i64 = 611_001;
+    const taker_uid: i64 = 611_002;
+    const spec = try common.CoreSymbolSpecification.init(.{
+        .symbol_id = symbol,
+        .symbol_type = .currency_exchange_pair,
+        .base_currency = 11,
+        .quote_currency = 15,
+        .base_scale_k = 1,
+        .quote_scale_k = 1,
+        .taker_fee = 1,
+        .maker_fee = 1,
+    });
+    try api.addSymbolAll(spec);
+
+    var add_maker = try api.addUser(.routed, maker_uid);
+    defer add_maker.deinit(allocator);
+    var add_taker = try api.addUser(.split, taker_uid);
+    defer add_taker.deinit(allocator);
+    var fund_maker = try api.adjustUserBalance(
+        .routed,
+        maker_uid,
+        1,
+        11,
+        100_000,
+        .adjustment,
+    );
+    defer fund_maker.deinit(allocator);
+    var fund_taker = try api.adjustUserBalance(
+        .split,
+        taker_uid,
+        1,
+        15,
+        100_000,
+        .adjustment,
+    );
+    defer fund_taker.deinit(allocator);
+    var maker = try api.placeOrder(
+        .routed,
+        611_101,
+        maker_uid,
+        symbol,
+        100,
+        0,
+        2,
+        .ask,
+        .gtc,
+        0,
+    );
+    defer maker.deinit(allocator);
+    recorder.resetObservations();
+    const raw_before_trade = raw_probe.count;
+
+    var taker = try api.placeOrder(
+        .split,
+        611_102,
+        taker_uid,
+        symbol,
+        100,
+        100,
+        2,
+        .bid,
+        .ioc,
+        0,
+    );
+    defer taker.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, taker.result_code);
+    try std.testing.expectEqual(@as(usize, 1), recorder.prepare_calls);
+    try std.testing.expectEqual(@as(usize, 1), recorder.last_prepare_trade_count);
+    try std.testing.expectEqual(settlement_lifecycle.ExecutionMode.live, recorder.last_prepare_mode);
+    try std.testing.expectEqual(@as(usize, 1), recorder.risk_calls);
+    try std.testing.expectEqual(@as(usize, 1), recorder.journal_calls);
+    try std.testing.expectEqualSlices(
+        SettlementLifecycleTestEvent,
+        &.{ .prepare, .risk_r2, .journal },
+        recorder.events[0..recorder.events_len],
+    );
+    try std.testing.expect(recorder.journal_marks_followed_native_sync);
+    try std.testing.expectEqual(raw_before_trade + 1, raw_probe.count);
+    try std.testing.expectEqual(taker.sequence, raw_probe.sequence);
+
+    recorder.resetObservations();
+    const before_reset = api.driver.publication_sequencer.highWater();
+    var reset_response = try api.reset(.routed);
+    defer reset_response.deinit(allocator);
+    try std.testing.expectEqual(before_reset + 1, reset_response.sequence);
+    try std.testing.expectEqualSlices(
+        SettlementLifecycleTestEvent,
+        &.{ .risk_r2, .journal },
+        recorder.events[0..recorder.events_len],
+    );
+
+    recorder.resetObservations();
+    const binary_spec = try common.CoreSymbolSpecification.init(.{
+        .symbol_id = symbol + 1,
+        .symbol_type = .currency_exchange_pair,
+        .base_currency = 11,
+        .quote_currency = 15,
+        .base_scale_k = 1,
+        .quote_scale_k = 1,
+        .taker_fee = 0,
+        .maker_fee = 0,
+    });
+    const before_binary = api.driver.publication_sequencer.highWater();
+    var binary_response = try api.submitAddSymbolsBinary(
+        .split,
+        61_002,
+        611_000_001,
+        &.{binary_spec},
+    );
+    defer binary_response.deinit(allocator);
+    const binary_sequences = api.driver.publication_sequencer.highWater() - before_binary;
+    try std.testing.expect(binary_sequences > 0);
+    try std.testing.expectEqual(@as(usize, @intCast(binary_sequences)), recorder.risk_calls);
+    try std.testing.expectEqual(@as(usize, @intCast(binary_sequences)), recorder.journal_calls);
+    try std.testing.expectEqual(@as(usize, 0), recorder.prepare_calls);
+    try std.testing.expect(recorder.journal_marks_followed_native_sync);
+    try std.testing.expectEqual(
+        @as(?u64, api.driver.publication_sequencer.highWater()),
+        api.durable_journal.?.lastSequence(),
+    );
+}
+
+test "persistent grouped API forwards settlement hooks through durable acknowledgement" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var config = Config.javaDefault();
+    config.initial_state = config_mod.InitialStateConfig.cleanStart("SHSETPERSIST");
+    config.matching.num_shards = 2;
+    config.sharded_pipeline_mode = .persistent_grouped;
+    config.serialization = .{
+        .enable_journaling = true,
+        .backend = .disk,
+        .storage_folder = "persistent-store",
+    };
+    var api = try ExchangeApiSharded.initWithPersistenceRoot(allocator, tmp.dir, config);
+    defer api.deinit();
+    var recorder: ConcurrentSettlementLifecycleTestRecorder = .{ .api = &api };
+    try api.setSettlementHooks(recorder.hooks());
+
+    const symbol: i32 = 61_101;
+    const maker_uid: i64 = 611_101;
+    const taker_uid: i64 = 611_102;
+    try api.addSymbolAll(try common.CoreSymbolSpecification.init(.{
+        .symbol_id = symbol,
+        .symbol_type = .currency_exchange_pair,
+        .base_currency = 11,
+        .quote_currency = 15,
+        .base_scale_k = 1,
+        .quote_scale_k = 1,
+        .taker_fee = 1,
+        .maker_fee = 1,
+    }));
+    try api.startup();
+
+    var add_maker = try api.addUser(.routed, maker_uid);
+    defer add_maker.deinit(allocator);
+    var add_taker = try api.addUser(.split, taker_uid);
+    defer add_taker.deinit(allocator);
+    var fund_maker = try api.adjustUserBalance(
+        .routed,
+        maker_uid,
+        1,
+        11,
+        100_000,
+        .adjustment,
+    );
+    defer fund_maker.deinit(allocator);
+    var fund_taker = try api.adjustUserBalance(
+        .split,
+        taker_uid,
+        1,
+        15,
+        100_000,
+        .adjustment,
+    );
+    defer fund_taker.deinit(allocator);
+    var maker = try api.placeOrder(
+        .routed,
+        611_201,
+        maker_uid,
+        symbol,
+        100,
+        0,
+        2,
+        .ask,
+        .gtc,
+        0,
+    );
+    defer maker.deinit(allocator);
+    var taker = try api.placeOrder(
+        .split,
+        611_202,
+        taker_uid,
+        symbol,
+        100,
+        100,
+        2,
+        .bid,
+        .ioc,
+        0,
+    );
+    defer taker.deinit(allocator);
+    try std.testing.expectEqual(cmd.CommandResultCode.success, taker.result_code);
+
+    api.shutdown();
+    const high_water = api.driver.publication_sequencer.highWater();
+    try std.testing.expectEqual(@as(usize, 1), recorder.prepare_calls.load(.acquire));
+    try std.testing.expectEqual(
+        @as(u8, @intFromEnum(settlement_lifecycle.ExecutionMode.live)),
+        recorder.last_prepare_mode.load(.acquire),
+    );
+    try std.testing.expectEqual(
+        @as(usize, @intCast(high_water)),
+        recorder.risk_calls.load(.acquire),
+    );
+    try std.testing.expectEqual(
+        @as(usize, @intCast(high_water)),
+        recorder.journal_calls.load(.acquire),
+    );
+    try std.testing.expectEqual(@as(usize, 1), recorder.recovery_calls.load(.acquire));
+    try std.testing.expect(recorder.journal_marks_followed_native_sync.load(.acquire));
+    try std.testing.expectEqual(@as(?u64, high_water), api.durable_journal.?.lastSequence());
+}
+
+test "sharded immediate settlement failures poison at truthful stages without publishing success" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    {
+        var config = Config.javaDefault();
+        config.initial_state = config_mod.InitialStateConfig.cleanStart("SHSETRISKFAIL");
+        config.matching.num_shards = 1;
+        config.sharded_pipeline_mode = .immediate;
+        config.serialization = .{
+            .enable_journaling = true,
+            .backend = .disk,
+            .storage_folder = "risk-fail-store",
+        };
+        var api = try ExchangeApiSharded.initWithPersistenceRoot(allocator, tmp.dir, config);
+        defer api.deinit();
+        var recorder: SettlementLifecycleTestRecorder = .{
+            .api = &api,
+            .reject_risk = true,
+        };
+        try api.setSettlementHooks(recorder.hooks());
+        var raw_probe: RawR2Probe = .{};
+        api.setRawResultSink(.{
+            .context = &raw_probe,
+            .on_result = RawR2Probe.onResult,
+        });
+
+        try std.testing.expectError(
+            error.CorePoisoned,
+            api.addUser(.routed, 612_001),
+        );
+        try std.testing.expectEqual(@as(usize, 1), recorder.risk_calls);
+        try std.testing.expectEqual(@as(usize, 0), recorder.journal_calls);
+        try std.testing.expectEqual(@as(usize, 0), api.journal.?.entries.items.len);
+        try std.testing.expectEqual(@as(?u64, null), api.durable_journal.?.lastSequence());
+        try std.testing.expectEqual(@as(usize, 0), raw_probe.count);
+        const fatal = api.fatalInfo() orelse return error.MissingFatalRecord;
+        try std.testing.expectEqual(runtime_mod.FailureStage.r2, fatal.stage);
+        try std.testing.expectEqual(error.SettlementRiskR2MarkRejected, fatal.cause);
+    }
+
+    {
+        var config = Config.javaDefault();
+        config.initial_state = config_mod.InitialStateConfig.cleanStart("SHSETJOURNALFAIL");
+        config.matching.num_shards = 1;
+        config.sharded_pipeline_mode = .immediate;
+        config.serialization = .{
+            .enable_journaling = true,
+            .backend = .disk,
+            .storage_folder = "journal-fail-store",
+        };
+        var api = try ExchangeApiSharded.initWithPersistenceRoot(allocator, tmp.dir, config);
+        defer api.deinit();
+        var recorder: SettlementLifecycleTestRecorder = .{
+            .api = &api,
+            .reject_journal = true,
+        };
+        try api.setSettlementHooks(recorder.hooks());
+        var raw_probe: RawR2Probe = .{};
+        api.setRawResultSink(.{
+            .context = &raw_probe,
+            .on_result = RawR2Probe.onResult,
+        });
+
+        try std.testing.expectError(
+            error.CorePoisoned,
+            api.addUser(.split, 612_002),
+        );
+        try std.testing.expectEqual(@as(usize, 1), recorder.risk_calls);
+        try std.testing.expectEqual(@as(usize, 1), recorder.journal_calls);
+        try std.testing.expect(recorder.journal_marks_followed_native_sync);
+        try std.testing.expectEqual(@as(usize, 1), api.journal.?.entries.items.len);
+        try std.testing.expectEqual(@as(?u64, 1), api.durable_journal.?.lastSequence());
+        try std.testing.expectEqual(@as(usize, 0), raw_probe.count);
+        const fatal = api.fatalInfo() orelse return error.MissingFatalRecord;
+        try std.testing.expectEqual(runtime_mod.FailureStage.journal, fatal.stage);
+        try std.testing.expectEqual(error.SettlementJournalMarkRejected, fatal.cause);
+    }
+
+    {
+        var config = Config.javaDefault();
+        config.initial_state = config_mod.InitialStateConfig.cleanStart("SHSETPREPFAIL");
+        config.matching.num_shards = 2;
+        config.sharded_pipeline_mode = .immediate;
+        config.serialization = .{
+            .enable_journaling = true,
+            .backend = .disk,
+            .storage_folder = "prepare-fail-store",
+        };
+        var api = try ExchangeApiSharded.initWithPersistenceRoot(allocator, tmp.dir, config);
+        defer api.deinit();
+        var recorder: SettlementLifecycleTestRecorder = .{ .api = &api };
+        try api.setSettlementHooks(recorder.hooks());
+        var raw_probe: RawR2Probe = .{};
+        api.setRawResultSink(.{
+            .context = &raw_probe,
+            .on_result = RawR2Probe.onResult,
+        });
+
+        const symbol: i32 = 61_201;
+        const maker_uid: i64 = 612_101;
+        const taker_uid: i64 = 612_102;
+        try api.addSymbolAll(try common.CoreSymbolSpecification.init(.{
+            .symbol_id = symbol,
+            .symbol_type = .currency_exchange_pair,
+            .base_currency = 11,
+            .quote_currency = 15,
+            .base_scale_k = 1,
+            .quote_scale_k = 1,
+            .taker_fee = 1,
+            .maker_fee = 1,
+        }));
+        var add_maker = try api.addUser(.routed, maker_uid);
+        defer add_maker.deinit(allocator);
+        var add_taker = try api.addUser(.split, taker_uid);
+        defer add_taker.deinit(allocator);
+        var fund_maker = try api.adjustUserBalance(
+            .routed,
+            maker_uid,
+            1,
+            11,
+            100_000,
+            .adjustment,
+        );
+        defer fund_maker.deinit(allocator);
+        var fund_taker = try api.adjustUserBalance(
+            .split,
+            taker_uid,
+            1,
+            15,
+            100_000,
+            .adjustment,
+        );
+        defer fund_taker.deinit(allocator);
+        var maker = try api.placeOrder(
+            .routed,
+            612_201,
+            maker_uid,
+            symbol,
+            100,
+            0,
+            2,
+            .ask,
+            .gtc,
+            0,
+        );
+        defer maker.deinit(allocator);
+        const durable_before = api.durable_journal.?.lastSequence();
+        const raw_before = raw_probe.count;
+        recorder.resetObservations();
+        recorder.reject_prepare = true;
+
+        try std.testing.expectError(
+            error.CorePoisoned,
+            api.placeOrder(
+                .split,
+                612_202,
+                taker_uid,
+                symbol,
+                100,
+                100,
+                2,
+                .bid,
+                .ioc,
+                0,
+            ),
+        );
+        try std.testing.expectEqual(@as(usize, 1), recorder.prepare_calls);
+        try std.testing.expectEqual(@as(usize, 0), recorder.risk_calls);
+        try std.testing.expectEqual(@as(usize, 0), recorder.journal_calls);
+        try std.testing.expectEqual(durable_before, api.durable_journal.?.lastSequence());
+        try std.testing.expectEqual(raw_before, raw_probe.count);
+        const fatal = api.fatalInfo() orelse return error.MissingFatalRecord;
+        try std.testing.expectEqual(runtime_mod.FailureStage.r2, fatal.stage);
+        try std.testing.expectEqual(error.SettlementPreparationRejected, fatal.cause);
+    }
+
+    {
+        var config = Config.javaDefault();
+        config.initial_state = config_mod.InitialStateConfig.cleanStart("SHSETRECFAIL");
+        config.matching.num_shards = 1;
+        config.sharded_pipeline_mode = .persistent_grouped;
+        config.serialization = .{
+            .enable_journaling = true,
+            .backend = .disk,
+            .storage_folder = "recovery-fail-store",
+        };
+        var api = try ExchangeApiSharded.initWithPersistenceRoot(allocator, tmp.dir, config);
+        defer api.deinit();
+        var recorder: SettlementLifecycleTestRecorder = .{
+            .api = &api,
+            .reject_recovery = true,
+        };
+        try api.setSettlementHooks(recorder.hooks());
+
+        try std.testing.expectError(error.CorePoisoned, api.startup());
+        try std.testing.expectEqual(@as(usize, 1), recorder.recovery_calls);
+        try std.testing.expect(!api.settlement_recovery_finished);
+        try std.testing.expect(api.persistent_grouped_runtime == null);
+        const fatal = api.fatalInfo() orelse return error.MissingFatalRecord;
+        try std.testing.expectEqual(runtime_mod.FailureStage.startup, fatal.stage);
+        try std.testing.expectEqual(error.SettlementRecoveryRejected, fatal.cause);
+    }
+}
+
+test "sharded settlement replay prepares while fenced and full bootstrap finishes recovery once" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var source_config = Config.javaDefault();
+    source_config.initial_state = config_mod.InitialStateConfig.cleanStart("SHSETRECOVERY");
+    source_config.matching.num_shards = 2;
+    source_config.sharded_pipeline_mode = .immediate;
+    source_config.serialization = .{
+        .enable_journaling = true,
+        .backend = .disk,
+        .storage_folder = "recovery-store",
+    };
+    const native_path = try nativeJournalPartitionPath(allocator, &source_config);
+    defer allocator.free(native_path);
+    const symbol: i32 = 61_301;
+    const maker_uid: i64 = 613_001;
+    const taker_uid: i64 = 613_002;
+    const specification = try common.CoreSymbolSpecification.init(.{
+        .symbol_id = symbol,
+        .symbol_type = .currency_exchange_pair,
+        .base_currency = 11,
+        .quote_currency = 15,
+        .base_scale_k = 1,
+        .quote_scale_k = 1,
+        .taker_fee = 1,
+        .maker_fee = 1,
+    });
+
+    var durable_frontier: u64 = 0;
+    {
+        var source = try ExchangeApiSharded.initWithPersistenceRoot(
+            allocator,
+            tmp.dir,
+            source_config,
+        );
+        defer source.deinit();
+        var add_symbols = try source.submitAddSymbolsBinary(
+            .routed,
+            61_301,
+            613_000_001,
+            &.{specification},
+        );
+        defer add_symbols.deinit(allocator);
+        var add_maker = try source.addUser(.routed, maker_uid);
+        defer add_maker.deinit(allocator);
+        var add_taker = try source.addUser(.split, taker_uid);
+        defer add_taker.deinit(allocator);
+        var fund_maker = try source.adjustUserBalance(
+            .routed,
+            maker_uid,
+            1,
+            11,
+            100_000,
+            .adjustment,
+        );
+        defer fund_maker.deinit(allocator);
+        var fund_taker = try source.adjustUserBalance(
+            .split,
+            taker_uid,
+            1,
+            15,
+            100_000,
+            .adjustment,
+        );
+        defer fund_taker.deinit(allocator);
+        var maker = try source.placeOrder(
+            .routed,
+            613_101,
+            maker_uid,
+            symbol,
+            100,
+            0,
+            2,
+            .ask,
+            .gtc,
+            0,
+        );
+        defer maker.deinit(allocator);
+        var taker = try source.placeOrder(
+            .split,
+            613_102,
+            taker_uid,
+            symbol,
+            100,
+            100,
+            2,
+            .bid,
+            .ioc,
+            0,
+        );
+        defer taker.deinit(allocator);
+        try std.testing.expectEqual(cmd.CommandResultCode.success, taker.result_code);
+        durable_frontier = source.driver.publication_sequencer.highWater();
+        try std.testing.expectEqual(
+            @as(?u64, durable_frontier),
+            source.durable_journal.?.lastSequence(),
+        );
+    }
+
+    var restored_config = source_config;
+    restored_config.initial_state = config_mod.InitialStateConfig.lastKnownStateFromJournal(
+        source_config.initial_state.exchange_id,
+        0,
+        0,
+    );
+    {
+        var standalone = try ExchangeApiSharded.initWithPersistenceRoot(
+            allocator,
+            tmp.dir,
+            restored_config,
+        );
+        defer standalone.deinit();
+        var recorder: SettlementLifecycleTestRecorder = .{ .api = &standalone };
+        try standalone.setSettlementHooks(recorder.hooks());
+        _ = try standalone.replayJournalFromFile(tmp.dir, native_path);
+        try std.testing.expectEqual(@as(usize, 1), recorder.prepare_calls);
+        try std.testing.expectEqual(settlement_lifecycle.ExecutionMode.replay, recorder.last_prepare_mode);
+        try std.testing.expectEqual(@as(usize, 0), recorder.risk_calls);
+        try std.testing.expectEqual(@as(usize, 0), recorder.journal_calls);
+        try std.testing.expectEqual(@as(usize, 0), recorder.recovery_calls);
+        try std.testing.expect(!standalone.settlement_recovery_finished);
+    }
+
+    {
+        var restored = try ExchangeApiSharded.initWithPersistenceRoot(
+            allocator,
+            tmp.dir,
+            restored_config,
+        );
+        defer restored.deinit();
+        var recorder: SettlementLifecycleTestRecorder = .{ .api = &restored };
+        try restored.setSettlementHooks(recorder.hooks());
+        var raw_probe: RawR2Probe = .{};
+        restored.setRawResultSink(.{
+            .context = &raw_probe,
+            .on_result = RawR2Probe.onResult,
+        });
+
+        const outcome = try restored.bootstrapFromPersistence(tmp.dir, null, native_path);
+        try std.testing.expect(outcome.journal_replayed_commands > 0);
+        try std.testing.expectEqual(durable_frontier, restored.core.kernels.next_seq);
+        try std.testing.expectEqual(@as(usize, 1), recorder.prepare_calls);
+        try std.testing.expectEqual(settlement_lifecycle.ExecutionMode.replay, recorder.last_prepare_mode);
+        try std.testing.expectEqual(@as(usize, 0), recorder.risk_calls);
+        try std.testing.expectEqual(@as(usize, 0), recorder.journal_calls);
+        try std.testing.expectEqual(@as(usize, 1), recorder.recovery_calls);
+        try std.testing.expectEqual(durable_frontier, recorder.last_sequence);
+        try std.testing.expect(recorder.recovery_saw_validated_frontier);
+        try std.testing.expect(restored.settlement_recovery_finished);
+        try std.testing.expectEqualSlices(
+            SettlementLifecycleTestEvent,
+            &.{ .prepare, .recovery },
+            recorder.events[0..recorder.events_len],
+        );
+        try std.testing.expectEqual(@as(usize, 0), raw_probe.count);
+        try std.testing.expectError(
+            error.SettlementHooksRequireColdCore,
+            restored.clearSettlementHooks(),
+        );
+
+        try restored.startup();
+        try std.testing.expectEqual(@as(usize, 1), recorder.recovery_calls);
+        var next = try restored.nop(.routed);
+        defer next.deinit(allocator);
+        try std.testing.expectEqual(durable_frontier + 1, next.sequence);
+        try std.testing.expectEqual(@as(usize, 1), recorder.risk_calls);
+        try std.testing.expectEqual(@as(usize, 1), recorder.journal_calls);
+        try std.testing.expectEqual(@as(usize, 1), raw_probe.count);
+    }
+}
+
+test "sharded settlement replay binds the full native XCJ3 content identity before mutation" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var authoritative_config = Config.javaDefault();
+    authoritative_config.initial_state = config_mod.InitialStateConfig.cleanStart("SHSETIDENTA");
+    authoritative_config.matching.num_shards = 2;
+    authoritative_config.sharded_pipeline_mode = .immediate;
+    authoritative_config.serialization = .{
+        .enable_journaling = true,
+        .backend = .disk,
+        .storage_folder = "identity-store",
+    };
+    const authoritative_path = try nativeJournalPartitionPath(allocator, &authoritative_config);
+    defer allocator.free(authoritative_path);
+    {
+        var source = try ExchangeApiSharded.initWithPersistenceRoot(
+            allocator,
+            tmp.dir,
+            authoritative_config,
+        );
+        defer source.deinit();
+        var response = try source.addUser(.routed, 614_001);
+        defer response.deinit(allocator);
+    }
+
+    var alternate_config = authoritative_config;
+    alternate_config.initial_state = config_mod.InitialStateConfig.cleanStart("SHSETIDENTB");
+    const alternate_path = try nativeJournalPartitionPath(allocator, &alternate_config);
+    defer allocator.free(alternate_path);
+    {
+        var source = try ExchangeApiSharded.initWithPersistenceRoot(
+            allocator,
+            tmp.dir,
+            alternate_config,
+        );
+        defer source.deinit();
+        var response = try source.addUser(.routed, 614_002);
+        defer response.deinit(allocator);
+    }
+
+    const copy_path = "identity-store/authoritative-copy.xcj3";
+    {
+        const input = try tmp.dir.openFile(io_context.current(), authoritative_path, .{});
+        defer input.close(io_context.current());
+        const bytes = try io_context.readToEndAlloc(input, allocator, 1024 * 1024);
+        defer allocator.free(bytes);
+        const output = try tmp.dir.createFile(io_context.current(), copy_path, .{ .truncate = true });
+        defer output.close(io_context.current());
+        try output.writeStreamingAll(io_context.current(), bytes);
+        try output.sync(io_context.current());
+    }
+
+    var restored_config = authoritative_config;
+    restored_config.initial_state = config_mod.InitialStateConfig.lastKnownStateFromJournal(
+        authoritative_config.initial_state.exchange_id,
+        0,
+        0,
+    );
+    {
+        var configured = try ExchangeApiSharded.initWithPersistenceRoot(
+            allocator,
+            tmp.dir,
+            restored_config,
+        );
+        defer configured.deinit();
+        var configured_recorder: SettlementLifecycleTestRecorder = .{ .api = &configured };
+        try configured.setSettlementHooks(configured_recorder.hooks());
+        const configured_outcome = try configured.startupFromConfiguredPersistence(
+            tmp.dir,
+            .matching_engine_router,
+            0,
+            0,
+        );
+        try std.testing.expectEqual(@as(usize, 1), configured_outcome.journal_replayed_commands);
+        try std.testing.expect(configured.isStarted());
+        try std.testing.expectEqual(@as(usize, 1), configured_recorder.recovery_calls);
+    }
+
+    var restored = try ExchangeApiSharded.initWithPersistenceRoot(
+        allocator,
+        tmp.dir,
+        restored_config,
+    );
+    defer restored.deinit();
+    var recorder: SettlementLifecycleTestRecorder = .{ .api = &restored };
+    try restored.setSettlementHooks(recorder.hooks());
+
+    try std.testing.expectError(
+        error.JournalEntryMismatch,
+        restored.bootstrapFromPersistence(tmp.dir, null, alternate_path),
+    );
+    try std.testing.expectEqual(@as(u64, 0), restored.core.kernels.next_seq);
+    try std.testing.expectEqual(@as(u64, 0), restored.driver.publication_sequencer.highWater());
+    try std.testing.expectEqual(@as(usize, 0), recorder.prepare_calls);
+    try std.testing.expectEqual(@as(usize, 0), recorder.recovery_calls);
+    try std.testing.expect(restored.fatalInfo() == null);
+
+    const outcome = try restored.bootstrapFromPersistence(tmp.dir, null, copy_path);
+    try std.testing.expectEqual(@as(usize, 1), outcome.journal_replayed_commands);
+    try std.testing.expectEqual(@as(u64, 1), restored.core.kernels.next_seq);
+    try std.testing.expectEqual(@as(usize, 1), recorder.recovery_calls);
+    const restored_shard = restored.core.shardIndexForUid(614_001);
+    try std.testing.expect(
+        restored.core.kernels.kernels[restored_shard].risk_engine.getUserProfile(614_001) != null,
+    );
 }
 
 test "sharded durable checkpoint preserves a trailing skipped sequence across reopen" {

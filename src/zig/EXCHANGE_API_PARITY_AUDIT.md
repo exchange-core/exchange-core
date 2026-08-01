@@ -1,9 +1,9 @@
 # ExchangeApi Class-by-Class Parity Audit (Java vs Zig)
 
 - Java public declarations: **33**
-- Zig public declarations: **207**
+- Zig public declarations: **209**
 - Java method families (unique names): **24**
-- Zig method families (unique names): **207**
+- Zig method families (unique names): **209**
 - Java families with same-name Zig coverage: **24**
 - Java families without same-name Zig coverage: **0**
 
@@ -186,97 +186,97 @@ _None._
 
 ### `balanceAdjustment`
 
-- `pub fn balanceAdjustment(` (`src/zig/core/exchange_api.zig:2276`)
+- `pub fn balanceAdjustment(` (`src/zig/core/exchange_api.zig:2293`)
 
 ### `binaryData`
 
-- `pub fn binaryData(` (`src/zig/core/exchange_api.zig:2405`)
+- `pub fn binaryData(` (`src/zig/core/exchange_api.zig:2422`)
 
 ### `cancelOrder`
 
-- `pub fn cancelOrder(` (`src/zig/core/exchange_api.zig:2361`)
+- `pub fn cancelOrder(` (`src/zig/core/exchange_api.zig:2378`)
 
 ### `createUser`
 
-- `pub fn createUser(` (`src/zig/core/exchange_api.zig:2219`)
+- `pub fn createUser(` (`src/zig/core/exchange_api.zig:2236`)
 
 ### `groupingControl`
 
-- `pub fn groupingControl(` (`src/zig/core/exchange_api.zig:2432`)
+- `pub fn groupingControl(` (`src/zig/core/exchange_api.zig:2449`)
 
 ### `moveOrder`
 
-- `pub fn moveOrder(` (`src/zig/core/exchange_api.zig:2338`)
+- `pub fn moveOrder(` (`src/zig/core/exchange_api.zig:2355`)
 
 ### `orderBookRequest`
 
-- `pub fn orderBookRequest(` (`src/zig/core/exchange_api.zig:822`)
+- `pub fn orderBookRequest(` (`src/zig/core/exchange_api.zig:826`)
 
 ### `placeNewOrder`
 
-- `pub fn placeNewOrder(` (`src/zig/core/exchange_api.zig:2305`)
+- `pub fn placeNewOrder(` (`src/zig/core/exchange_api.zig:2322`)
 
 ### `processReport`
 
-- `pub fn processReport(` (`src/zig/core/exchange_api.zig:1434`)
+- `pub fn processReport(` (`src/zig/core/exchange_api.zig:1438`)
 
 ### `processResult`
 
-- `pub fn processResult(` (`src/zig/core/exchange_api.zig:1178`)
+- `pub fn processResult(` (`src/zig/core/exchange_api.zig:1182`)
 
 ### `publishBinaryData`
 
-- `pub fn publishBinaryData(` (`src/zig/core/exchange_api.zig:1020`)
+- `pub fn publishBinaryData(` (`src/zig/core/exchange_api.zig:1024`)
 
 ### `publishQuery`
 
-- `pub fn publishQuery(` (`src/zig/core/exchange_api.zig:1029`)
+- `pub fn publishQuery(` (`src/zig/core/exchange_api.zig:1033`)
 
 ### `reduceOrder`
 
-- `pub fn reduceOrder(` (`src/zig/core/exchange_api.zig:2382`)
+- `pub fn reduceOrder(` (`src/zig/core/exchange_api.zig:2399`)
 
 ### `requestOrderBookAsync`
 
-- `pub fn requestOrderBookAsync(` (`src/zig/core/exchange_api.zig:607`)
+- `pub fn requestOrderBookAsync(` (`src/zig/core/exchange_api.zig:611`)
 
 ### `reset`
 
-- `pub fn reset(` (`src/zig/core/exchange_api.zig:2445`)
+- `pub fn reset(` (`src/zig/core/exchange_api.zig:2462`)
 
 ### `resumeUser`
 
-- `pub fn resumeUser(` (`src/zig/core/exchange_api.zig:2257`)
+- `pub fn resumeUser(` (`src/zig/core/exchange_api.zig:2274`)
 
 ### `submitBinaryCommandAsync`
 
-- `pub fn submitBinaryCommandAsync(` (`src/zig/core/exchange_api.zig:996`)
+- `pub fn submitBinaryCommandAsync(` (`src/zig/core/exchange_api.zig:1000`)
 
 ### `submitBinaryDataAsync`
 
-- `pub fn submitBinaryDataAsync(` (`src/zig/core/exchange_api.zig:987`)
+- `pub fn submitBinaryDataAsync(` (`src/zig/core/exchange_api.zig:991`)
 
 ### `submitCommand`
 
-- `pub fn submitCommand(` (`src/zig/core/exchange_api.zig:357`)
+- `pub fn submitCommand(` (`src/zig/core/exchange_api.zig:361`)
 
 ### `submitCommandAsync`
 
-- `pub fn submitCommandAsync(` (`src/zig/core/exchange_api.zig:443`)
+- `pub fn submitCommandAsync(` (`src/zig/core/exchange_api.zig:447`)
 
 ### `submitCommandAsyncFullResponse`
 
-- `pub fn submitCommandAsyncFullResponse(` (`src/zig/core/exchange_api.zig:577`)
+- `pub fn submitCommandAsyncFullResponse(` (`src/zig/core/exchange_api.zig:581`)
 
 ### `submitCommandsSync`
 
-- `pub fn submitCommandsSync(` (`src/zig/core/exchange_api.zig:1614`)
+- `pub fn submitCommandsSync(` (`src/zig/core/exchange_api.zig:1618`)
 
 ### `submitQueryAsync`
 
-- `pub fn submitQueryAsync(` (`src/zig/core/exchange_api.zig:1038`)
+- `pub fn submitQueryAsync(` (`src/zig/core/exchange_api.zig:1042`)
 
 ### `suspendUser`
 
-- `pub fn suspendUser(` (`src/zig/core/exchange_api.zig:2238`)
+- `pub fn suspendUser(` (`src/zig/core/exchange_api.zig:2255`)
 

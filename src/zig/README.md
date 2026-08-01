@@ -93,6 +93,154 @@ filesystem persistence/journal/snapshot stack and the threaded/sharded
 `ExchangeCore` runtime. See `src/zig/apps/browser/README.md` for wrapper usage,
 the versioned integer ABI, L2 wire format, lifecycle rules, and exact scope.
 
+## External TigerBeetle settlement boundary
+
+`core/tigerbeetle_settlement.zig` maps one completed currency-exchange fill to
+an owned, deterministic TigerBeetle transfer chain. `core/tigerbeetle_outbox.zig`
+adds a bounded, destination-scoped delivery state machine and atomic on-disk
+snapshot. It durably marks work in flight before returning it to a transport,
+preserves the exact chain across retries, requires lookup after every ambiguous
+attempt or restart, quarantines partial/mismatching reconciliation, and blocks
+later fills from overtaking an unsettled predecessor. An economically empty
+chain advances the finalized watermark and is pruned in the same atomic store
+mutation, so it cannot strand bounded capacity.
+
+`core/tigerbeetle_destination_registry.zig` owns immutable, validated symbol,
+currency, user-account, ledger, fee-account, and transfer-code routing. It
+resolves mapper inputs without placing credentials or network locations in core
+state and exposes a canonical digest for a future journal/snapshot compatibility
+binding. `core/tigerbeetle_dispatcher.zig` provides caller-driven typed submit
+and reconciliation claims, deterministic capped backoff, exact ID-keyed lookup
+comparison, and automatic delivered-prefix pruning over either the in-memory or
+durable outbox. A rejected create and an ambiguous create retain different
+durable reconciliation causes: if lookup proves every ID absent, only the
+ambiguous request may be submitted again.
+
+`core/tigerbeetle_plugin.zig` packages those pieces behind an explicit
+disabled/enabled lifecycle. The disabled value owns nothing and never touches a
+store, registry, or transport. An enabled value validates that its borrowed
+store is bound to the same destination, accepts already-identified fills through
+a typed capture method, and advances delivery only when its owner calls the
+bounded poll method. Draining converges to stopped, quarantine is a persisted
+operator-action state, and an ambiguous/poisoned store write moves the facade to
+failed so its owner can close and reopen the durable store. Its type-erased
+transport returns semantic submit/lookup evidence; it owns no sockets, threads,
+endpoints, database UUIDs, or secrets. The ordinary `ExchangeCore` configuration
+and runtime do not contain this plugin, so opting out preserves the existing
+execution path exactly.
+
+Registry resolution binds every mapped chain to its non-secret `DestinationId`,
+and outbox admission rejects a record for any other destination. Dispatcher
+claims expose the canonical store-owned chain through a const pointer, while
+active completion resolves the token back to the canonical entry and revalidates
+the generation and borrowed payload before changing durable state. Terminal
+callbacks are resolved by token without dereferencing a pointer whose inline
+slot may have moved during prefix pruning. Reconciliation ignores only the
+server-assigned timestamp and TigerBeetle's request-only `linked` bit; every
+other persisted transfer field must match.
+
+`core/tigerbeetle_parix_adapter.zig` is the pure Parix protocol codec and
+classifier. It writes the gateway's bare JSON arrays, quotes every wide integer
+as canonical decimal, preserves the complete linked chain in one request, and
+normalizes decoded transport evidence into dispatcher dispositions. HTTP 200
+success envelopes are distinct from HTTP 409 conflict problem details. A valid
+conflict binds request destination/operation metadata to a non-empty `tbResults`
+list and always enters rejected reconciliation; an empty or malformed conflict
+is ambiguous and also requires lookup. Lookup success requires matching
+database, operation, live mode, request payload, persistence flag, and all
+returned records. The classifier treats a destination mismatch as dominant and
+does not hot-retry HTTP 429 by default.
+
+The server-side HTTP executor remains outside exchange-core. It owns TLS,
+timeouts, response-size limits, JSON parsing, API origin, database UUID, bearer
+credential/secret resolution, jitter, quotas, and operator remediation. It must
+reduce each response to the adapter's typed evidence and use the resulting
+dispatcher disposition; the outbox's raw semantic transition APIs are trusted
+low-level building blocks, not HTTP response classifiers. None of that mutable
+or secret configuration belongs in browser WASM.
+
+A server composition currently installs one destination-bound
+`tigerbeetle_exchange_integration.Integration(DurableFileOutbox(capacity), max_fills_per_batch)`
+per exchange instance. Every symbol that can trade through that instance must
+resolve to that same destination. The core has one settlement-hook slot; a
+multi-destination deployment must partition exchange instances by destination
+or supply its own composite hook that routes preparation and broadcasts both
+frontiers. Open a prepared store bound to one publication namespace and journal
+epoch, load a validated immutable registry, construct the integration at its
+final stable address, and install its `hooks()` through `ExchangeCore`,
+`ExchangeApi`, `ExchangeApiSharded`, or `ExchangeOrchestrator` before bootstrap.
+The compile-time fill bound is explicit and fail-closed; size it for the largest
+single command response, while outbox capacity must also cover retained work
+plus the maximum journal-ahead suffix. Resolve the destination's database UUID
+and bearer token only in the transport, then POST the adapter output to
+`/api/v1/databases/{databaseId}/tb/create_transfers` or
+`/api/v1/databases/{databaseId}/tb/lookup_transfers`. Automatic preparation and
+frontier marks are serialized inside the integration, but transport runs only
+when its dedicated owner calls `pollDispatch` with a bounded budget and
+monotonic logical tick. Use bounded transport deadlines because a synchronous
+poll retains the integration mutex. Do not poll until exchange startup returns
+success, and release borrowed registry/store/transport dependencies only after
+the exchange and integration have stopped. Quarantine requires operator
+resolution; a failed or ambiguously persisted store requires close/reopen.
+Run `zig build -j1 wasm-settlement-check` to prove the facade, codec, and
+classifier, including the production lifecycle bridge, remain
+freestanding-compatible without adding sockets or credentials to the public
+browser exchange ABI.
+
+The outbox now has two explicit admission modes. The original `enqueue` path
+retains its already-durable, immediately eligible semantics. The prepared path
+durably binds one settlement-ID namespace and journal epoch, validates each
+group ID against that domain, requires every transfer ID to be the exact
+mapper-derived leg ID with reserved user-data fields clear, and atomically
+admits all fill chains from one publication sequence. Prepared entries,
+including economically empty chains,
+remain non-dispatchable and unprunable until both the R2 and durable-journal
+frontiers cover their domain-tagged publication cursor. Either mark may arrive
+first; duplicate, regressed, or wrong-domain marks are inert and perform no
+allocation or storage I/O. Facade mark calls are accepted only while running or
+draining; re-entrant or inactive calls fail closed without advancing a frontier.
+
+A prepared snapshot reopens behind an explicit recovery fence. After snapshot
+restore and while journal replay is still fenced, `.replay` preparation
+idempotently rebuilds any missing complete fill batch through
+`prepareRecovery`; transient per-command marks remain suppressed. Recovery
+compares a BLAKE3 fingerprint of the complete valid XCJ3 prefix with the native
+appender before replay mutation, then validates the numeric durable frontier.
+Only after both checks succeed does one `finishRecovery` retain the covered
+prefix, durably discard a never-attempted suffix, publish both recovered
+frontiers, and open dispatch. A fresh prepared store can prove a non-zero
+`not_required` frontier only by observing contiguous live R2 and journal marks
+from sequence one, so a missing outbox cannot silently stand in for snapshot
+history. A progressed record beyond the recovery cursor, a missing ordinal
+below a retained suffix, an incomplete zero-based fill run, or exhausted
+recovery capacity fails closed. The transient frontiers are deliberately not
+serialized as proof of core durability.
+
+The publication namespace and journal epoch are the durable core/outbox
+identity boundary. Allocate them uniquely per journal history and rotate the
+epoch when registry routing changes. The registry exposes a digest, but that
+digest is not yet embedded in XCJ3/XCM2 or the outbox image; treating the same
+domain as two different routing configurations is unsupported and must be
+prevented by the host.
+
+The production boundary is opt-in and disabled by default. Single-core,
+immediate-sharded, and persistent-grouped execution all prepare one complete
+currency-exchange fill batch after every fallible R2 preparation succeeds and
+before the first irreversible R2 commit. Persistent grouped keeps R2 and journal
+progress independent and uses the authoritative R2 event chain. R2 is marked
+only after truthful internal commit state is installed; journal is marked only
+after the native XCJ3 appender has synced, never after an in-memory journal or
+custom serialization callback. Consequently enabled hooks require the native
+durable journal. Any preparation or post-commit mark rejection poisons the core
+at its truthful stage before success publication. Settlement callbacks run in
+the same re-entrancy scope as result callbacks, so blocking calls back into the
+exchange fail with `CoreReentrantCall` instead of deadlocking. Existing methods
+route through disabled hooks with their legacy error contracts unchanged; an
+enabled-hook failure is retained as the fatal cause and surfaces through the
+existing poisoned-core contract. External TigerBeetle transport never runs
+inside a hook or exchange lock. Result callbacks remain notification-only
+because they can precede R2 and are not replayed.
+
 ## Implemented surface
 
 - Build/test scaffold via `build.zig`.

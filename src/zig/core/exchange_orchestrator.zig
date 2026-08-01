@@ -9,7 +9,9 @@ const exchange_api_sharded_mod = @import("exchange_api_sharded.zig");
 const persistence_paths = @import("persistence_paths.zig");
 const journal_mod = @import("journal.zig");
 const kernel_mod = @import("exchange_kernel.zig");
+const publication = @import("publication_sequence.zig");
 const runtime_mod = @import("exchange_runtime.zig");
+const settlement_lifecycle = @import("settlement_lifecycle.zig");
 const simple_events_mod = @import("simple_events_processor.zig");
 
 pub const Config = exchange_core_mod.Config;
@@ -21,6 +23,7 @@ pub const ExecutionMode = exchange_api_sharded_mod.ExecutionMode;
 pub const PersistenceModuleType = exchange_core_mod.PersistenceModuleType;
 pub const ResultSink = runtime_mod.ResultSink;
 pub const RawResultSink = runtime_mod.RawResultSink;
+pub const SettlementHooks = settlement_lifecycle.Hooks;
 pub const RuntimeDrainOutcome = runtime_mod.DrainOutcome;
 pub const ShardedPipelineMode = config_mod.ShardedPipelineMode;
 pub const CommandResponseCallback = exchange_api_sharded_mod.CommandResponseCallback;
@@ -59,6 +62,8 @@ pub const ModeValidationError = error{
 pub const InitFromJavaConfigError = exchange_core_mod.InitFromJavaConfigError || exchange_api_sharded_mod.InitFromJavaConfigError;
 pub const LifecycleError = exchange_core_mod.LifecycleError || exchange_api_sharded_mod.LifecycleError;
 pub const CallbackConfigError = exchange_core_mod.CallbackConfigError || exchange_api_sharded_mod.CallbackConfigError;
+pub const SettlementHooksConfigError = exchange_core_mod.SettlementHooksConfigError ||
+    exchange_api_sharded_mod.SettlementHooksConfigError;
 pub const StartError = exchange_core_mod.StartError || exchange_api_sharded_mod.StartError;
 pub const ExecuteError = exchange_core_mod.ExecuteError || exchange_api_sharded_mod.ExecuteError || ModeValidationError;
 pub const HelperError = exchange_core_mod.HelperError || exchange_api_sharded_mod.HelperError || ModeValidationError;
@@ -242,6 +247,25 @@ pub const ExchangeOrchestrator = struct {
         return switch (self.backend) {
             .single => |*single| single.startup(),
             .sharded => |*sharded| sharded.startup(),
+        };
+    }
+
+    pub fn setSettlementHooks(
+        self: *ExchangeOrchestrator,
+        hooks: SettlementHooks,
+    ) SettlementHooksConfigError!void {
+        return switch (self.backend) {
+            .single => |*single| single.setSettlementHooks(hooks),
+            .sharded => |*sharded| sharded.setSettlementHooks(hooks),
+        };
+    }
+
+    pub fn clearSettlementHooks(
+        self: *ExchangeOrchestrator,
+    ) SettlementHooksConfigError!void {
+        return switch (self.backend) {
+            .single => |*single| single.clearSettlementHooks(),
+            .sharded => |*sharded| sharded.clearSettlementHooks(),
         };
     }
 
@@ -908,6 +932,64 @@ const OrchestratorRawResultProbe = struct {
         self.len += 1;
     }
 };
+
+const OrchestratorSettlementHooksProbe = struct {
+    fn hooks(self: *OrchestratorSettlementHooksProbe) SettlementHooks {
+        return .enabled(self, &.{
+            .prepare = prepare,
+            .mark_risk_r2_committed = mark,
+            .mark_journal_committed = mark,
+            .finish_recovery = finishRecovery,
+        });
+    }
+
+    fn prepare(
+        _: *anyopaque,
+        _: settlement_lifecycle.PreparedBatch,
+    ) settlement_lifecycle.PrepareObservation {
+        return .prepared;
+    }
+
+    fn mark(
+        _: *anyopaque,
+        _: publication.PublicationSequence,
+    ) settlement_lifecycle.MarkObservation {
+        return .marked;
+    }
+
+    fn finishRecovery(
+        _: *anyopaque,
+        _: publication.PublicationSequence,
+    ) settlement_lifecycle.RecoveryObservation {
+        return .not_required;
+    }
+};
+
+fn expectSettlementHooksForwarding(
+    java_config: JavaConfig,
+    expected_backend: BackendKind,
+) !void {
+    var orchestrator = try ExchangeOrchestrator.initFromJavaConfig(
+        std.testing.allocator,
+        java_config,
+    );
+    defer orchestrator.deinit();
+    try std.testing.expectEqual(expected_backend, orchestrator.backendKind());
+    var probe: OrchestratorSettlementHooksProbe = .{};
+
+    try std.testing.expectError(
+        error.SettlementHooksRequireNativeDurableJournal,
+        orchestrator.setSettlementHooks(probe.hooks()),
+    );
+    try orchestrator.clearSettlementHooks();
+
+    try orchestrator.startup();
+    try std.testing.expectError(
+        error.SettlementHooksRequireColdCore,
+        orchestrator.clearSettlementHooks(),
+    );
+    orchestrator.shutdown();
+}
 
 fn expectSuccessfulOrchestratorResponse(
     response: *const kernel_mod.CommandResponse,
@@ -1623,6 +1705,16 @@ test "exchange orchestrator forwards shutdown state and completion for both back
         );
         try std.testing.expectEqual(ShutdownState.complete, orchestrator.shutdownState());
     }
+}
+
+test "exchange orchestrator forwards settlement hook guards for single and grouped backends" {
+    var single_config = config_mod.JavaExchangeConfig.javaDefault();
+    single_config.sharded_pipeline_mode = .immediate;
+    try expectSettlementHooksForwarding(single_config, .single);
+    try expectSettlementHooksForwarding(
+        config_mod.JavaExchangeConfig.javaDefault(),
+        .sharded,
+    );
 }
 
 test "exchange orchestrator selects grouped sharded backend for java default profile" {
