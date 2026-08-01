@@ -4,6 +4,11 @@ This guide explains the Java implementation in this checkout (`0.5.4-SNAPSHOT`).
 
 The Java core is an in-memory, event-sourced matching system built around one LMAX Disruptor ring buffer. Every inbound operation becomes a reusable [`OrderCommand`](../../src/main/java/exchange/core2/core/common/cmd/OrderCommand.java) slot and travels through a fixed processor graph.
 
+## Start here
+
+- **[How exchange-core works](../HOW_EXCHANGE_CORE_WORKS.md)** — full onboarding narrative. Starts with a plain-language “in simple terms” section (conveyor-belt mental model), then stage names, place→match→settle with numbers, code-level call stacks, cancel/reports/persistence, and Java↔Zig map. Cross-links into every chapter below.
+- Then read the flow chapters in order for depth.
+
 ## Read in this order
 
 1. [Architecture and lifecycle](01-architecture-and-lifecycle.md) — construction, processor topology, sharding, grouping, startup, and shutdown.
