@@ -232,20 +232,22 @@ pub const ResponseEnvelope = struct {
     raw_response: []const u8,
 };
 
-pub const RequestKind = enum {
-    ping,
-    add_user,
-    deposit,
-    fund_deposit,
-    fund_withdraw,
-    funding_status,
-    place,
-    move,
-    reduce,
-    cancel,
-    balance,
-    book,
-    shutdown,
+pub const RequestKind = enum(u8) {
+    ping = 0,
+    add_user = 1,
+    deposit = 2,
+    fund_deposit = 3,
+    fund_withdraw = 4,
+    funding_status = 5,
+    place = 6,
+    move = 7,
+    reduce = 8,
+    cancel = 9,
+    balance = 10,
+    book = 11,
+    shutdown = 12,
+    clearing_status = 13,
+    clearing_operations = 14,
 };
 
 const Credential = struct {
@@ -697,13 +699,23 @@ pub fn requestKind(request: protocol.Request) RequestKind {
         .balance => .balance,
         .book => .book,
         .shutdown => .shutdown,
+        .clearing_status => .clearing_status,
+        .clearing_operations => .clearing_operations,
     };
 }
 
 pub fn authorize(principal: Principal, request: protocol.Request) AuthorizationError!void {
     switch (principal) {
         .operator => switch (request) {
-            .ping, .fund_deposit, .fund_withdraw, .funding_status, .book, .shutdown => {},
+            .ping,
+            .fund_deposit,
+            .fund_withdraw,
+            .funding_status,
+            .book,
+            .shutdown,
+            .clearing_status,
+            .clearing_operations,
+            => {},
             .add_user, .deposit, .place, .move, .reduce, .cancel, .balance => return error.Forbidden,
         },
         .trader => |uid| switch (request) {
@@ -719,6 +731,8 @@ pub fn authorize(principal: Principal, request: protocol.Request) AuthorizationE
             .fund_withdraw,
             .funding_status,
             .shutdown,
+            .clearing_status,
+            .clearing_operations,
             => return error.Forbidden,
         },
     }
@@ -1339,6 +1353,40 @@ test "proof session server ack and payload MACs bind all context" {
         ),
     );
 
+    const raw_clearing_request = "clearing-status 910000000000000000000";
+    var clearing_request_mac = try computeRequestMac(
+        &session,
+        auth.instance_id.slice(),
+        auth.credential_id.slice(),
+        sequence_one,
+        raw_clearing_request,
+    );
+    defer std.crypto.secureZero(u8, &clearing_request_mac);
+    try verifyRequestMac(
+        &session,
+        auth.instance_id.slice(),
+        auth.credential_id.slice(),
+        sequence_one,
+        raw_clearing_request,
+        clearing_request_mac,
+    );
+    try std.testing.expectError(
+        error.IntegrityFailed,
+        verifyRequestMac(
+            &session,
+            auth.instance_id.slice(),
+            auth.credential_id.slice(),
+            sequence_one,
+            "clearing-status 910000000000000000001",
+            clearing_request_mac,
+        ),
+    );
+    try std.testing.expect(!std.crypto.timing_safe.eql(
+        Mac,
+        request_mac,
+        clearing_request_mac,
+    ));
+
     var other_secret = SecretKey{ .bytes = [_]u8{0x72} ** secret_key_bytes };
     defer other_secret.deinit();
     var other_session = deriveSessionKey(&other_secret, transcript);
@@ -1411,6 +1459,7 @@ test "authorization is exhaustive across request kinds and roles" {
     const operation_id = try protocol.FundingOperationId.parse(
         "123e4567-e89b-12d3-a456-426614174000",
     );
+    const payment_id: u128 = 910000000000000000000;
     const requests = [_]protocol.Request{
         .ping,
         .{ .add_user = .{ .uid = 1001 } },
@@ -1462,6 +1511,8 @@ test "authorization is exhaustive across request kinds and roles" {
         .{ .balance = .{ .uid = 1001, .currency = 15 } },
         .{ .book = .{ .symbol = 241, .depth = 20 } },
         .shutdown,
+        .{ .clearing_status = payment_id },
+        .clearing_operations,
     };
     const expected_kinds = [_]RequestKind{
         .ping,
@@ -1477,12 +1528,16 @@ test "authorization is exhaustive across request kinds and roles" {
         .balance,
         .book,
         .shutdown,
+        .clearing_status,
+        .clearing_operations,
     };
     const trader_allowed = [_]bool{
-        true, false, false, false, false, false, true, true, true, true, true, true, false,
+        true,  false, false, false, false, false, true, true, true, true, true, true, false, false,
+        false,
     };
     const operator_allowed = [_]bool{
-        true, false, false, true, true, true, false, false, false, false, false, true, true,
+        true, false, false, true, true, true, false, false, false, false, false, true, true, true,
+        true,
     };
 
     for (requests, 0..) |request, index| {
@@ -1500,6 +1555,29 @@ test "authorization is exhaustive across request kinds and roles" {
         } else {
             try std.testing.expectError(error.Forbidden, authorize(.operator, request));
         }
+    }
+}
+
+test "request kind operation values remain stable" {
+    const kinds = [_]RequestKind{
+        .ping,
+        .add_user,
+        .deposit,
+        .fund_deposit,
+        .fund_withdraw,
+        .funding_status,
+        .place,
+        .move,
+        .reduce,
+        .cancel,
+        .balance,
+        .book,
+        .shutdown,
+        .clearing_status,
+        .clearing_operations,
+    };
+    for (kinds, 0..) |kind, value| {
+        try std.testing.expectEqual(@as(u8, @intCast(value)), @intFromEnum(kind));
     }
 }
 

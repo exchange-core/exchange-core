@@ -61,6 +61,34 @@ pub fn build(b: *std.Build) void {
     const run_client_step = b.step("run-client", "Run the standalone TCP client");
     run_client_step.dependOn(&run_client.step);
 
+    const provider_client_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/parix_clearing_provider_client.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    provider_client_module.addImport("exchange_core", exchange_core);
+    const provider_client_exe = b.addExecutable(.{
+        .name = "exchange-core-provider-client",
+        .root_module = provider_client_module,
+    });
+    const install_provider_client = b.addInstallArtifact(provider_client_exe, .{});
+    b.getInstallStep().dependOn(&install_provider_client.step);
+    const provider_client_step = b.step(
+        "provider-client",
+        "Build and install the loopback Parix clearing provider client",
+    );
+    provider_client_step.dependOn(&install_provider_client.step);
+
+    const run_provider_client = b.addRunArtifact(provider_client_exe);
+    if (b.args) |args| {
+        run_provider_client.addArgs(args);
+    }
+    const run_provider_client_step = b.step(
+        "run-provider-client",
+        "Run the loopback Parix clearing provider client",
+    );
+    run_provider_client_step.dependOn(&run_provider_client.step);
+
     const module_tests = b.addTest(.{
         .root_module = exchange_core,
     });
@@ -156,7 +184,7 @@ pub fn build(b: *std.Build) void {
     run_debug_parix_funding_runtime_tests.step.dependOn(&run_debug_parix_funding_store_tests.step);
 
     const debug_parix_clearing_tests_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_clearing_store.zig"),
+        .root_source_file = b.path("src/zig/apps/parix_clearing_runtime.zig"),
         .target = target,
         .optimize = .Debug,
     });
@@ -168,9 +196,93 @@ pub fn build(b: *std.Build) void {
     run_debug_parix_clearing_tests.step.dependOn(&run_debug_parix_funding_runtime_tests.step);
     const test_parix_clearing_step = b.step(
         "test-parix-clearing",
-        "Run native Parix payment-provider clearing tests in Debug mode",
+        "Run native Parix clearing profile, durability, and runtime tests in Debug mode",
     );
     test_parix_clearing_step.dependOn(&run_debug_parix_clearing_tests.step);
+
+    const debug_parix_clearing_provider_adapter_test_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/parix_clearing_provider_adapter.zig"),
+        .target = target,
+        .optimize = .Debug,
+    });
+    debug_parix_clearing_provider_adapter_test_module.addImport(
+        "exchange_core",
+        debug_exchange_core,
+    );
+    const debug_parix_clearing_provider_adapter_tests = b.addTest(.{
+        .root_module = debug_parix_clearing_provider_adapter_test_module,
+    });
+    const run_debug_parix_clearing_provider_adapter_tests = b.addRunArtifact(
+        debug_parix_clearing_provider_adapter_tests,
+    );
+    run_debug_parix_clearing_provider_adapter_tests.step.dependOn(
+        &run_debug_parix_clearing_tests.step,
+    );
+    const test_parix_clearing_provider_adapter_step = b.step(
+        "test-parix-clearing-provider-adapter",
+        "Run the Parix clearing provider adapter tests in Debug mode",
+    );
+    const run_focused_debug_parix_clearing_provider_adapter_tests = b.addRunArtifact(
+        debug_parix_clearing_provider_adapter_tests,
+    );
+    test_parix_clearing_provider_adapter_step.dependOn(
+        &run_focused_debug_parix_clearing_provider_adapter_tests.step,
+    );
+
+    const debug_parix_clearing_provider_client_test_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/parix_clearing_provider_client.zig"),
+        .target = target,
+        .optimize = .Debug,
+    });
+    debug_parix_clearing_provider_client_test_module.addImport(
+        "exchange_core",
+        debug_exchange_core,
+    );
+    const debug_parix_clearing_provider_client_tests = b.addTest(.{
+        .root_module = debug_parix_clearing_provider_client_test_module,
+    });
+    const run_debug_parix_clearing_provider_client_tests = b.addRunArtifact(
+        debug_parix_clearing_provider_client_tests,
+    );
+    run_debug_parix_clearing_provider_client_tests.step.dependOn(
+        &run_debug_parix_clearing_provider_adapter_tests.step,
+    );
+    const test_parix_clearing_provider_client_step = b.step(
+        "test-parix-clearing-provider-client",
+        "Run the Parix clearing provider client tests in Debug mode",
+    );
+    const run_focused_debug_parix_clearing_provider_client_tests = b.addRunArtifact(
+        debug_parix_clearing_provider_client_tests,
+    );
+    test_parix_clearing_provider_client_step.dependOn(
+        &run_focused_debug_parix_clearing_provider_client_tests.step,
+    );
+
+    const debug_parix_clearing_http_ingress_test_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/parix_clearing_http_ingress.zig"),
+        .target = target,
+        .optimize = .Debug,
+    });
+    debug_parix_clearing_http_ingress_test_module.addImport("exchange_core", debug_exchange_core);
+    const debug_parix_clearing_http_ingress_tests = b.addTest(.{
+        .root_module = debug_parix_clearing_http_ingress_test_module,
+    });
+    const run_debug_parix_clearing_http_ingress_tests = b.addRunArtifact(
+        debug_parix_clearing_http_ingress_tests,
+    );
+    run_debug_parix_clearing_http_ingress_tests.step.dependOn(
+        &run_debug_parix_clearing_provider_client_tests.step,
+    );
+    const test_parix_clearing_http_ingress_step = b.step(
+        "test-parix-clearing-http-ingress",
+        "Run the Parix clearing HTTP ingress tests in Debug mode",
+    );
+    const run_focused_debug_parix_clearing_http_ingress_tests = b.addRunArtifact(
+        debug_parix_clearing_http_ingress_tests,
+    );
+    test_parix_clearing_http_ingress_step.dependOn(
+        &run_focused_debug_parix_clearing_http_ingress_tests.step,
+    );
 
     const debug_server_test_module = b.createModule(.{
         .root_source_file = b.path("src/zig/apps/server.zig"),
@@ -183,10 +295,10 @@ pub fn build(b: *std.Build) void {
         .root_module = debug_server_test_module,
     });
     const run_debug_server_tests = b.addRunArtifact(debug_server_tests);
-    run_debug_server_tests.step.dependOn(&run_debug_parix_clearing_tests.step);
+    run_debug_server_tests.step.dependOn(&run_debug_parix_clearing_http_ingress_tests.step);
     const test_parix_apps_step = b.step(
         "test-parix-apps",
-        "Run native Parix transport, bootstrap, settlement, funding, clearing, and server tests in Debug mode",
+        "Run native Parix transport, bootstrap, settlement, funding, clearing, provider, and server tests in Debug mode",
     );
     test_parix_apps_step.dependOn(&run_debug_server_tests.step);
 
@@ -331,7 +443,7 @@ pub fn build(b: *std.Build) void {
     run_release_safe_parix_funding_runtime_tests.step.dependOn(&run_release_safe_parix_funding_store_tests.step);
 
     const release_safe_parix_clearing_tests_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_clearing_store.zig"),
+        .root_source_file = b.path("src/zig/apps/parix_clearing_runtime.zig"),
         .target = target,
         .optimize = .ReleaseSafe,
     });
@@ -343,9 +455,96 @@ pub fn build(b: *std.Build) void {
     run_release_safe_parix_clearing_tests.step.dependOn(&run_release_safe_parix_funding_runtime_tests.step);
     const test_release_safe_parix_clearing_step = b.step(
         "test-parix-clearing-release-safe",
-        "Run native Parix payment-provider clearing tests in ReleaseSafe mode",
+        "Run native Parix clearing profile, durability, and runtime tests in ReleaseSafe mode",
     );
     test_release_safe_parix_clearing_step.dependOn(&run_release_safe_parix_clearing_tests.step);
+
+    const release_safe_parix_clearing_provider_adapter_test_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/parix_clearing_provider_adapter.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+    });
+    release_safe_parix_clearing_provider_adapter_test_module.addImport(
+        "exchange_core",
+        release_safe_module,
+    );
+    const release_safe_parix_clearing_provider_adapter_tests = b.addTest(.{
+        .root_module = release_safe_parix_clearing_provider_adapter_test_module,
+    });
+    const run_release_safe_parix_clearing_provider_adapter_tests = b.addRunArtifact(
+        release_safe_parix_clearing_provider_adapter_tests,
+    );
+    run_release_safe_parix_clearing_provider_adapter_tests.step.dependOn(
+        &run_release_safe_parix_clearing_tests.step,
+    );
+    const test_release_safe_parix_clearing_provider_adapter_step = b.step(
+        "test-parix-clearing-provider-adapter-release-safe",
+        "Run the Parix clearing provider adapter tests in ReleaseSafe mode",
+    );
+    const run_focused_release_safe_parix_clearing_provider_adapter_tests = b.addRunArtifact(
+        release_safe_parix_clearing_provider_adapter_tests,
+    );
+    test_release_safe_parix_clearing_provider_adapter_step.dependOn(
+        &run_focused_release_safe_parix_clearing_provider_adapter_tests.step,
+    );
+
+    const release_safe_parix_clearing_provider_client_test_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/parix_clearing_provider_client.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+    });
+    release_safe_parix_clearing_provider_client_test_module.addImport(
+        "exchange_core",
+        release_safe_module,
+    );
+    const release_safe_parix_clearing_provider_client_tests = b.addTest(.{
+        .root_module = release_safe_parix_clearing_provider_client_test_module,
+    });
+    const run_release_safe_parix_clearing_provider_client_tests = b.addRunArtifact(
+        release_safe_parix_clearing_provider_client_tests,
+    );
+    run_release_safe_parix_clearing_provider_client_tests.step.dependOn(
+        &run_release_safe_parix_clearing_provider_adapter_tests.step,
+    );
+    const test_release_safe_parix_clearing_provider_client_step = b.step(
+        "test-parix-clearing-provider-client-release-safe",
+        "Run the Parix clearing provider client tests in ReleaseSafe mode",
+    );
+    const run_focused_release_safe_parix_clearing_provider_client_tests = b.addRunArtifact(
+        release_safe_parix_clearing_provider_client_tests,
+    );
+    test_release_safe_parix_clearing_provider_client_step.dependOn(
+        &run_focused_release_safe_parix_clearing_provider_client_tests.step,
+    );
+
+    const release_safe_parix_clearing_http_ingress_test_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/parix_clearing_http_ingress.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+    });
+    release_safe_parix_clearing_http_ingress_test_module.addImport(
+        "exchange_core",
+        release_safe_module,
+    );
+    const release_safe_parix_clearing_http_ingress_tests = b.addTest(.{
+        .root_module = release_safe_parix_clearing_http_ingress_test_module,
+    });
+    const run_release_safe_parix_clearing_http_ingress_tests = b.addRunArtifact(
+        release_safe_parix_clearing_http_ingress_tests,
+    );
+    run_release_safe_parix_clearing_http_ingress_tests.step.dependOn(
+        &run_release_safe_parix_clearing_provider_client_tests.step,
+    );
+    const test_release_safe_parix_clearing_http_ingress_step = b.step(
+        "test-parix-clearing-http-ingress-release-safe",
+        "Run the Parix clearing HTTP ingress tests in ReleaseSafe mode",
+    );
+    const run_focused_release_safe_parix_clearing_http_ingress_tests = b.addRunArtifact(
+        release_safe_parix_clearing_http_ingress_tests,
+    );
+    test_release_safe_parix_clearing_http_ingress_step.dependOn(
+        &run_focused_release_safe_parix_clearing_http_ingress_tests.step,
+    );
 
     const release_safe_server_test_module = b.createModule(.{
         .root_source_file = b.path("src/zig/apps/server.zig"),
@@ -358,10 +557,12 @@ pub fn build(b: *std.Build) void {
         .root_module = release_safe_server_test_module,
     });
     const run_release_safe_server_tests = b.addRunArtifact(release_safe_server_tests);
-    run_release_safe_server_tests.step.dependOn(&run_release_safe_parix_clearing_tests.step);
+    run_release_safe_server_tests.step.dependOn(
+        &run_release_safe_parix_clearing_http_ingress_tests.step,
+    );
     const test_release_safe_parix_apps_step = b.step(
         "test-parix-apps-release-safe",
-        "Run native Parix transport, bootstrap, settlement, funding, clearing, and server tests in ReleaseSafe mode",
+        "Run native Parix transport, bootstrap, settlement, funding, clearing, provider, and server tests in ReleaseSafe mode",
     );
     test_release_safe_parix_apps_step.dependOn(&run_release_safe_server_tests.step);
 
@@ -615,8 +816,28 @@ pub fn build(b: *std.Build) void {
     run_gate_release_safe_parix_funding_runtime_tests.step.dependOn(&run_gate_release_safe_parix_funding_store_tests.step);
     const run_gate_release_safe_parix_clearing_tests = b.addRunArtifact(release_safe_parix_clearing_tests);
     run_gate_release_safe_parix_clearing_tests.step.dependOn(&run_gate_release_safe_parix_funding_runtime_tests.step);
+    const run_gate_release_safe_parix_clearing_provider_adapter_tests = b.addRunArtifact(
+        release_safe_parix_clearing_provider_adapter_tests,
+    );
+    run_gate_release_safe_parix_clearing_provider_adapter_tests.step.dependOn(
+        &run_gate_release_safe_parix_clearing_tests.step,
+    );
+    const run_gate_release_safe_parix_clearing_provider_client_tests = b.addRunArtifact(
+        release_safe_parix_clearing_provider_client_tests,
+    );
+    run_gate_release_safe_parix_clearing_provider_client_tests.step.dependOn(
+        &run_gate_release_safe_parix_clearing_provider_adapter_tests.step,
+    );
+    const run_gate_release_safe_parix_clearing_http_ingress_tests = b.addRunArtifact(
+        release_safe_parix_clearing_http_ingress_tests,
+    );
+    run_gate_release_safe_parix_clearing_http_ingress_tests.step.dependOn(
+        &run_gate_release_safe_parix_clearing_provider_client_tests.step,
+    );
     const run_gate_release_safe_server_tests = b.addRunArtifact(release_safe_server_tests);
-    run_gate_release_safe_server_tests.step.dependOn(&run_gate_release_safe_parix_clearing_tests.step);
+    run_gate_release_safe_server_tests.step.dependOn(
+        &run_gate_release_safe_parix_clearing_http_ingress_tests.step,
+    );
     const run_gate_release_safe_client_tests = b.addRunArtifact(release_safe_client_tests);
     run_gate_release_safe_client_tests.step.dependOn(&run_gate_release_safe_server_tests.step);
     const run_gate_release_safe_browser_tests = b.addRunArtifact(release_safe_browser_tests);
@@ -624,6 +845,9 @@ pub fn build(b: *std.Build) void {
     const run_gate_release_safe_simd_bench_tests = b.addRunArtifact(release_safe_simd_bench_tests);
     run_gate_release_safe_simd_bench_tests.step.dependOn(&run_gate_release_safe_browser_tests.step);
     gate_step.dependOn(&run_gate_release_safe_simd_bench_tests.step);
+    // Test roots can leave production-only `main` and process wiring lazily
+    // unanalyzed. Compile the installed provider callback executable too.
+    gate_step.dependOn(&provider_client_exe.step);
     // Compile, but do not execute, the fixed-ReleaseFast benchmark as part of
     // the gate. The benchmark's functional tests run above in both safety modes.
     gate_step.dependOn(&simd_bench_exe.step);

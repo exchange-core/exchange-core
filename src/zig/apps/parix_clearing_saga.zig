@@ -13,6 +13,7 @@ pub const workflow_revision: u32 = 1;
 
 const transfer_id_domain = "exchange-core/parix-clearing-transfer/v1";
 const funding_id_domain = "exchange-core/parix-clearing-funding/v1";
+const expiration_event_id_domain = "exchange-core/parix-clearing-expiration/v1";
 
 pub const Direction = enum(u8) {
     deposit = 1,
@@ -22,6 +23,11 @@ pub const Direction = enum(u8) {
 pub const ResolutionKind = enum(u8) {
     post = 1,
     void = 2,
+};
+
+pub const ResolutionSource = enum(u8) {
+    provider = 1,
+    expiration = 2,
 };
 
 pub const TransferStage = enum(u8) {
@@ -221,7 +227,10 @@ pub const Entry = struct {
     authorization: Authorization,
     route: Route,
     pending_transfer: Transfer,
+    /// Zero is reserved for CSG1 v1 entries admitted before expiry automation.
+    expires_at_unix_seconds: i64 = 0,
     resolution: ?Resolution = null,
+    resolution_source: ?ResolutionSource = null,
     resolution_transfer: ?Transfer = null,
     phase: Phase = .accepted,
     generation: u64 = 1,
@@ -231,7 +240,9 @@ pub const Entry = struct {
 
 pub const Status = struct {
     authorization: Authorization,
+    expires_at_unix_seconds: i64 = 0,
     resolution: ?Resolution,
+    resolution_source: ?ResolutionSource = null,
     state: PublicState,
     failure_reason: ?FailureReason = null,
     quarantine_reason: ?QuarantineReason = null,
@@ -244,6 +255,32 @@ pub const Summary = struct {
     completed: usize = 0,
     failed: usize = 0,
     quarantined: usize = 0,
+};
+
+/// Read-only aggregate for operators. Optional payment IDs are deterministic
+/// representatives, never cursors: callers must take a fresh snapshot after
+/// acting on the underlying incident.
+pub const OperationsSnapshot = struct {
+    observed_at_unix_seconds: i64,
+    capacity: usize,
+    total: usize,
+    states: Summary,
+    ready_actions: usize = 0,
+    in_flight_actions: usize = 0,
+    remote_reconciliations: usize = 0,
+    funding_reconciliations: usize = 0,
+    provider_resolutions: usize = 0,
+    expiration_resolutions: usize = 0,
+    remote_attempts: u64 = 0,
+    funding_attempts: u64 = 0,
+    expired_unresolved: usize = 0,
+    legacy_manual_expiry: usize = 0,
+    max_deadline_lag_seconds: u64 = 0,
+    oldest_open_age_seconds: u64 = 0,
+    oldest_expired_payment_id: ?u128 = null,
+    first_reconciliation_payment_id: ?u128 = null,
+    first_failed_payment_id: ?u128 = null,
+    first_quarantined_payment_id: ?u128 = null,
 };
 
 pub const AcceptDisposition = enum {
@@ -265,9 +302,10 @@ pub const FundingRequest = struct {
     purpose: FundingPurpose,
 };
 
+/// Status reconciliation retains the complete immutable child request so an
+/// existing FSG1 operation cannot be accepted by ID alone.
 pub const FundingStatusRequest = struct {
-    operation_id: u128,
-    purpose: FundingPurpose,
+    request: FundingRequest,
     cause: FundingReconciliationCause,
 };
 
@@ -357,6 +395,8 @@ pub const LedgerError = EventError || RouteError || error{
     StaleClaim,
     CompletionKindMismatch,
     InvalidState,
+    InvalidClock,
+    ExpirationOverflow,
     GenerationOverflow,
     AttemptOverflow,
 };
@@ -422,6 +462,15 @@ pub fn Ledger(comptime capacity: usize) type {
             authorization: Authorization,
             route: Route,
         ) LedgerError!AcceptResult {
+            return self.acceptAuthorizationAt(authorization, route, null);
+        }
+
+        pub fn acceptAuthorizationAt(
+            self: *Self,
+            authorization: Authorization,
+            route: Route,
+            accepted_unix_seconds: ?i64,
+        ) LedgerError!AcceptResult {
             try authorization.validate();
             try route.validate();
             if (authorization.provider_id != self.binding.provider_id) {
@@ -446,17 +495,42 @@ pub fn Ledger(comptime capacity: usize) type {
             if (self.entry_count == capacity) return error.CapacityExceeded;
 
             const pending_transfer = try authorizationTransfer(authorization, route);
+            const expires_at_unix_seconds: i64 = if (accepted_unix_seconds) |accepted| blk: {
+                if (accepted <= 0) return error.InvalidClock;
+                break :blk std.math.add(
+                    i64,
+                    accepted,
+                    @as(i64, authorization.timeout_seconds),
+                ) catch return error.ExpirationOverflow;
+            } else 0;
             try self.bumpSnapshotGeneration();
             self.entries[self.entry_count] = .{
                 .authorization = authorization,
                 .route = route,
                 .pending_transfer = pending_transfer,
+                .expires_at_unix_seconds = expires_at_unix_seconds,
             };
             self.entry_count += 1;
             return .{
                 .disposition = .inserted,
                 .status = statusFor(self.entries[self.entry_count - 1]),
             };
+        }
+
+        /// Resolves provider-wide event identity before app-layer route policy
+        /// is evaluated. Exact replay is safe because the ledger is bound to
+        /// one immutable clearing-profile digest.
+        pub fn preflightAuthorizationEvent(
+            self: *const Self,
+            authorization: Authorization,
+        ) LedgerError!?AcceptResult {
+            try authorization.validate();
+            const found = self.findEvent(authorization.event_id) orelse return null;
+            const existing = self.entries[found.entry_index];
+            if (!found.authorization or !existing.authorization.eql(authorization)) {
+                return error.IdempotencyConflict;
+            }
+            return .{ .disposition = .existing, .status = statusFor(existing) };
         }
 
         pub fn acceptResolution(self: *Self, resolution: Resolution) LedgerError!AcceptResult {
@@ -486,6 +560,7 @@ pub fn Ledger(comptime capacity: usize) type {
             if (candidate.phase != .authorized) return error.AuthorizationNotReady;
             try validateResolution(candidate.authorization, resolution);
             candidate.resolution = resolution;
+            candidate.resolution_source = .provider;
             candidate.resolution_transfer = try resolutionTransfer(
                 candidate.authorization,
                 resolution,
@@ -496,6 +571,57 @@ pub fn Ledger(comptime capacity: usize) type {
             try self.bumpSnapshotGeneration();
             self.entries[index] = candidate;
             return .{ .disposition = .inserted, .status = statusFor(candidate) };
+        }
+
+        /// Persists at most one automatic expiry intent. Ambiguous or exposed
+        /// effects keep their reconciliation phase; only work proven absent is
+        /// stopped. Legacy CSG1 v1 entries use deadline zero and are skipped.
+        pub fn expireNext(self: *Self, now_unix_seconds: i64) LedgerError!?Status {
+            if (now_unix_seconds <= 0) return error.InvalidClock;
+            for (self.entries[0..self.entry_count]) |*entry| {
+                if (entry.expires_at_unix_seconds == 0 or
+                    entry.expires_at_unix_seconds > now_unix_seconds or
+                    entry.resolution != null or
+                    isInFlight(entry.phase) or
+                    isTerminal(entry.phase))
+                {
+                    continue;
+                }
+
+                var candidate = entry.*;
+                const resolution = expirationResolution(candidate.authorization);
+                if (self.findEvent(resolution.event_id)) |_| return error.IdempotencyConflict;
+                candidate.resolution = resolution;
+                candidate.resolution_source = .expiration;
+                candidate.resolution_transfer = try resolutionTransfer(
+                    candidate.authorization,
+                    resolution,
+                    candidate.route,
+                );
+                try stageExpiration(&candidate);
+                try bumpEntryGeneration(&candidate);
+                try self.bumpSnapshotGeneration();
+                entry.* = candidate;
+                return statusFor(candidate);
+            }
+            return null;
+        }
+
+        /// Resolves provider-wide event identity before payment lookup or
+        /// app-layer pair validation, preserving deterministic replay errors.
+        pub fn preflightResolutionEvent(
+            self: *const Self,
+            resolution: Resolution,
+        ) LedgerError!?AcceptResult {
+            try resolution.validate();
+            const found = self.findEvent(resolution.event_id) orelse return null;
+            const existing = self.entries[found.entry_index];
+            if (found.authorization or existing.resolution == null or
+                !existing.resolution.?.eql(resolution))
+            {
+                return error.IdempotencyConflict;
+            }
+            return .{ .disposition = .existing, .status = statusFor(existing) };
         }
 
         pub fn lookup(self: *const Self, payment_id: u128) LedgerError!Status {
@@ -513,6 +639,112 @@ pub fn Ledger(comptime capacity: usize) type {
                     .completed => result.completed += 1,
                     .failed => result.failed += 1,
                     .quarantined => result.quarantined += 1,
+                }
+            }
+            return result;
+        }
+
+        pub fn operationsSnapshot(
+            self: *const Self,
+            observed_at_unix_seconds: i64,
+        ) LedgerError!OperationsSnapshot {
+            if (observed_at_unix_seconds <= 0) return error.InvalidClock;
+            var result: OperationsSnapshot = .{
+                .observed_at_unix_seconds = observed_at_unix_seconds,
+                .capacity = capacity,
+                .total = self.entry_count,
+                .states = self.summary(),
+            };
+            var oldest_expired_deadline: ?i64 = null;
+
+            for (self.entries[0..self.entry_count]) |entry| {
+                result.remote_attempts += entry.remote_attempts;
+                result.funding_attempts += entry.funding_attempts;
+
+                switch (entry.phase) {
+                    .accepted,
+                    .funding_submit_ready,
+                    .funding_status_ready,
+                    .transfer_submit_ready,
+                    .transfer_lookup_ready,
+                    => result.ready_actions += 1,
+                    .funding_submit_in_flight,
+                    .funding_status_in_flight,
+                    .transfer_submit_in_flight,
+                    .transfer_lookup_in_flight,
+                    => result.in_flight_actions += 1,
+                    .authorized, .completed, .failed, .quarantined => {},
+                }
+                switch (entry.phase) {
+                    .transfer_lookup_ready, .transfer_lookup_in_flight => {
+                        result.remote_reconciliations += 1;
+                        keepSmallestPaymentId(
+                            &result.first_reconciliation_payment_id,
+                            entry.authorization.payment_id,
+                        );
+                    },
+                    .funding_status_ready, .funding_status_in_flight => {
+                        result.funding_reconciliations += 1;
+                        keepSmallestPaymentId(
+                            &result.first_reconciliation_payment_id,
+                            entry.authorization.payment_id,
+                        );
+                    },
+                    else => {},
+                }
+                if (entry.resolution_source) |source| switch (source) {
+                    .provider => result.provider_resolutions += 1,
+                    .expiration => result.expiration_resolutions += 1,
+                };
+
+                const state = statusFor(entry).state;
+                switch (state) {
+                    .failed => keepSmallestPaymentId(
+                        &result.first_failed_payment_id,
+                        entry.authorization.payment_id,
+                    ),
+                    .quarantined => keepSmallestPaymentId(
+                        &result.first_quarantined_payment_id,
+                        entry.authorization.payment_id,
+                    ),
+                    else => {},
+                }
+                if (isTerminal(entry.phase)) continue;
+                if (entry.expires_at_unix_seconds == 0) {
+                    result.legacy_manual_expiry += 1;
+                    continue;
+                }
+
+                const accepted_at = entry.expires_at_unix_seconds -
+                    @as(i64, entry.authorization.timeout_seconds);
+                if (observed_at_unix_seconds > accepted_at) {
+                    const age = @as(u64, @intCast(observed_at_unix_seconds - accepted_at));
+                    result.oldest_open_age_seconds = @max(
+                        result.oldest_open_age_seconds,
+                        age,
+                    );
+                }
+                if (entry.resolution != null or
+                    observed_at_unix_seconds < entry.expires_at_unix_seconds)
+                {
+                    continue;
+                }
+
+                result.expired_unresolved += 1;
+                const lag = @as(u64, @intCast(
+                    observed_at_unix_seconds - entry.expires_at_unix_seconds,
+                ));
+                result.max_deadline_lag_seconds = @max(
+                    result.max_deadline_lag_seconds,
+                    lag,
+                );
+                if (oldest_expired_deadline == null or
+                    entry.expires_at_unix_seconds < oldest_expired_deadline.? or
+                    (entry.expires_at_unix_seconds == oldest_expired_deadline.? and
+                        entry.authorization.payment_id < result.oldest_expired_payment_id.?))
+                {
+                    oldest_expired_deadline = entry.expires_at_unix_seconds;
+                    result.oldest_expired_payment_id = entry.authorization.payment_id;
                 }
             }
             return result;
@@ -640,6 +872,7 @@ pub fn Ledger(comptime capacity: usize) type {
                     @as(u64, entry.remote_attempts) + @as(u64, entry.funding_attempts);
                 if (entry.authorization.provider_id != self.binding.provider_id or
                     entry.route.destination_id != self.binding.destination_id or
+                    entry.expires_at_unix_seconds < 0 or
                     entry.generation < minimum_entry_generation or
                     self.snapshot_generation < entry.generation or
                     !std.meta.eql(entry.pending_transfer, authorizationTransfer(
@@ -652,8 +885,15 @@ pub fn Ledger(comptime capacity: usize) type {
                     return error.InvalidState;
                 }
                 if (entry.resolution) |resolution| {
+                    const source = entry.resolution_source orelse return error.InvalidState;
                     validateResolution(entry.authorization, resolution) catch
                         return error.InvalidState;
+                    if (source == .expiration and
+                        (entry.expires_at_unix_seconds == 0 or
+                            !resolution.eql(expirationResolution(entry.authorization))))
+                    {
+                        return error.InvalidState;
+                    }
                     const expected = resolutionTransfer(
                         entry.authorization,
                         resolution,
@@ -664,7 +904,7 @@ pub fn Ledger(comptime capacity: usize) type {
                     {
                         return error.InvalidState;
                     }
-                } else if (entry.resolution_transfer != null) {
+                } else if (entry.resolution_source != null or entry.resolution_transfer != null) {
                     return error.InvalidState;
                 }
                 for (self.entries[0..index]) |previous| {
@@ -719,12 +959,11 @@ pub fn Ledger(comptime capacity: usize) type {
                 },
                 .funding_status_ready => |status_phase| .{
                     .funding_status = .{
-                        .operation_id = fundingOperationId(
+                        .request = fundingRequest(
                             self.binding,
                             entry.*,
                             status_phase.purpose,
                         ),
-                        .purpose = status_phase.purpose,
                         .cause = status_phase.cause,
                     },
                 },
@@ -769,7 +1008,7 @@ pub fn Ledger(comptime capacity: usize) type {
                     candidate.funding_attempts = std.math.add(u32, candidate.funding_attempts, 1) catch
                         return error.AttemptOverflow;
                     candidate.phase = .{ .funding_status_in_flight = .{
-                        .purpose = request.purpose,
+                        .purpose = request.request.purpose,
                         .cause = request.cause,
                     } };
                 },
@@ -908,6 +1147,28 @@ pub fn fundingOperationId(binding: Binding, entry: Entry, purpose: FundingPurpos
     return finishStableId(&hasher);
 }
 
+pub fn expirationResolution(authorization: Authorization) Resolution {
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    hasher.update(expiration_event_id_domain);
+    hashAuthorization(&hasher, authorization);
+    var event_id = finishStableId(&hasher);
+    if (event_id == authorization.event_id) {
+        event_id ^= 1;
+        if (event_id == std.math.maxInt(u128)) event_id -= 2;
+    }
+    return .{
+        .event_id = event_id,
+        .payment_id = authorization.payment_id,
+        .provider_id = authorization.provider_id,
+        .revision = authorization.revision + 1,
+        .kind = .void,
+        .direction = authorization.direction,
+        .uid = authorization.uid,
+        .currency = authorization.currency,
+        .amount = authorization.amount,
+    };
+}
+
 fn validateResolution(authorization: Authorization, resolution: Resolution) LedgerError!void {
     if (resolution.event_id == authorization.event_id) {
         return error.IdempotencyConflict;
@@ -984,8 +1245,7 @@ fn actionForInFlight(binding: Binding, entry: Entry) ?Action {
             .funding_submit = fundingRequest(binding, entry, purpose),
         },
         .funding_status_in_flight => |status_phase| .{ .funding_status = .{
-            .operation_id = fundingOperationId(binding, entry, status_phase.purpose),
-            .purpose = status_phase.purpose,
+            .request = fundingRequest(binding, entry, status_phase.purpose),
             .cause = status_phase.cause,
         } },
         else => null,
@@ -1007,7 +1267,13 @@ fn completeRemoteSubmit(
             .stage = stage,
             .cause = .ambiguous_submission,
         } },
-        .known_not_sent => entry.phase = .{ .transfer_submit_ready = stage },
+        .known_not_sent => {
+            if (stage == .authorization and isExpiration(entry.*)) {
+                authorizationAbsent(entry);
+            } else {
+                entry.phase = .{ .transfer_submit_ready = stage };
+            }
+        },
         .definitely_rejected => try remoteDefinitelyRejected(entry, stage),
         .operator_action => entry.phase = .{ .quarantined = .reconciliation_failed },
         .destination_mismatch => entry.phase = .{ .quarantined = .destination_mismatch },
@@ -1022,8 +1288,12 @@ fn completeRemoteLookup(
     switch (outcome) {
         .exact => try remoteCommitted(entry, lookup_phase.stage),
         .absent => switch (lookup_phase.cause) {
-            .ambiguous_submission => entry.phase = .{
-                .transfer_submit_ready = lookup_phase.stage,
+            .ambiguous_submission => {
+                if (lookup_phase.stage == .authorization and isExpiration(entry.*)) {
+                    authorizationAbsent(entry);
+                } else {
+                    entry.phase = .{ .transfer_submit_ready = lookup_phase.stage };
+                }
             },
             .conflict_response => entry.phase = .{ .quarantined = .reconciliation_failed },
         },
@@ -1036,7 +1306,10 @@ fn completeRemoteLookup(
 
 fn remoteCommitted(entry: *Entry, stage: TransferStage) LedgerError!void {
     switch (stage) {
-        .authorization => entry.phase = .authorized,
+        .authorization => entry.phase = if (isExpiration(entry.*))
+            .{ .transfer_submit_ready = .resolution }
+        else
+            .authorized,
         .resolution => {
             const resolution = entry.resolution orelse return error.InvalidState;
             entry.phase = switch (entry.authorization.direction) {
@@ -1058,9 +1331,13 @@ fn remoteCommitted(entry: *Entry, stage: TransferStage) LedgerError!void {
 
 fn remoteDefinitelyRejected(entry: *Entry, stage: TransferStage) LedgerError!void {
     switch (stage) {
-        .authorization => entry.phase = switch (entry.authorization.direction) {
-            .deposit => .{ .failed = .authorization_rejected },
-            .withdrawal => .{ .funding_submit_ready = .withdrawal_refund },
+        .authorization => {
+            if (isExpiration(entry.*)) {
+                authorizationAbsent(entry);
+            } else entry.phase = switch (entry.authorization.direction) {
+                .deposit => .{ .failed = .authorization_rejected },
+                .withdrawal => .{ .funding_submit_ready = .withdrawal_refund },
+            };
         },
         .resolution => entry.phase = .{ .quarantined = .terminal_conflict },
     }
@@ -1077,7 +1354,13 @@ fn completeFundingSubmit(
             .purpose = purpose,
             .cause = .accepted_operation,
         } },
-        .known_not_sent => entry.phase = .{ .funding_submit_ready = purpose },
+        .known_not_sent => {
+            if (purpose == .withdrawal_debit and isExpiration(entry.*)) {
+                entry.phase = .{ .completed = .void };
+            } else {
+                entry.phase = .{ .funding_submit_ready = purpose };
+            }
+        },
         .ambiguous => entry.phase = .{ .funding_status_ready = .{
             .purpose = purpose,
             .cause = .ambiguous_submission,
@@ -1098,7 +1381,11 @@ fn completeFundingStatus(
         .completed => try fundingCommitted(entry, status_phase.purpose),
         .pending, .retryable => entry.phase = .{ .funding_status_ready = status_phase },
         .not_found => entry.phase = switch (status_phase.cause) {
-            .ambiguous_submission => .{ .funding_submit_ready = status_phase.purpose },
+            .ambiguous_submission => if (status_phase.purpose == .withdrawal_debit and
+                isExpiration(entry.*))
+                .{ .completed = .void }
+            else
+                .{ .funding_submit_ready = status_phase.purpose },
             .accepted_operation => .{ .quarantined = .funding_conflict },
         },
         .rejected => fundingRejected(entry, status_phase.purpose),
@@ -1110,7 +1397,10 @@ fn completeFundingStatus(
 
 fn fundingRejected(entry: *Entry, purpose: FundingPurpose) void {
     entry.phase = switch (purpose) {
-        .withdrawal_debit => .{ .failed = .funding_rejected },
+        .withdrawal_debit => if (isExpiration(entry.*))
+            .{ .completed = .void }
+        else
+            .{ .failed = .funding_rejected },
         .deposit_credit => .{ .quarantined = .funding_failed_after_external_commit },
         .withdrawal_refund => .{ .quarantined = .refund_failed },
     };
@@ -1121,6 +1411,8 @@ fn fundingCommitted(entry: *Entry, purpose: FundingPurpose) LedgerError!void {
         .withdrawal_debit => if (entry.authorization.direction == .withdrawal and
             entry.resolution == null)
             .{ .transfer_submit_ready = .authorization }
+        else if (entry.authorization.direction == .withdrawal and isExpiration(entry.*))
+            .{ .funding_submit_ready = .withdrawal_refund }
         else
             return error.InvalidState,
         .deposit_credit => if (entry.authorization.direction == .deposit and
@@ -1142,36 +1434,111 @@ fn statusFor(entry: Entry) Status {
     return switch (entry.phase) {
         .accepted => .{
             .authorization = entry.authorization,
+            .expires_at_unix_seconds = entry.expires_at_unix_seconds,
             .resolution = entry.resolution,
+            .resolution_source = entry.resolution_source,
             .state = .accepted,
         },
         .authorized => .{
             .authorization = entry.authorization,
+            .expires_at_unix_seconds = entry.expires_at_unix_seconds,
             .resolution = entry.resolution,
+            .resolution_source = entry.resolution_source,
             .state = .authorized,
         },
         .completed => .{
             .authorization = entry.authorization,
+            .expires_at_unix_seconds = entry.expires_at_unix_seconds,
             .resolution = entry.resolution,
+            .resolution_source = entry.resolution_source,
             .state = .completed,
         },
         .failed => |reason| .{
             .authorization = entry.authorization,
+            .expires_at_unix_seconds = entry.expires_at_unix_seconds,
             .resolution = entry.resolution,
+            .resolution_source = entry.resolution_source,
             .state = .failed,
             .failure_reason = reason,
         },
         .quarantined => |reason| .{
             .authorization = entry.authorization,
+            .expires_at_unix_seconds = entry.expires_at_unix_seconds,
             .resolution = entry.resolution,
+            .resolution_source = entry.resolution_source,
             .state = .quarantined,
             .quarantine_reason = reason,
         },
         else => .{
             .authorization = entry.authorization,
+            .expires_at_unix_seconds = entry.expires_at_unix_seconds,
             .resolution = entry.resolution,
+            .resolution_source = entry.resolution_source,
             .state = .pending,
         },
+    };
+}
+
+fn stageExpiration(entry: *Entry) LedgerError!void {
+    std.debug.assert(isExpiration(entry.*));
+    entry.phase = switch (entry.phase) {
+        .accepted => .{ .completed = .void },
+        .authorized => .{ .transfer_submit_ready = .resolution },
+        .funding_submit_ready => |purpose| switch (purpose) {
+            .withdrawal_debit => .{ .completed = .void },
+            .withdrawal_refund => entry.phase,
+            .deposit_credit => return error.InvalidState,
+        },
+        .funding_status_ready,
+        => entry.phase,
+        .transfer_submit_ready => |stage| switch (stage) {
+            .authorization => blk: {
+                authorizationAbsent(entry);
+                break :blk entry.phase;
+            },
+            .resolution => return error.InvalidState,
+        },
+        .transfer_lookup_ready,
+        => entry.phase,
+        .funding_submit_in_flight,
+        .funding_status_in_flight,
+        .transfer_submit_in_flight,
+        .transfer_lookup_in_flight,
+        => return error.InvalidState,
+        .completed, .failed, .quarantined => return error.InvalidState,
+    };
+}
+
+fn authorizationAbsent(entry: *Entry) void {
+    std.debug.assert(isExpiration(entry.*));
+    entry.phase = switch (entry.authorization.direction) {
+        .deposit => .{ .completed = .void },
+        .withdrawal => if (entry.funding_attempts == 0)
+            .{ .completed = .void }
+        else
+            .{ .funding_submit_ready = .withdrawal_refund },
+    };
+}
+
+fn isExpiration(entry: Entry) bool {
+    return entry.resolution_source == .expiration;
+}
+
+fn isTerminal(phase: Phase) bool {
+    return switch (phase) {
+        .completed, .failed, .quarantined => true,
+        else => false,
+    };
+}
+
+fn isInFlight(phase: Phase) bool {
+    return switch (phase) {
+        .funding_submit_in_flight,
+        .funding_status_in_flight,
+        .transfer_submit_in_flight,
+        .transfer_lookup_in_flight,
+        => true,
+        else => false,
     };
 }
 
@@ -1180,6 +1547,10 @@ fn isIdleOrTerminal(phase: Phase) bool {
         .authorized, .completed, .failed, .quarantined => true,
         else => false,
     };
+}
+
+fn keepSmallestPaymentId(current: *?u128, candidate: u128) void {
+    if (current.* == null or candidate < current.*.?) current.* = candidate;
 }
 
 fn validPhase(entry: Entry) bool {
@@ -1288,7 +1659,7 @@ fn validFundingAttemptEvidence(
                 .status_in_flight => 2,
             }),
         .withdrawal_refund => entry.remote_attempts >=
-            @as(u32, if (entry.resolution == null) 1 else 2) and
+            minimumRefundRemoteAttempts(entry) and
             entry.funding_attempts >= @as(u32, switch (stage) {
                 .submit_ready => 1,
                 .submit_in_flight, .status_ready => 2,
@@ -1327,6 +1698,12 @@ fn validRemoteFundingBaseline(entry: Entry) bool {
 
 fn validCompletedAttemptEvidence(entry: Entry) bool {
     const resolution = entry.resolution orelse return false;
+    if (isExpiration(entry)) {
+        return resolution.kind == .void and switch (entry.authorization.direction) {
+            .deposit => entry.funding_attempts == 0,
+            .withdrawal => true,
+        };
+    }
     if (entry.remote_attempts < 2) return false;
     return switch (entry.authorization.direction) {
         .deposit => switch (resolution.kind) {
@@ -1368,7 +1745,7 @@ fn validQuarantineAttemptEvidence(entry: Entry, reason: QuarantineReason) bool {
             entry.funding_attempts >= 1,
         .refund_failed => entry.authorization.direction == .withdrawal and
             validRefundResolutionShape(entry) and entry.remote_attempts >=
-            @as(u32, if (entry.resolution == null) 1 else 2) and
+            minimumRefundRemoteAttempts(entry) and
             entry.funding_attempts >= 2,
         .terminal_conflict => entry.resolution != null and entry.remote_attempts >= 2 and
             validRemoteFundingBaseline(entry),
@@ -1392,7 +1769,8 @@ fn validFundingConflictEvidence(entry: Entry) bool {
         .deposit => isPostedResolution(entry.resolution) and entry.remote_attempts >= 2 and
             entry.funding_attempts >= 1,
         .withdrawal => if (entry.resolution) |_| {
-            return validRefundResolutionShape(entry) and entry.remote_attempts >= 2 and
+            return validRefundResolutionShape(entry) and
+                entry.remote_attempts >= minimumRefundRemoteAttempts(entry) and
                 entry.funding_attempts >= 2;
         } else if (entry.remote_attempts == 0) {
             return entry.funding_attempts >= 1;
@@ -1413,7 +1791,7 @@ fn validRefundResolutionShape(entry: Entry) bool {
 
 fn validStage(entry: Entry, stage: TransferStage) bool {
     return switch (stage) {
-        .authorization => entry.resolution == null,
+        .authorization => entry.resolution == null or isExpiration(entry),
         .resolution => entry.resolution != null and entry.resolution_transfer != null,
     };
 }
@@ -1421,12 +1799,17 @@ fn validStage(entry: Entry, stage: TransferStage) bool {
 fn validFundingPurpose(entry: Entry, purpose: FundingPurpose) bool {
     return switch (purpose) {
         .withdrawal_debit => entry.authorization.direction == .withdrawal and
-            entry.resolution == null,
+            (entry.resolution == null or isExpiration(entry)),
         .deposit_credit => entry.authorization.direction == .deposit and
             entry.resolution != null and entry.resolution.?.kind == .post,
         .withdrawal_refund => entry.authorization.direction == .withdrawal and
             fundingAmount(entry, purpose) > 0,
     };
+}
+
+fn minimumRefundRemoteAttempts(entry: Entry) u32 {
+    if (isExpiration(entry)) return 0;
+    return if (entry.resolution == null) 1 else 2;
 }
 
 fn bumpEntryGeneration(entry: *Entry) LedgerError!void {
@@ -1546,6 +1929,276 @@ fn expectClaimAction(ledger: anytype, comptime tag: std.meta.Tag(Action)) !Claim
     const claim = (try ledger.claimNext()) orelse return error.NoPendingAction;
     try std.testing.expectEqual(tag, std.meta.activeTag(claim.action));
     return claim;
+}
+
+test "automatic expiry uses the admission deadline and one deterministic void" {
+    var ledger = try Ledger(8).init(testBinding());
+    const authorization = testAuthorization(1_001, .deposit);
+    const accepted_at: i64 = 1_700_000_000;
+    const deadline = accepted_at + @as(i64, authorization.timeout_seconds);
+    const inserted = try ledger.acceptAuthorizationAt(
+        authorization,
+        testRoute(),
+        accepted_at,
+    );
+    try std.testing.expectEqual(deadline, inserted.status.expires_at_unix_seconds);
+    try std.testing.expect((try ledger.expireNext(deadline - 1)) == null);
+
+    const duplicate = try ledger.acceptAuthorizationAt(
+        authorization,
+        testRoute(),
+        accepted_at + 1_000,
+    );
+    try std.testing.expectEqual(AcceptDisposition.existing, duplicate.disposition);
+    try std.testing.expectEqual(deadline, duplicate.status.expires_at_unix_seconds);
+
+    const expired = (try ledger.expireNext(deadline)).?;
+    try std.testing.expectEqual(PublicState.completed, expired.state);
+    try std.testing.expectEqual(ResolutionSource.expiration, expired.resolution_source.?);
+    try std.testing.expectEqualDeep(
+        expirationResolution(authorization),
+        expired.resolution.?,
+    );
+    try std.testing.expect((try ledger.expireNext(deadline)) == null);
+    try std.testing.expect((try ledger.claimNext()) == null);
+    try ledger.validate();
+
+    try std.testing.expectError(
+        error.TerminalConflict,
+        ledger.acceptResolution(testResolution(authorization, .post, authorization.amount)),
+    );
+}
+
+test "expiry reconciles exposed authorization before void and withdrawal refund" {
+    var deposit_ledger = try Ledger(8).init(testBinding());
+    const deposit = testAuthorization(1_002, .deposit);
+    _ = try deposit_ledger.acceptAuthorizationAt(deposit, testRoute(), 10);
+    _ = try expectClaimAction(&deposit_ledger, .remote_submit);
+    try std.testing.expect((try deposit_ledger.expireNext(
+        10 + @as(i64, deposit.timeout_seconds),
+    )) == null);
+    try std.testing.expectEqual(@as(usize, 1), try deposit_ledger.recover());
+    _ = (try deposit_ledger.expireNext(10 + @as(i64, deposit.timeout_seconds))).?;
+    const lookup = try expectClaimAction(&deposit_ledger, .remote_lookup);
+    try std.testing.expectEqual(
+        ReconciliationCause.ambiguous_submission,
+        lookup.action.remote_lookup.cause,
+    );
+    _ = try deposit_ledger.complete(lookup, .{ .remote_lookup = .exact });
+    const void_claim = try expectClaimAction(&deposit_ledger, .remote_submit);
+    try std.testing.expectEqual(TransferStage.resolution, void_claim.action.remote_submit.stage);
+    try std.testing.expectEqual(
+        deterministicTransferId(
+            .resolution,
+            deposit,
+            expirationResolution(deposit),
+            testRoute(),
+        ),
+        void_claim.action.remote_submit.transfer.id,
+    );
+    const deposit_status = try deposit_ledger.complete(
+        void_claim,
+        .{ .remote_submit = .applied },
+    );
+    try std.testing.expectEqual(PublicState.completed, deposit_status.state);
+
+    var withdrawal_ledger = try Ledger(8).init(testBinding());
+    const withdrawal = testAuthorization(1_003, .withdrawal);
+    _ = try withdrawal_ledger.acceptAuthorizationAt(withdrawal, testRoute(), 20);
+    const debit = try expectClaimAction(&withdrawal_ledger, .funding_submit);
+    _ = try withdrawal_ledger.complete(debit, .{ .funding_submit = .completed });
+    _ = try expectClaimAction(&withdrawal_ledger, .remote_submit);
+    try std.testing.expect((try withdrawal_ledger.expireNext(
+        20 + @as(i64, withdrawal.timeout_seconds),
+    )) == null);
+    try std.testing.expectEqual(@as(usize, 1), try withdrawal_ledger.recover());
+    _ = (try withdrawal_ledger.expireNext(
+        20 + @as(i64, withdrawal.timeout_seconds),
+    )).?;
+    const withdrawal_lookup = try expectClaimAction(&withdrawal_ledger, .remote_lookup);
+    _ = try withdrawal_ledger.complete(withdrawal_lookup, .{ .remote_lookup = .absent });
+    const refund = try expectClaimAction(&withdrawal_ledger, .funding_submit);
+    try std.testing.expectEqual(FundingPurpose.withdrawal_refund, refund.action.funding_submit.purpose);
+    try std.testing.expectEqual(withdrawal.amount, refund.action.funding_submit.amount);
+    const withdrawal_status = try withdrawal_ledger.complete(
+        refund,
+        .{ .funding_submit = .completed },
+    );
+    try std.testing.expectEqual(PublicState.completed, withdrawal_status.state);
+    try std.testing.expectEqual(
+        ResolutionSource.expiration,
+        withdrawal_status.resolution_source.?,
+    );
+    try withdrawal_ledger.validate();
+}
+
+test "expiry reconciles ambiguous withdrawal debit before stopping or refunding" {
+    const deadline: i64 = 1_000;
+    var absent_ledger = try Ledger(8).init(testBinding());
+    const absent = testAuthorization(1_004, .withdrawal);
+    _ = try absent_ledger.acceptAuthorizationAt(
+        absent,
+        testRoute(),
+        deadline - @as(i64, absent.timeout_seconds),
+    );
+    _ = try expectClaimAction(&absent_ledger, .funding_submit);
+    try std.testing.expectEqual(@as(usize, 1), try absent_ledger.recover());
+    _ = (try absent_ledger.expireNext(deadline)).?;
+    const absent_status = try expectClaimAction(&absent_ledger, .funding_status);
+    const completed = try absent_ledger.complete(
+        absent_status,
+        .{ .funding_status = .not_found },
+    );
+    try std.testing.expectEqual(PublicState.completed, completed.state);
+    try std.testing.expect((try absent_ledger.claimNext()) == null);
+
+    var committed_ledger = try Ledger(8).init(testBinding());
+    const committed = testAuthorization(1_005, .withdrawal);
+    _ = try committed_ledger.acceptAuthorizationAt(
+        committed,
+        testRoute(),
+        deadline - @as(i64, committed.timeout_seconds),
+    );
+    _ = try expectClaimAction(&committed_ledger, .funding_submit);
+    try std.testing.expectEqual(@as(usize, 1), try committed_ledger.recover());
+    _ = (try committed_ledger.expireNext(deadline)).?;
+    const committed_status = try expectClaimAction(&committed_ledger, .funding_status);
+    _ = try committed_ledger.complete(committed_status, .{ .funding_status = .completed });
+    const refund = try expectClaimAction(&committed_ledger, .funding_submit);
+    try std.testing.expectEqual(FundingPurpose.withdrawal_refund, refund.action.funding_submit.purpose);
+    try std.testing.expectEqual(committed.amount, refund.action.funding_submit.amount);
+    _ = try committed_ledger.complete(refund, .{ .funding_submit = .completed });
+    try std.testing.expectEqual(
+        PublicState.completed,
+        (try committed_ledger.lookup(committed.payment_id)).state,
+    );
+    try committed_ledger.validate();
+}
+
+test "operations snapshot exposes deterministic backlog and incident evidence" {
+    const observed_at: i64 = 450;
+    var accepted = try Ledger(8).init(testBinding());
+    _ = try accepted.acceptAuthorizationAt(
+        testAuthorization(1_101, .deposit),
+        testRoute(),
+        100,
+    );
+
+    var remote_reconciliation = try Ledger(8).init(testBinding());
+    _ = try remote_reconciliation.acceptAuthorizationAt(
+        testAuthorization(1_102, .deposit),
+        testRoute(),
+        200,
+    );
+    _ = try expectClaimAction(&remote_reconciliation, .remote_submit);
+    _ = try remote_reconciliation.recover();
+
+    var funding_reconciliation = try Ledger(8).init(testBinding());
+    _ = try funding_reconciliation.acceptAuthorizationAt(
+        testAuthorization(1_103, .withdrawal),
+        testRoute(),
+        250,
+    );
+    _ = try expectClaimAction(&funding_reconciliation, .funding_submit);
+    _ = try funding_reconciliation.recover();
+    _ = try expectClaimAction(&funding_reconciliation, .funding_status);
+
+    var provider_completed = try Ledger(8).init(testBinding());
+    const provider_authorization = testAuthorization(1_104, .deposit);
+    _ = try provider_completed.acceptAuthorizationAt(
+        provider_authorization,
+        testRoute(),
+        300,
+    );
+    const authorization_submit = try expectClaimAction(&provider_completed, .remote_submit);
+    _ = try provider_completed.complete(
+        authorization_submit,
+        .{ .remote_submit = .applied },
+    );
+    _ = try provider_completed.acceptResolution(testResolution(
+        provider_authorization,
+        .post,
+        provider_authorization.amount,
+    ));
+    const resolution_submit = try expectClaimAction(&provider_completed, .remote_submit);
+    _ = try provider_completed.complete(resolution_submit, .{ .remote_submit = .applied });
+    const credit = try expectClaimAction(&provider_completed, .funding_submit);
+    _ = try provider_completed.complete(credit, .{ .funding_submit = .completed });
+
+    var expiration_completed = try Ledger(8).init(testBinding());
+    const expiration_authorization = testAuthorization(1_105, .deposit);
+    _ = try expiration_completed.acceptAuthorizationAt(
+        expiration_authorization,
+        testRoute(),
+        100,
+    );
+    _ = (try expiration_completed.expireNext(
+        100 + @as(i64, expiration_authorization.timeout_seconds),
+    )).?;
+
+    var failed = try Ledger(8).init(testBinding());
+    _ = try failed.acceptAuthorizationAt(
+        testAuthorization(1_106, .deposit),
+        testRoute(),
+        300,
+    );
+    const rejected = try expectClaimAction(&failed, .remote_submit);
+    _ = try failed.complete(rejected, .{ .remote_submit = .definitely_rejected });
+
+    var quarantined = try Ledger(8).init(testBinding());
+    _ = try quarantined.acceptAuthorizationAt(
+        testAuthorization(1_107, .deposit),
+        testRoute(),
+        300,
+    );
+    const conflict = try expectClaimAction(&quarantined, .remote_submit);
+    _ = try quarantined.complete(conflict, .{ .remote_submit = .conflict });
+    const mismatch = try expectClaimAction(&quarantined, .remote_lookup);
+    _ = try quarantined.complete(mismatch, .{ .remote_lookup = .transfer_mismatch });
+
+    const entries = [_]Entry{
+        accepted.entries[0],
+        remote_reconciliation.entries[0],
+        funding_reconciliation.entries[0],
+        provider_completed.entries[0],
+        expiration_completed.entries[0],
+        failed.entries[0],
+        quarantined.entries[0],
+    };
+    var aggregate = try Ledger(8).restore(testBinding(), &entries, 100);
+    const generation_before = aggregate.snapshot_generation;
+    const snapshot = try aggregate.operationsSnapshot(observed_at);
+
+    try std.testing.expectEqual(@as(usize, 8), snapshot.capacity);
+    try std.testing.expectEqual(@as(usize, 7), snapshot.total);
+    try std.testing.expectEqual(@as(usize, 1), snapshot.states.accepted);
+    try std.testing.expectEqual(@as(usize, 2), snapshot.states.pending);
+    try std.testing.expectEqual(@as(usize, 2), snapshot.states.completed);
+    try std.testing.expectEqual(@as(usize, 1), snapshot.states.failed);
+    try std.testing.expectEqual(@as(usize, 1), snapshot.states.quarantined);
+    try std.testing.expectEqual(@as(usize, 2), snapshot.ready_actions);
+    try std.testing.expectEqual(@as(usize, 1), snapshot.in_flight_actions);
+    try std.testing.expectEqual(@as(usize, 1), snapshot.remote_reconciliations);
+    try std.testing.expectEqual(@as(usize, 1), snapshot.funding_reconciliations);
+    try std.testing.expectEqual(@as(usize, 1), snapshot.provider_resolutions);
+    try std.testing.expectEqual(@as(usize, 1), snapshot.expiration_resolutions);
+    try std.testing.expectEqual(@as(u64, 6), snapshot.remote_attempts);
+    try std.testing.expectEqual(@as(u64, 3), snapshot.funding_attempts);
+    try std.testing.expectEqual(@as(usize, 1), snapshot.expired_unresolved);
+    try std.testing.expectEqual(@as(u64, 50), snapshot.max_deadline_lag_seconds);
+    try std.testing.expectEqual(@as(u64, 350), snapshot.oldest_open_age_seconds);
+    try std.testing.expectEqual(@as(u128, 1_101), snapshot.oldest_expired_payment_id.?);
+    try std.testing.expectEqual(
+        @as(u128, 1_102),
+        snapshot.first_reconciliation_payment_id.?,
+    );
+    try std.testing.expectEqual(@as(u128, 1_106), snapshot.first_failed_payment_id.?);
+    try std.testing.expectEqual(
+        @as(u128, 1_107),
+        snapshot.first_quarantined_payment_id.?,
+    );
+    try std.testing.expectEqual(generation_before, aggregate.snapshot_generation);
+    try std.testing.expectError(error.InvalidClock, aggregate.operationsSnapshot(0));
 }
 
 test "clearing mapper emits complete pending post and void fields" {
@@ -1743,14 +2396,20 @@ test "restart converts possibly sent transfer into lookup and exposed funding in
     _ = try expectClaimAction(&ledger, .funding_submit);
     try std.testing.expectEqual(@as(usize, 1), try ledger.recover());
     const status_claim = try expectClaimAction(&ledger, .funding_status);
-    try std.testing.expectEqual(FundingPurpose.withdrawal_debit, status_claim.action.funding_status.purpose);
+    try std.testing.expectEqual(
+        FundingPurpose.withdrawal_debit,
+        status_claim.action.funding_status.request.purpose,
+    );
     try std.testing.expectEqual(
         FundingReconciliationCause.ambiguous_submission,
         status_claim.action.funding_status.cause,
     );
     _ = try ledger.complete(status_claim, .{ .funding_status = .not_found });
     const replay = try expectClaimAction(&ledger, .funding_submit);
-    try std.testing.expectEqual(status_claim.action.funding_status.operation_id, replay.action.funding_submit.operation_id);
+    try std.testing.expectEqualDeep(
+        status_claim.action.funding_status.request,
+        replay.action.funding_submit,
+    );
 }
 
 test "funding submit certainty controls status reconciliation and retry" {
@@ -1989,8 +2648,8 @@ test "funding status completion rejects a claim from another profile" {
     const claim_a = try expectClaimAction(&ledger_a, .funding_status);
     const claim_b = try expectClaimAction(&ledger_b, .funding_status);
     try std.testing.expectEqual(claim_a.generation, claim_b.generation);
-    try std.testing.expect(claim_a.action.funding_status.operation_id !=
-        claim_b.action.funding_status.operation_id);
+    try std.testing.expect(claim_a.action.funding_status.request.operation_id !=
+        claim_b.action.funding_status.request.operation_id);
     try std.testing.expectError(
         error.StaleClaim,
         ledger_b.complete(claim_a, .{ .funding_status = .completed }),

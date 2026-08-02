@@ -22,6 +22,11 @@ pub const Health = enum(u8) {
     stopped,
 };
 
+pub const Identity = struct {
+    destination_id: saga.DestinationId,
+    profile_digest: [profile_module.digest_len]u8,
+};
+
 /// Borrowed synchronous adapter to the exchange-core balance-adjustment API.
 /// Implementations must not retain the adjustment or re-enter this runtime.
 pub const BalancePort = struct {
@@ -166,27 +171,58 @@ pub const Runtime = struct {
     pub fn start(self: *Self) StartError!void {
         if (!self.balance_port.isRunning()) return error.CoreNotRunning;
         if (self.worker != null) return error.AlreadyStarted;
-        if (self.store.isPoisoned()) return error.RuntimeFailed;
+        self.store_mutex.lockUncancelable(self.io);
+        if (self.store.isPoisoned()) {
+            self.publishFailureLocked();
+            self.store_mutex.unlock(self.io);
+            return error.RuntimeFailed;
+        }
         const durable_health = healthFromSummary(self.store.summary() catch {
-            self.storeHealth(.failed);
+            self.publishFailureLocked();
+            self.store_mutex.unlock(self.io);
             return error.RuntimeFailed;
         });
         self.storeHealth(durable_health);
         switch (self.health()) {
-            .failed => return error.RuntimeFailed,
-            .quarantined => return error.RuntimeQuarantined,
-            .stopped => return error.RuntimeStopped,
+            .failed => {
+                self.store_mutex.unlock(self.io);
+                return error.RuntimeFailed;
+            },
+            .quarantined => {
+                self.store_mutex.unlock(self.io);
+                return error.RuntimeQuarantined;
+            },
+            .stopped => {
+                self.store_mutex.unlock(self.io);
+                return error.RuntimeStopped;
+            },
             .cold, .ready, .pending => {},
         }
 
         self.stop_requested.store(false, .release);
-        self.accepting.store(true, .release);
         self.wakeup.reset();
+        self.store_mutex.unlock(self.io);
         self.worker = std.Thread.spawn(.{}, workerMain, .{self}) catch |err| {
-            self.accepting.store(false, .release);
-            self.storeHealth(.failed);
+            self.publishFailure();
             return err;
         };
+        self.store_mutex.lockUncancelable(self.io);
+        if (isTerminalRuntimeHealth(self.health())) {
+            const terminal_health = self.health();
+            self.store_mutex.unlock(self.io);
+            self.stop_requested.store(true, .release);
+            self.wakeup.set(self.io);
+            self.worker.?.join();
+            self.worker = null;
+            return switch (terminal_health) {
+                .failed => error.RuntimeFailed,
+                .quarantined => error.RuntimeQuarantined,
+                .stopped => error.RuntimeStopped,
+                .cold, .ready, .pending => unreachable,
+            };
+        }
+        self.accepting.store(true, .release);
+        self.store_mutex.unlock(self.io);
         self.wakeup.set(self.io);
     }
 
@@ -197,15 +233,19 @@ pub const Runtime = struct {
         // Pair the admission fence with the mutex used by `submit`, ensuring
         // no already-admitted snapshot publication remains in progress.
         self.store_mutex.lockUncancelable(self.io);
-        self.store_mutex.unlock(self.io);
+        self.accepting.store(false, .release);
         self.stop_requested.store(true, .release);
+        self.store_mutex.unlock(self.io);
         self.wakeup.set(self.io);
         if (self.worker) |worker| {
             worker.join();
             self.worker = null;
         }
+        if (!self.balance_port.isRunning()) {
+            self.publishFailure();
+            return error.CoreNotRunning;
+        }
         self.storeHealth(.stopped);
-        if (!self.balance_port.isRunning()) return error.CoreNotRunning;
     }
 
     pub fn deinit(self: *Self) DeinitError!void {
@@ -217,6 +257,25 @@ pub const Runtime = struct {
 
     pub fn health(self: *const Self) Health {
         return @enumFromInt(self.cached_health.load(.acquire));
+    }
+
+    pub fn identity(self: *const Self) Identity {
+        return .{
+            .destination_id = self.destination_id,
+            .profile_digest = self.profile.digest(),
+        };
+    }
+
+    /// Reports whether this runtime is both live and admitting durable work.
+    /// Health alone is insufficient: a freshly opened runtime may be healthy
+    /// before `start`, and a stopped runtime may retain a non-terminal durable
+    /// summary while admission is already fenced.
+    pub fn isAccepting(self: *const Self) bool {
+        if (!self.accepting.load(.acquire)) return false;
+        return switch (self.health()) {
+            .ready, .pending => true,
+            .cold, .failed, .quarantined, .stopped => false,
+        };
     }
 
     /// Durable idempotent admission. An exact duplicate returns its current
@@ -245,10 +304,11 @@ pub const Runtime = struct {
             return err;
         };
         const accepted = self.store.accept(request, routeFromProfile(route)) catch |err| {
+            self.observeStoreFailureLocked();
             self.store_mutex.unlock(self.io);
-            self.observeStoreFailure();
             return err;
         };
+        self.storeHealth(.pending);
         self.store_mutex.unlock(self.io);
         self.wakeup.set(self.io);
         return accepted;
@@ -258,7 +318,7 @@ pub const Runtime = struct {
         self.store_mutex.lockUncancelable(self.io);
         defer self.store_mutex.unlock(self.io);
         return self.store.lookup(operation_id) catch |err| {
-            self.observeStoreFailure();
+            self.observeStoreFailureLocked();
             return err;
         };
     }
@@ -269,13 +329,12 @@ pub const Runtime = struct {
         if (self.stop_requested.load(.acquire)) return;
         if (isTerminalRuntimeHealth(self.health())) return;
         if (!self.balance_port.isRunning()) {
-            self.accepting.store(false, .release);
-            self.storeHealth(.failed);
+            self.publishFailure();
             return;
         }
 
         const claim = self.claimNext() orelse {
-            if (!isTerminalRuntimeHealth(self.health())) self.storeHealth(.ready);
+            self.refreshHealth();
             return;
         };
         self.storeHealth(.pending);
@@ -294,32 +353,41 @@ pub const Runtime = struct {
 
         self.store_mutex.lockUncancelable(self.io);
         const completed = self.store.complete(claim, completion) catch {
+            self.publishFailureLocked();
             self.store_mutex.unlock(self.io);
-            self.observeStoreFailure();
             return;
         };
-        self.store_mutex.unlock(self.io);
-        switch (completed.state) {
-            .quarantined => {
-                self.accepting.store(false, .release);
-                self.storeHealth(.quarantined);
-            },
-            .accepted, .pending, .completed, .failed => {},
+        const next_health = healthFromSummary(self.store.summary() catch {
+            self.publishFailureLocked();
+            self.store_mutex.unlock(self.io);
+            return;
+        });
+        if (completed.state == .quarantined or next_health == .quarantined) {
+            self.accepting.store(false, .release);
+            self.storeHealth(.quarantined);
+        } else {
+            self.storeHealth(next_health);
         }
+        self.store_mutex.unlock(self.io);
     }
 
     fn workerMain(self: *Self) void {
         while (!self.stop_requested.load(.acquire)) {
+            // Event is manual-reset. Reset before polling so durable work set
+            // before the reset is observed by the poll, while a concurrent
+            // admission set after the reset remains visible to the wait.
+            self.wakeup.reset();
+            if (self.stop_requested.load(.acquire)) return;
             self.pollOnce();
             if (isTerminalRuntimeHealth(self.health())) return;
+            if (self.stop_requested.load(.acquire)) return;
             self.wakeup.waitTimeout(self.io, .{ .duration = .{
                 .raw = .fromMilliseconds(@intCast(self.poll_interval_ms)),
                 .clock = .awake,
             } }) catch |err| switch (err) {
                 error.Timeout => {},
                 error.Canceled => {
-                    self.accepting.store(false, .release);
-                    self.storeHealth(.failed);
+                    self.publishFailure();
                     return;
                 },
             };
@@ -329,8 +397,9 @@ pub const Runtime = struct {
     fn claimNext(self: *Self) ?saga.Claim {
         self.store_mutex.lockUncancelable(self.io);
         defer self.store_mutex.unlock(self.io);
+        if (self.stop_requested.load(.acquire)) return null;
         return self.store.claimNext() catch {
-            self.observeStoreFailure();
+            self.publishFailureLocked();
             return null;
         };
     }
@@ -399,24 +468,57 @@ pub const Runtime = struct {
     }
 
     fn ensureAccepting(self: *const Self) SubmitError!void {
-        if (!self.accepting.load(.acquire)) return error.RuntimeNotRunning;
-        return switch (self.health()) {
-            .failed => error.RuntimeFailed,
-            .quarantined => error.RuntimeQuarantined,
-            .cold, .stopped => error.RuntimeNotRunning,
+        switch (self.health()) {
+            .failed => return error.RuntimeFailed,
+            .quarantined => return error.RuntimeQuarantined,
+            .cold, .stopped => return error.RuntimeNotRunning,
             .ready, .pending => {},
-        };
+        }
+        if (!self.accepting.load(.acquire)) return error.RuntimeNotRunning;
     }
 
-    fn observeStoreFailure(self: *Self) void {
+    fn refreshHealth(self: *Self) void {
+        self.store_mutex.lockUncancelable(self.io);
+        const next = healthFromSummary(self.store.summary() catch {
+            self.publishFailureLocked();
+            self.store_mutex.unlock(self.io);
+            return;
+        });
+        self.storeHealth(next);
+        self.store_mutex.unlock(self.io);
+    }
+
+    fn observeStoreFailureLocked(self: *Self) void {
         if (self.store.isPoisoned()) {
-            self.accepting.store(false, .release);
-            self.storeHealth(.failed);
+            self.publishFailureLocked();
         }
     }
 
+    fn publishFailure(self: *Self) void {
+        self.store_mutex.lockUncancelable(self.io);
+        self.publishFailureLocked();
+        self.store_mutex.unlock(self.io);
+    }
+
+    fn publishFailureLocked(self: *Self) void {
+        self.accepting.store(false, .release);
+        self.storeHealth(.failed);
+    }
+
     fn storeHealth(self: *Self, value: Health) void {
-        self.cached_health.store(@intFromEnum(value), .release);
+        const desired = @intFromEnum(value);
+        var current = self.cached_health.load(.acquire);
+        while (true) {
+            if (isTerminalRuntimeHealth(@enumFromInt(current))) return;
+            if (self.cached_health.cmpxchgWeak(
+                current,
+                desired,
+                .acq_rel,
+                .acquire,
+            )) |observed| {
+                current = observed;
+            } else return;
+        }
     }
 };
 
@@ -545,6 +647,7 @@ const FakeRemote = struct {
     economic_effects: usize = 0,
     malformed_request: bool = false,
     last_lookup_cause: ?outbox.ReconciliationCause = null,
+    fail_completion_store: ?*DefaultStore = null,
 
     fn transport(self: *FakeRemote) plugin.Transport {
         return .{ .context = self, .vtable = &vtable };
@@ -580,6 +683,10 @@ const FakeRemote = struct {
         } else {
             self.present = transfer;
             self.economic_effects += 1;
+        }
+        if (self.fail_completion_store) |store| {
+            self.fail_completion_store = null;
+            store.injectPreWriteFailureForTesting();
         }
         if (self.mode == .ambiguous_once) {
             self.mode = .success;
@@ -625,6 +732,7 @@ const FakeRemote = struct {
 
 const FakeBalance = struct {
     running: bool = true,
+    is_running_calls: std.atomic.Value(usize) = .init(0),
     adjustments: [16]saga.CoreAdjustment = undefined,
     adjustment_count: usize = 0,
     economic_effects: usize = 0,
@@ -675,6 +783,7 @@ const FakeBalance = struct {
 
     fn isRunningCallback(context: *anyopaque) bool {
         const self: *FakeBalance = @ptrCast(@alignCast(context));
+        _ = self.is_running_calls.fetchAdd(1, .monotonic);
         return self.running;
     }
 
@@ -975,6 +1084,40 @@ test "ambiguous storage failure poisons admission before external IO" {
     try std.testing.expectEqual(@as(usize, 0), balance.economic_effects);
 }
 
+test "pre-write completion failure fences until restart reconciliation" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const profile = try profile_module.Profile.developmentExample(allocator);
+    defer profile.deinit();
+    var remote: FakeRemote = .{ .destination_id = profile.destinationId() };
+    var balance: FakeBalance = .{};
+
+    var before = try testRuntime(allocator, tmp.dir, profile, &remote, &balance);
+    enableManualPolling(&before);
+    remote.fail_completion_store = before.store;
+    _ = try before.submit(.deposit, 6_013, 1_001, 11, 50);
+    before.pollOnce();
+    try std.testing.expectEqual(@as(usize, 1), remote.economic_effects);
+    try std.testing.expectEqual(@as(usize, 0), balance.economic_effects);
+    try std.testing.expectEqual(Health.failed, before.health());
+    try std.testing.expectError(
+        error.RuntimeFailed,
+        before.submit(.deposit, 6_014, 1_001, 11, 50),
+    );
+    try before.deinit();
+
+    var after = try reopenTestRuntime(allocator, tmp.dir, profile, &remote, &balance);
+    defer after.deinit() catch unreachable;
+    enableManualPolling(&after);
+    after.pollOnce();
+    after.pollOnce();
+    try std.testing.expectEqual(saga.PublicState.completed, (try after.status(6_013)).state);
+    try std.testing.expectEqual(@as(usize, 1), remote.submits);
+    try std.testing.expectEqual(@as(usize, 1), remote.lookups);
+    try std.testing.expectEqual(@as(usize, 1), balance.economic_effects);
+}
+
 test "reopened quarantine remains fenced before worker start" {
     const allocator = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
@@ -1012,12 +1155,44 @@ test "worker lifecycle starts only with a running core and joins before stop" {
     var runtime = try testRuntime(allocator, tmp.dir, profile, &remote, &balance);
     defer runtime.deinit() catch unreachable;
 
+    try std.testing.expect(!runtime.isAccepting());
     try std.testing.expectError(error.CoreNotRunning, runtime.start());
     balance.running = true;
     try runtime.start();
+    try std.testing.expect(runtime.isAccepting());
     try std.testing.expectError(error.AlreadyStarted, runtime.start());
     try runtime.stopAndJoin();
+    try std.testing.expect(!runtime.isAccepting());
     try std.testing.expectEqual(Health.stopped, runtime.health());
+}
+
+test "idle funding worker honors the configured poll interval" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const profile = try profile_module.Profile.developmentExample(allocator);
+    defer profile.deinit();
+    var remote: FakeRemote = .{ .destination_id = profile.destinationId() };
+    var balance: FakeBalance = .{};
+    try balance.ensureProfileCounters(profile);
+    var runtime = try Runtime.init(allocator, std.testing.io, .{
+        .profile = profile,
+        .persistence_root = tmp.dir,
+        .transport = remote.transport(),
+        .balance_port = balance.port(),
+        .open_policy = .initialize,
+        .poll_interval_ms = 100,
+    });
+    defer runtime.deinit() catch unreachable;
+
+    try runtime.start();
+    try (std.Io.Timeout{ .duration = .{
+        .raw = .fromMilliseconds(20),
+        .clock = .awake,
+    } }).sleep(std.testing.io);
+    const calls_before_stop = balance.is_running_calls.load(.acquire);
+    try runtime.stopAndJoin();
+    try std.testing.expect(calls_before_stop <= 8);
 }
 
 test "retryable core adjustment replays exact reserved id" {

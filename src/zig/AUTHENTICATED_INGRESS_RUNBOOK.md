@@ -185,7 +185,7 @@ submission:
 | --- | --- | --- |
 | `ping`, `book` | allowed | allowed |
 | `balance`, `place`, `move`, `reduce`, `cancel` | allowed only for the profile-bound UID | denied |
-| `fund-deposit`, `fund-withdraw`, `funding-status` | denied | allowed |
+| `fund-deposit`, `fund-withdraw`, `funding-status`, `clearing-status`, `clearing-operations` | denied | allowed |
 | `shutdown` | denied | allowed |
 | `add-user`, `deposit` | denied | denied |
 
@@ -203,6 +203,18 @@ Funding mutation syntax is
 duplicates resolve to the retained operation, while a UUID reused with
 different fields is rejected. The public states are `accepted`, `pending`,
 `completed`, `failed`, and `quarantined`.
+
+Payment clearing adds two observation-only operator commands.
+`clearing-status PAYMENT_ID`, where the ID is canonical positive decimal
+`u128`, returns the durable CSG1 public state plus authorization and optional
+resolution identity. `clearing-operations` returns a clock-anchored aggregate
+of capacity, states, ready/in-flight actions, reconciliation work, attempts,
+expiry lag, legacy entries, and representative incident payment IDs. Neither
+accepts a provider body, performs dependency I/O, or mutates clearing or the
+exchange. Use the per-payment status to require
+`state=authorized` before sending a provider resolution and `state=completed`
+afterward; a TigerBeetle pending row alone can race the local CSG1 completion
+commit.
 
 ## Health, readiness, and shutdown
 
@@ -269,8 +281,8 @@ EXCHANGE_INGRESS_KEY_FILE="$EXCHANGE_INGRESS_TRADER_1002_KEY_FILE" \
     book 241 10
 ```
 
-A foreign UID, an operator trading command, trader funding command,
-`add-user`, or legacy `deposit` returns a
+A foreign UID, an operator trading command, trader funding or clearing
+observation command, `add-user`, or legacy `deposit` returns a
 signed authorization error without changing exchange state. Do not use a live
 shared database for these examples.
 
@@ -347,9 +359,15 @@ safe; revocation and rotation are still required.
   rate limiting remain operator-owned proxy responsibilities.
 - Parix API credentials remain outbound server secrets and are independent of
   ingress credentials.
-- Funding remains separate from payment-provider ingress. The typed clearing
-  saga and durable `CSG1` store model pending/post/void accounting, but this raw
-  TCP ingress does not expose them and no clearing profile, runtime, provider
-  HTTPS adapter, secrets, expiry automation, or live rail calls are wired yet.
+- Funding remains separate from payment-provider ingress. The native
+  application layer now has the strict clearing profile, typed saga, durable
+  `CSG1` store, app-owned runtime, classified TigerBeetle transport boundary,
+  typed FSG1 adapter, and versioned HMAC provider adapter described in
+  [`PARIX_CLEARING_RUNBOOK.md`](PARIX_CLEARING_RUNBOOK.md). Provider payloads
+  use a distinct loopback HTTP port behind an operator-owned TLS/mTLS L7 proxy;
+  this authenticated raw TCP ingress does not load or expose them. It exposes
+  only the operator-only read-only clearing status; its `ping` readiness also
+  includes enabled clearing/provider health. Expiry automation, a named-vendor
+  adapter, and live provider-rail calls are not wired yet.
 - Browser/WASM clients never receive funding commands, Parix credentials, or
   ingress secrets; a networked browser requires a separate server-side gateway.

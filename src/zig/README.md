@@ -78,8 +78,10 @@ command, verifies one signed response, and closes. One five-second absolute
 deadline bounds authenticated connection setup through response verification.
 Traders are restricted to their profile-bound UID. Operators can probe
 health/books, request shutdown, submit durable `fund-deposit` and
-`fund-withdraw` operations, and inspect them with `funding-status`. The legacy
-direct `deposit` command and `add-user` remain denied in authenticated mode.
+`fund-withdraw` operations, inspect them with `funding-status`, and observe an
+enabled CSG1 payment or aggregate recovery state with the read-only
+`clearing-status` and `clearing-operations` commands. The legacy direct
+`deposit` command and `add-user` remain denied in authenticated mode.
 
 The TCP listener does not implement TLS and never accepts a non-loopback bind.
 Remote access requires an operator-owned TLS/mTLS L4 proxy and a TLS-capable
@@ -220,17 +222,49 @@ monitor capacity, include the funding snapshot in coordinated backups, and
 stop admission before capacity is exhausted. FSG1 remains the sole owner of
 native-core balance-adjustment transaction IDs.
 
-The native application layer also contains the first payment-provider clearing
-slice: a typed saga maps already-verified provider authorizations and terminal
-events to TigerBeetle pending/post/void transfers, while deterministic child
-FSG1 operations apply user credits, debits, and released-amount refunds. The
-separate bounded `CSG1` store binds settlement and clearing profile identity,
-persists before side effects, rejects inconsistent phase evidence on restore,
-and recovers exposed writes through lookup or status reconciliation. This
-slice is not enabled by the server yet: clearing profile loading, a typed
-runtime/transport classifier, provider-authenticated HTTPS ingress, secrets,
-expiry automation, and live rail calls remain follow-up work. Matching, risk,
-trade settlement, and browser/WASM remain unchanged.
+The native application layer also contains the first six payment-provider
+clearing slices. Slice 4's native loopback signed-callback client,
+operator-only read-only status observation, and isolated first-boot/restart
+rehearsal procedure are implemented and verified by an approved live
+authorize/post/restart/duplicate run. The runtime now seeds and recovery-fences
+an empty trade-settlement outbox before paired XCJ3 startup, including legacy
+journal-only roots. A typed saga maps already-verified provider
+authorizations and terminal events to TigerBeetle pending/post/void transfers,
+while deterministic child FSG1 operations apply user credits, debits, and
+released-amount refunds.
+The separate bounded `CSG1` store binds settlement and clearing profile
+identity, persists before side effects, rejects inconsistent phase evidence on
+restore, and recovers exposed writes through lookup or status reconciliation.
+CSG1 version 2 durably anchors new authorization deadlines at admission and
+reads version-1 snapshots without inventing deadlines for legacy entries. At
+expiry the runtime persists one deterministic full void before any new effect,
+stops work proven absent, reconciles exposed TigerBeetle/FSG1 operations, and
+refunds a committed withdrawal debit exactly once. Operator clearing status
+reports the deadline and whether the terminal resolution came from the provider
+or automatic expiry. The authenticated read-only `clearing-operations`
+observation reports durable capacity, state, action, reconciliation, attempt,
+expiry-lag, legacy-entry, and representative incident evidence without
+contacting TigerBeetle, FSG1, or the provider.
+A strict, heap-owned clearing profile pairs the two configured currency routes
+with the settlement profile. The app-owned native runtime adds classified
+TigerBeetle submit/lookup handling and a typed adapter to the existing FSG1
+runtime, keeping external calls outside its CSG1 mutex.
+
+The optional native server now loads a paired non-secret provider profile,
+resolves its owner-only HMAC key file from an environment variable, starts the
+clearing runtime after funding, and serves a bounded provider HTTP endpoint on
+a distinct loopback port. Only a durable CSG1 insert or exact duplicate returns
+2xx; listener failure affects aggregate readiness and shutdown fences and
+drains provider admission before clearing and funding. Public TLS/mTLS remains
+an operator-owned L7 proxy boundary. The authenticated raw TCP protocol exposes
+only the operator-only `clearing-status PAYMENT_ID` and `clearing-operations`
+observations and no clearing mutation or provider payload. A named-vendor adapter and live provider-rail
+calls remain follow-up work. Matching, risk, trade
+settlement, and browser/WASM remain unchanged. See
+[`PARIX_CLEARING_RUNBOOK.md`](PARIX_CLEARING_RUNBOOK.md) for the exact profile,
+HMAC, callback-client, first initialization, restart, duplicate, and recovery
+boundaries. A dedicated non-production database (or explicit shared-state
+mutation approval) is required before the prepared live procedure is run.
 
 A server composition currently installs one destination-bound
 `tigerbeetle_exchange_integration.Integration(DurableFileOutbox(capacity), max_fills_per_batch)`
@@ -465,6 +499,21 @@ because they can precede R2 and are not replayed.
   - deterministic one-shot helper simulations that cross-check `processCommandResultCode`/`processCommandFullResponse` against explicit async submit+drain+take flows with per-step detailed state-hash convergence.
 
 ## Build and test
+
+Build the native loopback provider callback client and run its Debug and
+ReleaseSafe focused gates with:
+
+```sh
+zig build -j1 provider-client
+zig build -j1 test-parix-clearing-provider-client --summary all
+zig build -j1 test-parix-clearing-provider-client-release-safe --summary all
+```
+
+`zig build -j1 run-provider-client -- --help` shows the operator-facing
+invocation. It loads the provider profile and secret-file environment variable;
+it never accepts a non-loopback destination. See
+[`PARIX_CLEARING_RUNBOOK.md`](PARIX_CLEARING_RUNBOOK.md) before sending a
+callback.
 
 ```sh
 ZIG_GLOBAL_CACHE_DIR=.zig-cache-global \

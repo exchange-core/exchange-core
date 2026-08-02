@@ -176,6 +176,7 @@ pub const Runtime = struct {
             config.profile.publicationDomain(),
         );
         errdefer store.deinit();
+        try store.ensureDurableRecoveryAnchor();
 
         const integration = try allocator.create(Integration);
         errdefer allocator.destroy(integration);
@@ -836,6 +837,8 @@ test "settlement runtime reopens only the exact bound profile without transport 
         .transport = fake.asTransport(),
     });
     try std.testing.expectEqual(@as(usize, 0), fake.submit_calls.load(.acquire));
+    try std.testing.expectEqual(outbox.RecoveryProvenance.reopened, runtime.store.recoveryProvenance());
+    try std.testing.expect(runtime.store.isRecoveryRequired());
     try runtime.deinit();
 
     var reopened = try Runtime.init(allocator, std.testing.io, .{
@@ -844,6 +847,147 @@ test "settlement runtime reopens only the exact bound profile without transport 
         .transport = fake.asTransport(),
     });
     defer reopened.deinit() catch {};
+    try std.testing.expectEqual(@as(usize, 0), fake.submit_calls.load(.acquire));
+    try std.testing.expectEqual(outbox.RecoveryProvenance.reopened, reopened.store.recoveryProvenance());
+    try std.testing.expect(reopened.store.isRecoveryRequired());
+}
+
+test "settlement runtime recovers a legacy nontrade-only journal without an outbox snapshot" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const relative_root = try std.fmt.allocPrint(
+        allocator,
+        ".zig-cache/tmp/{s}/parix-empty-anchor-restart",
+        .{tmp.sub_path},
+    );
+    defer allocator.free(relative_root);
+
+    const settlement_profile = try profile.Profile.developmentExample(allocator);
+    defer settlement_profile.deinit();
+    var fake: FakeTransport = .{};
+
+    {
+        var runtime = try Runtime.init(allocator, std.testing.io, .{
+            .persistence_root = relative_root,
+            .profile = settlement_profile,
+            .transport = fake.asTransport(),
+        });
+        var exchange = try core.exchange_core.ExchangeCore.initWithIoAndPersistenceRoot(
+            allocator,
+            std.testing.io,
+            runtime.persistenceRoot(),
+            .{
+                .initial_state = core.config.InitialStateConfig.lastKnownStateFromJournal(
+                    "exchange-core",
+                    0,
+                    0,
+                ),
+                .matching = .{ .orderbook_kind = .direct },
+                .serialization = .{
+                    .enable_journaling = true,
+                    .backend = .disk,
+                    .storage_folder = "core",
+                },
+            },
+        );
+        var cleaned = false;
+        defer if (!cleaned) {
+            if (!exchange.isStopped()) exchange.shutdown();
+            runtime.stopAndJoin() catch {};
+            runtime.detachStoppedCore() catch {};
+            exchange.deinit();
+            runtime.deinit() catch {};
+        };
+
+        // Simulate a root produced before the runtime seeded an empty outbox:
+        // the profile binding exists and the in-memory integration can run,
+        // but only the subsequent core journal survives the first shutdown.
+        try runtime.persistenceRoot().deleteFile(
+            std.testing.io,
+            "settlement-outbox.tso1",
+        );
+        try runtime.install(&exchange);
+        const startup = try exchange.startupFromConfiguredPersistence(
+            runtime.persistenceRoot(),
+            .matching_engine_router,
+            0,
+            0,
+        );
+        try std.testing.expectEqual(@as(usize, 0), startup.journal_replayed_commands);
+        {
+            var api = core.exchange_api.ExchangeApi.init(allocator, &exchange);
+            defer api.deinit();
+            var result = try api.submitCommandSync(.{ .add_user = 88_001 });
+            defer result.deinit(allocator);
+            switch (result) {
+                .response => |response| try std.testing.expectEqual(
+                    core.cmd.CommandResultCode.success,
+                    response.result_code,
+                ),
+                .persist_state => return error.UnexpectedPersistState,
+            }
+        }
+
+        exchange.shutdown();
+        try runtime.stopAndJoin();
+        try runtime.detachStoppedCore();
+        exchange.deinit();
+        try runtime.deinit();
+        cleaned = true;
+    }
+
+    {
+        var runtime = try Runtime.init(allocator, std.testing.io, .{
+            .persistence_root = relative_root,
+            .profile = settlement_profile,
+            .transport = fake.asTransport(),
+        });
+        var exchange = try core.exchange_core.ExchangeCore.initWithIoAndPersistenceRoot(
+            allocator,
+            std.testing.io,
+            runtime.persistenceRoot(),
+            .{
+                .initial_state = core.config.InitialStateConfig.lastKnownStateFromJournal(
+                    "exchange-core",
+                    0,
+                    0,
+                ),
+                .matching = .{ .orderbook_kind = .direct },
+                .serialization = .{
+                    .enable_journaling = true,
+                    .backend = .disk,
+                    .storage_folder = "core",
+                },
+            },
+        );
+        var cleaned = false;
+        defer if (!cleaned) {
+            if (!exchange.isStopped()) exchange.shutdown();
+            runtime.stopAndJoin() catch {};
+            runtime.detachStoppedCore() catch {};
+            exchange.deinit();
+            runtime.deinit() catch {};
+        };
+
+        try runtime.install(&exchange);
+        const startup = try exchange.startupFromConfiguredPersistence(
+            runtime.persistenceRoot(),
+            .matching_engine_router,
+            0,
+            0,
+        );
+        try std.testing.expectEqual(@as(usize, 1), startup.journal_replayed_commands);
+
+        exchange.shutdown();
+        try runtime.stopAndJoin();
+        try runtime.detachStoppedCore();
+        exchange.deinit();
+        try runtime.deinit();
+        cleaned = true;
+    }
+
     try std.testing.expectEqual(@as(usize, 0), fake.submit_calls.load(.acquire));
 }
 
@@ -1012,7 +1156,7 @@ test "settlement runtime owns stable state and drains its poll thread" {
         },
     );
     try runtime.install(&exchange);
-    try std.testing.expectEqual(Health.cold, runtime.health());
+    try std.testing.expectEqual(Health.recovering, runtime.health());
     try exchange.startup();
     try std.testing.expectError(error.CoreStillRunning, runtime.detachStoppedCore());
     try runtime.start();

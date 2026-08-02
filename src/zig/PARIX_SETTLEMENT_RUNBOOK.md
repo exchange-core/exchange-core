@@ -308,7 +308,17 @@ After a fill, query the relevant accounts and transfer history to confirm the ex
 
 ## Unsupported boundaries
 
-- The server-integrated funding saga remains an accounting bridge, not a payment-provider ingress. A separate typed clearing saga and durable `CSG1` store now model TigerBeetle pending/post/void lifecycles, but the server does not yet load a clearing profile or run its transport/runtime. Bank/card adapters, provider-authenticated HTTPS ingress, secrets, expiry automation, and live rail calls remain unimplemented.
+- The native application layer now optionally composes a strict clearing
+  profile, typed clearing saga, durable `CSG1` store, app-owned runtime,
+  classified TigerBeetle transport boundary, typed FSG1 adapter, and versioned
+  provider HMAC adapter; see
+  [`PARIX_CLEARING_RUNBOOK.md`](PARIX_CLEARING_RUNBOOK.md). Provider events use
+  a distinct loopback HTTP listener behind an operator-owned TLS/mTLS L7 proxy;
+  authenticated exchange TCP exposes only the operator-only read-only
+  `clearing-status PAYMENT_ID` and `clearing-operations` observations, never a
+  clearing mutation or provider payload. Durable automatic expiry and its
+  reconciliation/compensation path are implemented; a named bank/card wire
+  adapter and live provider-rail calls remain unimplemented.
 - The roster is operator-configurable but immutable for one persistence root. Online user onboarding and profile migration are not implemented.
 - Changing symbol economics, users, ledgers, account IDs, funding, database, or publication domain requires a reviewed offline migration. Exact-digest restart rejection is intentional.
 - Legacy roots created before `settlement-profile.spf1` are not automatically adopted.

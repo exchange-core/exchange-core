@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "provider_id": "7001",
+  "path": "/v1/clearing/events",
+  "replay_window_seconds": 300,
+  "secret_file_env": "PARIX_CLEARING_PROVIDER_SECRET_FILE"
+}

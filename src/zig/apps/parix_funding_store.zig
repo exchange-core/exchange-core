@@ -69,6 +69,7 @@ pub fn DurableStore(comptime capacity: usize, comptime max_users: usize) type {
         lock_file: std.Io.File,
         ledger: Ledger,
         poisoned: bool = false,
+        fail_next_pre_write_for_testing: bool = false,
         fail_next_write_for_testing: bool = false,
         fail_next_post_replace_for_testing: bool = false,
 
@@ -171,6 +172,10 @@ pub fn DurableStore(comptime capacity: usize, comptime max_users: usize) type {
             self.fail_next_write_for_testing = true;
         }
 
+        pub fn injectPreWriteFailureForTesting(self: *Self) void {
+            self.fail_next_pre_write_for_testing = true;
+        }
+
         pub fn injectPostReplaceFailureForTesting(self: *Self) void {
             self.fail_next_post_replace_for_testing = true;
         }
@@ -231,6 +236,10 @@ pub fn DurableStore(comptime capacity: usize, comptime max_users: usize) type {
         }
 
         fn commit(self: *Self, candidate: *const Ledger) StoreError!void {
+            if (self.fail_next_pre_write_for_testing) {
+                self.fail_next_pre_write_for_testing = false;
+                return error.OutOfMemory;
+            }
             const bytes = try encodeAlloc(capacity, max_users, self.allocator, candidate);
             defer self.allocator.free(bytes);
 

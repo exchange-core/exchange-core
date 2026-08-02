@@ -111,6 +111,8 @@ pub const Request = union(enum) {
         depth: usize,
     },
     shutdown,
+    clearing_status: u128,
+    clearing_operations,
 };
 
 pub const ParseError = error{
@@ -133,6 +135,9 @@ pub const ParseError = error{
     InvalidOperationIdLayout,
     InvalidOperationIdCharacter,
     ZeroOperationId,
+    InvalidPaymentId,
+    NonPositivePaymentId,
+    NonCanonicalPaymentId,
 };
 
 pub const usage =
@@ -143,6 +148,8 @@ pub const usage =
     \\  fund-deposit UID CURRENCY AMOUNT OPERATION_UUID
     \\  fund-withdraw UID CURRENCY AMOUNT OPERATION_UUID
     \\  funding-status OPERATION_UUID
+    \\  clearing-status PAYMENT_ID
+    \\  clearing-operations
     \\  place ORDER_ID UID SYMBOL PRICE SIZE bid|ask [gtc|ioc]
     \\  move ORDER_ID UID SYMBOL NEW_PRICE
     \\  reduce ORDER_ID UID SYMBOL SIZE
@@ -216,6 +223,14 @@ pub fn parseArgs(args: []const []const u8) ParseError!Request {
     if (std.mem.eql(u8, command, "funding-status")) {
         try expectArity(args, 2);
         return .{ .funding_status = try FundingOperationId.parse(args[1]) };
+    }
+    if (std.mem.eql(u8, command, "clearing-status")) {
+        try expectArity(args, 2);
+        return .{ .clearing_status = try parseClearingPaymentId(args[1]) };
+    }
+    if (std.mem.eql(u8, command, "clearing-operations")) {
+        try expectArity(args, 1);
+        return .clearing_operations;
     }
     if (std.mem.eql(u8, command, "place")) {
         if (args.len != 7 and args.len != 8) return error.InvalidArgumentCount;
@@ -327,6 +342,11 @@ pub fn writeRequest(writer: *std.Io.Writer, request: Request) std.Io.Writer.Erro
             .{ value.symbol, value.depth },
         ),
         .shutdown => try writer.writeAll("shutdown\n"),
+        .clearing_status => |payment_id| try writer.print(
+            "clearing-status {d}\n",
+            .{payment_id},
+        ),
+        .clearing_operations => try writer.writeAll("clearing-operations\n"),
     }
 }
 
@@ -371,6 +391,20 @@ fn parsePositiveIdentifier(comptime T: type, token: []const u8) ParseError!T {
     return value;
 }
 
+fn parseClearingPaymentId(text: []const u8) ParseError!u128 {
+    if (text.len == 0) return error.InvalidPaymentId;
+    if (text[0] == '0') {
+        return if (text.len == 1)
+            error.NonPositivePaymentId
+        else
+            error.NonCanonicalPaymentId;
+    }
+    for (text) |byte| {
+        if (!std.ascii.isDigit(byte)) return error.InvalidPaymentId;
+    }
+    return std.fmt.parseInt(u128, text, 10) catch return error.InvalidPaymentId;
+}
+
 fn parsePositiveAmount(token: []const u8) ParseError!i64 {
     const value = std.fmt.parseInt(i64, token, 10) catch return error.InvalidNumber;
     if (value <= 0) return error.NonPositiveAmount;
@@ -409,6 +443,7 @@ fn parseDepth(token: []const u8) ParseError!usize {
 
 test "parseLine recognizes every request shape" {
     const operation_id = try FundingOperationId.parse("123e4567-e89b-12d3-a456-426614174000");
+    const payment_id: u128 = 910000000000000000000;
     try std.testing.expectEqualDeep(Request.ping, try parseLine(" ping \t"));
     try std.testing.expectEqualDeep(
         Request{ .add_user = .{ .uid = 7 } },
@@ -439,6 +474,14 @@ test "parseLine recognizes every request shape" {
     try std.testing.expectEqualDeep(
         Request{ .funding_status = operation_id },
         try parseLine("funding-status 123e4567-e89b-12d3-a456-426614174000"),
+    );
+    try std.testing.expectEqualDeep(
+        Request{ .clearing_status = payment_id },
+        try parseLine("clearing-status 910000000000000000000"),
+    );
+    try std.testing.expectEqualDeep(
+        Request.clearing_operations,
+        try parseLine("clearing-operations"),
     );
     try std.testing.expectEqualDeep(
         Request{ .place = .{
@@ -485,6 +528,7 @@ test "optional request arguments have deterministic defaults" {
 
 test "writeRequest emits a canonical parseable line" {
     const operation_id = try FundingOperationId.parse("123e4567-e89b-12d3-a456-426614174000");
+    const payment_id: u128 = 910000000000000000000;
     const requests = [_]Request{
         .ping,
         .{ .add_user = .{ .uid = 7 } },
@@ -517,6 +561,8 @@ test "writeRequest emits a canonical parseable line" {
         .{ .balance = .{ .uid = 7, .currency = 15 } },
         .{ .book = .{ .symbol = 241, .depth = 5 } },
         .shutdown,
+        .{ .clearing_status = payment_id },
+        .clearing_operations,
     };
 
     for (requests) |request| {
@@ -556,6 +602,10 @@ test "parser rejects malformed and unbounded input" {
     try std.testing.expectError(error.InvalidTimeInForce, parseLine("place 1 7 241 100 2 bid fok"));
     try std.testing.expectError(error.InvalidDepth, parseLine("book 241 0"));
     try std.testing.expectError(error.InvalidDepth, parseLine("book 241 1001"));
+    try std.testing.expectError(
+        error.InvalidArgumentCount,
+        parseLine("clearing-status"),
+    );
     try std.testing.expectError(
         error.TooManyTokens,
         parseLine("place 1 2 3 4 5 bid gtc extra"),
@@ -598,5 +648,24 @@ test "funding operation IDs require canonical nonzero lowercase UUIDs" {
     try std.testing.expectError(
         error.ZeroOperationId,
         FundingOperationId.parse("00000000-0000-0000-0000-000000000000"),
+    );
+}
+
+test "clearing payment IDs require canonical positive decimal u128 values" {
+    const canonical = "340282366920938463463374607431768211455";
+    try std.testing.expectEqual(std.math.maxInt(u128), try parseClearingPaymentId(canonical));
+
+    try std.testing.expectError(error.InvalidPaymentId, parseClearingPaymentId(""));
+    try std.testing.expectError(error.NonPositivePaymentId, parseClearingPaymentId("0"));
+    try std.testing.expectError(
+        error.NonCanonicalPaymentId,
+        parseClearingPaymentId("0910000000000000000000"),
+    );
+    try std.testing.expectError(error.InvalidPaymentId, parseClearingPaymentId("+1"));
+    try std.testing.expectError(error.InvalidPaymentId, parseClearingPaymentId("-1"));
+    try std.testing.expectError(error.InvalidPaymentId, parseClearingPaymentId("1a"));
+    try std.testing.expectError(
+        error.InvalidPaymentId,
+        parseClearingPaymentId("340282366920938463463374607431768211456"),
     );
 }

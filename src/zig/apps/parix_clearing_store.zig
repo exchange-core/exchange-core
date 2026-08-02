@@ -5,7 +5,8 @@ const saga = @import("parix_clearing_saga.zig");
 const persistence_paths = exchange_core.core.persistence_paths;
 
 const magic = "CSG1";
-const version: u16 = 1;
+const legacy_version: u16 = 1;
+const version: u16 = 2;
 const flags: u16 = 0;
 const digest_len: usize = 32;
 const header_len: usize = 112;
@@ -14,12 +15,14 @@ const route_len: usize = 54;
 const transfer_len: usize = 128;
 const resolution_len: usize = 70;
 const phase_len: usize = 3;
-const entry_len: usize = authorization_len + route_len + transfer_len +
+const entry_len_v1: usize = authorization_len + route_len + transfer_len +
     1 + resolution_len + 1 + transfer_len + phase_len + 8 + 4 + 4;
+const entry_len: usize = entry_len_v1 + 8 + 1;
 const integrity_domain = "exchange-core/parix-clearing-snapshot/v1";
 
 comptime {
-    std.debug.assert(entry_len == 474);
+    std.debug.assert(entry_len_v1 == 474);
+    std.debug.assert(entry_len == 483);
 }
 
 pub const CodecError = error{
@@ -71,6 +74,7 @@ pub fn DurableStore(comptime capacity: usize) type {
         ledger: *Core,
         candidate: *Core,
         poisoned: bool = false,
+        fail_next_pre_write_for_testing: bool = false,
         fail_next_write_for_testing: bool = false,
         fail_next_post_replace_for_testing: bool = false,
 
@@ -155,6 +159,10 @@ pub fn DurableStore(comptime capacity: usize) type {
             self.fail_next_write_for_testing = true;
         }
 
+        pub fn injectPreWriteFailureForTesting(self: *Self) void {
+            self.fail_next_pre_write_for_testing = true;
+        }
+
         pub fn injectPostReplaceFailureForTesting(self: *Self) void {
             self.fail_next_post_replace_for_testing = true;
         }
@@ -164,11 +172,32 @@ pub fn DurableStore(comptime capacity: usize) type {
             authorization: saga.Authorization,
             route: saga.Route,
         ) StoreError!saga.AcceptResult {
+            return self.acceptAuthorizationAt(authorization, route, null);
+        }
+
+        pub fn acceptAuthorizationAt(
+            self: *Self,
+            authorization: saga.Authorization,
+            route: saga.Route,
+            accepted_unix_seconds: ?i64,
+        ) StoreError!saga.AcceptResult {
             try self.ensureHealthy();
             self.copyCandidate();
-            const result = try self.candidate.acceptAuthorization(authorization, route);
+            const result = try self.candidate.acceptAuthorizationAt(
+                authorization,
+                route,
+                accepted_unix_seconds,
+            );
             if (result.disposition == .inserted) try self.commitCandidate();
             return result;
+        }
+
+        pub fn preflightAuthorizationEvent(
+            self: *const Self,
+            authorization: saga.Authorization,
+        ) StoreError!?saga.AcceptResult {
+            try self.ensureHealthy();
+            return self.ledger.preflightAuthorizationEvent(authorization);
         }
 
         pub fn acceptResolution(
@@ -182,6 +211,14 @@ pub fn DurableStore(comptime capacity: usize) type {
             return result;
         }
 
+        pub fn preflightResolutionEvent(
+            self: *const Self,
+            resolution: saga.Resolution,
+        ) StoreError!?saga.AcceptResult {
+            try self.ensureHealthy();
+            return self.ledger.preflightResolutionEvent(resolution);
+        }
+
         pub fn lookup(self: *const Self, payment_id: u128) StoreError!saga.Status {
             try self.ensureHealthy();
             return self.ledger.lookup(payment_id);
@@ -190,6 +227,14 @@ pub fn DurableStore(comptime capacity: usize) type {
         pub fn summary(self: *const Self) StoreError!saga.Summary {
             try self.ensureHealthy();
             return self.ledger.summary();
+        }
+
+        pub fn operationsSnapshot(
+            self: *const Self,
+            observed_at_unix_seconds: i64,
+        ) StoreError!saga.OperationsSnapshot {
+            try self.ensureHealthy();
+            return self.ledger.operationsSnapshot(observed_at_unix_seconds);
         }
 
         pub fn claimNext(self: *Self) StoreError!?saga.Claim {
@@ -208,6 +253,14 @@ pub fn DurableStore(comptime capacity: usize) type {
             try self.ensureHealthy();
             self.copyCandidate();
             const status = try self.candidate.complete(claim, completion);
+            try self.commitCandidate();
+            return status;
+        }
+
+        pub fn expireNext(self: *Self, now_unix_seconds: i64) StoreError!?saga.Status {
+            try self.ensureHealthy();
+            self.copyCandidate();
+            const status = try self.candidate.expireNext(now_unix_seconds) orelse return null;
             try self.commitCandidate();
             return status;
         }
@@ -260,6 +313,10 @@ pub fn DurableStore(comptime capacity: usize) type {
         }
 
         fn commitCandidate(self: *Self) StoreError!void {
+            if (self.fail_next_pre_write_for_testing) {
+                self.fail_next_pre_write_for_testing = false;
+                return error.OutOfMemory;
+            }
             const bytes = try encodeAlloc(capacity, self.allocator, self.candidate);
             defer self.allocator.free(bytes);
             if (self.fail_next_write_for_testing) {
@@ -344,8 +401,13 @@ fn maxEncodedSize(comptime capacity: usize) usize {
     return header_len + entry_len * capacity + digest_len;
 }
 
-fn actualEncodedSize(entry_count: usize) usize {
-    return header_len + entry_len * entry_count + digest_len;
+fn actualEncodedSize(format_version: u16, entry_count: usize) usize {
+    const encoded_entry_len = switch (format_version) {
+        legacy_version => entry_len_v1,
+        version => entry_len,
+        else => unreachable,
+    };
+    return header_len + encoded_entry_len * entry_count + digest_len;
 }
 
 fn encodeAlloc(
@@ -353,14 +415,35 @@ fn encodeAlloc(
     allocator: std.mem.Allocator,
     ledger: *const saga.Ledger(capacity),
 ) (std.mem.Allocator.Error || CodecError)![]u8 {
+    return encodeAllocVersion(capacity, allocator, ledger, version);
+}
+
+fn encodeAllocVersion(
+    comptime capacity: usize,
+    allocator: std.mem.Allocator,
+    ledger: *const saga.Ledger(capacity),
+    format_version: u16,
+) (std.mem.Allocator.Error || CodecError)![]u8 {
+    if (format_version != legacy_version and format_version != version) {
+        return error.UnsupportedVersion;
+    }
     ledger.validate() catch return error.InvalidState;
-    const total = actualEncodedSize(ledger.entriesSlice().len);
+    if (format_version == legacy_version) {
+        for (ledger.entriesSlice()) |entry| {
+            if (entry.expires_at_unix_seconds != 0 or
+                entry.resolution_source == .expiration)
+            {
+                return error.InvalidState;
+            }
+        }
+    }
+    const total = actualEncodedSize(format_version, ledger.entriesSlice().len);
     const bytes = try allocator.alloc(u8, total);
     errdefer allocator.free(bytes);
     var index: usize = 0;
     @memcpy(bytes[index..][0..magic.len], magic);
     index += magic.len;
-    putInt(u16, bytes, &index, version);
+    putInt(u16, bytes, &index, format_version);
     putInt(u16, bytes, &index, flags);
     putInt(u32, bytes, &index, @intCast(capacity));
     putInt(u128, bytes, &index, @intFromEnum(ledger.binding.destination_id));
@@ -372,7 +455,7 @@ fn encodeAlloc(
     putInt(u64, bytes, &index, ledger.snapshot_generation);
     putInt(u32, bytes, &index, @intCast(ledger.entriesSlice().len));
     std.debug.assert(index == header_len);
-    for (ledger.entriesSlice()) |entry| encodeEntry(bytes, &index, entry);
+    for (ledger.entriesSlice()) |entry| encodeEntry(bytes, &index, entry, format_version);
     const digest_offset = total - digest_len;
     std.debug.assert(index == digest_offset);
     const digest = integrityDigest(bytes[0..digest_offset]);
@@ -394,7 +477,10 @@ fn decodeInto(
     var index: usize = 0;
     if (!std.mem.eql(u8, bytes[0..magic.len], magic)) return error.MagicMismatch;
     index += magic.len;
-    if (try takeInt(u16, bytes, &index, digest_offset) != version) return error.UnsupportedVersion;
+    const format_version = try takeInt(u16, bytes, &index, digest_offset);
+    if (format_version != legacy_version and format_version != version) {
+        return error.UnsupportedVersion;
+    }
     if (try takeInt(u16, bytes, &index, digest_offset) != flags) return error.InvalidFlags;
     if (try takeInt(u32, bytes, &index, digest_offset) != capacity) return error.CapacityMismatch;
     if (try takeInt(u128, bytes, &index, digest_offset) != @intFromEnum(binding.destination_id)) return error.DestinationMismatch;
@@ -406,19 +492,21 @@ fn decodeInto(
     const snapshot_generation = try takeInt(u64, bytes, &index, digest_offset);
     const entry_count = try takeInt(u32, bytes, &index, digest_offset);
     if (entry_count > capacity) return error.EntryCountExceeded;
-    const expected_len = actualEncodedSize(entry_count);
+    const expected_len = actualEncodedSize(format_version, entry_count);
     if (bytes.len < expected_len) return error.Truncated;
     if (bytes.len > expected_len) return error.TrailingBytes;
 
     const entries = try allocator.alloc(saga.Entry, entry_count);
     defer allocator.free(entries);
-    for (entries) |*entry| entry.* = try decodeEntry(bytes, &index, digest_offset);
+    for (entries) |*entry| {
+        entry.* = try decodeEntry(bytes, &index, digest_offset, format_version);
+    }
     if (index != digest_offset) return error.TrailingBytes;
     saga.Ledger(capacity).restoreInto(out, binding, entries, snapshot_generation) catch
         return error.InvalidState;
 }
 
-fn encodeEntry(bytes: []u8, index: *usize, entry: saga.Entry) void {
+fn encodeEntry(bytes: []u8, index: *usize, entry: saga.Entry, format_version: u16) void {
     const start = index.*;
     encodeAuthorization(bytes, index, entry.authorization);
     encodeRoute(bytes, index, entry.route);
@@ -446,10 +534,26 @@ fn encodeEntry(bytes: []u8, index: *usize, entry: saga.Entry) void {
     putInt(u64, bytes, index, entry.generation);
     putInt(u32, bytes, index, entry.remote_attempts);
     putInt(u32, bytes, index, entry.funding_attempts);
-    std.debug.assert(index.* - start == entry_len);
+    if (format_version == version) {
+        putInt(i64, bytes, index, entry.expires_at_unix_seconds);
+        putInt(u8, bytes, index, if (entry.resolution_source) |source|
+            @intFromEnum(source)
+        else
+            0);
+    }
+    std.debug.assert(index.* - start == switch (format_version) {
+        legacy_version => entry_len_v1,
+        version => entry_len,
+        else => unreachable,
+    });
 }
 
-fn decodeEntry(bytes: []const u8, index: *usize, limit: usize) CodecError!saga.Entry {
+fn decodeEntry(
+    bytes: []const u8,
+    index: *usize,
+    limit: usize,
+    format_version: u16,
+) CodecError!saga.Entry {
     const authorization = try decodeAuthorization(bytes, index, limit);
     const route = try decodeRoute(bytes, index, limit);
     const pending_transfer = try decodeTransfer(bytes, index, limit);
@@ -473,7 +577,7 @@ fn decodeEntry(bytes: []const u8, index: *usize, limit: usize) CodecError!saga.E
         1 => try decodeTransfer(bytes, index, limit),
         else => return error.InvalidOptional,
     };
-    return .{
+    var entry: saga.Entry = .{
         .authorization = authorization,
         .route = route,
         .pending_transfer = pending_transfer,
@@ -488,6 +592,18 @@ fn decodeEntry(bytes: []const u8, index: *usize, limit: usize) CodecError!saga.E
         .remote_attempts = try takeInt(u32, bytes, index, limit),
         .funding_attempts = try takeInt(u32, bytes, index, limit),
     };
+    if (format_version == legacy_version) {
+        entry.resolution_source = if (entry.resolution == null) null else .provider;
+    } else {
+        entry.expires_at_unix_seconds = try takeInt(i64, bytes, index, limit);
+        entry.resolution_source = switch (try takeInt(u8, bytes, index, limit)) {
+            0 => null,
+            1 => .provider,
+            2 => .expiration,
+            else => return error.InvalidEnum,
+        };
+    }
+    return entry;
 }
 
 fn encodeAuthorization(bytes: []u8, index: *usize, value: saga.Authorization) void {
@@ -826,6 +942,90 @@ test "initialize exact duplicate and reopen preserve CSG1 state" {
     }
 }
 
+test "CSG1 v2 preserves deadlines and v1 remains manual only" {
+    const Store = DurableStore(4);
+    const Ledger = saga.Ledger(4);
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const authorization = testAuthorization(11, .deposit);
+    const accepted_at: i64 = 1_700_000_000;
+    const deadline = accepted_at + @as(i64, authorization.timeout_seconds);
+    {
+        var store: Store = undefined;
+        try Store.initialize(
+            &store,
+            std.testing.allocator,
+            std.testing.io,
+            tmp.dir,
+            "expiry.csg1",
+            testBinding(),
+        );
+        defer store.deinit();
+        _ = try store.acceptAuthorizationAt(authorization, testRoute(), accepted_at);
+        try std.testing.expect((try store.expireNext(deadline - 1)) == null);
+    }
+    {
+        var store: Store = undefined;
+        try Store.openExisting(
+            &store,
+            std.testing.allocator,
+            std.testing.io,
+            tmp.dir,
+            "expiry.csg1",
+            testBinding(),
+        );
+        defer store.deinit();
+        try std.testing.expectEqual(deadline, (try store.lookup(11)).expires_at_unix_seconds);
+        const operations = try store.operationsSnapshot(deadline - 1);
+        try std.testing.expectEqual(@as(usize, 1), operations.total);
+        try std.testing.expectEqual(@as(usize, 1), operations.ready_actions);
+        try std.testing.expectEqual(@as(usize, 0), operations.expired_unresolved);
+        const expired = (try store.expireNext(deadline)).?;
+        try std.testing.expectEqual(saga.ResolutionSource.expiration, expired.resolution_source.?);
+    }
+    {
+        var store: Store = undefined;
+        try Store.openExisting(
+            &store,
+            std.testing.allocator,
+            std.testing.io,
+            tmp.dir,
+            "expiry.csg1",
+            testBinding(),
+        );
+        defer store.deinit();
+        const status = try store.lookup(11);
+        try std.testing.expectEqual(saga.PublicState.completed, status.state);
+        try std.testing.expectEqual(saga.ResolutionSource.expiration, status.resolution_source.?);
+    }
+
+    var legacy = try Ledger.init(testBinding());
+    _ = try legacy.acceptAuthorization(testAuthorization(12, .deposit), testRoute());
+    const legacy_bytes = try encodeAllocVersion(
+        4,
+        std.testing.allocator,
+        &legacy,
+        legacy_version,
+    );
+    defer std.testing.allocator.free(legacy_bytes);
+    try rewriteTestFile(tmp.dir, "legacy.csg1", legacy_bytes);
+    var legacy_store: Store = undefined;
+    try Store.openExisting(
+        &legacy_store,
+        std.testing.allocator,
+        std.testing.io,
+        tmp.dir,
+        "legacy.csg1",
+        testBinding(),
+    );
+    defer legacy_store.deinit();
+    try std.testing.expectEqual(@as(i64, 0), (try legacy_store.lookup(12)).expires_at_unix_seconds);
+    const legacy_operations = try legacy_store.operationsSnapshot(std.math.maxInt(i64));
+    try std.testing.expectEqual(@as(usize, 1), legacy_operations.legacy_manual_expiry);
+    try std.testing.expect((try legacy_store.expireNext(std.math.maxInt(i64))) == null);
+}
+
 test "reopen converts exposed transfer and funding submits to reconciliation" {
     const Store = DurableStore(4);
     var tmp = std.testing.tmpDir(.{});
@@ -862,7 +1062,10 @@ test "reopen converts exposed transfer and funding submits to reconciliation" {
         defer store.deinit();
         const claim = (try store.claimNext()).?;
         try std.testing.expect(claim.action == .funding_status);
-        try std.testing.expectEqual(saga.FundingPurpose.withdrawal_debit, claim.action.funding_status.purpose);
+        try std.testing.expectEqual(
+            saga.FundingPurpose.withdrawal_debit,
+            claim.action.funding_status.request.purpose,
+        );
         try std.testing.expectEqual(
             saga.FundingReconciliationCause.ambiguous_submission,
             claim.action.funding_status.cause,

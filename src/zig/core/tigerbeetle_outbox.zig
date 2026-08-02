@@ -1400,6 +1400,24 @@ pub fn DurableFileOutbox(comptime capacity: usize) type {
             return self.poisoned;
         }
 
+        /// Persists the current empty/fresh image when no durable snapshot
+        /// exists yet, then fences it for recovery against the paired core
+        /// journal. Product runtimes call this before installing hooks so both
+        /// a first boot and a legacy journal-only root must prove their common
+        /// frontier before capture becomes live.
+        pub fn ensureDurableRecoveryAnchor(self: *Self) StoreError!void {
+            try self.ensureHealthy();
+            const file = self.dir.openFile(io_context.current(), self.path, .{}) catch |err| switch (err) {
+                error.FileNotFound => {
+                    try self.commit(self.core);
+                    self.core.recoverAfterRestart(0);
+                    return;
+                },
+                else => return error.StorageReadFailed,
+            };
+            file.close(io_context.current());
+        }
+
         pub fn destinationId(self: *const Self) DestinationId {
             return self.core.destinationId();
         }
@@ -2703,6 +2721,45 @@ test "durable frontier marks do not consume an injected write failure" {
     try std.testing.expect(!store.isPoisoned());
     try std.testing.expectError(error.StorageAmbiguous, store.beginNext(0));
     try std.testing.expect(store.isPoisoned());
+}
+
+test "durable prepared outbox seeds an empty recovery anchor explicitly" {
+    const Store = DurableFileOutbox(2);
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    {
+        var store = try Store.openPrepared(
+            std.testing.allocator,
+            tmp.dir,
+            "empty-anchor.tso",
+            testDestination(),
+            testPublicationDomain(),
+        );
+        defer store.deinit();
+        try std.testing.expectEqual(RecoveryProvenance.fresh, store.recoveryProvenance());
+        try store.ensureDurableRecoveryAnchor();
+        try store.ensureDurableRecoveryAnchor();
+        try std.testing.expectEqual(RecoveryProvenance.reopened, store.recoveryProvenance());
+        try std.testing.expect(store.isRecoveryRequired());
+    }
+
+    {
+        var reopened = try Store.openPrepared(
+            std.testing.allocator,
+            tmp.dir,
+            "empty-anchor.tso",
+            testDestination(),
+            testPublicationDomain(),
+        );
+        defer reopened.deinit();
+        try std.testing.expectEqual(RecoveryProvenance.reopened, reopened.recoveryProvenance());
+        try std.testing.expect(reopened.isRecoveryRequired());
+        try std.testing.expectEqual(
+            @as(usize, 0),
+            try reopened.finishRecovery(testPublicationCursor(17)),
+        );
+    }
 }
 
 test "durable settlement outbox persists pre-send claim and reopens into reconciliation" {

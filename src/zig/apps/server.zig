@@ -4,6 +4,11 @@ const exchange_core = @import("exchange_core");
 const protocol = @import("exchange_protocol");
 const ingress_auth = @import("ingress_auth.zig");
 const parix_account_bootstrap = @import("parix_account_bootstrap.zig");
+const parix_clearing_http_ingress = @import("parix_clearing_http_ingress.zig");
+const parix_clearing_profile = @import("parix_clearing_profile.zig");
+const parix_clearing_provider_adapter = @import("parix_clearing_provider_adapter.zig");
+const parix_clearing_runtime = @import("parix_clearing_runtime.zig");
+const parix_clearing_saga = @import("parix_clearing_saga.zig");
 const parix_funding_runtime = @import("parix_funding_runtime.zig");
 const parix_funding_saga = @import("parix_funding_saga.zig");
 const parix_http_transport = @import("parix_http_transport.zig");
@@ -15,6 +20,7 @@ const log = std.log.scoped(.exchange_server);
 
 pub const DefaultHost = "127.0.0.1";
 pub const DefaultPort: u16 = 7379;
+pub const DefaultProviderPort: u16 = 7380;
 pub const DefaultSymbolId: i32 = 241;
 pub const DefaultBaseCurrency: i32 = 11;
 pub const DefaultQuoteCurrency: i32 = 15;
@@ -26,6 +32,7 @@ const MaxResponseBytes = 4096;
 const MaxAuthenticatedWriteBufferBytes = MaxResponseBytes + 128;
 const AuthenticatedReceiveTimeoutSeconds = 5;
 const MaxAuthenticatedSessions = 64;
+const ProviderIngressStartupPollAttempts = 5_000;
 const BootstrapTransferId: i32 = 1;
 
 const AuthSessionState = enum {
@@ -63,6 +70,14 @@ const ArgumentError = error{
     IngressAuthProfileWithoutSettlement,
     ParixProvisioningWithoutSettlement,
     ParixFundingInitializationWithoutSettlement,
+    ClearingProfileWithoutSettlement,
+    MissingProviderProfile,
+    ProviderProfileWithoutClearing,
+    ClearingInitializationWithoutClearing,
+    ClearingAccountAttestationWithoutClearing,
+    MissingClearingAccountAttestation,
+    ProviderPortWithoutClearing,
+    DuplicateListenerPort,
 };
 
 const RequestMapError = error{
@@ -86,6 +101,10 @@ const ParixRequestError = error{
 const IngressProfileError = error{
     IngressInstanceMismatch,
     IngressTraderMissingFromSettlement,
+};
+
+const ClearingProfileError = error{
+    ProviderProfileMismatch,
 };
 
 const ParixEnvironment = struct {
@@ -136,6 +155,111 @@ const FundingBalanceContext = struct {
     }
 };
 
+const ClearingAdmissionContext = struct {
+    runtime: *parix_clearing_runtime.Runtime,
+
+    const vtable: parix_clearing_http_ingress.AdmissionPort.VTable = .{
+        .admit = admit,
+        .is_ready = isReady,
+    };
+
+    fn asPort(self: *@This()) parix_clearing_http_ingress.AdmissionPort {
+        return .{ .context = self, .vtable = &vtable };
+    }
+
+    fn admit(
+        raw_context: *anyopaque,
+        event: parix_clearing_provider_adapter.VerifiedEvent,
+    ) parix_clearing_http_ingress.AdmissionOutcome {
+        const self: *@This() = @ptrCast(@alignCast(raw_context));
+        const accepted = switch (event) {
+            .authorization => |authorization| self.runtime.acceptAuthorization(authorization),
+            .resolution => |resolution| self.runtime.acceptResolution(resolution),
+        } catch |err| return clearingAdmissionError(err);
+        return .{ .durable = accepted };
+    }
+
+    fn isReady(raw_context: *anyopaque) bool {
+        const self: *@This() = @ptrCast(@alignCast(raw_context));
+        return switch (self.runtime.health()) {
+            .ready, .pending => true,
+            .cold, .failed, .quarantined, .stopped => false,
+        };
+    }
+};
+
+fn clearingAdmissionError(
+    err: parix_clearing_runtime.AdmissionError,
+) parix_clearing_http_ingress.AdmissionOutcome {
+    return switch (err) {
+        error.InvalidEventId,
+        error.InvalidPaymentId,
+        error.InvalidProviderId,
+        error.InvalidRevision,
+        error.InvalidUserId,
+        error.InvalidCurrency,
+        error.InvalidAmount,
+        error.InvalidTimeout,
+        error.UnknownUser,
+        error.UnknownCurrency,
+        error.TimeoutOutOfBounds,
+        => .invalid,
+
+        error.IdempotencyConflict,
+        error.PaymentNotFound,
+        error.AuthorizationNotReady,
+        error.ImmutableFieldMismatch,
+        error.StaleRevision,
+        error.OutOfOrderRevision,
+        error.AmountExceedsAuthorization,
+        error.VoidAmountMismatch,
+        error.TerminalConflict,
+        => .conflict,
+
+        error.ProviderMismatch,
+        error.InvalidDestination,
+        error.InvalidLedger,
+        error.InvalidAccount,
+        error.InvalidTransferCode,
+        error.InvalidBinding,
+        error.CapacityExceeded,
+        error.NoPendingAction,
+        error.StaleClaim,
+        error.CompletionKindMismatch,
+        error.InvalidState,
+        error.InvalidClock,
+        error.ExpirationOverflow,
+        error.GenerationOverflow,
+        error.AttemptOverflow,
+        error.InvalidPath,
+        error.Truncated,
+        error.TrailingBytes,
+        error.MagicMismatch,
+        error.UnsupportedVersion,
+        error.InvalidFlags,
+        error.CapacityMismatch,
+        error.DestinationMismatch,
+        error.SettlementProfileMismatch,
+        error.ClearingProfileMismatch,
+        error.EntryCountExceeded,
+        error.DigestMismatch,
+        error.InvalidEnum,
+        error.InvalidOptional,
+        error.OutOfMemory,
+        error.AlreadyOpen,
+        error.AlreadyInitialized,
+        error.NotInitialized,
+        error.Poisoned,
+        error.InsecurePermissions,
+        error.StorageReadFailed,
+        error.StorageAmbiguous,
+        error.RuntimeNotRunning,
+        error.RuntimeFailed,
+        error.RuntimeQuarantined,
+        => .unavailable,
+    };
+}
+
 fn fundingCoreOutcome(result_code: core.cmd.CommandResultCode) parix_funding_saga.CoreOutcome {
     return switch (result_code) {
         .success => .applied,
@@ -154,16 +278,26 @@ pub const Options = struct {
     parix_create_accounts: bool = false,
     parix_development_seed: bool = false,
     parix_funding_initialize: bool = false,
+    parix_clearing_profile_path: ?[]const u8 = null,
+    parix_provider_profile_path: ?[]const u8 = null,
+    parix_clearing_initialize: bool = false,
+    parix_clearing_accounts_verified: bool = false,
+    provider_port: u16 = DefaultProviderPort,
+    provider_port_explicit: bool = false,
     persistence_root: []const u8 = DefaultPersistenceRoot,
     owned_host: ?[]u8 = null,
     owned_parix_profile_path: ?[]u8 = null,
     owned_ingress_auth_profile_path: ?[]u8 = null,
+    owned_parix_clearing_profile_path: ?[]u8 = null,
+    owned_parix_provider_profile_path: ?[]u8 = null,
     owned_persistence_root: ?[]u8 = null,
 
     fn deinit(self: *Options, allocator: std.mem.Allocator) void {
         if (self.owned_host) |owned| allocator.free(owned);
         if (self.owned_parix_profile_path) |owned| allocator.free(owned);
         if (self.owned_ingress_auth_profile_path) |owned| allocator.free(owned);
+        if (self.owned_parix_clearing_profile_path) |owned| allocator.free(owned);
+        if (self.owned_parix_provider_profile_path) |owned| allocator.free(owned);
         if (self.owned_persistence_root) |owned| allocator.free(owned);
         self.* = undefined;
     }
@@ -190,6 +324,30 @@ pub const Options = struct {
         if (self.owned_parix_profile_path) |owned| allocator.free(owned);
         self.owned_parix_profile_path = replacement;
         self.parix_profile_path = replacement;
+    }
+
+    fn setParixClearingProfilePath(
+        self: *Options,
+        allocator: std.mem.Allocator,
+        path: []const u8,
+    ) (std.mem.Allocator.Error || ArgumentError)!void {
+        if (path.len == 0) return error.InvalidArguments;
+        const replacement = try allocator.dupe(u8, path);
+        if (self.owned_parix_clearing_profile_path) |owned| allocator.free(owned);
+        self.owned_parix_clearing_profile_path = replacement;
+        self.parix_clearing_profile_path = replacement;
+    }
+
+    fn setParixProviderProfilePath(
+        self: *Options,
+        allocator: std.mem.Allocator,
+        path: []const u8,
+    ) (std.mem.Allocator.Error || ArgumentError)!void {
+        if (path.len == 0) return error.InvalidArguments;
+        const replacement = try allocator.dupe(u8, path);
+        if (self.owned_parix_provider_profile_path) |owned| allocator.free(owned);
+        self.owned_parix_provider_profile_path = replacement;
+        self.parix_provider_profile_path = replacement;
     }
 
     fn setHost(
@@ -274,7 +432,7 @@ fn runInMemory(io: std.Io, allocator: std.mem.Allocator, options: Options) !void
 
     try bootstrapDefaultSymbol(&api, allocator);
 
-    try serve(io, allocator, options, &api, null, null, null, null);
+    try serve(io, allocator, options, &api, null, null, null, null, null, null);
 }
 
 fn runWithParixSettlement(
@@ -301,6 +459,36 @@ fn runWithParixSettlement(
         ingress_profile_path,
     );
     defer authenticated_ingress.deinit();
+
+    const configured_clearing_profile = if (options.parix_clearing_profile_path) |path|
+        try parix_clearing_profile.Profile.loadFile(
+            allocator,
+            io,
+            path,
+            configured_profile,
+        )
+    else
+        null;
+    defer if (configured_clearing_profile) |profile| profile.deinit();
+
+    const configured_provider_profile = if (options.parix_provider_profile_path) |path|
+        try parix_clearing_provider_adapter.Profile.load(
+            io,
+            allocator,
+            environment,
+            path,
+        )
+    else
+        null;
+    defer if (configured_provider_profile) |profile| profile.deinit();
+    if ((configured_clearing_profile != null) != (configured_provider_profile != null)) {
+        return error.ProviderProfileMismatch;
+    }
+    if (configured_clearing_profile) |clearing_profile| {
+        if (configured_provider_profile.?.providerId() != clearing_profile.providerId()) {
+            return error.ProviderProfileMismatch;
+        }
+    }
 
     const parix_environment = try readParixEnvironment(environment);
     try validateParixDatabaseId(parix_environment.database_id, configured_profile);
@@ -452,6 +640,26 @@ fn runWithParixSettlement(
             funding_runtime_initialized = false;
         }
     }
+    var funding_runtime_adapter: parix_clearing_runtime.FundingRuntimeAdapter = .{
+        .runtime = &funding_runtime,
+    };
+    var clearing_runtime: parix_clearing_runtime.Runtime = undefined;
+    var clearing_runtime_initialized = false;
+    var clearing_runtime_started = false;
+    defer {
+        if (clearing_runtime_started) {
+            clearing_runtime.stopAndJoin() catch |err| {
+                log.err("Parix clearing shutdown failed: {s}", .{@errorName(err)});
+            };
+            clearing_runtime_started = false;
+        }
+        if (clearing_runtime_initialized) {
+            clearing_runtime.deinit() catch |err| {
+                log.err("Parix clearing cleanup failed: {s}", .{@errorName(err)});
+            };
+            clearing_runtime_initialized = false;
+        }
+    }
 
     try settlement_runtime.install(engine);
     _ = try engine.startupFromConfiguredPersistence(
@@ -488,6 +696,35 @@ fn runWithParixSettlement(
     try funding_runtime.start();
     funding_runtime_started = true;
 
+    if (configured_clearing_profile) |clearing_profile| {
+        // This is an explicit operator gate for the reviewed exact account-
+        // lookup ceremony. The clearing profile intentionally does not pretend
+        // that ID and ledger alone describe an exact account.
+        if (!options.parix_clearing_accounts_verified) {
+            return error.MissingClearingAccountAttestation;
+        }
+        clearing_runtime = try parix_clearing_runtime.Runtime.init(
+            allocator,
+            io,
+            .{
+                .profile = clearing_profile,
+                .persistence_root = settlement_runtime.persistenceRoot(),
+                .transport = gateway_client.asTransport(),
+                .funding_port = funding_runtime_adapter.asPort(),
+                .open_policy = clearingOpenPolicy(options),
+            },
+        );
+        clearing_runtime_initialized = true;
+        try clearing_runtime.start();
+        clearing_runtime_started = true;
+        switch (clearing_runtime.health()) {
+            .ready, .pending => {},
+            .failed => return error.ParixClearingFailed,
+            .quarantined => return error.ParixClearingQuarantined,
+            .cold, .stopped => return error.ParixClearingNotReady,
+        }
+    }
+
     try serve(
         io,
         allocator,
@@ -497,8 +734,16 @@ fn runWithParixSettlement(
         &funding_runtime,
         configured_profile,
         authenticated_ingress,
+        if (clearing_runtime_started) &clearing_runtime else null,
+        if (configured_provider_profile) |profile| profile.adapter() else null,
     );
 
+    if (clearing_runtime_started) {
+        try clearing_runtime.stopAndJoin();
+        clearing_runtime_started = false;
+        try clearing_runtime.deinit();
+        clearing_runtime_initialized = false;
+    }
     try funding_runtime.stopAndJoin();
     funding_runtime_started = false;
     try funding_runtime.deinit();
@@ -534,58 +779,68 @@ fn serve(
     funding_runtime: ?*parix_funding_runtime.Runtime,
     configured_profile: ?*const parix_profile.Profile,
     authenticated_ingress: ?*const ingress_auth.Profile,
+    clearing_runtime: ?*parix_clearing_runtime.Runtime,
+    provider_adapter: ?parix_clearing_provider_adapter.Adapter,
 ) !void {
     std.debug.assert((settlement_runtime != null) == (configured_profile != null));
     std.debug.assert((settlement_runtime != null) == (authenticated_ingress != null));
     std.debug.assert((settlement_runtime != null) == (funding_runtime != null));
+    std.debug.assert((clearing_runtime != null) == (provider_adapter != null));
+    std.debug.assert(clearing_runtime == null or authenticated_ingress != null);
     const address = try std.Io.net.IpAddress.resolve(io, options.host, options.port);
     var server = try address.listen(io, .{ .reuse_address = true });
     defer server.deinit(io);
 
-    var stdout_buffer: [2048]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
-    if (settlement_runtime) |runtime| {
-        const symbol = configured_profile.?.symbolSpecification();
-        try stdout_writer.interface.print(
-            "exchange-core server ready on {s}:{d} symbol={d} base={d} quote={d} settlement={s} funding={s} ingress=authenticated max_sessions={d} receive_timeout_seconds={d}\n",
-            .{
-                options.host,
-                options.port,
-                symbol.symbol_id,
-                symbol.base_currency,
-                symbol.quote_currency,
-                @tagName(runtime.health()),
-                @tagName(funding_runtime.?.health()),
-                MaxAuthenticatedSessions,
-                AuthenticatedReceiveTimeoutSeconds,
-            },
-        );
-    } else {
-        try stdout_writer.interface.print(
-            "exchange-core server ready on {s}:{d} symbol={d} base={d} quote={d}\n",
-            .{
-                options.host,
-                options.port,
-                DefaultSymbolId,
-                DefaultBaseCurrency,
-                DefaultQuoteCurrency,
-            },
-        );
-    }
-    try stdout_writer.interface.flush();
-
     if (authenticated_ingress) |ingress_profile| {
+        if (clearing_runtime) |runtime| {
+            const provider_address = try std.Io.net.IpAddress.resolve(
+                io,
+                options.host,
+                options.provider_port,
+            );
+            var provider_server = try provider_address.listen(io, .{ .reuse_address = true });
+            defer provider_server.deinit(io);
+            return serveAuthenticatedConnections(
+                io,
+                allocator,
+                options,
+                &server,
+                api,
+                settlement_runtime.?,
+                funding_runtime.?,
+                configured_profile.?,
+                ingress_profile,
+                runtime,
+                provider_adapter.?,
+                &provider_server,
+            );
+        }
         return serveAuthenticatedConnections(
             io,
             allocator,
+            options,
             &server,
             api,
             settlement_runtime.?,
             funding_runtime.?,
             configured_profile.?,
             ingress_profile,
+            null,
+            null,
+            null,
         );
     }
+
+    try writeServerReady(
+        io,
+        options,
+        api,
+        settlement_runtime,
+        funding_runtime,
+        configured_profile,
+        clearing_runtime,
+        null,
+    );
 
     while (true) {
         const stream = server.accept(io) catch |err| switch (err) {
@@ -608,6 +863,80 @@ fn serve(
     }
 }
 
+fn writeServerReady(
+    io: std.Io,
+    options: Options,
+    api: *const core.exchange_api.ExchangeApi,
+    settlement_runtime: ?*const parix_settlement_runtime.Runtime,
+    funding_runtime: ?*const parix_funding_runtime.Runtime,
+    configured_profile: ?*const parix_profile.Profile,
+    clearing_runtime: ?*const parix_clearing_runtime.Runtime,
+    provider_host: ?*const parix_clearing_http_ingress.Host,
+) !void {
+    std.debug.assert((clearing_runtime != null) == (provider_host != null));
+    if (provider_host != null and !serverIsReady(
+        api,
+        settlement_runtime,
+        funding_runtime,
+        clearing_runtime,
+        provider_host,
+    )) {
+        return error.ProviderIngressNotReady;
+    }
+
+    var stdout_buffer: [2048]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
+    if (settlement_runtime) |runtime| {
+        const symbol = configured_profile.?.symbolSpecification();
+        if (clearing_runtime) |clearing| {
+            try stdout_writer.interface.print(
+                "exchange-core server ready on {s}:{d} symbol={d} base={d} quote={d} settlement={s} funding={s} clearing={s} provider_ingress={s} provider_port={d} ingress=authenticated max_sessions={d} receive_timeout_seconds={d}\n",
+                .{
+                    options.host,
+                    options.port,
+                    symbol.symbol_id,
+                    symbol.base_currency,
+                    symbol.quote_currency,
+                    @tagName(runtime.health()),
+                    @tagName(funding_runtime.?.health()),
+                    @tagName(clearing.health()),
+                    @tagName(provider_host.?.health()),
+                    options.provider_port,
+                    MaxAuthenticatedSessions,
+                    AuthenticatedReceiveTimeoutSeconds,
+                },
+            );
+        } else {
+            try stdout_writer.interface.print(
+                "exchange-core server ready on {s}:{d} symbol={d} base={d} quote={d} settlement={s} funding={s} ingress=authenticated max_sessions={d} receive_timeout_seconds={d}\n",
+                .{
+                    options.host,
+                    options.port,
+                    symbol.symbol_id,
+                    symbol.base_currency,
+                    symbol.quote_currency,
+                    @tagName(runtime.health()),
+                    @tagName(funding_runtime.?.health()),
+                    MaxAuthenticatedSessions,
+                    AuthenticatedReceiveTimeoutSeconds,
+                },
+            );
+        }
+    } else {
+        try stdout_writer.interface.print(
+            "exchange-core server ready on {s}:{d} symbol={d} base={d} quote={d}\n",
+            .{
+                options.host,
+                options.port,
+                DefaultSymbolId,
+                DefaultBaseCurrency,
+                DefaultQuoteCurrency,
+            },
+        );
+    }
+    try stdout_writer.interface.flush();
+}
+
 const AuthenticatedStreamQueue = std.Io.Queue(std.Io.net.Stream);
 
 const AuthenticatedServerContext = struct {
@@ -616,6 +945,8 @@ const AuthenticatedServerContext = struct {
     api: *core.exchange_api.ExchangeApi,
     settlement_runtime: *parix_settlement_runtime.Runtime,
     funding_runtime: *parix_funding_runtime.Runtime,
+    clearing_runtime: ?*parix_clearing_runtime.Runtime,
+    provider_host: ?*parix_clearing_http_ingress.Host,
     configured_profile: *const parix_profile.Profile,
     authenticated_ingress: *const ingress_auth.Profile,
     execution_mutex: *std.Io.Mutex,
@@ -633,20 +964,61 @@ const AuthenticatedAcceptorContext = struct {
     accept_failed: *std.atomic.Value(bool),
 };
 
+const ProviderIngressFailureContext = struct {
+    io: std.Io,
+    accepted_streams: *AuthenticatedStreamQueue,
+    shutdown_requested: *std.atomic.Value(bool),
+    failed: *std.atomic.Value(bool),
+
+    fn callback(self: *@This()) parix_clearing_http_ingress.FailureCallback {
+        return .{ .context = self, .notify_fn = notify };
+    }
+
+    fn publish(self: *@This()) void {
+        if (self.failed.cmpxchgStrong(false, true, .acq_rel, .acquire) != null) return;
+        self.shutdown_requested.store(true, .release);
+        self.accepted_streams.close(self.io);
+    }
+
+    fn notify(
+        raw_context: *anyopaque,
+        reason: parix_clearing_http_ingress.FailureReason,
+    ) void {
+        const self: *@This() = @ptrCast(@alignCast(raw_context));
+        switch (reason) {
+            .listener_failed => self.publish(),
+        }
+    }
+};
+
+const ProviderIngressServerContext = struct {
+    host: *parix_clearing_http_ingress.Host,
+    listener: *std.Io.net.Server,
+    failure: *ProviderIngressFailureContext,
+    shutdown_requested: *const std.atomic.Value(bool),
+};
+
 fn serveAuthenticatedConnections(
     io: std.Io,
     allocator: std.mem.Allocator,
+    options: Options,
     server: *std.Io.net.Server,
     api: *core.exchange_api.ExchangeApi,
     settlement_runtime: *parix_settlement_runtime.Runtime,
     funding_runtime: *parix_funding_runtime.Runtime,
     configured_profile: *const parix_profile.Profile,
     authenticated_ingress: *const ingress_auth.Profile,
+    clearing_runtime: ?*parix_clearing_runtime.Runtime,
+    provider_adapter: ?parix_clearing_provider_adapter.Adapter,
+    provider_listener: ?*std.Io.net.Server,
 ) !void {
+    std.debug.assert((clearing_runtime != null) == (provider_adapter != null));
+    std.debug.assert((clearing_runtime != null) == (provider_listener != null));
     var sessions: std.Io.Group = .init;
     errdefer sessions.cancel(io);
     var acceptors: std.Io.Group = .init;
     errdefer acceptors.cancel(io);
+    var provider_tasks: std.Io.Group = .init;
     var execution_mutex: std.Io.Mutex = .init;
     var session_slots: std.Io.Semaphore = .{ .permits = MaxAuthenticatedSessions };
     var accepted_storage: [1]std.Io.net.Stream = undefined;
@@ -654,12 +1026,51 @@ fn serveAuthenticatedConnections(
     errdefer accepted_streams.close(io);
     var shutdown_requested: std.atomic.Value(bool) = .init(false);
     var accept_failed: std.atomic.Value(bool) = .init(false);
+    var provider_failed: std.atomic.Value(bool) = .init(false);
+    var provider_failure_context: ProviderIngressFailureContext = .{
+        .io = io,
+        .accepted_streams = &accepted_streams,
+        .shutdown_requested = &shutdown_requested,
+        .failed = &provider_failed,
+    };
+    var clearing_admission_context: ClearingAdmissionContext = undefined;
+    var provider_host: parix_clearing_http_ingress.Host = undefined;
+    var provider_server_context: ProviderIngressServerContext = undefined;
+    var provider_task_started = false;
+    errdefer if (provider_task_started) {
+        provider_host.requestStop();
+        provider_tasks.await(io) catch {};
+    };
+
+    const provider_host_ptr: ?*parix_clearing_http_ingress.Host = if (clearing_runtime) |runtime| provider: {
+        clearing_admission_context = .{ .runtime = runtime };
+        provider_host = parix_clearing_http_ingress.Host.init(io, .{
+            .handler = .{
+                .adapter = provider_adapter.?,
+                .admission = clearing_admission_context.asPort(),
+            },
+            .failure_callback = provider_failure_context.callback(),
+        });
+        provider_server_context = .{
+            .host = &provider_host,
+            .listener = provider_listener.?,
+            .failure = &provider_failure_context,
+            .shutdown_requested = &shutdown_requested,
+        };
+        try provider_tasks.concurrent(io, serveProviderIngress, .{&provider_server_context});
+        provider_task_started = true;
+        try waitForProviderIngressReady(io, &provider_host, &provider_failed);
+        break :provider &provider_host;
+    } else null;
+
     var context: AuthenticatedServerContext = .{
         .io = io,
         .allocator = allocator,
         .api = api,
         .settlement_runtime = settlement_runtime,
         .funding_runtime = funding_runtime,
+        .clearing_runtime = clearing_runtime,
+        .provider_host = provider_host_ptr,
         .configured_profile = configured_profile,
         .authenticated_ingress = authenticated_ingress,
         .execution_mutex = &execution_mutex,
@@ -676,6 +1087,16 @@ fn serveAuthenticatedConnections(
         .accept_failed = &accept_failed,
     };
     try acceptors.concurrent(io, acceptAuthenticatedConnections, .{&acceptor_context});
+    try writeServerReady(
+        io,
+        options,
+        api,
+        settlement_runtime,
+        funding_runtime,
+        configured_profile,
+        clearing_runtime,
+        provider_host_ptr,
+    );
 
     while (true) {
         const stream = accepted_streams.getOne(io) catch |err| switch (err) {
@@ -700,13 +1121,49 @@ fn serveAuthenticatedConnections(
         };
     }
 
+    if (provider_host_ptr) |host| host.requestStop();
     acceptors.cancel(io);
-    if (shutdown_requested.load(.acquire) or accept_failed.load(.acquire)) {
+    if (shutdown_requested.load(.acquire) or
+        accept_failed.load(.acquire) or
+        provider_failed.load(.acquire))
+    {
         sessions.cancel(io);
     } else {
         try sessions.await(io);
     }
+    if (provider_task_started) try provider_tasks.await(io);
+    if (provider_failed.load(.acquire)) return error.ProviderIngressFailed;
     if (accept_failed.load(.acquire)) return error.AuthenticatedAcceptFailed;
+}
+
+fn serveProviderIngress(
+    context: *ProviderIngressServerContext,
+) std.Io.Cancelable!void {
+    context.host.serve(context.listener) catch |err| {
+        if (!context.shutdown_requested.load(.acquire)) {
+            log.err("provider ingress stopped unexpectedly error={s}", .{@errorName(err)});
+            context.failure.publish();
+        }
+    };
+}
+
+fn waitForProviderIngressReady(
+    io: std.Io,
+    host: *const parix_clearing_http_ingress.Host,
+    provider_failed: *const std.atomic.Value(bool),
+) !void {
+    for (0..ProviderIngressStartupPollAttempts) |_| {
+        if (provider_failed.load(.acquire)) return error.ProviderIngressFailed;
+        switch (host.health()) {
+            .cold => try std.Io.sleep(io, .fromMilliseconds(1), .awake),
+            .ready => {
+                if (!host.isAccepting()) return error.ProviderIngressNotReady;
+                return;
+            },
+            .failed, .stopped => return error.ProviderIngressFailed,
+        }
+    }
+    return error.ProviderIngressStartTimedOut;
 }
 
 fn acceptAuthenticatedConnections(
@@ -758,6 +1215,8 @@ fn serveAuthenticatedSession(
         context.api,
         context.settlement_runtime,
         context.funding_runtime,
+        context.clearing_runtime,
+        context.provider_host,
         context.configured_profile,
         context.authenticated_ingress,
         context.execution_mutex,
@@ -781,6 +1240,8 @@ fn serveAuthenticatedConnection(
     api: *core.exchange_api.ExchangeApi,
     settlement_runtime: *parix_settlement_runtime.Runtime,
     funding_runtime: *parix_funding_runtime.Runtime,
+    clearing_runtime: ?*parix_clearing_runtime.Runtime,
+    provider_host: ?*parix_clearing_http_ingress.Host,
     configured_profile: *const parix_profile.Profile,
     authenticated_ingress: *const ingress_auth.Profile,
     execution_mutex: *std.Io.Mutex,
@@ -884,12 +1345,14 @@ fn serveAuthenticatedConnection(
             api,
             settlement_runtime,
             funding_runtime,
+            clearing_runtime,
+            provider_host,
             configured_profile,
             request,
             &response_writer,
         ) catch |err| break :execution .{ .failed = err };
         if (request_shutdown) {
-            markAuthenticatedShutdown(shutdown_state);
+            markAuthenticatedShutdown(shutdown_state, provider_host);
         }
         break :execution .{ .completed = request_shutdown };
     };
@@ -923,7 +1386,14 @@ fn ensureAuthenticatedCommandAdmission(
     if (shutdown_state.load(.acquire)) return error.ServerShuttingDown;
 }
 
-fn markAuthenticatedShutdown(shutdown_state: *std.atomic.Value(bool)) void {
+fn markAuthenticatedShutdown(
+    shutdown_state: *std.atomic.Value(bool),
+    provider_host: ?*parix_clearing_http_ingress.Host,
+) void {
+    // The provider fence is part of admitting the serialized shutdown command,
+    // not deferred to coordinator wakeup. Once the raw shutdown state becomes
+    // visible, no new provider session can acquire an admission lease.
+    if (provider_host) |host| host.requestStop();
     shutdown_state.store(true, .release);
 }
 
@@ -1119,6 +1589,8 @@ fn serveLegacyConnection(
             api,
             settlement_runtime,
             funding_runtime,
+            null,
+            null,
             configured_profile,
             request,
             writer,
@@ -1137,13 +1609,21 @@ fn executeRequest(
     api: *core.exchange_api.ExchangeApi,
     settlement_runtime: ?*parix_settlement_runtime.Runtime,
     funding_runtime: ?*parix_funding_runtime.Runtime,
+    clearing_runtime: ?*parix_clearing_runtime.Runtime,
+    provider_host: ?*parix_clearing_http_ingress.Host,
     configured_profile: ?*const parix_profile.Profile,
     request: protocol.Request,
     writer: *std.Io.Writer,
 ) !bool {
     switch (request) {
         .ping => {
-            const ready = if (isReady(api, settlement_runtime, funding_runtime)) "true" else "false";
+            const ready = if (serverIsReady(
+                api,
+                settlement_runtime,
+                funding_runtime,
+                clearing_runtime,
+                provider_host,
+            )) "true" else "false";
             if (settlement_runtime) |runtime| {
                 try writer.print(
                     "OK ready={s} settlement={s} funding={s}\n",
@@ -1168,6 +1648,14 @@ fn executeRequest(
         },
         .funding_status => |operation_id| {
             try executeFundingStatus(funding_runtime, operation_id, writer);
+            return false;
+        },
+        .clearing_status => |payment_id| {
+            try executeClearingStatus(clearing_runtime, payment_id, writer);
+            return false;
+        },
+        .clearing_operations => {
+            try executeClearingOperations(clearing_runtime, writer);
             return false;
         },
         .balance => |query| {
@@ -1289,6 +1777,132 @@ fn fundingReason(status: parix_funding_saga.Status) []const u8 {
     return "none";
 }
 
+fn executeClearingStatus(
+    clearing_runtime: ?*parix_clearing_runtime.Runtime,
+    payment_id: u128,
+    writer: *std.Io.Writer,
+) std.Io.Writer.Error!void {
+    const runtime = clearing_runtime orelse {
+        try writeError(writer, "clearing", "ClearingUnavailable");
+        return;
+    };
+    const status = runtime.status(payment_id) catch |err| {
+        try writeError(writer, "clearing", clearingErrorMessage(err));
+        return;
+    };
+    try writeClearingStatus(writer, status);
+}
+
+fn writeClearingStatus(
+    writer: *std.Io.Writer,
+    status: parix_clearing_saga.Status,
+) std.Io.Writer.Error!void {
+    try writer.print(
+        "OK clearing payment={d} state={s} authorization_event={d} " ++
+            "authorization_revision={d} expires_at={d} resolution=",
+        .{
+            status.authorization.payment_id,
+            @tagName(status.state),
+            status.authorization.event_id,
+            status.authorization.revision,
+            status.expires_at_unix_seconds,
+        },
+    );
+    if (status.resolution) |resolution| {
+        try writer.print(
+            "{s} resolution_event={d} resolution_revision={d} resolution_source={s}",
+            .{
+                @tagName(resolution.kind),
+                resolution.event_id,
+                resolution.revision,
+                if (status.resolution_source) |source| @tagName(source) else "unknown",
+            },
+        );
+    } else {
+        try writer.writeAll(
+            "none resolution_event=0 resolution_revision=0 resolution_source=none",
+        );
+    }
+    try writer.print(" reason={s}\n", .{clearingReason(status)});
+}
+
+fn executeClearingOperations(
+    clearing_runtime: ?*parix_clearing_runtime.Runtime,
+    writer: *std.Io.Writer,
+) std.Io.Writer.Error!void {
+    const runtime = clearing_runtime orelse {
+        try writeError(writer, "clearing", "ClearingUnavailable");
+        return;
+    };
+    const report = runtime.operationsReport() catch |err| {
+        try writeError(writer, "clearing", clearingErrorMessage(err));
+        return;
+    };
+    try writeClearingOperations(writer, report);
+}
+
+fn writeClearingOperations(
+    writer: *std.Io.Writer,
+    report: parix_clearing_runtime.OperationsReport,
+) std.Io.Writer.Error!void {
+    const durable = report.durable;
+    try writer.print(
+        "OK clearing-operations health={s} observed_at={d} capacity={d} total={d} " ++
+            "accepted={d} pending={d} authorized={d} completed={d} failed={d} " ++
+            "quarantined={d} ready={d} in_flight={d} remote_reconcile={d} " ++
+            "funding_reconcile={d} provider_resolutions={d} expiration_resolutions={d} " ++
+            "remote_attempts={d} funding_attempts={d} expired_unresolved={d} " ++
+            "legacy_manual_expiry={d} max_deadline_lag={d} oldest_open_age={d} " ++
+            "oldest_expired_payment={d} first_reconciliation_payment={d} " ++
+            "first_failed_payment={d} first_quarantined_payment={d}\n",
+        .{
+            @tagName(report.health),
+            durable.observed_at_unix_seconds,
+            durable.capacity,
+            durable.total,
+            durable.states.accepted,
+            durable.states.pending,
+            durable.states.authorized,
+            durable.states.completed,
+            durable.states.failed,
+            durable.states.quarantined,
+            durable.ready_actions,
+            durable.in_flight_actions,
+            durable.remote_reconciliations,
+            durable.funding_reconciliations,
+            durable.provider_resolutions,
+            durable.expiration_resolutions,
+            durable.remote_attempts,
+            durable.funding_attempts,
+            durable.expired_unresolved,
+            durable.legacy_manual_expiry,
+            durable.max_deadline_lag_seconds,
+            durable.oldest_open_age_seconds,
+            durable.oldest_expired_payment_id orelse 0,
+            durable.first_reconciliation_payment_id orelse 0,
+            durable.first_failed_payment_id orelse 0,
+            durable.first_quarantined_payment_id orelse 0,
+        },
+    );
+}
+
+fn clearingReason(status: parix_clearing_saga.Status) []const u8 {
+    if (status.failure_reason) |reason| return @tagName(reason);
+    if (status.quarantine_reason) |reason| return @tagName(reason);
+    return "none";
+}
+
+fn clearingErrorMessage(err: anyerror) []const u8 {
+    return switch (err) {
+        error.PaymentNotFound => "ClearingNotFound",
+        error.Poisoned,
+        error.StorageReadFailed,
+        error.StorageAmbiguous,
+        => "ClearingUnavailable",
+        else => "ClearingFailed",
+    };
+}
+
 fn fundingErrorMessage(err: anyerror) []const u8 {
     return switch (err) {
         error.NotFound => "FundingNotFound",
@@ -1305,15 +1919,39 @@ fn fundingErrorMessage(err: anyerror) []const u8 {
     };
 }
 
-fn isReady(
+fn serverIsReady(
     api: *const core.exchange_api.ExchangeApi,
     settlement_runtime: ?*const parix_settlement_runtime.Runtime,
     funding_runtime: ?*const parix_funding_runtime.Runtime,
+    clearing_runtime: ?*const parix_clearing_runtime.Runtime,
+    provider_host: ?*const parix_clearing_http_ingress.Host,
 ) bool {
     if (!api.isStarted() or api.isStopped()) return false;
-    const runtime = settlement_runtime orelse return true;
+    const runtime = settlement_runtime orelse return funding_runtime == null and
+        clearing_runtime == null and provider_host == null;
     if (runtime.health() != .ready) return false;
-    return fundingHealthIsReady(funding_runtime.?.health());
+    const funding = funding_runtime orelse return false;
+    if (!fundingHealthIsReady(funding.health())) return false;
+    return clearingIngressHealthIsReady(
+        if (clearing_runtime) |clearing| clearing.health() else null,
+        if (provider_host) |host| host.health() else null,
+        if (provider_host) |host| host.isAccepting() else false,
+    );
+}
+
+fn clearingIngressHealthIsReady(
+    clearing_health: ?parix_clearing_runtime.Health,
+    provider_health: ?parix_clearing_http_ingress.Health,
+    provider_accepting: bool,
+) bool {
+    if (clearing_health == null or provider_health == null) {
+        return clearing_health == null and provider_health == null;
+    }
+    const clearing_ready = switch (clearing_health.?) {
+        .ready, .pending => true,
+        .cold, .failed, .quarantined, .stopped => false,
+    };
+    return clearing_ready and provider_health.? == .ready and provider_accepting;
 }
 
 fn fundingHealthIsReady(health: parix_funding_runtime.Health) bool {
@@ -1369,6 +2007,8 @@ fn validateParixRequest(
         .fund_deposit,
         .fund_withdraw,
         .funding_status,
+        .clearing_status,
+        .clearing_operations,
         .balance,
         .book,
         .shutdown,
@@ -1466,6 +2106,10 @@ fn fundingOpenPolicy(options: Options) parix_funding_runtime.OpenPolicy {
     return if (options.parix_funding_initialize) .initialize else .open_existing;
 }
 
+fn clearingOpenPolicy(options: Options) parix_clearing_runtime.OpenPolicy {
+    return if (options.parix_clearing_initialize) .initialize else .open_existing;
+}
+
 fn nonEmptyEnvironmentValue(value: ?[]const u8) ?[]const u8 {
     const present = value orelse return null;
     return if (present.len == 0) null else present;
@@ -1545,6 +2189,8 @@ fn apiCommandForRequest(request: protocol.Request) RequestMapError!core.api_comm
         .fund_deposit,
         .fund_withdraw,
         .funding_status,
+        .clearing_status,
+        .clearing_operations,
         .balance,
         .book,
         .shutdown,
@@ -1759,6 +2405,35 @@ fn parseOptions(
             options.parix_funding_initialize = true;
             continue;
         }
+        if (std.mem.eql(u8, argument, "--parix-clearing-profile")) {
+            try options.setParixClearingProfilePath(
+                allocator,
+                args.next() orelse return error.MissingArgumentValue,
+            );
+            continue;
+        }
+        if (std.mem.eql(u8, argument, "--parix-provider-profile")) {
+            try options.setParixProviderProfilePath(
+                allocator,
+                args.next() orelse return error.MissingArgumentValue,
+            );
+            continue;
+        }
+        if (std.mem.eql(u8, argument, "--parix-clearing-initialize")) {
+            options.parix_clearing_initialize = true;
+            continue;
+        }
+        if (std.mem.eql(u8, argument, "--parix-clearing-accounts-verified")) {
+            options.parix_clearing_accounts_verified = true;
+            continue;
+        }
+        if (std.mem.eql(u8, argument, "--provider-port")) {
+            options.provider_port = parsePort(
+                args.next() orelse return error.MissingArgumentValue,
+            ) catch return error.InvalidPort;
+            options.provider_port_explicit = true;
+            continue;
+        }
         if (std.mem.eql(u8, argument, "--persistence-root")) {
             try options.setPersistenceRoot(
                 allocator,
@@ -1795,6 +2470,31 @@ fn validateOptions(options: Options) ArgumentError!void {
     }
     if (!options.parix_settlement and options.parix_funding_initialize) {
         return error.ParixFundingInitializationWithoutSettlement;
+    }
+    const clearing_enabled = options.parix_clearing_profile_path != null;
+    if (clearing_enabled and !options.parix_settlement) {
+        return error.ClearingProfileWithoutSettlement;
+    }
+    if (!clearing_enabled and options.parix_provider_profile_path != null) {
+        return error.ProviderProfileWithoutClearing;
+    }
+    if (clearing_enabled and options.parix_provider_profile_path == null) {
+        return error.MissingProviderProfile;
+    }
+    if (!clearing_enabled and options.parix_clearing_initialize) {
+        return error.ClearingInitializationWithoutClearing;
+    }
+    if (!clearing_enabled and options.parix_clearing_accounts_verified) {
+        return error.ClearingAccountAttestationWithoutClearing;
+    }
+    if (clearing_enabled and !options.parix_clearing_accounts_verified) {
+        return error.MissingClearingAccountAttestation;
+    }
+    if (!clearing_enabled and options.provider_port_explicit) {
+        return error.ProviderPortWithoutClearing;
+    }
+    if (clearing_enabled and options.provider_port == options.port) {
+        return error.DuplicateListenerPort;
     }
 }
 
@@ -1855,6 +2555,10 @@ fn writeUsage(writer: *std.Io.Writer) std.Io.Writer.Error!void {
         \\                             --ingress-auth-profile PATH]
         \\                            [--parix-create-accounts] [--parix-development-seed]
         \\                            [--parix-funding-initialize]
+        \\                            [--parix-clearing-profile PATH
+        \\                             --parix-provider-profile PATH
+        \\                             --parix-clearing-accounts-verified]
+        \\                            [--parix-clearing-initialize] [--provider-port PORT]
         \\                            [--persistence-root RELATIVE_PATH]
         \\
         \\Starts a loopback-only newline-delimited TCP exchange server.
@@ -1868,6 +2572,12 @@ fn writeUsage(writer: *std.Io.Writer) std.Io.Writer.Error!void {
         \\  --parix-create-accounts       Create missing external accounts (default: validate only)
         \\  --parix-development-seed      Seed configured development funding transfers
         \\  --parix-funding-initialize    Create an absent funding saga store once; fail if present
+        \\  --parix-clearing-profile PATH Required strict payment-clearing profile
+        \\  --parix-provider-profile PATH Required non-secret provider HMAC profile
+        \\  --parix-clearing-accounts-verified
+        \\                                Attest completion of the reviewed provider-account check
+        \\  --parix-clearing-initialize   Create an absent clearing saga store once; fail if present
+        \\  --provider-port PORT          Loopback provider HTTP port (default: 7380)
         \\  --persistence-root PATH      Safe relative durable root (default: zig-out/runtime/parix)
         \\  -h, --help                   Show this help
         \\
@@ -1884,6 +2594,8 @@ fn writeUsage(writer: *std.Io.Writer) std.Io.Writer.Error!void {
         \\  receive timeout. The proxy must enforce absolute deadlines and rate limits.
         \\  Profile secret_file_env values name environment variables containing
         \\  paths to owner-only (0600) key files; never place keys in arguments.
+        \\  Provider HTTPS terminates at an operator-owned L7 proxy. The backend
+        \\  listener is loopback-only HTTP and still requires the provider HMAC.
         \\
     );
 }
@@ -1969,6 +2681,12 @@ test "server defaults to loopback-only development mode" {
     try std.testing.expect(!options.parix_create_accounts);
     try std.testing.expect(!options.parix_development_seed);
     try std.testing.expect(!options.parix_funding_initialize);
+    try std.testing.expectEqual(@as(?[]const u8, null), options.parix_clearing_profile_path);
+    try std.testing.expectEqual(@as(?[]const u8, null), options.parix_provider_profile_path);
+    try std.testing.expect(!options.parix_clearing_initialize);
+    try std.testing.expect(!options.parix_clearing_accounts_verified);
+    try std.testing.expectEqual(DefaultProviderPort, options.provider_port);
+    try std.testing.expect(!options.provider_port_explicit);
     try std.testing.expectEqualStrings(DefaultPersistenceRoot, options.persistence_root);
 
     const symbol = try defaultSymbolSpecification();
@@ -2111,6 +2829,103 @@ test "Parix CLI owns profile paths and enforces settlement pairing" {
     }
 }
 
+test "clearing CLI requires provider profile account attestation and distinct port" {
+    const parix_only: Options = .{
+        .parix_settlement = true,
+        .parix_profile_path = "settlement.json",
+        .ingress_auth_profile_path = "ingress.json",
+    };
+    try validateOptions(parix_only);
+    try std.testing.expectError(
+        error.ClearingProfileWithoutSettlement,
+        validateOptions(.{ .parix_clearing_profile_path = "clearing.json" }),
+    );
+    try std.testing.expectError(
+        error.ProviderProfileWithoutClearing,
+        validateOptions(.{ .parix_provider_profile_path = "provider.json" }),
+    );
+    try std.testing.expectError(
+        error.MissingProviderProfile,
+        validateOptions(.{
+            .parix_settlement = true,
+            .parix_profile_path = "settlement.json",
+            .ingress_auth_profile_path = "ingress.json",
+            .parix_clearing_profile_path = "clearing.json",
+        }),
+    );
+    try std.testing.expectError(
+        error.MissingClearingAccountAttestation,
+        validateOptions(.{
+            .parix_settlement = true,
+            .parix_profile_path = "settlement.json",
+            .ingress_auth_profile_path = "ingress.json",
+            .parix_clearing_profile_path = "clearing.json",
+            .parix_provider_profile_path = "provider.json",
+        }),
+    );
+    try std.testing.expectError(
+        error.ClearingInitializationWithoutClearing,
+        validateOptions(.{ .parix_clearing_initialize = true }),
+    );
+    try std.testing.expectError(
+        error.ClearingAccountAttestationWithoutClearing,
+        validateOptions(.{ .parix_clearing_accounts_verified = true }),
+    );
+    try std.testing.expectError(
+        error.ProviderPortWithoutClearing,
+        validateOptions(.{ .provider_port_explicit = true }),
+    );
+
+    var enabled = parix_only;
+    enabled.parix_clearing_profile_path = "clearing.json";
+    enabled.parix_provider_profile_path = "provider.json";
+    enabled.parix_clearing_accounts_verified = true;
+    try validateOptions(enabled);
+    enabled.provider_port = enabled.port;
+    try std.testing.expectError(error.DuplicateListenerPort, validateOptions(enabled));
+}
+
+test "clearing CLI owns provider paths and one-shot initialization" {
+    const allocator = std.testing.allocator;
+    const configured_argv = [_][*:0]const u8{
+        "exchange-core-server",
+        "--parix-settlement",
+        "--parix-profile",
+        "/operator/settlement.json",
+        "--ingress-auth-profile",
+        "/operator/ingress.json",
+        "--parix-clearing-profile",
+        "/operator/clearing.json",
+        "--parix-provider-profile",
+        "/operator/provider.json",
+        "--parix-clearing-accounts-verified",
+        "--parix-clearing-initialize",
+        "--provider-port",
+        "7443",
+    };
+    var parsed = try parseOptions(.{ .vector = &configured_argv }, allocator);
+    switch (parsed) {
+        .help => return error.UnexpectedHelp,
+        .options => |*options| {
+            defer options.deinit(allocator);
+            try std.testing.expectEqualStrings(
+                "/operator/clearing.json",
+                options.parix_clearing_profile_path.?,
+            );
+            try std.testing.expect(options.owned_parix_clearing_profile_path != null);
+            try std.testing.expectEqualStrings(
+                "/operator/provider.json",
+                options.parix_provider_profile_path.?,
+            );
+            try std.testing.expect(options.owned_parix_provider_profile_path != null);
+            try std.testing.expect(options.parix_clearing_accounts_verified);
+            try std.testing.expect(options.parix_clearing_initialize);
+            try std.testing.expectEqual(@as(u16, 7443), options.provider_port);
+            try std.testing.expect(options.provider_port_explicit);
+        },
+    }
+}
+
 test "server accepts only literal loopback hosts before bind" {
     try validateOptions(.{ .host = "127.0.0.1" });
     try validateOptions(.{ .host = "localhost" });
@@ -2153,7 +2968,7 @@ test "shutdown admission fence rejects commands queued behind shutdown" {
 
         fn admitShutdown(context: *@This()) std.Io.Cancelable!void {
             try context.mutex.lock(context.io);
-            markAuthenticatedShutdown(context.shutdown_state);
+            markAuthenticatedShutdown(context.shutdown_state, null);
             context.mutex.unlock(context.io);
             context.shutdown_admitted.set(context.io);
         }
@@ -2187,6 +3002,51 @@ test "shutdown admission fence rejects commands queued behind shutdown" {
     try tasks.await(std.testing.io);
     try std.testing.expect(shutdown_state.load(.acquire));
     try std.testing.expect(later_command_rejected.load(.acquire));
+}
+
+test "authenticated shutdown fences provider admission before publishing state" {
+    const Stub = struct {
+        fn verify(
+            _: *const anyopaque,
+            _: parix_clearing_provider_adapter.RequestView,
+        ) parix_clearing_provider_adapter.VerifyError!parix_clearing_provider_adapter.VerifiedEvent {
+            return error.AuthenticationFailed;
+        }
+
+        fn admit(
+            _: *anyopaque,
+            _: parix_clearing_provider_adapter.VerifiedEvent,
+        ) parix_clearing_http_ingress.AdmissionOutcome {
+            return .unavailable;
+        }
+
+        fn isReady(_: *anyopaque) bool {
+            return false;
+        }
+
+        const adapter_vtable: parix_clearing_provider_adapter.Adapter.VTable = .{
+            .verify = verify,
+        };
+        const admission_vtable: parix_clearing_http_ingress.AdmissionPort.VTable = .{
+            .admit = admit,
+            .is_ready = isReady,
+        };
+    };
+
+    var context: u8 = 0;
+    var provider_host = parix_clearing_http_ingress.Host.init(std.testing.io, .{
+        .handler = .{
+            .adapter = .{ .context = &context, .vtable = &Stub.adapter_vtable },
+            .admission = .{ .context = &context, .vtable = &Stub.admission_vtable },
+        },
+    });
+    var shutdown_state: std.atomic.Value(bool) = .init(false);
+
+    markAuthenticatedShutdown(&shutdown_state, &provider_host);
+
+    try std.testing.expectEqual(parix_clearing_http_ingress.Health.stopped, provider_host.health());
+    try std.testing.expect(!provider_host.isAccepting());
+    try std.testing.expect(shutdown_state.load(.acquire));
 }
 
 test "authenticated acceptor cancellation interrupts blocked accept safely" {
@@ -2472,6 +3332,8 @@ test "Parix mode uses non-default profile for mutation admission" {
         .operation_id = operation_id,
     } });
     try validateParixRequest(configured_profile, .{ .funding_status = operation_id });
+    try validateParixRequest(configured_profile, .{ .clearing_status = 91 });
+    try validateParixRequest(configured_profile, .clearing_operations);
 }
 
 test "server port parser rejects zero, overflow, and non-numeric input" {
@@ -2527,6 +3389,14 @@ test "server maps wire place orders to settlement-safe API commands" {
     try std.testing.expectError(
         error.NonCommandRequest,
         apiCommandForRequest(.{ .funding_status = operation_id }),
+    );
+    try std.testing.expectError(
+        error.NonCommandRequest,
+        apiCommandForRequest(.{ .clearing_status = 91 }),
+    );
+    try std.testing.expectError(
+        error.NonCommandRequest,
+        apiCommandForRequest(.clearing_operations),
     );
 }
 
@@ -2624,6 +3494,159 @@ test "funding status is canonical and error details stay bounded" {
     try std.testing.expectEqualStrings("FundingFailed", fundingErrorMessage(error.UnknownFundingUser));
 }
 
+test "clearing status is operator-readable canonical evidence" {
+    const authorization: parix_clearing_saga.Authorization = .{
+        .event_id = 101,
+        .payment_id = 91,
+        .provider_id = 7_001,
+        .revision = 1,
+        .direction = .deposit,
+        .uid = 1_001,
+        .currency = 11,
+        .amount = 25,
+        .timeout_seconds = 60,
+    };
+
+    var authorized_storage: [256]u8 = undefined;
+    var authorized_writer = std.Io.Writer.fixed(&authorized_storage);
+    try writeClearingStatus(&authorized_writer, .{
+        .authorization = authorization,
+        .expires_at_unix_seconds = 1_700_000_060,
+        .resolution = null,
+        .state = .authorized,
+    });
+    try std.testing.expectEqualStrings(
+        "OK clearing payment=91 state=authorized authorization_event=101 " ++
+            "authorization_revision=1 expires_at=1700000060 resolution=none " ++
+            "resolution_event=0 resolution_revision=0 resolution_source=none " ++
+            "reason=none\n",
+        authorized_writer.buffered(),
+    );
+
+    var completed_storage: [256]u8 = undefined;
+    var completed_writer = std.Io.Writer.fixed(&completed_storage);
+    try writeClearingStatus(&completed_writer, .{
+        .authorization = authorization,
+        .expires_at_unix_seconds = 1_700_000_060,
+        .resolution = .{
+            .event_id = 102,
+            .payment_id = authorization.payment_id,
+            .provider_id = authorization.provider_id,
+            .revision = 2,
+            .kind = .post,
+            .direction = authorization.direction,
+            .uid = authorization.uid,
+            .currency = authorization.currency,
+            .amount = authorization.amount,
+        },
+        .resolution_source = .provider,
+        .state = .completed,
+    });
+    try std.testing.expectEqualStrings(
+        "OK clearing payment=91 state=completed authorization_event=101 " ++
+            "authorization_revision=1 expires_at=1700000060 resolution=post " ++
+            "resolution_event=102 resolution_revision=2 resolution_source=provider " ++
+            "reason=none\n",
+        completed_writer.buffered(),
+    );
+
+    var expired_storage: [256]u8 = undefined;
+    var expired_writer = std.Io.Writer.fixed(&expired_storage);
+    try writeClearingStatus(&expired_writer, .{
+        .authorization = authorization,
+        .expires_at_unix_seconds = 1_700_000_060,
+        .resolution = parix_clearing_saga.expirationResolution(authorization),
+        .resolution_source = .expiration,
+        .state = .completed,
+    });
+    var expected_expired_storage: [256]u8 = undefined;
+    const expected_expired = try std.fmt.bufPrint(
+        &expected_expired_storage,
+        "OK clearing payment=91 state=completed authorization_event=101 " ++
+            "authorization_revision=1 expires_at=1700000060 resolution=void " ++
+            "resolution_event={d} resolution_revision=2 resolution_source=expiration " ++
+            "reason=none\n",
+        .{parix_clearing_saga.expirationResolution(authorization).event_id},
+    );
+    try std.testing.expectEqualStrings(expected_expired, expired_writer.buffered());
+
+    var unavailable_storage: [128]u8 = undefined;
+    var unavailable_writer = std.Io.Writer.fixed(&unavailable_storage);
+    try executeClearingStatus(null, authorization.payment_id, &unavailable_writer);
+    try std.testing.expectEqualStrings(
+        "ERR kind=clearing message=ClearingUnavailable\n",
+        unavailable_writer.buffered(),
+    );
+    try std.testing.expectEqualStrings(
+        "ClearingNotFound",
+        clearingErrorMessage(error.PaymentNotFound),
+    );
+    try std.testing.expectEqualStrings(
+        "ClearingUnavailable",
+        clearingErrorMessage(error.StorageAmbiguous),
+    );
+    try std.testing.expectEqualStrings(
+        "ClearingFailed",
+        clearingErrorMessage(error.InvalidState),
+    );
+}
+
+test "clearing operations are canonical bounded incident evidence" {
+    var storage: [1024]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&storage);
+    try writeClearingOperations(&writer, .{
+        .health = .pending,
+        .durable = .{
+            .observed_at_unix_seconds = 1_700_000_100,
+            .capacity = 4_096,
+            .total = 8,
+            .states = .{
+                .accepted = 1,
+                .pending = 2,
+                .authorized = 1,
+                .completed = 2,
+                .failed = 1,
+                .quarantined = 1,
+            },
+            .ready_actions = 2,
+            .in_flight_actions = 1,
+            .remote_reconciliations = 1,
+            .funding_reconciliations = 1,
+            .provider_resolutions = 2,
+            .expiration_resolutions = 1,
+            .remote_attempts = 7,
+            .funding_attempts = 3,
+            .expired_unresolved = 1,
+            .legacy_manual_expiry = 1,
+            .max_deadline_lag_seconds = 5,
+            .oldest_open_age_seconds = 65,
+            .oldest_expired_payment_id = 91,
+            .first_reconciliation_payment_id = 92,
+            .first_failed_payment_id = 93,
+            .first_quarantined_payment_id = 94,
+        },
+    });
+    try std.testing.expectEqualStrings(
+        "OK clearing-operations health=pending observed_at=1700000100 capacity=4096 total=8 " ++
+            "accepted=1 pending=2 authorized=1 completed=2 failed=1 quarantined=1 " ++
+            "ready=2 in_flight=1 remote_reconcile=1 funding_reconcile=1 " ++
+            "provider_resolutions=2 expiration_resolutions=1 remote_attempts=7 " ++
+            "funding_attempts=3 expired_unresolved=1 legacy_manual_expiry=1 " ++
+            "max_deadline_lag=5 oldest_open_age=65 oldest_expired_payment=91 " ++
+            "first_reconciliation_payment=92 first_failed_payment=93 " ++
+            "first_quarantined_payment=94\n",
+        writer.buffered(),
+    );
+
+    var unavailable_storage: [128]u8 = undefined;
+    var unavailable_writer = std.Io.Writer.fixed(&unavailable_storage);
+    try executeClearingOperations(null, &unavailable_writer);
+    try std.testing.expectEqualStrings(
+        "ERR kind=clearing message=ClearingUnavailable\n",
+        unavailable_writer.buffered(),
+    );
+}
+
 test "funding health is ready during work and fails closed otherwise" {
     inline for (.{ parix_funding_runtime.Health.ready, .pending }) |health| {
         try std.testing.expect(fundingHealthIsReady(health));
@@ -2638,6 +3661,62 @@ test "funding health is ready during work and fails closed otherwise" {
         try std.testing.expect(!fundingHealthIsReady(health));
         try std.testing.expect(!fundingHealthAllowsCoreMutation(health));
     }
+}
+
+test "clearing and provider ingress readiness is paired and fail closed" {
+    try std.testing.expect(clearingIngressHealthIsReady(null, null, false));
+    try std.testing.expect(!clearingIngressHealthIsReady(.ready, null, true));
+    try std.testing.expect(!clearingIngressHealthIsReady(null, .ready, true));
+
+    inline for (.{ parix_clearing_runtime.Health.ready, .pending }) |health| {
+        try std.testing.expect(clearingIngressHealthIsReady(health, .ready, true));
+        try std.testing.expect(!clearingIngressHealthIsReady(health, .ready, false));
+        try std.testing.expect(!clearingIngressHealthIsReady(health, .failed, true));
+    }
+    inline for (.{
+        parix_clearing_runtime.Health.cold,
+        .failed,
+        .quarantined,
+        .stopped,
+    }) |health| {
+        try std.testing.expect(!clearingIngressHealthIsReady(health, .ready, true));
+    }
+}
+
+test "clearing admission errors map to closed HTTP outcome classes" {
+    switch (clearingAdmissionError(error.InvalidAmount)) {
+        .invalid => {},
+        else => return error.UnexpectedAdmissionOutcome,
+    }
+    switch (clearingAdmissionError(error.IdempotencyConflict)) {
+        .conflict => {},
+        else => return error.UnexpectedAdmissionOutcome,
+    }
+    switch (clearingAdmissionError(error.StorageAmbiguous)) {
+        .unavailable => {},
+        else => return error.UnexpectedAdmissionOutcome,
+    }
+}
+
+test "provider listener failure fences commands and wakes authenticated accept" {
+    const io = std.testing.io;
+    var accepted_storage: [1]std.Io.net.Stream = undefined;
+    var accepted_streams = AuthenticatedStreamQueue.init(&accepted_storage);
+    var shutdown_requested: std.atomic.Value(bool) = .init(false);
+    var provider_failed: std.atomic.Value(bool) = .init(false);
+    var failure_context: ProviderIngressFailureContext = .{
+        .io = io,
+        .accepted_streams = &accepted_streams,
+        .shutdown_requested = &shutdown_requested,
+        .failed = &provider_failed,
+    };
+
+    failure_context.callback().notify(.listener_failed);
+    failure_context.callback().notify(.listener_failed);
+
+    try std.testing.expect(shutdown_requested.load(.acquire));
+    try std.testing.expect(provider_failed.load(.acquire));
+    try std.testing.expectError(error.Closed, accepted_streams.getOne(io));
 }
 
 test "running server core bootstraps symbol and exposes settled balances" {

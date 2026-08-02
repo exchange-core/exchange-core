@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "database_uuid": "0e46f90e-c38b-487a-b9f9-630f7839cc3f",
+  "provider_id": "7001",
+  "transfer_code": 20,
+  "timeout_bounds": {
+    "minimum_seconds": 30,
+    "maximum_seconds": 3600
+  },
+  "routes": [
+    {
+      "currency": 11,
+      "ledger": 421,
+      "treasury_account_id": "420011",
+      "provider_control_account_id": "430011"
+    },
+    {
+      "currency": 15,
+      "ledger": 425,
+      "treasury_account_id": "420015",
+      "provider_control_account_id": "430015"
+    }
+  ]
+}

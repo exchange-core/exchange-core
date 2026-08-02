@@ -71,6 +71,8 @@ deposit UID CURRENCY AMOUNT TRANSACTION_ID
 fund-deposit UID CURRENCY AMOUNT OPERATION_UUID
 fund-withdraw UID CURRENCY AMOUNT OPERATION_UUID
 funding-status OPERATION_UUID
+clearing-status PAYMENT_ID
+clearing-operations
 place ORDER_ID UID SYMBOL PRICE SIZE bid|ask [gtc|ioc]
 move ORDER_ID UID SYMBOL NEW_PRICE
 reduce ORDER_ID UID SYMBOL SIZE
@@ -85,6 +87,8 @@ UID-bearing `balance`, `place`, `move`, `reduce`, and `cancel` commands only for
 their profile-bound UID. Operators may use `ping`, `book`, `shutdown`,
 `fund-deposit`, `fund-withdraw`, and `funding-status`. The legacy `add-user`
 and direct `deposit` commands are denied to every authenticated principal.
+When payment clearing is enabled, operators may also use the read-only
+`clearing-status PAYMENT_ID` and `clearing-operations`; traders may not.
 
 `place` defaults to `gtc`; `book` defaults to depth `20` and accepts at most
 `1000`. Use the same `--host HOST --port PORT` options on both programs when
