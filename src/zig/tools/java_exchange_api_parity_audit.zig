@@ -2,8 +2,8 @@ const std = @import("std");
 
 const JavaSourcePath = "src/main/java/exchange/core2/core/ExchangeApi.java";
 const ZigSourcePath = "src/zig/core/exchange_api.zig";
-const JsonOutputPath = "src/zig/EXCHANGE_API_PARITY_AUDIT.json";
-const MarkdownOutputPath = "src/zig/EXCHANGE_API_PARITY_AUDIT.md";
+const JsonOutputPath = "docs/zig/evidence/EXCHANGE_API_PARITY_AUDIT.json";
+const MarkdownOutputPath = "docs/zig/evidence/EXCHANGE_API_PARITY_AUDIT.md";
 
 const AuditError = error{
     MissingMethodName,

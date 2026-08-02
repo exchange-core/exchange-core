@@ -1,8 +1,8 @@
 const std = @import("std");
 const common = @import("common.zig");
 const cmd = @import("cmd.zig");
-const int_map_order = @import("eclipse_int_map_order.zig");
-const long_map_order = @import("eclipse_long_map_order.zig");
+const int_map_order = @import("compat/java/eclipse_collections/int_map_order.zig");
+const long_map_order = @import("compat/java/eclipse_collections/long_map_order.zig");
 
 pub const StateHashError = std.mem.Allocator.Error || error{
     StateHashCorrupted,

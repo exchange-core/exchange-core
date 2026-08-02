@@ -58,7 +58,7 @@ Zig keeps two projections:
 | Lane | Purpose | Owners |
 |---|---|---|
 | **Native** | Portable Zig `ReportResponse` unions for integrations | `exchange_kernel.queryReport`, `ReportQuery` |
-| **Exact Java** | Byte/field-compatible report sections for parity | `java_report_producer.zig`, `java_report_wire.zig`, identity hash context |
+| **Exact Java** | Byte/field-compatible report sections for parity | `compat/java/report_producer.zig`, `compat/java/report_wire.zig`, identity hash context |
 
 `binary_report_projection` on the terminal query frame is process-local Zig metadata (not on the Java persistence wire). Unmarked queries retain exact-Java semantics. Exact Java state-hash requires a caller-supplied `JavaIdentityHashContext` because JVM identity hashes are process-local.
 
@@ -211,8 +211,10 @@ Validation rejects snapshot load with dummy serialization and journal replay wit
 ## Java interop and conversion
 
 - Authoritative Java-generated fixtures live under `src/zig/fixtures/java-persistence/`.
-- Conversion tools and adapters (`java_journal_converter.zig`, `java_snapshot_*`, `legacy_persistence_adapter.zig`) transform Chronicle dumps into Zig-loadable state.
-- Direct Chronicle startup remains intentionally out of scope; see `PERSISTENCE_INTEROP_DECISION.md` and `LEGACY_PERSISTENCE_ADAPTER_SPIKE.md` under `src/zig/`.
+- Opt-in conversion tools and adapters under `interop/java_persistence/`
+  transform Chronicle dumps into Zig-loadable state without entering the live
+  runtime module.
+- Direct Chronicle startup remains intentionally out of scope; see `PERSISTENCE_INTEROP_DECISION.md` and `LEGACY_PERSISTENCE_ADAPTER_SPIKE.md` under `docs/zig/`.
 
 ## Verification patterns
 

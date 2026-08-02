@@ -2,8 +2,8 @@ const std = @import("std");
 
 const JavaSourcePath = "src/main/java/exchange/core2/core/ExchangeApi.java";
 const ZigSourcePath = "src/zig/core/exchange_api.zig";
-const JsonOutputPath = "src/zig/EXCHANGE_API_SURFACE_DIFF.json";
-const MarkdownOutputPath = "src/zig/EXCHANGE_API_SURFACE_DIFF.md";
+const JsonOutputPath = "docs/zig/evidence/EXCHANGE_API_SURFACE_DIFF.json";
+const MarkdownOutputPath = "docs/zig/evidence/EXCHANGE_API_SURFACE_DIFF.md";
 
 const SurfaceDiffError = error{
     JavaOnlyMethods,

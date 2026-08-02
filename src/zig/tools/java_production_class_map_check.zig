@@ -2,7 +2,7 @@ const std = @import("std");
 
 const JavaRoot = "src/main/java/exchange/core2/core";
 const ZigRoot = "src/zig";
-const MapPath = "src/zig/JAVA_PRODUCTION_CLASS_MAP.md";
+const MapPath = "docs/zig/JAVA_PRODUCTION_CLASS_MAP.md";
 const ExpectedJavaFiles = 91;
 
 const CheckError = error{

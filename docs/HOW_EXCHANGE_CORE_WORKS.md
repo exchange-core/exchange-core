@@ -17,8 +17,8 @@ A single narrative from first principles through the full command surface, with 
 | [03 Matching and risk (Zig)](zig-flows/03-matching-and-risk.md) | Order types, books, R1 holds, R2 prepare/commit, cancel/reduce/move |
 | [04 Reports and persistence (Zig)](zig-flows/04-reports-and-persistence.md) | Reports, XCM2/XCJ3, journal, recovery, Java conversion |
 | [05 Source reading map (Zig)](zig-flows/05-source-reading-map.md) | Module route, demos, and walkthroughs |
-| [src/zig/README.md](../src/zig/README.md) | Zig port status, orchestration, parity evidence |
-| [src/zig/USAGE_EXAMPLES.md](../src/zig/USAGE_EXAMPLES.md) | TCP demo and integration examples |
+| [docs/zig/README.md](zig/README.md) | Zig port status, orchestration, parity evidence |
+| [docs/zig/USAGE_EXAMPLES.md](zig/USAGE_EXAMPLES.md) | TCP demo and integration examples |
 
 **Suggested reading order:**
 
@@ -891,7 +891,7 @@ Exceptions in the Disruptor path are treated as **core-fatal** (log, shutdown si
 
 **Mental model:** same exchange brain, different chassis. Parity targets command codes, event shapes, hold/settle math, and persistence semantics where enabled. Orchestration and memory ownership differ.
 
-Port status and evidence: [src/zig/README.md](../src/zig/README.md), [src/zig/MIGRATION_COVERAGE.md](../src/zig/MIGRATION_COVERAGE.md).
+Port status and evidence: [docs/zig/README.md](zig/README.md), [docs/zig/MIGRATION_COVERAGE.md](zig/MIGRATION_COVERAGE.md).
 
 ### Hands-on Zig TCP quickstart
 
@@ -915,7 +915,7 @@ $C book 241 20
 $C shutdown
 ```
 
-Protocol is a local demo line protocol, not FIX/REST. Result `code=100` is success; other codes are engine rejections still delivered as protocol OK. Full command set: [USAGE_EXAMPLES.md](../src/zig/USAGE_EXAMPLES.md).
+Protocol is a local demo line protocol, not FIX/REST. Result `code=100` is success; other codes are engine rejections still delivered as protocol OK. Full command set: [USAGE_EXAMPLES.md](zig/USAGE_EXAMPLES.md).
 
 ---
 

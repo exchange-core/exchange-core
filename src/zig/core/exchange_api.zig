@@ -6,7 +6,7 @@ const orderbook_naive = @import("orderbook_naive.zig");
 const api_command_mod = @import("api_command.zig");
 const exchange_core_mod = @import("exchange_core.zig");
 const kernel_mod = @import("exchange_kernel.zig");
-const java_report_producer = @import("java_report_producer.zig");
+const java_report_producer = @import("compat/java/report_producer.zig");
 const publication = @import("publication_sequence.zig");
 const runtime_mod = @import("exchange_runtime.zig");
 const settlement_lifecycle = @import("settlement_lifecycle.zig");
@@ -2624,7 +2624,7 @@ fn testJavaIdentityHashContext() kernel_mod.JavaIdentityHashContext {
     };
 }
 
-fn javaMapValue(entries: ?[]const @import("java_report_wire.zig").IntLongEntry, key: i32) ?i64 {
+fn javaMapValue(entries: ?[]const @import("compat/java/report_wire.zig").IntLongEntry, key: i32) ?i64 {
     for (entries orelse return null) |entry| {
         if (entry.key == key) return entry.value;
     }
@@ -7072,7 +7072,7 @@ test "exchange api exact Java typed extraction and disabled empty identity" {
     defer single.deinit(allocator);
     try std.testing.expectEqual(@as(i64, 0), single.uid);
     try std.testing.expectEqual(
-        @import("java_report_wire.zig").QueryExecutionStatus.user_not_found,
+        @import("compat/java/report_wire.zig").QueryExecutionStatus.user_not_found,
         single.query_execution_status,
     );
 

@@ -1,6 +1,6 @@
 const std = @import("std");
 const binary_frames = @import("binary_frames.zig");
-const int_map_order = @import("eclipse_int_map_order.zig");
+const int_map_order = @import("compat/java/eclipse_collections/int_map_order.zig");
 const io_context = @import("io_context.zig");
 const kernel_mod = @import("exchange_kernel.zig");
 const naive = @import("orderbook_naive.zig");

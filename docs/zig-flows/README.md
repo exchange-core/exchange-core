@@ -9,8 +9,8 @@ The Java twin of this guide is [`docs/java-flows/`](../java-flows/README.md). Wh
 ## Start here
 
 - **[How exchange-core works](../HOW_EXCHANGE_CORE_WORKS.md)** — full onboarding narrative. Plain-language conveyor-belt model, stage names, place→match→settle with numbers, and a Java↔Zig map.
-- **[src/zig/README.md](../../src/zig/README.md)** — port status, parity evidence, TCP/WASM demos, and TigerBeetle settlement boundary.
-- **[src/zig/USAGE_EXAMPLES.md](../../src/zig/USAGE_EXAMPLES.md)** — runnable TCP client, embedded integration, persistence, and orchestrator examples.
+- **[docs/zig/README.md](../zig/README.md)** — port status, parity evidence, TCP/WASM demos, and TigerBeetle settlement boundary.
+- **[docs/zig/USAGE_EXAMPLES.md](../zig/USAGE_EXAMPLES.md)** — runnable TCP client, embedded integration, persistence, and orchestrator examples.
 - Then read the flow chapters below in order for depth.
 
 ## Read in this order
@@ -73,4 +73,4 @@ These documents describe the Zig source under `src/zig`. They do not describe a 
 - Browser WASM: [`apps/browser/`](../../src/zig/apps/browser/)
 - Optional TigerBeetle settlement hooks: `core/tigerbeetle_*.zig` (opt-in; not part of the ordinary pipeline)
 
-Parity evidence, class maps, and migration ledgers stay in `src/zig/*.md`; this guide focuses on runtime flows.
+Parity evidence, class maps, and migration ledgers stay in `docs/zig/`; this guide focuses on runtime flows.

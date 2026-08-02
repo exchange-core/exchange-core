@@ -19,6 +19,12 @@
       "skillPath": "skills/zig/zig-build-system/SKILL.md",
       "computedHash": "b2f709845af63d7e5fc5e55c35f3389c9c71c1a76f24dcda515e74e0af3e119b"
     },
+    "zig-comptime": {
+      "source": "mohitmishra786/low-level-dev-skills",
+      "sourceType": "github",
+      "skillPath": "skills/zig/zig-comptime/SKILL.md",
+      "computedHash": "facd6ae57770b9a80a0275d6bbbaf74b0714bdcdf2d00dbc8f0542b8c109a9e6"
+    },
     "zig-debugging": {
       "source": "mohitmishra786/low-level-dev-skills",
       "sourceType": "github",

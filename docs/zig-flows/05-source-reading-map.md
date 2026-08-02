@@ -13,15 +13,16 @@ This is a practical route through the Zig port. Follow one vertical flow at a ti
 | Risk and users | [`risk.zig`](../../src/zig/core/risk.zig), [`user_profile.zig`](../../src/zig/core/user_profile.zig) | Holds, balances, fees, futures positions, prepare/commit release |
 | Matching | [`orderbook_naive.zig`](../../src/zig/core/orderbook_naive.zig), [`orderbook_direct.zig`](../../src/zig/core/orderbook_direct.zig) | Price-time matching and resting-order structures |
 | Event output | [`events.zig`](../../src/zig/core/events.zig), [`simple_events_processor.zig`](../../src/zig/core/simple_events_processor.zig) | Trade/reduce/reject chains and client-friendly callbacks |
-| Binary/report fan-out | [`binary_frames.zig`](../../src/zig/core/binary_frames.zig), [`binary_payload.zig`](../../src/zig/core/binary_payload.zig), [`binary_commands.zig`](../../src/zig/core/binary_commands.zig), [`java_binary_wire.zig`](../../src/zig/core/java_binary_wire.zig), [`report_registry.zig`](../../src/zig/core/report_registry.zig) | Framing, codecs, admin apply, custom reports |
+| Binary/report fan-out | [`binary_frames.zig`](../../src/zig/core/binary_frames.zig), [`binary_payload.zig`](../../src/zig/core/binary_payload.zig), [`binary_commands.zig`](../../src/zig/core/binary_commands.zig), [`compat/java/binary_wire.zig`](../../src/zig/core/compat/java/binary_wire.zig), [`report_registry.zig`](../../src/zig/core/report_registry.zig) | Framing, codecs, admin apply, custom reports |
 | Persistence | [`serialization_processor.zig`](../../src/zig/core/serialization_processor.zig), [`snapshot.zig`](../../src/zig/core/snapshot.zig), [`journal.zig`](../../src/zig/core/journal.zig), [`persistence_paths.zig`](../../src/zig/core/persistence_paths.zig), [`persistence_descriptors.zig`](../../src/zig/core/persistence_descriptors.zig), `sharded_snapshot*.zig` | Module snapshots, journal, paths, descriptors |
-| Java wire / parity | [`java_report_producer.zig`](../../src/zig/core/java_report_producer.zig), [`java_report_wire.zig`](../../src/zig/core/java_report_wire.zig), [`java_journal_*.zig`](../../src/zig/core/), [`java_snapshot_*.zig`](../../src/zig/core/), [`java_hash32.zig`](../../src/zig/core/java_hash32.zig) | Exact report/journal/snapshot conversion and hashing |
+| Live Java compatibility | [`compat/java/root.zig`](../../src/zig/core/compat/java/root.zig), [`compat/java/report_producer.zig`](../../src/zig/core/compat/java/report_producer.zig), [`compat/java/report_wire.zig`](../../src/zig/core/compat/java/report_wire.zig), [`compat/java/hash32.zig`](../../src/zig/core/compat/java/hash32.zig) | Runtime binary/report wire parity and exact Java hashing |
+| Offline Java persistence interop | [`interop/java_persistence/root.zig`](../../src/zig/interop/java_persistence/root.zig), [`interop/java_persistence/converter.zig`](../../src/zig/interop/java_persistence/converter.zig), [`interop/java_persistence/journal_converter.zig`](../../src/zig/interop/java_persistence/journal_converter.zig) | Opt-in `.ecs`/`.ecj` conversion to native XCM2/XCJ3 |
 | Configuration | [`config.zig`](../../src/zig/core/config.zig) | Pipeline shape, performance presets, static capacity, initial state |
 | Settlement opt-in | [`settlement_lifecycle.zig`](../../src/zig/core/settlement_lifecycle.zig), `tigerbeetle_*.zig` | External fill capture hooks and TigerBeetle outbox |
 | Apps | [`apps/server.zig`](../../src/zig/apps/server.zig), [`apps/client.zig`](../../src/zig/apps/client.zig), [`apps/browser/`](../../src/zig/apps/browser/) | TCP demo and WASM surface |
 
-Java production class → Zig owner map: [`JAVA_PRODUCTION_CLASS_MAP.md`](../../src/zig/JAVA_PRODUCTION_CLASS_MAP.md).  
-Processor timing/ownership: [`PROCESSOR_PARITY_DECOMPOSITION.md`](../../src/zig/PROCESSOR_PARITY_DECOMPOSITION.md).
+Java production class → Zig owner map: [`JAVA_PRODUCTION_CLASS_MAP.md`](../zig/JAVA_PRODUCTION_CLASS_MAP.md).
+Processor timing/ownership: [`PROCESSOR_PARITY_DECOMPOSITION.md`](../zig/PROCESSOR_PARITY_DECOMPOSITION.md).
 
 ## Walkthrough 1: bootstrap a small exchange
 
@@ -100,7 +101,7 @@ ExchangeApi.processReport / queryReport
   -> ExchangeApi completes handle and returns ReportResponse
 ```
 
-Read native `ReportQuery` handling in `exchange_kernel.zig` first. Then read `java_report_producer.zig` for exact-Java sections, then `TotalCurrencyBalanceReport` for the accounting invariant, then state-hash for persistence validation.
+Read native `ReportQuery` handling in `exchange_kernel.zig` first. Then read `compat/java/report_producer.zig` for exact-Java sections, then `TotalCurrencyBalanceReport` for the accounting invariant, then state-hash for persistence validation.
 
 ## Walkthrough 4: snapshot and journal recovery
 
@@ -118,7 +119,7 @@ Start with config and tests rather than the file format:
 | Question | Where to look |
 |---|---|
 | Does the TCP demo work end to end? | `zig build run-server` + `run-client`; `USAGE_EXAMPLES.md` |
-| Does WASM matching work without FS? | `zig build -j1 wasm-smoke`; `apps/browser/README.md` |
+| Does WASM matching work without FS? | `zig build -j1 wasm-smoke`; `docs/zig/BROWSER.md` |
 | Do naive and direct books share behavior? | Tests co-located in `orderbook_*.zig`; gate suite |
 | Are invalid users, symbols, funds rejected? | Focused tests in `risk.zig`, `exchange_kernel.zig`, `exchange_api*.zig` |
 | Do fees conserve balances? | Total-balance report tests and migration coverage ledger |

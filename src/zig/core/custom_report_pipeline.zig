@@ -9,9 +9,9 @@
 const std = @import("std");
 const binary_payload = @import("binary_payload.zig");
 const core_events = @import("events.zig");
-const java_binary_wire = @import("java_binary_wire.zig");
+const java_binary_wire = @import("compat/java/binary_wire.zig");
 const report_registry = @import("report_registry.zig");
-const wire = @import("java_report_wire.zig");
+const wire = @import("compat/java/report_wire.zig");
 
 pub const PipelineError = wire.WireError || report_registry.ReductionDispatchError;
 

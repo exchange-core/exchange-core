@@ -9,6 +9,21 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const java_persistence_interop = b.addModule("java_persistence_interop", .{
+        .root_source_file = b.path("src/zig/interop/java_persistence/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    java_persistence_interop.addImport("exchange_core", exchange_core);
+    const java_persistence_test_fixtures = b.createModule(.{
+        .root_source_file = b.path("src/zig/fixtures/java_persistence.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    java_persistence_interop.addImport(
+        "java_persistence_test_fixtures",
+        java_persistence_test_fixtures,
+    );
     const tigerbeetle = b.addModule("tigerbeetle", .{
         .root_source_file = b.path("src/zig/plugins/tigerbeetle/root.zig"),
         .target = target,
@@ -111,6 +126,19 @@ pub fn build(b: *std.Build) void {
     });
 
     const run_module_tests = b.addRunArtifact(module_tests);
+    const java_persistence_interop_tests = b.addTest(.{
+        .root_module = java_persistence_interop,
+    });
+    const run_focused_java_persistence_interop_tests = b.addRunArtifact(
+        java_persistence_interop_tests,
+    );
+    const test_java_persistence_interop_step = b.step(
+        "test-java-persistence-interop",
+        "Run the opt-in Java snapshot and journal conversion tests",
+    );
+    test_java_persistence_interop_step.dependOn(
+        &run_focused_java_persistence_interop_tests.step,
+    );
     const tigerbeetle_tests = b.addTest(.{
         .root_module = tigerbeetle,
     });
@@ -127,6 +155,24 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/zig/root.zig"),
         .target = target,
         .optimize = .Debug,
+    });
+    const debug_java_persistence_interop = b.createModule(.{
+        .root_source_file = b.path("src/zig/interop/java_persistence/root.zig"),
+        .target = target,
+        .optimize = .Debug,
+    });
+    debug_java_persistence_interop.addImport("exchange_core", debug_exchange_core);
+    const debug_java_persistence_test_fixtures = b.createModule(.{
+        .root_source_file = b.path("src/zig/fixtures/java_persistence.zig"),
+        .target = target,
+        .optimize = .Debug,
+    });
+    debug_java_persistence_interop.addImport(
+        "java_persistence_test_fixtures",
+        debug_java_persistence_test_fixtures,
+    );
+    const debug_java_persistence_interop_tests = b.addTest(.{
+        .root_module = debug_java_persistence_interop,
     });
     const debug_tigerbeetle = b.createModule(.{
         .root_source_file = b.path("src/zig/plugins/tigerbeetle/root.zig"),
@@ -412,6 +458,27 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = .ReleaseSafe,
     });
+    const release_safe_java_persistence_interop = b.createModule(.{
+        .root_source_file = b.path("src/zig/interop/java_persistence/root.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+    });
+    release_safe_java_persistence_interop.addImport(
+        "exchange_core",
+        release_safe_module,
+    );
+    const release_safe_java_persistence_test_fixtures = b.createModule(.{
+        .root_source_file = b.path("src/zig/fixtures/java_persistence.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+    });
+    release_safe_java_persistence_interop.addImport(
+        "java_persistence_test_fixtures",
+        release_safe_java_persistence_test_fixtures,
+    );
+    const release_safe_java_persistence_interop_tests = b.addTest(.{
+        .root_module = release_safe_java_persistence_interop,
+    });
     const release_safe_tigerbeetle = b.createModule(.{
         .root_source_file = b.path("src/zig/plugins/tigerbeetle/root.zig"),
         .target = target,
@@ -429,6 +496,16 @@ pub fn build(b: *std.Build) void {
         .root_module = release_safe_module,
     });
     const run_release_safe_tests = b.addRunArtifact(release_safe_tests);
+    const run_focused_release_safe_java_persistence_interop_tests = b.addRunArtifact(
+        release_safe_java_persistence_interop_tests,
+    );
+    const test_release_safe_java_persistence_interop_step = b.step(
+        "test-java-persistence-interop-release-safe",
+        "Run the opt-in Java persistence interop tests in ReleaseSafe mode",
+    );
+    test_release_safe_java_persistence_interop_step.dependOn(
+        &run_focused_release_safe_java_persistence_interop_tests.step,
+    );
     const release_safe_tigerbeetle_tests = b.addTest(.{
         .root_module = release_safe_tigerbeetle,
     });
@@ -909,13 +986,27 @@ pub fn build(b: *std.Build) void {
     // artifact names. Keep the two optimization-mode runners serial inside
     // the aggregate gate so they cannot race each other, while preserving the
     // standalone `test-release-safe` step as a ReleaseSafe-only command.
+    const run_gate_debug_java_persistence_interop_tests = b.addRunArtifact(
+        debug_java_persistence_interop_tests,
+    );
+    run_gate_debug_java_persistence_interop_tests.step.dependOn(
+        &run_debug_simd_bench_tests.step,
+    );
     const run_gate_release_safe_tests = b.addRunArtifact(release_safe_tests);
-    run_gate_release_safe_tests.step.dependOn(&run_debug_simd_bench_tests.step);
+    run_gate_release_safe_tests.step.dependOn(
+        &run_gate_debug_java_persistence_interop_tests.step,
+    );
+    const run_gate_release_safe_java_persistence_interop_tests = b.addRunArtifact(
+        release_safe_java_persistence_interop_tests,
+    );
+    run_gate_release_safe_java_persistence_interop_tests.step.dependOn(
+        &run_gate_release_safe_tests.step,
+    );
     const run_gate_release_safe_tigerbeetle_tests = b.addRunArtifact(
         release_safe_tigerbeetle_tests,
     );
     run_gate_release_safe_tigerbeetle_tests.step.dependOn(
-        &run_gate_release_safe_tests.step,
+        &run_gate_release_safe_java_persistence_interop_tests.step,
     );
     const run_gate_release_safe_protocol_tests = b.addRunArtifact(release_safe_protocol_tests);
     run_gate_release_safe_protocol_tests.step.dependOn(

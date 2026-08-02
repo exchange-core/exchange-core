@@ -1,6 +1,6 @@
 const std = @import("std");
 const cmd = @import("cmd.zig");
-const java_hash32 = @import("java_hash32.zig");
+const java_hash32 = @import("compat/java/hash32.zig");
 
 pub const FrameWordsPerCommand: usize = 5;
 

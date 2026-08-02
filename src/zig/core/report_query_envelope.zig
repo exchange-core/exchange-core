@@ -6,7 +6,7 @@
 
 const std = @import("std");
 const binary_payload = @import("binary_payload.zig");
-const java_binary_wire = @import("java_binary_wire.zig");
+const java_binary_wire = @import("compat/java/binary_wire.zig");
 
 pub const BodyFormat = enum {
     java_little,

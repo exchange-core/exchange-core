@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-The Java engine lives in `src/main/java/exchange/core2/core`; Java tests and fixtures are under `src/test/java` and `src/test/resources`. The Zig port is rooted at `src/zig`: `core/` contains exchange logic, `apps/` contains TCP and browser entry points, `bench/` contains performance harnesses, `tools/` contains parity checks, and `fixtures/` stores cross-language evidence. Architecture guides are in `docs/java-flows/`. Maven outputs belong in `target/`; Zig outputs and browser bundles belong in `zig-out/`. Do not commit cache directories or generated dump files.
+The Java engine lives in `src/main/java/exchange/core2/core`; Java tests and fixtures are under `src/test/java` and `src/test/resources`. The Zig port is rooted at `src/zig`: `core/` contains exchange logic, including live Java wire/report compatibility under `core/compat/java/`; `interop/` contains opt-in migration modules such as offline Java persistence conversion; `plugins/` contains opt-in runtime integrations; `apps/` contains TCP and browser entry points; `bench/` contains performance harnesses; `tools/` contains parity checks; and `fixtures/` stores machine-readable cross-language inputs. Zig guides and retained evidence live in `docs/zig/`; architecture walkthroughs are in `docs/java-flows/` and `docs/zig-flows/`. Maven outputs belong in `target/`; Zig outputs and browser bundles belong in `zig-out/`. Do not commit cache directories or generated dump files.
 
 ## Build, Test, and Development Commands
 
@@ -22,7 +22,7 @@ Use four-space indentation. Java classes use `UpperCamelCase`, methods and field
 
 ## Testing Guidelines
 
-Java uses JUnit 5, Mockito, Hamcrest, and Cucumber. Name unit tests `*Test.java` and integration tests `IT*.java`. Zig tests stay near their implementation as descriptive `test "..."` blocks. No numeric coverage threshold is configured; every behavioral change should add a focused regression test. Changes affecting Java/Zig parity must also pass the full gate and update the relevant audit or `src/zig/MIGRATION_COVERAGE.md` evidence.
+Java uses JUnit 5, Mockito, Hamcrest, and Cucumber. Name unit tests `*Test.java` and integration tests `IT*.java`. Zig tests stay near their implementation as descriptive `test "..."` blocks. No numeric coverage threshold is configured; every behavioral change should add a focused regression test. Changes affecting Java/Zig parity must also pass the full gate and update the relevant audit or `docs/zig/MIGRATION_COVERAGE.md` evidence.
 
 ## Commit & Pull Request Guidelines
 

@@ -127,7 +127,7 @@ Suspend removes an active profile from the main map only when all accounts are z
 
 Large administrative objects are not placed by reference. The API:
 
-1. serializes a type code plus payload (Java wire compatible via `java_binary_wire.zig` / `binary_payload.zig`);
+1. serializes a type code plus payload (Java wire compatible via `compat/java/binary_wire.zig` / `binary_payload.zig`);
 2. LZ4-compresses where the Java envelope expects it;
 3. packs words into five `long` fields per ring message;
 4. marks the final frame with `symbol == -1`;

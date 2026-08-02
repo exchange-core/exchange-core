@@ -224,6 +224,6 @@ The total currency balance report independently totals:
 
 Tests expect the signed global balance sum to be zero and aggregated long open interest to equal aggregated short open interest. This report is the most useful end-to-end check that R1 holds, matching events, and R2 settlement stayed consistent.
 
-Native report types live in `ExchangeKernel` (`TotalCurrencyBalanceReport`, `SingleUserReport`, `DetailedStateHashReport`). Java wire projections are produced separately via `java_report_producer.zig` when exact-Java report lanes are requested.
+Native report types live in `ExchangeKernel` (`TotalCurrencyBalanceReport`, `SingleUserReport`, `DetailedStateHashReport`). Java wire projections are produced separately via `compat/java/report_producer.zig` when exact-Java report lanes are requested.
 
 [Previous: command processing](02-command-processing.md) · [Next: reports and persistence](04-reports-and-persistence.md)
