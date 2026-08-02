@@ -155,6 +155,23 @@ pub fn build(b: *std.Build) void {
     const run_debug_parix_funding_runtime_tests = b.addRunArtifact(debug_parix_funding_runtime_tests);
     run_debug_parix_funding_runtime_tests.step.dependOn(&run_debug_parix_funding_store_tests.step);
 
+    const debug_parix_clearing_tests_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/parix_clearing_store.zig"),
+        .target = target,
+        .optimize = .Debug,
+    });
+    debug_parix_clearing_tests_module.addImport("exchange_core", debug_exchange_core);
+    const debug_parix_clearing_tests = b.addTest(.{
+        .root_module = debug_parix_clearing_tests_module,
+    });
+    const run_debug_parix_clearing_tests = b.addRunArtifact(debug_parix_clearing_tests);
+    run_debug_parix_clearing_tests.step.dependOn(&run_debug_parix_funding_runtime_tests.step);
+    const test_parix_clearing_step = b.step(
+        "test-parix-clearing",
+        "Run native Parix payment-provider clearing tests in Debug mode",
+    );
+    test_parix_clearing_step.dependOn(&run_debug_parix_clearing_tests.step);
+
     const debug_server_test_module = b.createModule(.{
         .root_source_file = b.path("src/zig/apps/server.zig"),
         .target = target,
@@ -166,10 +183,10 @@ pub fn build(b: *std.Build) void {
         .root_module = debug_server_test_module,
     });
     const run_debug_server_tests = b.addRunArtifact(debug_server_tests);
-    run_debug_server_tests.step.dependOn(&run_debug_parix_funding_runtime_tests.step);
+    run_debug_server_tests.step.dependOn(&run_debug_parix_clearing_tests.step);
     const test_parix_apps_step = b.step(
         "test-parix-apps",
-        "Run native Parix transport, bootstrap, settlement, funding, and server tests in Debug mode",
+        "Run native Parix transport, bootstrap, settlement, funding, clearing, and server tests in Debug mode",
     );
     test_parix_apps_step.dependOn(&run_debug_server_tests.step);
 
@@ -313,6 +330,23 @@ pub fn build(b: *std.Build) void {
     const run_release_safe_parix_funding_runtime_tests = b.addRunArtifact(release_safe_parix_funding_runtime_tests);
     run_release_safe_parix_funding_runtime_tests.step.dependOn(&run_release_safe_parix_funding_store_tests.step);
 
+    const release_safe_parix_clearing_tests_module = b.createModule(.{
+        .root_source_file = b.path("src/zig/apps/parix_clearing_store.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+    });
+    release_safe_parix_clearing_tests_module.addImport("exchange_core", release_safe_module);
+    const release_safe_parix_clearing_tests = b.addTest(.{
+        .root_module = release_safe_parix_clearing_tests_module,
+    });
+    const run_release_safe_parix_clearing_tests = b.addRunArtifact(release_safe_parix_clearing_tests);
+    run_release_safe_parix_clearing_tests.step.dependOn(&run_release_safe_parix_funding_runtime_tests.step);
+    const test_release_safe_parix_clearing_step = b.step(
+        "test-parix-clearing-release-safe",
+        "Run native Parix payment-provider clearing tests in ReleaseSafe mode",
+    );
+    test_release_safe_parix_clearing_step.dependOn(&run_release_safe_parix_clearing_tests.step);
+
     const release_safe_server_test_module = b.createModule(.{
         .root_source_file = b.path("src/zig/apps/server.zig"),
         .target = target,
@@ -324,10 +358,10 @@ pub fn build(b: *std.Build) void {
         .root_module = release_safe_server_test_module,
     });
     const run_release_safe_server_tests = b.addRunArtifact(release_safe_server_tests);
-    run_release_safe_server_tests.step.dependOn(&run_release_safe_parix_funding_runtime_tests.step);
+    run_release_safe_server_tests.step.dependOn(&run_release_safe_parix_clearing_tests.step);
     const test_release_safe_parix_apps_step = b.step(
         "test-parix-apps-release-safe",
-        "Run native Parix transport, bootstrap, settlement, funding, and server tests in ReleaseSafe mode",
+        "Run native Parix transport, bootstrap, settlement, funding, clearing, and server tests in ReleaseSafe mode",
     );
     test_release_safe_parix_apps_step.dependOn(&run_release_safe_server_tests.step);
 
@@ -579,8 +613,10 @@ pub fn build(b: *std.Build) void {
     run_gate_release_safe_parix_funding_store_tests.step.dependOn(&run_gate_release_safe_parix_funding_saga_tests.step);
     const run_gate_release_safe_parix_funding_runtime_tests = b.addRunArtifact(release_safe_parix_funding_runtime_tests);
     run_gate_release_safe_parix_funding_runtime_tests.step.dependOn(&run_gate_release_safe_parix_funding_store_tests.step);
+    const run_gate_release_safe_parix_clearing_tests = b.addRunArtifact(release_safe_parix_clearing_tests);
+    run_gate_release_safe_parix_clearing_tests.step.dependOn(&run_gate_release_safe_parix_funding_runtime_tests.step);
     const run_gate_release_safe_server_tests = b.addRunArtifact(release_safe_server_tests);
-    run_gate_release_safe_server_tests.step.dependOn(&run_gate_release_safe_parix_funding_runtime_tests.step);
+    run_gate_release_safe_server_tests.step.dependOn(&run_gate_release_safe_parix_clearing_tests.step);
     const run_gate_release_safe_client_tests = b.addRunArtifact(release_safe_client_tests);
     run_gate_release_safe_client_tests.step.dependOn(&run_gate_release_safe_server_tests.step);
     const run_gate_release_safe_browser_tests = b.addRunArtifact(release_safe_browser_tests);

@@ -308,7 +308,7 @@ After a fill, query the relevant accounts and transfer history to confirm the ex
 
 ## Unsupported boundaries
 
-- The funding saga is an accounting bridge, not a payment-provider rail. It does not ingest bank/card events or implement TigerBeetle pending transfers and a clearing account.
+- The server-integrated funding saga remains an accounting bridge, not a payment-provider ingress. A separate typed clearing saga and durable `CSG1` store now model TigerBeetle pending/post/void lifecycles, but the server does not yet load a clearing profile or run its transport/runtime. Bank/card adapters, provider-authenticated HTTPS ingress, secrets, expiry automation, and live rail calls remain unimplemented.
 - The roster is operator-configurable but immutable for one persistence root. Online user onboarding and profile migration are not implemented.
 - Changing symbol economics, users, ledgers, account IDs, funding, database, or publication domain requires a reviewed offline migration. Exact-digest restart rejection is intentional.
 - Legacy roots created before `settlement-profile.spf1` are not automatically adopted.

@@ -2,8 +2,15 @@ const std = @import("std");
 const common = @import("common.zig");
 const publication = @import("publication_sequence.zig");
 
-/// TigerBeetle's raw `linked` transfer flag.
+/// TigerBeetle's raw transfer flags. The fill mapper uses only `linked`; the
+/// application-owned clearing workflow uses the mutually exclusive lifecycle
+/// flags without weakening fill-outbox validation.
 pub const linked_flag: u16 = 1;
+pub const pending_flag: u16 = 2;
+pub const post_pending_transfer_flag: u16 = 4;
+pub const void_pending_transfer_flag: u16 = 8;
+pub const pending_lifecycle_flags: u16 =
+    pending_flag | post_pending_transfer_flag | void_pending_transfer_flag;
 pub const max_transfers_per_fill: usize = 4;
 
 const identity_namespace_shift = 120;
@@ -526,6 +533,15 @@ fn expectTransfer(
     try std.testing.expectEqual(fill.codes.forLeg(leg), actual.code);
     try std.testing.expectEqual(if (linked) linked_flag else 0, actual.flags);
     try std.testing.expectEqual(@as(u64, 0), actual.timestamp);
+}
+
+test "TigerBeetle transfer flags keep clearing lifecycle values explicit" {
+    try std.testing.expectEqual(@as(u16, 1), linked_flag);
+    try std.testing.expectEqual(@as(u16, 2), pending_flag);
+    try std.testing.expectEqual(@as(u16, 4), post_pending_transfer_flag);
+    try std.testing.expectEqual(@as(u16, 8), void_pending_transfer_flag);
+    try std.testing.expectEqual(@as(u16, 14), pending_lifecycle_flags);
+    try std.testing.expectEqual(@as(u16, 0), linked_flag & pending_lifecycle_flags);
 }
 
 test "TigerBeetle fill group identity decodes into a domain-tagged cursor" {

@@ -347,7 +347,9 @@ safe; revocation and rotation are still required.
   rate limiting remain operator-owned proxy responsibilities.
 - Parix API credentials remain outbound server secrets and are independent of
   ingress credentials.
-- Funding is not a payment-provider rail and does not implement bank/card
-  ingress, TigerBeetle pending transfers, or a clearing account.
+- Funding remains separate from payment-provider ingress. The typed clearing
+  saga and durable `CSG1` store model pending/post/void accounting, but this raw
+  TCP ingress does not expose them and no clearing profile, runtime, provider
+  HTTPS adapter, secrets, expiry automation, or live rail calls are wired yet.
 - Browser/WASM clients never receive funding commands, Parix credentials, or
   ingress secrets; a networked browser requires a separate server-side gateway.

@@ -217,9 +217,20 @@ one-shot `--parix-funding-initialize` flag creates an absent store only for a
 proven first bootstrap and rejects an existing one. Version 1 retains terminal
 records and does not prune them, so operators must
 monitor capacity, include the funding snapshot in coordinated backups, and
-stop admission before capacity is exhausted. This is an accounting bridge, not
-a payment-provider rail, and it does not model TigerBeetle pending transfers or
-a clearing account.
+stop admission before capacity is exhausted. FSG1 remains the sole owner of
+native-core balance-adjustment transaction IDs.
+
+The native application layer also contains the first payment-provider clearing
+slice: a typed saga maps already-verified provider authorizations and terminal
+events to TigerBeetle pending/post/void transfers, while deterministic child
+FSG1 operations apply user credits, debits, and released-amount refunds. The
+separate bounded `CSG1` store binds settlement and clearing profile identity,
+persists before side effects, rejects inconsistent phase evidence on restore,
+and recovers exposed writes through lookup or status reconciliation. This
+slice is not enabled by the server yet: clearing profile loading, a typed
+runtime/transport classifier, provider-authenticated HTTPS ingress, secrets,
+expiry automation, and live rail calls remain follow-up work. Matching, risk,
+trade settlement, and browser/WASM remain unchanged.
 
 A server composition currently installs one destination-bound
 `tigerbeetle_exchange_integration.Integration(DurableFileOutbox(capacity), max_fills_per_batch)`
