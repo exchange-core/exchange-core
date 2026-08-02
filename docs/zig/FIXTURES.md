@@ -3,6 +3,43 @@
 This folder stores machine-readable fixture files exported from the Java engine
 for Zig parity comparison.
 
+## Seeded Java oracle campaign (DST)
+
+`src/zig/tools/fixture_diff.zig` includes a multi-seed campaign that treats
+committed `java_*.fixture` files as the Java oracle corpus (CI does not require
+a live JDK):
+
+- Dual-runs a representative fixture set under each seed (seed-shuffled order)
+- Compares Zig results to Java oracle fields (`command_results`, events, L2,
+  balances, state hashes)
+- Runs a seed-driven legal random command tape with naive vs direct dual-parity
+- Prints `seed=0x…` and `zig build test --test-filter "seeded java oracle campaign…"`
+  on failure
+- Seed set always includes `42`; a 64-seed sweep covers the multi-seed N≥64 bar
+
+Replay:
+
+```sh
+zig build test -- --test-filter "seeded java oracle campaign is deterministic and seed-sensitive"
+zig build test -- --test-filter "seeded java oracle multi-seed sweep includes seed 42"
+```
+
+### Expanding random-tape Java oracles (maintainers)
+
+When a JDK is available, generate additional parity fixtures for new scripted
+scenarios (not free-form random tapes) via:
+
+```sh
+mvn \
+  -Dtest=exchange.core2.tests.fixtures.GenerateJavaParityFixtureTest \
+  -Dparity.fixture.write=true \
+  test
+```
+
+Random-tape oracles are not yet written by the Java generator. Until that
+exists, the campaign uses committed fixtures as Java oracles and Zig
+naive/direct dual-parity for seed-driven random tapes.
+
 ## Persistence fixture (`java-persistence/v1`)
 
 `java-persistence/v1` contains a real 1ME/1RE

@@ -2704,3 +2704,223 @@ test "journal, snapshot, and report queries stay deterministic under multi-symbo
     try final_snapshot.validateAgainstKernel(&replay);
     try final_snapshot.validateAgainstKernel(&replay_from_file);
 }
+
+// ---------------------------------------------------------------------------
+// Seeded virtual-I/O fault campaign (TigerBeetle DST style)
+//
+// Uses DurableJournalAppender's existing inject seams (pre-write / post-write
+// sync failure) plus reopen recovery as a deterministic virtual-disk schedule
+// under DefaultPrng. Same seed dual-runs; prints seed + test-filter on fail.
+// ---------------------------------------------------------------------------
+
+const journal_io_campaign_filter =
+    "seeded journal I/O fault campaign is deterministic and seed-sensitive";
+
+fn printJournalIoCampaignHint(seed: u64, step: []const u8) void {
+    std.debug.print(
+        "seed=0x{x} step={s}; replay with: zig build test --test-filter \"{s}\"\n",
+        .{ seed, step, journal_io_campaign_filter },
+    );
+}
+
+const JournalIoCampaignResult = struct {
+    durable_count: usize,
+    injected_faults: usize,
+    reopens: usize,
+    fingerprint: u64,
+};
+
+fn journalIoFingerprint(entries: []const JournalEntry) u64 {
+    var hash: u64 = 0xcbf29ce484222325;
+    for (entries) |entry| {
+        hash ^= entry.sequence +% 0x9e3779b97f4a7c15 +% (hash << 6) +% (hash >> 2);
+        hash ^= @intFromEnum(entry.mode);
+        hash ^= @as(u64, @bitCast(@as(i64, @intFromEnum(entry.result_code))));
+        hash ^= @as(u64, @bitCast(entry.input.uid));
+    }
+    return hash;
+}
+
+fn runSeededJournalIoFaultCampaign(
+    allocator: std.mem.Allocator,
+    seed: u64,
+    records: usize,
+) !JournalIoCampaignResult {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const path = "seeded-io-fault.xcj";
+
+    var prng = std.Random.DefaultPrng.init(seed);
+    const random = prng.random();
+
+    var appender = try DurableJournalAppender.open(allocator, tmp.dir, path);
+    var injected_faults: usize = 0;
+    var reopens: usize = 0;
+    var next_seq: u64 = 1;
+    var planned: usize = 0;
+
+    while (planned < records) {
+        const mode: ExecutionMode = if (random.boolean()) .routed else .split;
+        const entry = makeXcj3TestEntry(next_seq, mode);
+        const fault_roll = random.uintLessThan(u32, 100);
+
+        if (fault_roll < 12) {
+            // Pre-write loss: sequence never becomes durable; reopen must keep prior frontier.
+            appender.injectPreWriteFailureAtSequenceForTesting(next_seq);
+            injected_faults += 1;
+            try std.testing.expectError(error.InjectedJournalIoFailure, appender.append(entry));
+            appender.deinit();
+            reopens += 1;
+            appender = try DurableJournalAppender.open(allocator, tmp.dir, path);
+            // Sequence is still free after pre-write fail — retry same seq later without advancing planned.
+            continue;
+        } else if (fault_roll < 24) {
+            // Sync failure after write: poison; reopen recovers durable prefix (may exclude this seq).
+            appender.injectSyncFailureAtSequenceForTesting(next_seq);
+            injected_faults += 1;
+            const result = appender.append(entry);
+            if (result) |_| {
+                // Should not succeed when inject targets this sequence.
+                printJournalIoCampaignHint(seed, "sync-inject-unexpected-success");
+                return error.TestUnexpectedResult;
+            } else |err| {
+                if (err != error.InjectedJournalIoFailure) {
+                    printJournalIoCampaignHint(seed, "sync-inject-unexpected-error");
+                    return err;
+                }
+            }
+            appender.deinit();
+            reopens += 1;
+            appender = try DurableJournalAppender.open(allocator, tmp.dir, path);
+            // After sync fail the record may or may not be durable; resume from last_sequence+1.
+            if (appender.lastSequence()) |last| {
+                if (last >= next_seq) {
+                    planned += 1;
+                    next_seq = last + 1;
+                }
+                // else: next_seq still free, retry without counting planned
+            }
+            continue;
+        } else if (fault_roll < 30 and next_seq > 1) {
+            // Offline torn tail: close cleanly, tear next record bytes, reopen repairs.
+            appender.deinit();
+            var encoded: [XCJ3_MAX_RECORD_BYTES]u8 = undefined;
+            const record = try encodeXcj3Record(&encoded, entry);
+            const tear = 1 + random.uintLessThan(u32, @intCast(@max(record.len / 2, 1)));
+            try appendTestBytes(tmp.dir, path, record[0..tear]);
+            injected_faults += 1;
+            reopens += 1;
+            appender = try DurableJournalAppender.open(allocator, tmp.dir, path);
+            // Torn record discarded; append full entry at same sequence.
+            try appender.append(entry);
+            planned += 1;
+            next_seq += 1;
+            continue;
+        }
+
+        try appender.append(entry);
+        planned += 1;
+        next_seq += 1;
+    }
+    appender.deinit();
+
+    var loaded = try CommandJournal.readFromFile(allocator, tmp.dir, path);
+    defer loaded.deinit();
+
+    // Clean dual-write of the durable sequence must match the recovered file.
+    var clean_tmp = std.testing.tmpDir(.{});
+    defer clean_tmp.cleanup();
+    const clean_path = "clean.xcj";
+    var clean = try DurableJournalAppender.open(allocator, clean_tmp.dir, clean_path);
+    for (loaded.entries.items) |entry| {
+        try clean.append(entry);
+    }
+    clean.deinit();
+    var clean_loaded = try CommandJournal.readFromFile(allocator, clean_tmp.dir, clean_path);
+    defer clean_loaded.deinit();
+
+    if (loaded.len() != clean_loaded.len()) {
+        printJournalIoCampaignHint(seed, "clean-len-mismatch");
+        return error.TestUnexpectedResult;
+    }
+    for (loaded.entries.items, clean_loaded.entries.items) |a, b| {
+        if (a.sequence != b.sequence or a.mode != b.mode or a.result_code != b.result_code) {
+            printJournalIoCampaignHint(seed, "clean-entry-mismatch");
+            return error.TestUnexpectedResult;
+        }
+    }
+
+    return .{
+        .durable_count = loaded.len(),
+        .injected_faults = injected_faults,
+        .reopens = reopens,
+        .fingerprint = journalIoFingerprint(loaded.entries.items),
+    };
+}
+
+test "seeded journal I/O fault campaign is deterministic and seed-sensitive" {
+    const allocator = std.testing.allocator;
+    const seeds = [_]u64{ 42, 7, 0xC0FFEE, 0xDEADBEEF12345678 };
+    const records: usize = 40;
+
+    var first_by_seed: [seeds.len]JournalIoCampaignResult = undefined;
+    for (seeds, 0..) |seed, idx| {
+        const first = runSeededJournalIoFaultCampaign(allocator, seed, records) catch |err| {
+            printJournalIoCampaignHint(seed, "campaign");
+            return err;
+        };
+        const second = runSeededJournalIoFaultCampaign(allocator, seed, records) catch |err| {
+            printJournalIoCampaignHint(seed, "campaign-rerun");
+            return err;
+        };
+        if (first.fingerprint != second.fingerprint or
+            first.durable_count != second.durable_count or
+            first.injected_faults != second.injected_faults or
+            first.reopens != second.reopens)
+        {
+            printJournalIoCampaignHint(seed, "determinism");
+            return error.TestUnexpectedResult;
+        }
+        try std.testing.expect(first.durable_count == records);
+        try std.testing.expect(first.injected_faults > 0);
+        first_by_seed[idx] = first;
+    }
+
+    var saw_diff = false;
+    for (0..seeds.len) |i| {
+        for (i + 1..seeds.len) |j| {
+            if (first_by_seed[i].fingerprint != first_by_seed[j].fingerprint or
+                first_by_seed[i].injected_faults != first_by_seed[j].injected_faults)
+            {
+                saw_diff = true;
+            }
+        }
+    }
+    if (!saw_diff) {
+        printJournalIoCampaignHint(seeds[0], "seed-sensitivity");
+        return error.TestUnexpectedResult;
+    }
+}
+
+test "seeded journal I/O fault multi-seed sweep includes seed 42" {
+    const allocator = std.testing.allocator;
+    const records: usize = 20;
+    const seed_count: u64 = 32;
+
+    var seed: u64 = 0;
+    while (seed < seed_count) : (seed += 1) {
+        const first = runSeededJournalIoFaultCampaign(allocator, seed, records) catch |err| {
+            printJournalIoCampaignHint(seed, "multi-seed-sweep");
+            return err;
+        };
+        const second = runSeededJournalIoFaultCampaign(allocator, seed, records) catch |err| {
+            printJournalIoCampaignHint(seed, "multi-seed-sweep-rerun");
+            return err;
+        };
+        if (first.fingerprint != second.fingerprint or first.durable_count != records) {
+            printJournalIoCampaignHint(seed, "multi-seed-sweep-determinism");
+            return error.TestUnexpectedResult;
+        }
+    }
+    _ = try runSeededJournalIoFaultCampaign(allocator, 42, records);
+}

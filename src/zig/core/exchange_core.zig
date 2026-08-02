@@ -2411,7 +2411,7 @@ pub const ExchangeCore = struct {
         try self.appendDefaultPersistenceMainLogEntry(
             dir,
             self.kernel.next_seq,
-            currentWallClockTimestampNs(),
+            self.config.runtime.wall_clock.nowNs(),
             snapshot_id,
             module_type,
             instance_id,
@@ -2508,6 +2508,7 @@ pub const ExchangeCore = struct {
             snapshot_id,
             module_type,
             instance_id,
+            self.config.runtime.wall_clock.nowMs(),
         );
     }
 
@@ -2621,12 +2622,12 @@ pub const ExchangeCore = struct {
         snapshot_id: u64,
         module_type: PersistenceModuleType,
         instance_id: u32,
+        wall_clock_ms: u64,
     ) MainLogWriteError!void {
         var file = try dir.createFile(io_context.current(), path, .{
             .truncate = false,
         });
         defer file.close(io_context.current());
-        const wall_clock_ms = io_context.realTimestampMs();
 
         var line_buf: [256]u8 = undefined;
         const line = try std.fmt.bufPrint(
@@ -4808,9 +4809,10 @@ pub const ExchangeCore = struct {
         // Java's Consumer<OrderCommand> convenience overloads stamp wall-clock
         // milliseconds at publication time when the caller omits one.
         // Preserve explicit typed timestamps and the convenience sentinel
-        // metadata independently.
+        // metadata independently. Use the injectable RuntimeConfig wall clock
+        // so deterministic simulation can freeze publication time.
         if (command.timestamp == 0) {
-            command.timestamp = std.math.cast(i64, io_context.realTimestampMs()) orelse
+            command.timestamp = std.math.cast(i64, self.config.runtime.wall_clock.nowMs()) orelse
                 return error.CallbackTimestampOverflow;
         }
         switch (api_command) {
@@ -4871,7 +4873,7 @@ pub const ExchangeCore = struct {
         const sequence = sequences.first.toInt();
         const order_id = std.math.cast(i64, sequence) orelse
             return error.GeneratedOrderIdOverflow;
-        const timestamp = std.math.cast(i64, io_context.realTimestampMs()) orelse
+        const timestamp = std.math.cast(i64, self.config.runtime.wall_clock.nowMs()) orelse
             return error.CallbackTimestampOverflow;
 
         var reservation = driver.queue.reserve(1) catch unreachable;
@@ -7224,10 +7226,6 @@ fn makePersistStateRiskCommand(snapshot_id: i64, timestamp_ns: i64) cmd.OrderCom
     };
 }
 
-fn currentWallClockTimestampNs() u64 {
-    return io_context.realTimestampNs();
-}
-
 const LegacySnapshotGuardReportSpec = struct {
     pub const code: i32 = 70_451;
     pub const schema_id: [report_registry.schema_id_len]u8 =
@@ -8654,6 +8652,173 @@ test "exchange core typed timestamps preserve sync async batch callback order an
     for (expected_types, expected_timestamps, 0..) |command_type, timestamp, index| {
         try std.testing.expectEqual(command_type, raw_probe.commands[index].command);
         try std.testing.expectEqual(timestamp, raw_probe.commands[index].timestamp);
+    }
+}
+
+const ConvenienceWallClock = struct {
+    now_ns: u64,
+
+    fn source(self: *@This()) runtime_mod.WallClock {
+        return .{
+            .context = self,
+            .read_ns = read,
+        };
+    }
+
+    fn read(context: ?*anyopaque) u64 {
+        const self: *@This() = @ptrCast(@alignCast(context.?));
+        return self.now_ns;
+    }
+};
+
+const ConvenienceWallClockCallbackProbe = struct {
+    count: usize = 0,
+    last_timestamp: i64 = 0,
+
+    fn onResponse(context: ?*anyopaque, response: *const kernel_mod.CommandResponse) void {
+        const self: *@This() = @ptrCast(@alignCast(context.?));
+        self.count += 1;
+        self.last_timestamp = response.command.timestamp;
+    }
+};
+
+// Dual-run seed campaign: convenience zero-timestamp publication must be
+// reproducible under a frozen WallClock (TigerBeetle DST style).
+test "exchange core convenience wall clock seed campaign is deterministic" {
+    const allocator = std.testing.allocator;
+    const seed: u64 = 42;
+    const frozen_ms: u64 = 1_700_000_000_042;
+    const frozen_ns = frozen_ms * std.time.ns_per_ms;
+    const symbol: i32 = 9_342;
+    const uid: i64 = 88_342;
+
+    const ScenarioHashes = struct {
+        risk_hash: u64,
+        detailed_hash: u64,
+        callback_timestamp: i64,
+        generated_timestamp: i64,
+    };
+
+    const run_once = struct {
+        fn call(
+            alloc: std.mem.Allocator,
+            wall_ns: u64,
+            symbol_id: i32,
+            user_id: i64,
+        ) !ScenarioHashes {
+            var wall: ConvenienceWallClock = .{ .now_ns = wall_ns };
+            var core = try ExchangeCore.initWithIo(alloc, std.testing.io, .{
+                .matching = .{ .orderbook_kind = .direct },
+                .runtime = .{
+                    .wall_clock = wall.source(),
+                },
+            });
+            defer core.deinit();
+
+            try std.testing.expect(try core.kernelRef().addSymbol(try makeExchangeSpecForSymbol(symbol_id)));
+
+            var add_user = try core.addUser(user_id);
+            defer add_user.deinit(alloc);
+            try std.testing.expectEqual(cmd.CommandResultCode.success, add_user.result_code);
+
+            var balance = try core.adjustUserBalance(
+                user_id,
+                1,
+                15,
+                100_000,
+                .adjustment,
+            );
+            defer balance.deinit(alloc);
+            try std.testing.expectEqual(cmd.CommandResultCode.success, balance.result_code);
+
+            var probe: ConvenienceWallClockCallbackProbe = .{};
+            // timestamp==0 convenience path stamps from wall_clock.
+            try core.submitApiCommandWithCallback(.{
+                .place_order = .{
+                    .order_id = 91_342,
+                    .uid = user_id,
+                    .symbol = symbol_id,
+                    .price = 100,
+                    .reserve_bid_price = 100,
+                    .size = 3,
+                    .action = .bid,
+                    .order_type = .gtc,
+                    .user_cookie = 1,
+                    .timestamp = 0,
+                },
+            }, .{
+                .context = &probe,
+                .callback = ConvenienceWallClockCallbackProbe.onResponse,
+            });
+            try std.testing.expectEqual(@as(usize, 1), try core.drainAsyncPending());
+            try std.testing.expectEqual(@as(usize, 1), probe.count);
+            const callback_timestamp = probe.last_timestamp;
+
+            probe = .{};
+            _ = try core.placeNewOrderGeneratedIdWithCallback(
+                2,
+                101,
+                0,
+                2,
+                .ask,
+                .gtc,
+                symbol_id,
+                user_id,
+                .{
+                    .context = &probe,
+                    .callback = ConvenienceWallClockCallbackProbe.onResponse,
+                },
+            );
+            try std.testing.expectEqual(@as(usize, 1), try core.drainAsyncPending());
+            try std.testing.expectEqual(@as(usize, 1), probe.count);
+
+            return .{
+                .risk_hash = try queryRiskStateHash(&core, alloc),
+                .detailed_hash = try queryDetailedStateHash(&core, alloc),
+                .callback_timestamp = callback_timestamp,
+                .generated_timestamp = probe.last_timestamp,
+            };
+        }
+    }.call;
+
+    const first = run_once(allocator, frozen_ns, symbol, uid) catch |err| {
+        std.debug.print(
+            "seed={d}; replay with: zig build test --test-filter \"exchange core convenience wall clock seed campaign is deterministic\"\n",
+            .{seed},
+        );
+        return err;
+    };
+    const second = run_once(allocator, frozen_ns, symbol, uid) catch |err| {
+        std.debug.print(
+            "seed={d}; replay with: zig build test --test-filter \"exchange core convenience wall clock seed campaign is deterministic\"\n",
+            .{seed},
+        );
+        return err;
+    };
+
+    const expected_ts: i64 = @intCast(frozen_ms);
+    if (first.callback_timestamp != expected_ts or
+        first.generated_timestamp != expected_ts or
+        first.risk_hash != second.risk_hash or
+        first.detailed_hash != second.detailed_hash or
+        first.callback_timestamp != second.callback_timestamp or
+        first.generated_timestamp != second.generated_timestamp)
+    {
+        std.debug.panic(
+            "seed={d} wall_ms={d} first=(risk={d} detailed={d} cb_ts={d} gen_ts={d}) second=(risk={d} detailed={d} cb_ts={d} gen_ts={d}); replay with: zig build test --test-filter \"exchange core convenience wall clock seed campaign is deterministic\"",
+            .{
+                seed,
+                frozen_ms,
+                first.risk_hash,
+                first.detailed_hash,
+                first.callback_timestamp,
+                first.generated_timestamp,
+                second.risk_hash,
+                second.detailed_hash,
+                second.callback_timestamp,
+                second.generated_timestamp,
+            },
+        );
     }
 }
 

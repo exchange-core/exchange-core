@@ -5992,17 +5992,41 @@ fn runSeededFaultSimulation(
 
     for (fault_events.items, 0..) |event, idx| {
         var command = event.command;
-        const code = try executeSingleAndSplitExpectEqual(allocator, &single, &split, command);
+        const code = executeSingleAndSplitExpectEqual(allocator, &single, &split, command) catch |err| {
+            printSeededFaultReplayHint(
+                seed,
+                idx,
+                "seeded fault-injection split simulation is deterministic and seed-sensitive",
+            );
+            return err;
+        };
         try output.digests.append(allocator, commandResultDigest(&command, code));
-        if ((idx + 1) % 25 == 0) {
-            try assertSingleVsSplitStateParity(allocator, &single, &split, users[0..]);
-        }
+        // Check invariants after every delivered command (TigerBeetle-style).
+        assertSingleVsSplitStateParity(allocator, &single, &split, users[0..]) catch |err| {
+            printSeededFaultReplayHint(
+                seed,
+                idx,
+                "seeded fault-injection split simulation is deterministic and seed-sensitive",
+            );
+            return err;
+        };
     }
 
     try assertSingleVsSplitStateParity(allocator, &single, &split, users[0..]);
     output.delivered_count = fault_events.items.len;
     output.final_fingerprint = try split.detailedHashFingerprint();
     return output;
+}
+
+fn printSeededFaultReplayHint(
+    seed: u64,
+    step: usize,
+    comptime test_filter: []const u8,
+) void {
+    std.debug.print(
+        "seed=0x{x} step={d}; replay with: zig build test --test-filter \"{s}\"\n",
+        .{ seed, step, test_filter },
+    );
 }
 
 fn runSeededFaultSimulationMultiSymbol(
@@ -6241,12 +6265,32 @@ fn runSeededFaultSimulationMultiSymbol(
 
     for (fault_events.items, 0..) |event, idx| {
         var command = event.command;
-        const code = try executeSingleAndSplitExpectEqual(allocator, &single, &split, command);
+        const code = executeSingleAndSplitExpectEqual(allocator, &single, &split, command) catch |err| {
+            printSeededFaultReplayHint(
+                seed,
+                idx,
+                "seeded fault-injection multi-symbol split simulation is deterministic and seed-sensitive",
+            );
+            return err;
+        };
         try output.digests.append(allocator, commandResultDigest(&command, code));
-        if ((idx + 1) % 35 == 0) {
-            try assertSingleVsSplitStateParity(allocator, &single, &split, all_users.items);
-            try assertOrderBooksSingleVsSplitParity(allocator, &single, &split, symbol_ids[0..]);
-        }
+        // Check invariants after every delivered command (TigerBeetle-style).
+        assertSingleVsSplitStateParity(allocator, &single, &split, all_users.items) catch |err| {
+            printSeededFaultReplayHint(
+                seed,
+                idx,
+                "seeded fault-injection multi-symbol split simulation is deterministic and seed-sensitive",
+            );
+            return err;
+        };
+        assertOrderBooksSingleVsSplitParity(allocator, &single, &split, symbol_ids[0..]) catch |err| {
+            printSeededFaultReplayHint(
+                seed,
+                idx,
+                "seeded fault-injection multi-symbol split simulation is deterministic and seed-sensitive",
+            );
+            return err;
+        };
     }
 
     try assertSingleVsSplitStateParity(allocator, &single, &split, all_users.items);
@@ -12381,6 +12425,44 @@ test "seeded fault-injection multi-symbol split simulation is deterministic and 
     const delivered_diff = first.delivered_count != different_seed.delivered_count;
     const fingerprint_diff = first.final_fingerprint != different_seed.final_fingerprint;
     try std.testing.expect(digest_diff or delivered_diff or fingerprint_diff);
+}
+
+test "seeded fault multi-seed matching/split campaign includes seed 42" {
+    const allocator = std.testing.allocator;
+    // Keep rounds modest: every delivered command now runs full single-vs-split
+    // invariant checks, so multi-seed coverage stays inside unit-test budgets.
+    const rounds: usize = 80;
+    const seeds = [_]u64{ 42, 0xDEADBEEF12345678, 0xC0FFEE, 7 };
+
+    for (seeds) |seed| {
+        var first = runSeededFaultSimulation(allocator, seed, rounds) catch |err| {
+            std.debug.print(
+                "seed=0x{x}; replay with: zig build test --test-filter \"seeded fault multi-seed matching/split campaign includes seed 42\"\n",
+                .{seed},
+            );
+            return err;
+        };
+        defer first.deinit(allocator);
+        var second = runSeededFaultSimulation(allocator, seed, rounds) catch |err| {
+            std.debug.print(
+                "seed=0x{x}; replay with: zig build test --test-filter \"seeded fault multi-seed matching/split campaign includes seed 42\"\n",
+                .{seed},
+            );
+            return err;
+        };
+        defer second.deinit(allocator);
+
+        if (first.delivered_count == 0 or
+            first.delivered_count != second.delivered_count or
+            !std.mem.eql(u64, first.digests.items, second.digests.items) or
+            first.final_fingerprint != second.final_fingerprint)
+        {
+            std.debug.panic(
+                "seed=0x{x}; replay with: zig build test --test-filter \"seeded fault multi-seed matching/split campaign includes seed 42\"",
+                .{seed},
+            );
+        }
+    }
 }
 
 test "assigned sharded execution shares one routed and split frontier" {

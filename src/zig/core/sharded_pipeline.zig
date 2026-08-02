@@ -3385,6 +3385,295 @@ test "serial grouped terminal fence settles and reclaims the final open group" {
     try std.testing.expectEqual(@as(u64, 1), pipeline.frontiers.reclaimed);
 }
 
+// Cooperative single-threaded schedule simulator (TigerBeetle DST style).
+// SerialGroupedPipeline already runs R1→match→journal→R2 without threads.
+// This campaign drives seed-controlled interleaving of submit / journal-ack /
+// take-result / flush steps and compares final state to an immediate
+// MultiShardKernelSet reference executing the same command tape.
+const cooperative_schedule_filter =
+    "seeded cooperative serial schedule campaign is deterministic and seed-sensitive";
+
+fn printCooperativeScheduleHint(seed: u64, step: []const u8) void {
+    std.debug.print(
+        "seed=0x{x} step={s}; replay with: zig build test --test-filter \"{s}\"\n",
+        .{ seed, step, cooperative_schedule_filter },
+    );
+}
+
+const CooperativeScheduleResult = struct {
+    serial_fingerprint: u64,
+    immediate_fingerprint: u64,
+    commands: usize,
+    journal_acks: usize,
+    results_taken: usize,
+};
+
+fn buildCooperativeCommandTape(
+    allocator: std.mem.Allocator,
+    fixture: SpotFixture,
+    seed: u64,
+    rounds: usize,
+) ![]cmd.OrderCommand {
+    var prng = std.Random.DefaultPrng.init(seed);
+    const random = prng.random();
+    var tape: std.ArrayListUnmanaged(cmd.OrderCommand) = .empty;
+    errdefer tape.deinit(allocator);
+    try tape.ensureTotalCapacityPrecise(allocator, rounds);
+
+    var next_order_id: i64 = 80_000;
+    var group: i64 = 1;
+    for (0..rounds) |_| {
+        const roll = random.uintLessThan(u32, 100);
+        if (roll < 15) {
+            // Force a group boundary for R2 settle pressure.
+            group += 1;
+            try tape.append(allocator, makeNop(group));
+        } else if (roll < 55) {
+            var ask = fixture.makerAsk(next_order_id, 1 + @as(i64, @intCast(random.uintLessThan(u32, 3))));
+            ask.events_group = group;
+            try tape.append(allocator, ask);
+            next_order_id += 1;
+        } else {
+            var bid = fixture.takerBid(next_order_id, group);
+            // Vary size slightly while remaining legal vs resting liquidity.
+            bid.size = 1 + @as(i64, @intCast(random.uintLessThan(u32, 2)));
+            try tape.append(allocator, bid);
+            next_order_id += 1;
+        }
+    }
+    return try tape.toOwnedSlice(allocator);
+}
+
+fn runCooperativeSerialSchedule(
+    allocator: std.mem.Allocator,
+    seed: u64,
+    rounds: usize,
+    shard_count: usize,
+) !CooperativeScheduleResult {
+    const fixture: SpotFixture = .{};
+    var serial_kernels = try kernel_mod.MultiShardKernelSet.init(
+        allocator,
+        shard_count,
+        .direct,
+    );
+    defer serial_kernels.deinit();
+    try fixture.setup(&serial_kernels);
+
+    var immediate_kernels = try kernel_mod.MultiShardKernelSet.init(
+        allocator,
+        shard_count,
+        .direct,
+    );
+    defer immediate_kernels.deinit();
+    try fixture.setup(&immediate_kernels);
+
+    const tape = try buildCooperativeCommandTape(allocator, fixture, seed, rounds);
+    defer allocator.free(tape);
+
+    // Immediate reference: execute the tape in publish order.
+    for (tape) |command| {
+        var mutable = command;
+        var response = immediate_kernels.executeRouted(&mutable) catch |err| {
+            printCooperativeScheduleHint(seed, "immediate-execute");
+            return err;
+        };
+        response.deinit(allocator);
+    }
+    const immediate_fp = try immediate_kernels.detailedHashFingerprint();
+
+    // Cooperative serial pipeline with seed-driven stage interleaving.
+    var pipeline = try SerialGroupedPipeline.init(allocator, &serial_kernels, 64);
+    defer pipeline.deinit();
+
+    var prng = std.Random.DefaultPrng.init(seed ^ 0xC3A5C85C97CB3127);
+    const random = prng.random();
+    var next_seq = serial_kernels.next_seq + 1;
+    var tape_index: usize = 0;
+    var journal_acks: usize = 0;
+    var results_taken: usize = 0;
+    var pending_unacked: usize = 0;
+
+    while (tape_index < tape.len or pending_unacked > 0) {
+        const can_submit = tape_index < tape.len;
+        const can_ack = pending_unacked > 0;
+        // Prefer progress: if only one action is possible, take it.
+        // When journal is lagging and take-result would spin, force an ack.
+        const action: u2 = blk: {
+            if (can_submit and can_ack) {
+                break :blk @intCast(random.uintLessThan(u32, 3));
+            } else if (can_submit) {
+                break :blk 0;
+            } else if (can_ack) {
+                break :blk 1; // must ack to make progress
+            } else {
+                break :blk 2;
+            }
+        };
+
+        switch (action) {
+            0 => {
+                if (!can_submit) continue;
+                var command = tape[tape_index];
+                _ = pipeline.submitAtSequence(.fromInt(next_seq), &command) catch |err| {
+                    printCooperativeScheduleHint(seed, "serial-submit");
+                    return err;
+                };
+                next_seq += 1;
+                tape_index += 1;
+                pending_unacked += 1;
+                // After submit, randomly try draining ready results without
+                // blocking progress when journal has not advanced.
+                if (random.boolean()) {
+                    while (true) {
+                        var maybe = pipeline.takeNextResult() catch |err| {
+                            printCooperativeScheduleHint(seed, "serial-take-result");
+                            return err;
+                        };
+                        if (maybe) |*response| {
+                            response.deinit(allocator);
+                            results_taken += 1;
+                        } else break;
+                    }
+                }
+            },
+            1 => {
+                if (!can_ack) continue;
+                const ack_seq = pipeline.frontiers.journal + 1;
+                pipeline.acknowledgeJournal(ack_seq) catch |err| {
+                    printCooperativeScheduleHint(seed, "serial-journal-ack");
+                    return err;
+                };
+                journal_acks += 1;
+                pending_unacked -= 1;
+                // Opportunistic result drain after each journal ack.
+                while (true) {
+                    var maybe = pipeline.takeNextResult() catch |err| {
+                        printCooperativeScheduleHint(seed, "serial-take-result");
+                        return err;
+                    };
+                    if (maybe) |*response| {
+                        response.deinit(allocator);
+                        results_taken += 1;
+                    } else break;
+                }
+            },
+            else => {
+                while (true) {
+                    var maybe = pipeline.takeNextResult() catch |err| {
+                        printCooperativeScheduleHint(seed, "serial-take-result");
+                        return err;
+                    };
+                    if (maybe) |*response| {
+                        response.deinit(allocator);
+                        results_taken += 1;
+                    } else break;
+                }
+            },
+        }
+    }
+
+    // Drain remaining results after all journals are acked.
+    while (true) {
+        var maybe = pipeline.takeNextResult() catch |err| {
+            printCooperativeScheduleHint(seed, "serial-final-drain");
+            return err;
+        };
+        if (maybe) |*response| {
+            response.deinit(allocator);
+            results_taken += 1;
+        } else break;
+    }
+    pipeline.flushTerminal() catch |err| {
+        printCooperativeScheduleHint(seed, "serial-flush");
+        return err;
+    };
+
+    const serial_fp = try serial_kernels.detailedHashFingerprint();
+    if (serial_fp != immediate_fp) {
+        printCooperativeScheduleHint(seed, "fingerprint-mismatch");
+        return error.TestUnexpectedResult;
+    }
+
+    return .{
+        .serial_fingerprint = serial_fp,
+        .immediate_fingerprint = immediate_fp,
+        .commands = tape.len,
+        .journal_acks = journal_acks,
+        .results_taken = results_taken,
+    };
+}
+
+test "seeded cooperative serial schedule campaign is deterministic and seed-sensitive" {
+    const allocator = std.testing.allocator;
+    const seeds = [_]u64{ 42, 7, 0xC0FFEE, 0xA5A5A5A5C3C3C3C3 };
+    const rounds: usize = 48;
+    const shard_count: usize = 2;
+
+    var first_fps: [seeds.len]u64 = undefined;
+    for (seeds, 0..) |seed, idx| {
+        const first = runCooperativeSerialSchedule(allocator, seed, rounds, shard_count) catch |err| {
+            printCooperativeScheduleHint(seed, "campaign");
+            return err;
+        };
+        const second = runCooperativeSerialSchedule(allocator, seed, rounds, shard_count) catch |err| {
+            printCooperativeScheduleHint(seed, "campaign-rerun");
+            return err;
+        };
+        if (first.serial_fingerprint != second.serial_fingerprint or
+            first.immediate_fingerprint != second.immediate_fingerprint or
+            first.commands != second.commands or
+            first.journal_acks != second.journal_acks or
+            first.results_taken != second.results_taken)
+        {
+            printCooperativeScheduleHint(seed, "determinism");
+            return error.TestUnexpectedResult;
+        }
+        try std.testing.expectEqual(first.serial_fingerprint, first.immediate_fingerprint);
+        try std.testing.expect(first.commands == rounds);
+        try std.testing.expect(first.journal_acks == rounds);
+        first_fps[idx] = first.serial_fingerprint;
+    }
+
+    var saw_diff = false;
+    for (0..seeds.len) |i| {
+        for (i + 1..seeds.len) |j| {
+            if (first_fps[i] != first_fps[j]) saw_diff = true;
+        }
+    }
+    if (!saw_diff) {
+        printCooperativeScheduleHint(seeds[0], "seed-sensitivity");
+        return error.TestUnexpectedResult;
+    }
+}
+
+test "seeded cooperative serial schedule multi-seed sweep includes seed 42" {
+    const allocator = std.testing.allocator;
+    const rounds: usize = 24;
+    const shard_count: usize = 1;
+    const seed_count: u64 = 32;
+
+    var seed: u64 = 0;
+    while (seed < seed_count) : (seed += 1) {
+        const first = runCooperativeSerialSchedule(allocator, seed, rounds, shard_count) catch |err| {
+            printCooperativeScheduleHint(seed, "multi-seed-sweep");
+            return err;
+        };
+        const second = runCooperativeSerialSchedule(allocator, seed, rounds, shard_count) catch |err| {
+            printCooperativeScheduleHint(seed, "multi-seed-sweep-rerun");
+            return err;
+        };
+        if (first.serial_fingerprint != second.serial_fingerprint or
+            first.serial_fingerprint != first.immediate_fingerprint)
+        {
+            printCooperativeScheduleHint(seed, "multi-seed-sweep-determinism");
+            return error.TestUnexpectedResult;
+        }
+    }
+    try std.testing.expect(seed_count > 16);
+    // Explicitly include 42 in the primary campaign; sweep covers 0..31 for budget.
+    _ = try runCooperativeSerialSchedule(allocator, 42, rounds, shard_count);
+}
+
 test "persistent grouped runtime reuses exact topology workers and settles terminal group" {
     const allocator = std.testing.allocator;
     var kernels = try kernel_mod.MultiShardKernelSet.initWithTopology(

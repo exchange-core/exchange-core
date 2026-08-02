@@ -45,6 +45,10 @@ pub fn appendAll(file: std.Io.File, bytes: []const u8) AppendAllError!void {
     try file_writer.interface.flush();
 }
 
+/// Process wall-clock reads for call sites that do not yet own a
+/// `runtime.WallClock`. Prefer the injectable `WallClock` on
+/// `RuntimeConfig` / `ExchangeCore` for command timestamps and any state that
+/// participates in hashes or journals so tests can freeze time.
 pub fn realTimestampNs() u64 {
     const nanoseconds = std.Io.Clock.real.now(current()).nanoseconds;
     if (nanoseconds <= 0) return 0;

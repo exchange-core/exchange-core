@@ -2244,7 +2244,7 @@ pub const ExchangeApiSharded = struct {
         try self.appendDefaultPersistenceMainLogEntry(
             dir,
             self.driver.publication_sequencer.highWater(),
-            currentWallClockTimestampNs(),
+            self.config.runtime.wall_clock.nowNs(),
             snapshot_id,
             module_type,
             instance_id,
@@ -2614,7 +2614,7 @@ pub const ExchangeApiSharded = struct {
         const sequence = sequences.first.toInt();
         const order_id = std.math.cast(i64, sequence) orelse
             return error.GeneratedOrderIdOverflow;
-        const timestamp = std.math.cast(i64, io_context.realTimestampMs()) orelse
+        const timestamp = std.math.cast(i64, self.config.runtime.wall_clock.nowMs()) orelse
             return error.CallbackTimestampOverflow;
         const acceptance_id = std.math.add(u64, driver.accepted_total, 1) catch
             return error.RequestIdOverflow;
@@ -7832,9 +7832,10 @@ pub const ExchangeApiSharded = struct {
         // Java's Consumer<OrderCommand> convenience overloads stamp wall-clock
         // milliseconds at publication time. An explicit translated timestamp
         // remains caller-owned; only the backwards-compatible zero default
-        // receives the convenience fallback.
+        // receives the convenience fallback. Use the injectable RuntimeConfig
+        // wall clock so deterministic simulation can freeze publication time.
         if (command.timestamp == 0) {
-            command.timestamp = std.math.cast(i64, io_context.realTimestampMs()) orelse
+            command.timestamp = std.math.cast(i64, self.config.runtime.wall_clock.nowMs()) orelse
                 return error.CallbackTimestampOverflow;
         }
         switch (api_command) {
@@ -8605,6 +8606,7 @@ pub const ExchangeApiSharded = struct {
             snapshot_id,
             module_type,
             instance_id,
+            self.config.runtime.wall_clock.nowMs(),
         );
     }
 
@@ -8877,12 +8879,12 @@ fn appendMainLogEntryToFile(
     snapshot_id: u64,
     module_type: PersistenceModuleType,
     instance_id: u32,
+    wall_clock_ms: u64,
 ) MainLogWriteError!void {
     var file = try dir.createFile(io_context.current(), path, .{
         .truncate = false,
     });
     defer file.close(io_context.current());
-    const wall_clock_ms = io_context.realTimestampMs();
 
     var line_buf: [256]u8 = undefined;
     const line = try std.fmt.bufPrint(
@@ -8900,10 +8902,6 @@ fn appendMainLogEntryToFile(
     try io_context.appendAll(file, line);
     try file.sync(io_context.current());
     try persistence_paths.syncParentDirectory(io_context.current(), dir, path);
-}
-
-fn currentWallClockTimestampNs() u64 {
-    return io_context.realTimestampNs();
 }
 
 fn requestIdFromHandle(handle: ApiCommandAsyncHandle) error{UnsupportedPersistStateHandle}!u64 {

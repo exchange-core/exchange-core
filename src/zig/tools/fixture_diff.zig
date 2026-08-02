@@ -2266,3 +2266,390 @@ test "normalized aggregate balance adds projected deltas for pre-release fixture
         normalizedExpectedAggregateBalance(.pre_release, .exchange_trade_reports_long, 4000, .taker_base),
     );
 }
+
+// ---------------------------------------------------------------------------
+// Multi-seed Java oracle campaign (TigerBeetle DST style)
+//
+// Live Java is not assumed in CI. Committed java_*.fixture files are the
+// authoritative Java oracle corpus. This campaign:
+//   1. Dual-runs a representative fixture set under each seed (shuffled order)
+//   2. Compares Zig execution to the Java oracle fields each time
+//   3. Runs a seed-driven legal random tape with naive vs direct dual-parity
+//   4. Prints seed=0x… + --test-filter on failure
+// Offline expansion of random-tape Java oracles is documented in FIXTURES.md.
+// ---------------------------------------------------------------------------
+
+const java_oracle_campaign_filter =
+    "seeded java oracle campaign is deterministic and seed-sensitive";
+
+/// Representative committed Java fixtures used as multi-seed oracles.
+const java_oracle_campaign_fixtures = [_][]const u8{
+    "src/zig/fixtures/java_user_balance_basic.fixture",
+    "src/zig/fixtures/java_user_balance_basic_detailed_low32.fixture",
+    "src/zig/fixtures/java_exchange_control.fixture",
+    "src/zig/fixtures/java_exchange_control_detailed_low32.fixture",
+    "src/zig/fixtures/java_exchange_trade_basic.fixture",
+    "src/zig/fixtures/java_exchange_trade_basic_direct.fixture",
+    "src/zig/fixtures/java_exchange_trade_basic_detailed_low32.fixture",
+    "src/zig/fixtures/java_exchange_trade_basic_direct_detailed_low32.fixture",
+    "src/zig/fixtures/java_exchange_trade_extended.fixture",
+    "src/zig/fixtures/java_exchange_trade_extended_direct.fixture",
+    "src/zig/fixtures/java_exchange_trade_bootstrap.fixture",
+    "src/zig/fixtures/java_exchange_trade_bootstrap_direct.fixture",
+    "src/zig/fixtures/java_exchange_trade_multisymbol_241.fixture",
+    "src/zig/fixtures/java_exchange_trade_multisymbol_direct_241.fixture",
+    "src/zig/fixtures/java_exchange_trade_reports.fixture",
+    "src/zig/fixtures/java_exchange_trade_reports_direct.fixture",
+};
+
+const JavaOracleCampaignResult = struct {
+    fixture_fingerprint: u64,
+    tape_fingerprint: u64,
+    fixtures_checked: usize,
+    tape_ops: usize,
+};
+
+fn printJavaOracleCampaignHint(seed: u64, step: []const u8) void {
+    std.debug.print(
+        "seed=0x{x} step={s}; replay with: zig build test --test-filter \"{s}\"\n",
+        .{ seed, step, java_oracle_campaign_filter },
+    );
+}
+
+fn mixCampaignU64(hash: *u64, value: u64) void {
+    hash.* ^= value +% 0x9e3779b97f4a7c15 +% (hash.* << 6) +% (hash.* >> 2);
+}
+
+fn mixCampaignBytes(hash: *u64, bytes: []const u8) void {
+    for (bytes) |b| {
+        mixCampaignU64(hash, b);
+    }
+}
+
+fn shuffleFixtureOrder(paths: [][]const u8, seed: u64) void {
+    var prng = std.Random.DefaultPrng.init(seed);
+    const random = prng.random();
+    if (paths.len < 2) return;
+    var i: usize = paths.len - 1;
+    while (i > 0) : (i -= 1) {
+        const j = random.uintLessThan(usize, i + 1);
+        const tmp = paths[i];
+        paths[i] = paths[j];
+        paths[j] = tmp;
+    }
+}
+
+fn runJavaOracleFixturePass(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    seed: u64,
+    path: []const u8,
+) DiffError!u64 {
+    const bytes = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(1024 * 1024)) catch {
+        printJavaOracleCampaignHint(seed, path);
+        return error.InvalidArgs;
+    };
+    defer allocator.free(bytes);
+
+    var fixture = parseFixture(allocator, bytes) catch |err| {
+        printJavaOracleCampaignHint(seed, path);
+        return err;
+    };
+    defer fixture.deinit(allocator);
+
+    var first = runScenario(allocator, &fixture) catch |err| {
+        printJavaOracleCampaignHint(seed, path);
+        return err;
+    };
+    defer first.deinit(allocator);
+    var second = runScenario(allocator, &fixture) catch |err| {
+        printJavaOracleCampaignHint(seed, path);
+        return err;
+    };
+    defer second.deinit(allocator);
+
+    const first_mismatches = compareFixture(path, &fixture, &first);
+    const second_mismatches = compareFixture(path, &fixture, &second);
+    if (first_mismatches != 0 or second_mismatches != 0) {
+        printJavaOracleCampaignHint(seed, path);
+        return error.ComparisonFailed;
+    }
+
+    if (first.state_hash_detailed_u64 != second.state_hash_detailed_u64 or
+        first.state_hash_u64 != second.state_hash_u64 or
+        first.command_results.items.len != second.command_results.items.len)
+    {
+        printJavaOracleCampaignHint(seed, "dual-run-determinism");
+        return error.ComparisonFailed;
+    }
+
+    var fingerprint: u64 = 0;
+    mixCampaignBytes(&fingerprint, path);
+    mixCampaignU64(&fingerprint, first.state_hash_detailed_u64);
+    mixCampaignU64(&fingerprint, first.state_hash_u64);
+    mixCampaignU64(&fingerprint, @intCast(first.command_results.items.len));
+    for (first.command_results.items) |code| {
+        const raw: i32 = @intFromEnum(code);
+        mixCampaignU64(&fingerprint, @as(u64, @bitCast(@as(i64, raw))));
+    }
+    return fingerprint;
+}
+
+fn runSeededRandomTapeZigParity(
+    allocator: std.mem.Allocator,
+    seed: u64,
+    rounds: usize,
+) DiffError!u64 {
+    var kernel_naive = try kernel_mod.ExchangeKernel.init(allocator, .{ .orderbook_kind = .naive });
+    defer kernel_naive.deinit();
+    var kernel_direct = try kernel_mod.ExchangeKernel.init(allocator, .{ .orderbook_kind = .direct });
+    defer kernel_direct.deinit();
+
+    const spec = try common.CoreSymbolSpecification.init(.{
+        .symbol_id = EXCHANGE_SYMBOL,
+        .symbol_type = .currency_exchange_pair,
+        .base_currency = BASE_CCY,
+        .quote_currency = QUOTE_CCY,
+        .base_scale_k = 1,
+        .quote_scale_k = 1,
+        .taker_fee = 0,
+        .maker_fee = 0,
+    });
+    if (!(try kernel_naive.addSymbol(spec))) return error.UnexpectedResult;
+    if (!(try kernel_direct.addSymbol(spec))) return error.UnexpectedResult;
+
+    const users = [_]i64{ MAKER_UID, TAKER_UID };
+    var tx_id: i64 = 1;
+    for (users) |uid| {
+        var add = makeAddUserCommand(uid);
+        var n = try kernel_naive.execute(&add);
+        defer n.deinit(allocator);
+        var d = try kernel_direct.execute(&add);
+        defer d.deinit(allocator);
+        if (n.result_code != d.result_code) {
+            printJavaOracleCampaignHint(seed, "random-tape-bootstrap");
+            return error.ComparisonFailed;
+        }
+
+        for ([_]i32{ BASE_CCY, QUOTE_CCY }) |ccy| {
+            var bal = makeBalanceAdjustmentCommand(uid, ccy, 200_000, tx_id);
+            tx_id += 1;
+            var nb = try kernel_naive.execute(&bal);
+            defer nb.deinit(allocator);
+            var db = try kernel_direct.execute(&bal);
+            defer db.deinit(allocator);
+            if (nb.result_code != db.result_code) {
+                printJavaOracleCampaignHint(seed, "random-tape-bootstrap-balance");
+                return error.ComparisonFailed;
+            }
+        }
+    }
+
+    var prng = std.Random.DefaultPrng.init(seed ^ 0x9e3779b97f4a7c15);
+    const random = prng.random();
+    var next_order_id: i64 = 50_000;
+    var fingerprint: u64 = seed;
+
+    for (0..rounds) |idx| {
+        const roll = random.uintLessThan(u32, 100);
+        var command: cmd.OrderCommand = undefined;
+        if (roll < 55) {
+            const uid = users[random.uintLessThan(usize, users.len)];
+            const action: common.OrderAction = if (random.boolean()) .ask else .bid;
+            const price: i64 = 90 + @as(i64, @intCast(random.uintLessThan(u32, 21)));
+            const size: i64 = 1 + @as(i64, @intCast(random.uintLessThan(u32, 5)));
+            const reserve = if (action == .bid) price else 0;
+            command = cmd.OrderCommand.newOrder(.gtc, next_order_id, uid, price, reserve, size, action);
+            command.symbol = EXCHANGE_SYMBOL;
+            next_order_id += 1;
+        } else if (roll < 80) {
+            const span: u32 = @intCast(@max(next_order_id - 50_000, 1));
+            command = cmd.OrderCommand.cancel(
+                50_000 + @as(i64, @intCast(random.uintLessThan(u32, span))),
+                users[random.uintLessThan(usize, users.len)],
+            );
+            command.symbol = EXCHANGE_SYMBOL;
+        } else {
+            command = .{
+                .command = .order_book_request,
+                .symbol = EXCHANGE_SYMBOL,
+                .size = @intCast(random.uintLessThan(u32, 10) + 1),
+                .result_code = .new,
+            };
+        }
+
+        var n_cmd = command;
+        var d_cmd = command;
+        var n_resp = kernel_naive.execute(&n_cmd) catch |err| {
+            printJavaOracleCampaignHint(seed, "random-tape-naive");
+            return err;
+        };
+        defer n_resp.deinit(allocator);
+        var d_resp = kernel_direct.execute(&d_cmd) catch |err| {
+            printJavaOracleCampaignHint(seed, "random-tape-direct");
+            return err;
+        };
+        defer d_resp.deinit(allocator);
+
+        if (n_resp.result_code != d_resp.result_code or
+            n_resp.sequence != d_resp.sequence)
+        {
+            printJavaOracleCampaignHint(seed, "random-tape-result");
+            return error.ComparisonFailed;
+        }
+        const raw_code: i32 = @intFromEnum(n_resp.result_code);
+        mixCampaignU64(&fingerprint, @as(u64, @bitCast(@as(i64, raw_code))));
+        mixCampaignU64(&fingerprint, n_resp.sequence);
+        mixCampaignU64(&fingerprint, @intCast(idx));
+    }
+
+    const n_hash = try kernel_naive.risk_engine.stateHash();
+    const d_hash = try kernel_direct.risk_engine.stateHash();
+    if (n_hash != d_hash) {
+        printJavaOracleCampaignHint(seed, "random-tape-risk-hash");
+        return error.ComparisonFailed;
+    }
+    mixCampaignU64(&fingerprint, n_hash);
+    return fingerprint;
+}
+
+fn runJavaOracleCampaignWithFixtures(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    seed: u64,
+    tape_rounds: usize,
+    fixtures: []const []const u8,
+) DiffError!JavaOracleCampaignResult {
+    var order_buf: [java_oracle_campaign_fixtures.len][]const u8 = undefined;
+    std.debug.assert(fixtures.len <= order_buf.len);
+    @memcpy(order_buf[0..fixtures.len], fixtures);
+    const order = order_buf[0..fixtures.len];
+    shuffleFixtureOrder(order, seed);
+
+    var fixture_fingerprint: u64 = seed;
+    for (order) |path| {
+        const fp = try runJavaOracleFixturePass(allocator, io, seed, path);
+        mixCampaignU64(&fixture_fingerprint, fp);
+    }
+
+    const tape_fingerprint = try runSeededRandomTapeZigParity(allocator, seed, tape_rounds);
+    return .{
+        .fixture_fingerprint = fixture_fingerprint,
+        .tape_fingerprint = tape_fingerprint,
+        .fixtures_checked = order.len,
+        .tape_ops = tape_rounds,
+    };
+}
+
+fn runJavaOracleCampaign(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    seed: u64,
+    tape_rounds: usize,
+) DiffError!JavaOracleCampaignResult {
+    return runJavaOracleCampaignWithFixtures(
+        allocator,
+        io,
+        seed,
+        tape_rounds,
+        java_oracle_campaign_fixtures[0..],
+    );
+}
+
+test "seeded java oracle campaign is deterministic and seed-sensitive" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    // Include seed=42; keep seed count modest for unit-test budgets while
+    // still exercising multi-seed dual-run Java-oracle coverage.
+    const seeds = [_]u64{ 42, 7, 0xC0FFEE, 0xDEADBEEF12345678 };
+    const tape_rounds: usize = 64;
+
+    var first_by_seed: [seeds.len]JavaOracleCampaignResult = undefined;
+    for (seeds, 0..) |seed, idx| {
+        const first = runJavaOracleCampaign(allocator, io, seed, tape_rounds) catch |err| {
+            printJavaOracleCampaignHint(seed, "campaign");
+            return err;
+        };
+        const second = runJavaOracleCampaign(allocator, io, seed, tape_rounds) catch |err| {
+            printJavaOracleCampaignHint(seed, "campaign-rerun");
+            return err;
+        };
+        if (first.fixture_fingerprint != second.fixture_fingerprint or
+            first.tape_fingerprint != second.tape_fingerprint or
+            first.fixtures_checked != second.fixtures_checked)
+        {
+            printJavaOracleCampaignHint(seed, "campaign-determinism");
+            return error.ComparisonFailed;
+        }
+        try std.testing.expect(first.fixtures_checked >= 8);
+        try std.testing.expect(first.tape_ops == tape_rounds);
+        first_by_seed[idx] = first;
+    }
+
+    // Seed sensitivity: at least one seed pair must differ in tape schedule
+    // fingerprint (fixture oracle outcomes are order-mixed into fixture_fp).
+    var saw_diff = false;
+    for (0..seeds.len) |i| {
+        for (i + 1..seeds.len) |j| {
+            if (first_by_seed[i].fixture_fingerprint != first_by_seed[j].fixture_fingerprint or
+                first_by_seed[i].tape_fingerprint != first_by_seed[j].tape_fingerprint)
+            {
+                saw_diff = true;
+            }
+        }
+    }
+    if (!saw_diff) {
+        printJavaOracleCampaignHint(seeds[0], "seed-sensitivity");
+        return error.ComparisonFailed;
+    }
+}
+
+test "seeded java oracle multi-seed sweep includes seed 42" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    // N>=64 multi-seed sweep required by DST gap closure. Use a compact
+    // oracle subset so 64 dual-runs stay within unit-test budgets.
+    const sweep_fixtures = [_][]const u8{
+        "src/zig/fixtures/java_user_balance_basic.fixture",
+        "src/zig/fixtures/java_exchange_control.fixture",
+        "src/zig/fixtures/java_exchange_trade_basic.fixture",
+        "src/zig/fixtures/java_exchange_trade_basic_direct.fixture",
+        "src/zig/fixtures/java_exchange_trade_extended.fixture",
+        "src/zig/fixtures/java_exchange_trade_reports.fixture",
+    };
+    const tape_rounds: usize = 16;
+    const seed_count: u64 = 64;
+
+    var seed: u64 = 0;
+    while (seed < seed_count) : (seed += 1) {
+        const result = runJavaOracleCampaignWithFixtures(
+            allocator,
+            io,
+            seed,
+            tape_rounds,
+            sweep_fixtures[0..],
+        ) catch |err| {
+            printJavaOracleCampaignHint(seed, "multi-seed-sweep");
+            return err;
+        };
+        const again = runJavaOracleCampaignWithFixtures(
+            allocator,
+            io,
+            seed,
+            tape_rounds,
+            sweep_fixtures[0..],
+        ) catch |err| {
+            printJavaOracleCampaignHint(seed, "multi-seed-sweep-rerun");
+            return err;
+        };
+        if (result.fixture_fingerprint != again.fixture_fingerprint or
+            result.tape_fingerprint != again.tape_fingerprint)
+        {
+            printJavaOracleCampaignHint(seed, "multi-seed-sweep-determinism");
+            return error.ComparisonFailed;
+        }
+    }
+
+    // Explicit seed=42 dual-run already covered in the loop; assert presence.
+    try std.testing.expect(seed_count > 42);
+}

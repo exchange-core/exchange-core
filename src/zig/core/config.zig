@@ -326,6 +326,11 @@ pub const RuntimeConfig = struct {
     l2_flags_every_n_commands: usize = 0,
     l2_publish_interval_ns: u64 = runtime_mod.DefaultL2PublishIntervalNs,
     max_group_duration_ns: u64 = 0,
+    /// Injectable grouping / L2 deadline clock. Defaults to OS awake time.
+    clock: runtime_mod.MonotonicClock = runtime_mod.MonotonicClock.awake(),
+    /// Injectable wall clock for convenience command timestamps and main-log
+    /// prefixes. Defaults to OS real time; tests install a fake for seed replay.
+    wall_clock: runtime_mod.WallClock = runtime_mod.WallClock.real(),
 
     pub const ValidationError = error{
         InvalidQueueCapacity,
@@ -367,6 +372,7 @@ pub const RuntimeConfig = struct {
             .l2_flags_every_n_commands = self.l2_flags_every_n_commands,
             .l2_publish_interval_ns = self.l2_publish_interval_ns,
             .max_group_duration_ns = self.max_group_duration_ns,
+            .clock = self.clock,
         };
     }
 };
@@ -1260,6 +1266,50 @@ test "exchange core config conversion matches kernel and runtime targets" {
     try std.testing.expectEqual(@as(usize, 5), runtime_cfg.l2_flags_every_n_commands);
     try std.testing.expectEqual(@as(u64, 2_500), runtime_cfg.l2_publish_interval_ns);
     try std.testing.expectEqual(@as(u64, 1_000), runtime_cfg.max_group_duration_ns);
+}
+
+test "runtime config plumbs injectable monotonic and wall clocks" {
+    const FakeClock = struct {
+        value_ns: u64,
+
+        fn monoSource(self: *@This()) runtime_mod.MonotonicClock {
+            return .{
+                .context = self,
+                .read_ns = monoRead,
+            };
+        }
+
+        fn wallSource(self: *@This()) runtime_mod.WallClock {
+            return .{
+                .context = self,
+                .read_ns = wallRead,
+            };
+        }
+
+        fn monoRead(context: ?*anyopaque) u64 {
+            const self: *@This() = @ptrCast(@alignCast(context.?));
+            return self.value_ns;
+        }
+
+        fn wallRead(context: ?*anyopaque) u64 {
+            const self: *@This() = @ptrCast(@alignCast(context.?));
+            return self.value_ns + 1_000;
+        }
+    };
+
+    var fake: FakeClock = .{ .value_ns = 42_000_000_000 };
+    var runtime: RuntimeConfig = .{
+        .queue_capacity = 1_024,
+        .max_batch_size = 64,
+        .clock = fake.monoSource(),
+        .wall_clock = fake.wallSource(),
+    };
+    try runtime.validate();
+
+    const runtime_cfg = runtime.toRuntimeConfig();
+    try std.testing.expectEqual(@as(u64, 42_000_000_000), runtime_cfg.clock.nowNs());
+    try std.testing.expectEqual(@as(u64, 42_000_001_000), runtime.wall_clock.nowNs());
+    try std.testing.expectEqual(@as(u64, 42_000), runtime.wall_clock.nowMs());
 }
 
 test "java default config stays valid and carries java-style families" {

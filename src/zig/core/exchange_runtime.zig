@@ -226,6 +226,27 @@ pub const MonotonicClock = struct {
     }
 };
 
+/// Injectable wall-clock source for command publication timestamps and
+/// human-readable main-log prefixes. Production defaults to OS real time;
+/// deterministic simulation installs a seed-driven fake so convenience
+/// zero-timestamp paths stay reproducible.
+pub const WallClock = struct {
+    context: ?*anyopaque = null,
+    read_ns: *const fn (?*anyopaque) u64 = readRealClockNs,
+
+    pub fn real() WallClock {
+        return .{};
+    }
+
+    pub fn nowNs(self: WallClock) u64 {
+        return self.read_ns(self.context);
+    }
+
+    pub fn nowMs(self: WallClock) u64 {
+        return self.nowNs() / std.time.ns_per_ms;
+    }
+};
+
 pub const Config = struct {
     queue_capacity: usize = DefaultQueueCapacity,
     wait_strategy: WaitStrategy = .blocking,
@@ -580,6 +601,10 @@ fn readAwakeClockNs(_: ?*anyopaque) u64 {
     const nanoseconds = std.Io.Clock.awake.now(io_context.current()).nanoseconds;
     if (nanoseconds <= 0) return 0;
     return std.math.cast(u64, nanoseconds) orelse std.math.maxInt(u64);
+}
+
+fn readRealClockNs(_: ?*anyopaque) u64 {
+    return io_context.realTimestampNs();
 }
 
 fn safeAddDurationNs(base_ns: u64, delta_ns: u64) u64 {
