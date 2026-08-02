@@ -1,16 +1,22 @@
 # How exchange-core works
 
-A single narrative from first principles through the full command surface, with a code-level walkthrough of place → match → settle. This document is the long-form onboarding path. Start with [§2 In simple terms](#2-in-simple-terms) if you want the plain-language picture first; later sections add structure, then code. The detailed, flow-oriented references it points at live under [`docs/java-flows/`](java-flows/README.md) and remain the canonical source for processor topology, routing tables, and persistence recovery.
+A single narrative from first principles through the full command surface, with a code-level walkthrough of place → match → settle. This document is the long-form onboarding path. Start with [§2 In simple terms](#2-in-simple-terms) if you want the plain-language picture first; later sections add structure, then code. The detailed, flow-oriented references live under [`docs/java-flows/`](java-flows/README.md) (Java) and [`docs/zig-flows/`](zig-flows/README.md) (Zig port).
 
 | Role | Document |
 |---|---|
 | **This file** | Simple explanation, mental model, end-to-end story, code-level place path, Zig map |
-| [java-flows README](java-flows/README.md) | Index of flow guides and shortest mental model |
+| [java-flows README](java-flows/README.md) | Index of Java flow guides and shortest mental model |
 | [01 Architecture and lifecycle](java-flows/01-architecture-and-lifecycle.md) | Construction, Disruptor graph, sharding, groups, startup/shutdown |
 | [02 Command processing](java-flows/02-command-processing.md) | API publication, routing matrix, admin commands, results |
 | [03 Matching and risk](java-flows/03-matching-and-risk.md) | Order types, price-time match, R1 holds, R2 settlement, cancel/reduce/move |
 | [04 Reports and persistence](java-flows/04-reports-and-persistence.md) | Reports, binary fan-out, snapshots, journal, recovery |
 | [05 Source reading map](java-flows/05-source-reading-map.md) | File/package route and debugger walkthroughs |
+| [zig-flows README](zig-flows/README.md) | Index of Zig flow guides (same chapter structure as java-flows) |
+| [01 Architecture and lifecycle (Zig)](zig-flows/01-architecture-and-lifecycle.md) | Kernel, runtime, sharded pipeline, grouping, startup/shutdown |
+| [02 Command processing (Zig)](zig-flows/02-command-processing.md) | API publication, routing matrix, binary frames, results |
+| [03 Matching and risk (Zig)](zig-flows/03-matching-and-risk.md) | Order types, books, R1 holds, R2 prepare/commit, cancel/reduce/move |
+| [04 Reports and persistence (Zig)](zig-flows/04-reports-and-persistence.md) | Reports, XCM2/XCJ3, journal, recovery, Java conversion |
+| [05 Source reading map (Zig)](zig-flows/05-source-reading-map.md) | Module route, demos, and walkthroughs |
 | [src/zig/README.md](../src/zig/README.md) | Zig port status, orchestration, parity evidence |
 | [src/zig/USAGE_EXAMPLES.md](../src/zig/USAGE_EXAMPLES.md) | TCP demo and integration examples |
 
@@ -19,7 +25,7 @@ A single narrative from first principles through the full command surface, with 
 1. [§2 In simple terms](#2-in-simple-terms) — plain-language picture  
 2. [§3 Shortest mental model](#3-shortest-mental-model) — stage names for the same idea  
 3. The rest of this document once end-to-end  
-4. Each `java-flows/0N-*.md` when you need depth on that section  
+4. Each `java-flows/0N-*.md` or `zig-flows/0N-*.md` when you need depth on that implementation
 
 ---
 

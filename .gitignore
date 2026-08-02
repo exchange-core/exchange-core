@@ -28,3 +28,8 @@ zig-out/
 
 # Finder (MacOS) folder config
 .DS_Store
+
+# dex
+.dex/
+
+api-path-builders
