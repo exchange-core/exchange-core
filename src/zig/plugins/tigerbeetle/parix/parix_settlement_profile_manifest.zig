@@ -1,9 +1,9 @@
+//! Parix host integration for the opt-in TigerBeetle plugin.
 const std = @import("std");
-const exchange_core = @import("exchange_core");
+const tigerbeetle = @import("tigerbeetle");
 
-const core = exchange_core.core;
-const registry = core.tigerbeetle_destination_registry;
-const settlement = core.tigerbeetle_settlement;
+const registry = tigerbeetle.destination_registry;
+const settlement = tigerbeetle.settlement;
 
 const Sha256 = std.crypto.hash.sha2.Sha256;
 

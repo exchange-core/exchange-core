@@ -1,5 +1,5 @@
 const std = @import("std");
-const common = @import("common.zig");
+const common = @import("exchange_core").core.common;
 const outbox = @import("tigerbeetle_outbox.zig");
 const settlement = @import("tigerbeetle_settlement.zig");
 

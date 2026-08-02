@@ -1,7 +1,8 @@
 const std = @import("std");
-const io_context = @import("io_context.zig");
-const persistence_paths = @import("persistence_paths.zig");
-const publication = @import("publication_sequence.zig");
+const core = @import("exchange_core").core;
+const io_context = core.io_context;
+const persistence_paths = core.persistence_paths;
+const publication = core.publication_sequence;
 const settlement = @import("tigerbeetle_settlement.zig");
 
 const snapshot_magic = "TSO1";

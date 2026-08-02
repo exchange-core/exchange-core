@@ -9,6 +9,19 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const tigerbeetle = b.addModule("tigerbeetle", .{
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    tigerbeetle.addImport("exchange_core", exchange_core);
+    const tigerbeetle_parix = b.addModule("tigerbeetle_parix", .{
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    tigerbeetle_parix.addImport("exchange_core", exchange_core);
+    tigerbeetle_parix.addImport("tigerbeetle", tigerbeetle);
 
     const exchange_protocol = b.createModule(.{
         .root_source_file = b.path("src/zig/apps/protocol.zig"),
@@ -23,6 +36,7 @@ pub fn build(b: *std.Build) void {
     });
     server_module.addImport("exchange_core", exchange_core);
     server_module.addImport("exchange_protocol", exchange_protocol);
+    server_module.addImport("tigerbeetle_parix", tigerbeetle_parix);
     const server_exe = b.addExecutable(.{
         .name = "exchange-core-server",
         .root_module = server_module,
@@ -62,11 +76,14 @@ pub fn build(b: *std.Build) void {
     run_client_step.dependOn(&run_client.step);
 
     const provider_client_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_clearing_provider_client.zig"),
+        .root_source_file = b.path(
+            "src/zig/plugins/tigerbeetle/parix/parix_clearing_provider_client.zig",
+        ),
         .target = target,
         .optimize = optimize,
     });
     provider_client_module.addImport("exchange_core", exchange_core);
+    provider_client_module.addImport("tigerbeetle", tigerbeetle);
     const provider_client_exe = b.addExecutable(.{
         .name = "exchange-core-provider-client",
         .root_module = provider_client_module,
@@ -94,12 +111,36 @@ pub fn build(b: *std.Build) void {
     });
 
     const run_module_tests = b.addRunArtifact(module_tests);
+    const tigerbeetle_tests = b.addTest(.{
+        .root_module = tigerbeetle,
+    });
+    const run_tigerbeetle_tests = b.addRunArtifact(tigerbeetle_tests);
+    run_tigerbeetle_tests.step.dependOn(&run_module_tests.step);
+    const test_tigerbeetle_step = b.step(
+        "test-tigerbeetle-plugin",
+        "Run the generic opt-in TigerBeetle plugin tests",
+    );
+    const run_focused_tigerbeetle_tests = b.addRunArtifact(tigerbeetle_tests);
+    test_tigerbeetle_step.dependOn(&run_focused_tigerbeetle_tests.step);
 
     const debug_exchange_core = b.createModule(.{
         .root_source_file = b.path("src/zig/root.zig"),
         .target = target,
         .optimize = .Debug,
     });
+    const debug_tigerbeetle = b.createModule(.{
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/root.zig"),
+        .target = target,
+        .optimize = .Debug,
+    });
+    debug_tigerbeetle.addImport("exchange_core", debug_exchange_core);
+    const debug_tigerbeetle_parix = b.createModule(.{
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/root.zig"),
+        .target = target,
+        .optimize = .Debug,
+    });
+    debug_tigerbeetle_parix.addImport("exchange_core", debug_exchange_core);
+    debug_tigerbeetle_parix.addImport("tigerbeetle", debug_tigerbeetle);
     const debug_exchange_protocol = b.createModule(.{
         .root_source_file = b.path("src/zig/apps/protocol.zig"),
         .target = target,
@@ -109,14 +150,15 @@ pub fn build(b: *std.Build) void {
         .root_module = debug_exchange_protocol,
     });
     const run_debug_protocol_tests = b.addRunArtifact(debug_protocol_tests);
-    run_debug_protocol_tests.step.dependOn(&run_module_tests.step);
+    run_debug_protocol_tests.step.dependOn(&run_tigerbeetle_tests.step);
 
     const debug_parix_transport_test_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_http_transport.zig"),
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/parix_http_transport.zig"),
         .target = target,
         .optimize = .Debug,
     });
     debug_parix_transport_test_module.addImport("exchange_core", debug_exchange_core);
+    debug_parix_transport_test_module.addImport("tigerbeetle", debug_tigerbeetle);
     const debug_parix_transport_tests = b.addTest(.{
         .root_module = debug_parix_transport_test_module,
     });
@@ -124,11 +166,12 @@ pub fn build(b: *std.Build) void {
     run_debug_parix_transport_tests.step.dependOn(&run_debug_protocol_tests.step);
 
     const debug_parix_bootstrap_test_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_account_bootstrap.zig"),
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/parix_account_bootstrap.zig"),
         .target = target,
         .optimize = .Debug,
     });
     debug_parix_bootstrap_test_module.addImport("exchange_core", debug_exchange_core);
+    debug_parix_bootstrap_test_module.addImport("tigerbeetle", debug_tigerbeetle);
     const debug_parix_bootstrap_tests = b.addTest(.{
         .root_module = debug_parix_bootstrap_test_module,
     });
@@ -136,11 +179,12 @@ pub fn build(b: *std.Build) void {
     run_debug_parix_bootstrap_tests.step.dependOn(&run_debug_parix_transport_tests.step);
 
     const debug_parix_runtime_test_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_settlement_runtime.zig"),
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/parix_settlement_runtime.zig"),
         .target = target,
         .optimize = .Debug,
     });
     debug_parix_runtime_test_module.addImport("exchange_core", debug_exchange_core);
+    debug_parix_runtime_test_module.addImport("tigerbeetle", debug_tigerbeetle);
     const debug_parix_runtime_tests = b.addTest(.{
         .root_module = debug_parix_runtime_test_module,
     });
@@ -148,11 +192,12 @@ pub fn build(b: *std.Build) void {
     run_debug_parix_runtime_tests.step.dependOn(&run_debug_parix_bootstrap_tests.step);
 
     const debug_parix_funding_saga_test_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_funding_saga.zig"),
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/parix_funding_saga.zig"),
         .target = target,
         .optimize = .Debug,
     });
     debug_parix_funding_saga_test_module.addImport("exchange_core", debug_exchange_core);
+    debug_parix_funding_saga_test_module.addImport("tigerbeetle", debug_tigerbeetle);
     const debug_parix_funding_saga_tests = b.addTest(.{
         .root_module = debug_parix_funding_saga_test_module,
     });
@@ -160,11 +205,12 @@ pub fn build(b: *std.Build) void {
     run_debug_parix_funding_saga_tests.step.dependOn(&run_debug_parix_runtime_tests.step);
 
     const debug_parix_funding_store_test_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_funding_store.zig"),
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/parix_funding_store.zig"),
         .target = target,
         .optimize = .Debug,
     });
     debug_parix_funding_store_test_module.addImport("exchange_core", debug_exchange_core);
+    debug_parix_funding_store_test_module.addImport("tigerbeetle", debug_tigerbeetle);
     const debug_parix_funding_store_tests = b.addTest(.{
         .root_module = debug_parix_funding_store_test_module,
     });
@@ -172,11 +218,12 @@ pub fn build(b: *std.Build) void {
     run_debug_parix_funding_store_tests.step.dependOn(&run_debug_parix_funding_saga_tests.step);
 
     const debug_parix_funding_runtime_test_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_funding_runtime.zig"),
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/parix_funding_runtime.zig"),
         .target = target,
         .optimize = .Debug,
     });
     debug_parix_funding_runtime_test_module.addImport("exchange_core", debug_exchange_core);
+    debug_parix_funding_runtime_test_module.addImport("tigerbeetle", debug_tigerbeetle);
     const debug_parix_funding_runtime_tests = b.addTest(.{
         .root_module = debug_parix_funding_runtime_test_module,
     });
@@ -184,11 +231,12 @@ pub fn build(b: *std.Build) void {
     run_debug_parix_funding_runtime_tests.step.dependOn(&run_debug_parix_funding_store_tests.step);
 
     const debug_parix_clearing_tests_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_clearing_runtime.zig"),
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/parix_clearing_runtime.zig"),
         .target = target,
         .optimize = .Debug,
     });
     debug_parix_clearing_tests_module.addImport("exchange_core", debug_exchange_core);
+    debug_parix_clearing_tests_module.addImport("tigerbeetle", debug_tigerbeetle);
     const debug_parix_clearing_tests = b.addTest(.{
         .root_module = debug_parix_clearing_tests_module,
     });
@@ -201,13 +249,17 @@ pub fn build(b: *std.Build) void {
     test_parix_clearing_step.dependOn(&run_debug_parix_clearing_tests.step);
 
     const debug_parix_clearing_provider_adapter_test_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_clearing_provider_adapter.zig"),
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/parix_clearing_provider_adapter.zig"),
         .target = target,
         .optimize = .Debug,
     });
     debug_parix_clearing_provider_adapter_test_module.addImport(
         "exchange_core",
         debug_exchange_core,
+    );
+    debug_parix_clearing_provider_adapter_test_module.addImport(
+        "tigerbeetle",
+        debug_tigerbeetle,
     );
     const debug_parix_clearing_provider_adapter_tests = b.addTest(.{
         .root_module = debug_parix_clearing_provider_adapter_test_module,
@@ -230,13 +282,17 @@ pub fn build(b: *std.Build) void {
     );
 
     const debug_parix_clearing_provider_client_test_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_clearing_provider_client.zig"),
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/parix_clearing_provider_client.zig"),
         .target = target,
         .optimize = .Debug,
     });
     debug_parix_clearing_provider_client_test_module.addImport(
         "exchange_core",
         debug_exchange_core,
+    );
+    debug_parix_clearing_provider_client_test_module.addImport(
+        "tigerbeetle",
+        debug_tigerbeetle,
     );
     const debug_parix_clearing_provider_client_tests = b.addTest(.{
         .root_module = debug_parix_clearing_provider_client_test_module,
@@ -259,11 +315,12 @@ pub fn build(b: *std.Build) void {
     );
 
     const debug_parix_clearing_http_ingress_test_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_clearing_http_ingress.zig"),
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/parix_clearing_http_ingress.zig"),
         .target = target,
         .optimize = .Debug,
     });
     debug_parix_clearing_http_ingress_test_module.addImport("exchange_core", debug_exchange_core);
+    debug_parix_clearing_http_ingress_test_module.addImport("tigerbeetle", debug_tigerbeetle);
     const debug_parix_clearing_http_ingress_tests = b.addTest(.{
         .root_module = debug_parix_clearing_http_ingress_test_module,
     });
@@ -291,6 +348,7 @@ pub fn build(b: *std.Build) void {
     });
     debug_server_test_module.addImport("exchange_core", debug_exchange_core);
     debug_server_test_module.addImport("exchange_protocol", debug_exchange_protocol);
+    debug_server_test_module.addImport("tigerbeetle_parix", debug_tigerbeetle_parix);
     const debug_server_tests = b.addTest(.{
         .root_module = debug_server_test_module,
     });
@@ -354,10 +412,40 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = .ReleaseSafe,
     });
+    const release_safe_tigerbeetle = b.createModule(.{
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/root.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+    });
+    release_safe_tigerbeetle.addImport("exchange_core", release_safe_module);
+    const release_safe_tigerbeetle_parix = b.createModule(.{
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/root.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+    });
+    release_safe_tigerbeetle_parix.addImport("exchange_core", release_safe_module);
+    release_safe_tigerbeetle_parix.addImport("tigerbeetle", release_safe_tigerbeetle);
     const release_safe_tests = b.addTest(.{
         .root_module = release_safe_module,
     });
     const run_release_safe_tests = b.addRunArtifact(release_safe_tests);
+    const release_safe_tigerbeetle_tests = b.addTest(.{
+        .root_module = release_safe_tigerbeetle,
+    });
+    const run_release_safe_tigerbeetle_tests = b.addRunArtifact(
+        release_safe_tigerbeetle_tests,
+    );
+    run_release_safe_tigerbeetle_tests.step.dependOn(&run_release_safe_tests.step);
+    const test_release_safe_tigerbeetle_step = b.step(
+        "test-tigerbeetle-plugin-release-safe",
+        "Run the generic opt-in TigerBeetle plugin tests in ReleaseSafe mode",
+    );
+    const run_focused_release_safe_tigerbeetle_tests = b.addRunArtifact(
+        release_safe_tigerbeetle_tests,
+    );
+    test_release_safe_tigerbeetle_step.dependOn(
+        &run_focused_release_safe_tigerbeetle_tests.step,
+    );
 
     const release_safe_protocol = b.createModule(.{
         .root_source_file = b.path("src/zig/apps/protocol.zig"),
@@ -368,14 +456,15 @@ pub fn build(b: *std.Build) void {
         .root_module = release_safe_protocol,
     });
     const run_release_safe_protocol_tests = b.addRunArtifact(release_safe_protocol_tests);
-    run_release_safe_protocol_tests.step.dependOn(&run_release_safe_tests.step);
+    run_release_safe_protocol_tests.step.dependOn(&run_release_safe_tigerbeetle_tests.step);
 
     const release_safe_parix_transport_test_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_http_transport.zig"),
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/parix_http_transport.zig"),
         .target = target,
         .optimize = .ReleaseSafe,
     });
     release_safe_parix_transport_test_module.addImport("exchange_core", release_safe_module);
+    release_safe_parix_transport_test_module.addImport("tigerbeetle", release_safe_tigerbeetle);
     const release_safe_parix_transport_tests = b.addTest(.{
         .root_module = release_safe_parix_transport_test_module,
     });
@@ -383,11 +472,12 @@ pub fn build(b: *std.Build) void {
     run_release_safe_parix_transport_tests.step.dependOn(&run_release_safe_protocol_tests.step);
 
     const release_safe_parix_bootstrap_test_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_account_bootstrap.zig"),
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/parix_account_bootstrap.zig"),
         .target = target,
         .optimize = .ReleaseSafe,
     });
     release_safe_parix_bootstrap_test_module.addImport("exchange_core", release_safe_module);
+    release_safe_parix_bootstrap_test_module.addImport("tigerbeetle", release_safe_tigerbeetle);
     const release_safe_parix_bootstrap_tests = b.addTest(.{
         .root_module = release_safe_parix_bootstrap_test_module,
     });
@@ -395,11 +485,12 @@ pub fn build(b: *std.Build) void {
     run_release_safe_parix_bootstrap_tests.step.dependOn(&run_release_safe_parix_transport_tests.step);
 
     const release_safe_parix_runtime_test_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_settlement_runtime.zig"),
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/parix_settlement_runtime.zig"),
         .target = target,
         .optimize = .ReleaseSafe,
     });
     release_safe_parix_runtime_test_module.addImport("exchange_core", release_safe_module);
+    release_safe_parix_runtime_test_module.addImport("tigerbeetle", release_safe_tigerbeetle);
     const release_safe_parix_runtime_tests = b.addTest(.{
         .root_module = release_safe_parix_runtime_test_module,
     });
@@ -407,11 +498,12 @@ pub fn build(b: *std.Build) void {
     run_release_safe_parix_runtime_tests.step.dependOn(&run_release_safe_parix_bootstrap_tests.step);
 
     const release_safe_parix_funding_saga_test_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_funding_saga.zig"),
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/parix_funding_saga.zig"),
         .target = target,
         .optimize = .ReleaseSafe,
     });
     release_safe_parix_funding_saga_test_module.addImport("exchange_core", release_safe_module);
+    release_safe_parix_funding_saga_test_module.addImport("tigerbeetle", release_safe_tigerbeetle);
     const release_safe_parix_funding_saga_tests = b.addTest(.{
         .root_module = release_safe_parix_funding_saga_test_module,
     });
@@ -419,11 +511,12 @@ pub fn build(b: *std.Build) void {
     run_release_safe_parix_funding_saga_tests.step.dependOn(&run_release_safe_parix_runtime_tests.step);
 
     const release_safe_parix_funding_store_test_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_funding_store.zig"),
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/parix_funding_store.zig"),
         .target = target,
         .optimize = .ReleaseSafe,
     });
     release_safe_parix_funding_store_test_module.addImport("exchange_core", release_safe_module);
+    release_safe_parix_funding_store_test_module.addImport("tigerbeetle", release_safe_tigerbeetle);
     const release_safe_parix_funding_store_tests = b.addTest(.{
         .root_module = release_safe_parix_funding_store_test_module,
     });
@@ -431,11 +524,12 @@ pub fn build(b: *std.Build) void {
     run_release_safe_parix_funding_store_tests.step.dependOn(&run_release_safe_parix_funding_saga_tests.step);
 
     const release_safe_parix_funding_runtime_test_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_funding_runtime.zig"),
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/parix_funding_runtime.zig"),
         .target = target,
         .optimize = .ReleaseSafe,
     });
     release_safe_parix_funding_runtime_test_module.addImport("exchange_core", release_safe_module);
+    release_safe_parix_funding_runtime_test_module.addImport("tigerbeetle", release_safe_tigerbeetle);
     const release_safe_parix_funding_runtime_tests = b.addTest(.{
         .root_module = release_safe_parix_funding_runtime_test_module,
     });
@@ -443,11 +537,12 @@ pub fn build(b: *std.Build) void {
     run_release_safe_parix_funding_runtime_tests.step.dependOn(&run_release_safe_parix_funding_store_tests.step);
 
     const release_safe_parix_clearing_tests_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_clearing_runtime.zig"),
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/parix_clearing_runtime.zig"),
         .target = target,
         .optimize = .ReleaseSafe,
     });
     release_safe_parix_clearing_tests_module.addImport("exchange_core", release_safe_module);
+    release_safe_parix_clearing_tests_module.addImport("tigerbeetle", release_safe_tigerbeetle);
     const release_safe_parix_clearing_tests = b.addTest(.{
         .root_module = release_safe_parix_clearing_tests_module,
     });
@@ -460,13 +555,17 @@ pub fn build(b: *std.Build) void {
     test_release_safe_parix_clearing_step.dependOn(&run_release_safe_parix_clearing_tests.step);
 
     const release_safe_parix_clearing_provider_adapter_test_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_clearing_provider_adapter.zig"),
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/parix_clearing_provider_adapter.zig"),
         .target = target,
         .optimize = .ReleaseSafe,
     });
     release_safe_parix_clearing_provider_adapter_test_module.addImport(
         "exchange_core",
         release_safe_module,
+    );
+    release_safe_parix_clearing_provider_adapter_test_module.addImport(
+        "tigerbeetle",
+        release_safe_tigerbeetle,
     );
     const release_safe_parix_clearing_provider_adapter_tests = b.addTest(.{
         .root_module = release_safe_parix_clearing_provider_adapter_test_module,
@@ -489,13 +588,17 @@ pub fn build(b: *std.Build) void {
     );
 
     const release_safe_parix_clearing_provider_client_test_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_clearing_provider_client.zig"),
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/parix_clearing_provider_client.zig"),
         .target = target,
         .optimize = .ReleaseSafe,
     });
     release_safe_parix_clearing_provider_client_test_module.addImport(
         "exchange_core",
         release_safe_module,
+    );
+    release_safe_parix_clearing_provider_client_test_module.addImport(
+        "tigerbeetle",
+        release_safe_tigerbeetle,
     );
     const release_safe_parix_clearing_provider_client_tests = b.addTest(.{
         .root_module = release_safe_parix_clearing_provider_client_test_module,
@@ -518,13 +621,17 @@ pub fn build(b: *std.Build) void {
     );
 
     const release_safe_parix_clearing_http_ingress_test_module = b.createModule(.{
-        .root_source_file = b.path("src/zig/apps/parix_clearing_http_ingress.zig"),
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/parix/parix_clearing_http_ingress.zig"),
         .target = target,
         .optimize = .ReleaseSafe,
     });
     release_safe_parix_clearing_http_ingress_test_module.addImport(
         "exchange_core",
         release_safe_module,
+    );
+    release_safe_parix_clearing_http_ingress_test_module.addImport(
+        "tigerbeetle",
+        release_safe_tigerbeetle,
     );
     const release_safe_parix_clearing_http_ingress_tests = b.addTest(.{
         .root_module = release_safe_parix_clearing_http_ingress_test_module,
@@ -553,6 +660,10 @@ pub fn build(b: *std.Build) void {
     });
     release_safe_server_test_module.addImport("exchange_core", release_safe_module);
     release_safe_server_test_module.addImport("exchange_protocol", release_safe_protocol);
+    release_safe_server_test_module.addImport(
+        "tigerbeetle_parix",
+        release_safe_tigerbeetle_parix,
+    );
     const release_safe_server_tests = b.addTest(.{
         .root_module = release_safe_server_test_module,
     });
@@ -800,8 +911,16 @@ pub fn build(b: *std.Build) void {
     // standalone `test-release-safe` step as a ReleaseSafe-only command.
     const run_gate_release_safe_tests = b.addRunArtifact(release_safe_tests);
     run_gate_release_safe_tests.step.dependOn(&run_debug_simd_bench_tests.step);
+    const run_gate_release_safe_tigerbeetle_tests = b.addRunArtifact(
+        release_safe_tigerbeetle_tests,
+    );
+    run_gate_release_safe_tigerbeetle_tests.step.dependOn(
+        &run_gate_release_safe_tests.step,
+    );
     const run_gate_release_safe_protocol_tests = b.addRunArtifact(release_safe_protocol_tests);
-    run_gate_release_safe_protocol_tests.step.dependOn(&run_gate_release_safe_tests.step);
+    run_gate_release_safe_protocol_tests.step.dependOn(
+        &run_gate_release_safe_tigerbeetle_tests.step,
+    );
     const run_gate_release_safe_parix_transport_tests = b.addRunArtifact(release_safe_parix_transport_tests);
     run_gate_release_safe_parix_transport_tests.step.dependOn(&run_gate_release_safe_protocol_tests.step);
     const run_gate_release_safe_parix_bootstrap_tests = b.addRunArtifact(release_safe_parix_bootstrap_tests);
@@ -878,12 +997,20 @@ pub fn build(b: *std.Build) void {
         .single_threaded = true,
     });
     const wasm_settlement_core = b.createModule(.{
-        .root_source_file = b.path("src/zig/core/root.zig"),
+        .root_source_file = b.path("src/zig/root.zig"),
         .target = wasm_target,
         .optimize = .ReleaseSmall,
         .single_threaded = true,
     });
+    const wasm_tigerbeetle = b.createModule(.{
+        .root_source_file = b.path("src/zig/plugins/tigerbeetle/root.zig"),
+        .target = wasm_target,
+        .optimize = .ReleaseSmall,
+        .single_threaded = true,
+    });
+    wasm_tigerbeetle.addImport("exchange_core", wasm_settlement_core);
     wasm_settlement_check_module.addImport("exchange_core", wasm_settlement_core);
+    wasm_settlement_check_module.addImport("tigerbeetle", wasm_tigerbeetle);
     const wasm_settlement_check = b.addExecutable(.{
         .name = "exchange-core-settlement-check",
         .root_module = wasm_settlement_check_module,

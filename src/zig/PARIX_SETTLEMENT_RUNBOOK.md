@@ -67,7 +67,7 @@ Keep the profile file outside the persistence root. The root must be empty when 
 Run formatting and focused tests first:
 
 ```sh
-zig fmt --check build.zig src/zig/apps
+zig fmt --check build.zig src/zig
 zig build test
 zig build wasm-settlement-check
 ```

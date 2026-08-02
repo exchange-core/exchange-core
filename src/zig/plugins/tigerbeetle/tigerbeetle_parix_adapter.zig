@@ -1,3 +1,4 @@
+//! Pure Parix protocol codec for the opt-in TigerBeetle plugin.
 const std = @import("std");
 const dispatcher = @import("tigerbeetle_dispatcher.zig");
 const outbox = @import("tigerbeetle_outbox.zig");

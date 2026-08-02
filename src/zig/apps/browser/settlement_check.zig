@@ -1,13 +1,14 @@
 const std = @import("std");
 const exchange_core = @import("exchange_core");
-const common = exchange_core.common;
-const destination_registry = exchange_core.tigerbeetle_destination_registry;
-const dispatcher = exchange_core.tigerbeetle_dispatcher;
-const outbox = exchange_core.tigerbeetle_outbox;
-const parix = exchange_core.tigerbeetle_parix_adapter;
-const plugin = exchange_core.tigerbeetle_plugin;
-const exchange_integration = exchange_core.tigerbeetle_exchange_integration;
-const settlement = exchange_core.tigerbeetle_settlement;
+const tigerbeetle = @import("tigerbeetle");
+const common = exchange_core.core.common;
+const destination_registry = tigerbeetle.destination_registry;
+const dispatcher = tigerbeetle.dispatcher;
+const outbox = tigerbeetle.outbox;
+const parix = tigerbeetle.parix_adapter;
+const plugin = tigerbeetle.plugin;
+const exchange_integration = tigerbeetle.exchange_integration;
+const settlement = tigerbeetle.settlement;
 
 const WasmTransport = struct {
     submit_calls: u32 = 0,
@@ -248,14 +249,14 @@ fn settlementPluginWasmCheck(
         .retry_policy = policy,
         .transport = bridge_transport.asTransport(),
     }) catch return 42;
-    var command: exchange_core.cmd.OrderCommand = .{
+    var command: exchange_core.core.cmd.OrderCommand = .{
         .command = .place_order,
         .result_code = .success,
         .uid = 1001,
         .symbol = 241,
         .action = .bid,
     };
-    var trade: exchange_core.events.MatcherTradeEvent = .{
+    var trade: exchange_core.core.events.MatcherTradeEvent = .{
         .event_type = .trade,
         .matched_order_uid = 1002,
         .price = 50,

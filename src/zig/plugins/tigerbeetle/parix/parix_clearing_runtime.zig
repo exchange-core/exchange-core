@@ -1,5 +1,7 @@
+//! Parix host integration for the opt-in TigerBeetle plugin.
 const std = @import("std");
 const exchange_core = @import("exchange_core");
+const tigerbeetle = @import("tigerbeetle");
 const profile_module = @import("parix_clearing_profile.zig");
 const saga = @import("parix_clearing_saga.zig");
 const clearing_store = @import("parix_clearing_store.zig");
@@ -7,10 +9,10 @@ const funding_runtime = @import("parix_funding_runtime.zig");
 const funding_saga = @import("parix_funding_saga.zig");
 
 const core = exchange_core.core;
-const dispatcher = core.tigerbeetle_dispatcher;
-const outbox = core.tigerbeetle_outbox;
-const plugin = core.tigerbeetle_plugin;
-const settlement = core.tigerbeetle_settlement;
+const dispatcher = tigerbeetle.dispatcher;
+const outbox = tigerbeetle.outbox;
+const plugin = tigerbeetle.plugin;
+const settlement = tigerbeetle.settlement;
 
 pub const DefaultStore = clearing_store.DefaultStore;
 

@@ -1,11 +1,13 @@
+//! Parix host integration for the opt-in TigerBeetle plugin.
 const std = @import("std");
 const exchange_core = @import("exchange_core");
+const tigerbeetle = @import("tigerbeetle");
 
 const transport = @import("parix_http_transport.zig");
 const profile = @import("parix_settlement_profile.zig");
 const core = exchange_core.core;
-const adapter = core.tigerbeetle_parix_adapter;
-const dispatcher = core.tigerbeetle_dispatcher;
+const adapter = tigerbeetle.parix_adapter;
+const dispatcher = tigerbeetle.dispatcher;
 
 pub const Summary = struct {
     accounts_created: usize = 0,

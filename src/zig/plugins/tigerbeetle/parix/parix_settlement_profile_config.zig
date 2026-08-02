@@ -1,3 +1,4 @@
+//! Parix host integration for the opt-in TigerBeetle plugin.
 const std = @import("std");
 
 pub const format_version: u16 = 1;

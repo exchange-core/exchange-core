@@ -1,15 +1,17 @@
+//! Parix host integration for the opt-in TigerBeetle plugin.
 const std = @import("std");
 const exchange_core = @import("exchange_core");
+const tigerbeetle = @import("tigerbeetle");
 const profile = @import("parix_settlement_profile.zig");
 const profile_manifest = @import("parix_settlement_profile_manifest.zig");
 
 const core = exchange_core.core;
-const dispatcher = core.tigerbeetle_dispatcher;
-const exchange_integration = core.tigerbeetle_exchange_integration;
-const outbox = core.tigerbeetle_outbox;
-const plugin = core.tigerbeetle_plugin;
-const registry = core.tigerbeetle_destination_registry;
-const settlement = core.tigerbeetle_settlement;
+const dispatcher = tigerbeetle.dispatcher;
+const exchange_integration = tigerbeetle.exchange_integration;
+const outbox = tigerbeetle.outbox;
+const plugin = tigerbeetle.plugin;
+const registry = tigerbeetle.destination_registry;
+const settlement = tigerbeetle.settlement;
 
 pub const Outbox = outbox.DurableFileOutbox(1024);
 pub const Integration = exchange_integration.Integration(Outbox, 1024);

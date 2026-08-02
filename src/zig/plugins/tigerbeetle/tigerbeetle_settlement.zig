@@ -1,6 +1,7 @@
 const std = @import("std");
-const common = @import("common.zig");
-const publication = @import("publication_sequence.zig");
+const core = @import("exchange_core").core;
+const common = core.common;
+const publication = core.publication_sequence;
 
 /// TigerBeetle's raw transfer flags. The fill mapper uses only `linked`; the
 /// application-owned clearing workflow uses the mutually exclusive lifecycle

@@ -1,11 +1,13 @@
+//! Parix host integration for the opt-in TigerBeetle plugin.
 const std = @import("std");
 const exchange_core = @import("exchange_core");
+const tigerbeetle = @import("tigerbeetle");
 const config = @import("parix_settlement_profile_config.zig");
 
 const core = exchange_core.core;
-const adapter = core.tigerbeetle_parix_adapter;
-const registry = core.tigerbeetle_destination_registry;
-const settlement = core.tigerbeetle_settlement;
+const adapter = tigerbeetle.parix_adapter;
+const registry = tigerbeetle.destination_registry;
+const settlement = tigerbeetle.settlement;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 
 const profile_digest_domain = "exchange-core/parix-settlement-profile/v1";

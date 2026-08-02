@@ -1,10 +1,10 @@
+//! Parix host integration for the opt-in TigerBeetle plugin.
 const std = @import("std");
-const exchange_core = @import("exchange_core");
+const tigerbeetle = @import("tigerbeetle");
 const funding = @import("parix_funding_saga.zig");
 
-const core = exchange_core.core;
-const settlement = core.tigerbeetle_settlement;
-const outbox = core.tigerbeetle_outbox;
+const settlement = tigerbeetle.settlement;
+const outbox = tigerbeetle.outbox;
 
 pub const DestinationId = outbox.DestinationId;
 pub const Transfer = settlement.Transfer;

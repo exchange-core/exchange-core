@@ -1,3 +1,4 @@
+//! Parix host integration for the opt-in TigerBeetle plugin.
 const std = @import("std");
 const builtin = @import("builtin");
 const provider = @import("parix_clearing_provider_adapter.zig");

@@ -1,3 +1,4 @@
+//! Parix host integration for the opt-in TigerBeetle plugin.
 const std = @import("std");
 const saga = @import("parix_clearing_saga.zig");
 

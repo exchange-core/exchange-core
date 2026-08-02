@@ -1,3 +1,4 @@
+//! Transport-neutral dispatcher for the opt-in TigerBeetle plugin.
 const std = @import("std");
 const outbox = @import("tigerbeetle_outbox.zig");
 const settlement = @import("tigerbeetle_settlement.zig");

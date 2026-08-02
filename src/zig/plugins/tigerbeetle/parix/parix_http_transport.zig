@@ -1,13 +1,13 @@
+//! Parix host integration for the opt-in TigerBeetle plugin.
 const std = @import("std");
 const builtin = @import("builtin");
-const exchange_core = @import("exchange_core");
+const tigerbeetle = @import("tigerbeetle");
 
-const core = exchange_core.core;
-const dispatcher = core.tigerbeetle_dispatcher;
-const outbox = core.tigerbeetle_outbox;
-const parix = core.tigerbeetle_parix_adapter;
-const plugin = core.tigerbeetle_plugin;
-const settlement = core.tigerbeetle_settlement;
+const dispatcher = tigerbeetle.dispatcher;
+const outbox = tigerbeetle.outbox;
+const parix = tigerbeetle.parix_adapter;
+const plugin = tigerbeetle.plugin;
+const settlement = tigerbeetle.settlement;
 
 comptime {
     if (builtin.target.cpu.arch.isWasm()) {

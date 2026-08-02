@@ -8,7 +8,8 @@ development server.
 
 The matching core is still an in-process engine. Authentication, request
 authorization, and the TCP framing described here belong to the native server
-adapter under `src/zig/apps/`.
+adapter under `src/zig/apps/`; the Parix/TigerBeetle host implementation is an
+opt-in package under `src/zig/plugins/tigerbeetle/parix/`.
 
 ## Security boundary
 

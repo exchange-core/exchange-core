@@ -123,8 +123,15 @@ the versioned integer ABI, L2 wire format, lifecycle rules, and exact scope.
 
 ## External TigerBeetle settlement boundary
 
-`core/tigerbeetle_settlement.zig` maps one completed currency-exchange fill to
-an owned, deterministic TigerBeetle transfer chain. `core/tigerbeetle_outbox.zig`
+TigerBeetle is an opt-in package under `plugins/tigerbeetle/`; `core/` retains
+only the provider-neutral settlement lifecycle contract and never imports or
+re-exports the plugin. The native Parix host composition lives in
+`plugins/tigerbeetle/parix/`. See [`plugins/README.md`](plugins/README.md) for
+the dependency direction and focused build steps.
+
+`plugins/tigerbeetle/tigerbeetle_settlement.zig` maps one completed
+currency-exchange fill to an owned, deterministic TigerBeetle transfer chain.
+`plugins/tigerbeetle/tigerbeetle_outbox.zig`
 adds a bounded, destination-scoped delivery state machine and atomic on-disk
 snapshot. It durably marks work in flight before returning it to a transport,
 preserves the exact chain across retries, requires lookup after every ambiguous
@@ -133,18 +140,18 @@ later fills from overtaking an unsettled predecessor. An economically empty
 chain advances the finalized watermark and is pruned in the same atomic store
 mutation, so it cannot strand bounded capacity.
 
-`core/tigerbeetle_destination_registry.zig` owns immutable, validated symbol,
+`plugins/tigerbeetle/tigerbeetle_destination_registry.zig` owns immutable, validated symbol,
 currency, user-account, ledger, fee-account, and transfer-code routing. It
 resolves mapper inputs without placing credentials or network locations in core
 state and exposes a canonical digest for a future journal/snapshot compatibility
-binding. `core/tigerbeetle_dispatcher.zig` provides caller-driven typed submit
+binding. `plugins/tigerbeetle/tigerbeetle_dispatcher.zig` provides caller-driven typed submit
 and reconciliation claims, deterministic capped backoff, exact ID-keyed lookup
 comparison, and automatic delivered-prefix pruning over either the in-memory or
 durable outbox. A rejected create and an ambiguous create retain different
 durable reconciliation causes: if lookup proves every ID absent, only the
 ambiguous request may be submitted again.
 
-`core/tigerbeetle_plugin.zig` packages those pieces behind an explicit
+`plugins/tigerbeetle/tigerbeetle_plugin.zig` packages those pieces behind an explicit
 disabled/enabled lifecycle. The disabled value owns nothing and never touches a
 store, registry, or transport. An enabled value validates that its borrowed
 store is bound to the same destination, accepts already-identified fills through
@@ -167,7 +174,7 @@ slot may have moved during prefix pruning. Reconciliation ignores only the
 server-assigned timestamp and TigerBeetle's request-only `linked` bit; every
 other persisted transfer field must match.
 
-`core/tigerbeetle_parix_adapter.zig` is the pure Parix protocol codec and
+`plugins/tigerbeetle/tigerbeetle_parix_adapter.zig` is the pure Parix protocol codec and
 classifier. It writes the gateway's bare JSON arrays, quotes every wide integer
 as canonical decimal, preserves the complete linked chain in one request, and
 normalizes decoded transport evidence into dispatcher dispositions. HTTP 200
@@ -499,6 +506,14 @@ because they can precede R2 and are not replayed.
   - deterministic one-shot helper simulations that cross-check `processCommandResultCode`/`processCommandFullResponse` against explicit async submit+drain+take flows with per-step detailed state-hash convergence.
 
 ## Build and test
+
+Run the generic opt-in TigerBeetle package independently with:
+
+```sh
+zig build -j1 test-tigerbeetle-plugin --summary all
+zig build -j1 test-tigerbeetle-plugin-release-safe --summary all
+zig build -j1 wasm-settlement-check --summary all
+```
 
 Build the native loopback provider callback client and run its Debug and
 ReleaseSafe focused gates with:
