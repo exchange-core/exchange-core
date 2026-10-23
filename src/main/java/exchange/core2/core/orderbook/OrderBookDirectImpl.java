@@ -22,6 +22,7 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.LoggingConfiguration;
+import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import lombok.*;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -65,10 +66,20 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
     private final boolean logDebug;
 
+    private final OrdersProcessingConfiguration.SelfTradeProtectionMode cfgSelfTradeProtectionMode;
+
     public OrderBookDirectImpl(final CoreSymbolSpecification symbolSpec,
                                final ObjectsPool objectsPool,
                                final OrderBookEventsHelper eventsHelper,
                                final LoggingConfiguration loggingCfg) {
+        this(symbolSpec, objectsPool, eventsHelper, loggingCfg, OrdersProcessingConfiguration.DEFAULT);
+    }
+
+    public OrderBookDirectImpl(final CoreSymbolSpecification symbolSpec,
+                               final ObjectsPool objectsPool,
+                               final OrderBookEventsHelper eventsHelper,
+                               final LoggingConfiguration loggingCfg,
+                               final OrdersProcessingConfiguration ordersProcCfg) {
 
         this.symbolSpec = symbolSpec;
         this.objectsPool = objectsPool;
@@ -77,12 +88,23 @@ public final class OrderBookDirectImpl implements IOrderBook {
         this.eventsHelper = eventsHelper;
         this.orderIdIndex = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
+        this.cfgSelfTradeProtectionMode = (ordersProcCfg != null && ordersProcCfg.getSelfTradeProtectionMode() != null)
+                ? ordersProcCfg.getSelfTradeProtectionMode()
+                : OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST;
     }
 
     public OrderBookDirectImpl(final BytesIn bytes,
                                final ObjectsPool objectsPool,
                                final OrderBookEventsHelper eventsHelper,
                                final LoggingConfiguration loggingCfg) {
+        this(bytes, objectsPool, eventsHelper, loggingCfg, OrdersProcessingConfiguration.DEFAULT);
+    }
+
+    public OrderBookDirectImpl(final BytesIn bytes,
+                               final ObjectsPool objectsPool,
+                               final OrderBookEventsHelper eventsHelper,
+                               final LoggingConfiguration loggingCfg,
+                               final OrdersProcessingConfiguration ordersProcCfg) {
 
         this.symbolSpec = new CoreSymbolSpecification(bytes);
         this.objectsPool = objectsPool;
@@ -91,6 +113,9 @@ public final class OrderBookDirectImpl implements IOrderBook {
         this.eventsHelper = eventsHelper;
         this.orderIdIndex = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
+        this.cfgSelfTradeProtectionMode = (ordersProcCfg != null && ordersProcCfg.getSelfTradeProtectionMode() != null)
+                ? ordersProcCfg.getSelfTradeProtectionMode()
+                : OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST;
 
         final int size = bytes.readInt();
         for (int i = 0; i < size; i++) {
@@ -131,6 +156,10 @@ public final class OrderBookDirectImpl implements IOrderBook {
             return;
         }
 
+        if (cmd.matcherEvent != null && cmd.matcherEvent.eventType == MatcherEventType.REJECT) {
+            return;
+        }
+
         final long orderId = cmd.orderId;
         // TODO eliminate double hashtable lookup?
         if (orderIdIndex.get(orderId) != null) { // containsKey for hashtable
@@ -164,7 +193,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         final long rejectedSize = cmd.size - filledSize;
 
-        if (rejectedSize != 0) {
+        if (rejectedSize != 0 && (cmd.matcherEvent == null || cmd.matcherEvent.eventType != MatcherEventType.REJECT)) {
             // was not matched completely - send reject for not-completed IoC order
             eventsHelper.attachRejectEvent(cmd, rejectedSize);
         }
@@ -172,7 +201,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
     private void newOrderMatchFokBudget(final OrderCommand cmd) {
 
-        final long budget = checkBudgetToFill(cmd.action, cmd.size);
+        final long budget = checkBudgetToFill(cmd.action, cmd.size, cmd.uid);
 
         if (logDebug) log.debug("Budget calc: {} requested: {}", budget, cmd.price);
 
@@ -189,7 +218,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
     }
 
     private long checkBudgetToFill(final OrderAction action,
-                                   long size) {
+                                   long size,
+                                   final long takerUid) {
 
         DirectOrder makerOrder = (action == OrderAction.BID) ? bestAskOrder : bestBidOrder;
 
@@ -197,6 +227,10 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         // iterate through all orders
         while (makerOrder != null) {
+            if (cfgSelfTradeProtectionMode == OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST
+                    && makerOrder.uid == takerUid) {
+                break;
+            }
             final Bucket bucket = makerOrder.parent;
 
             final long availableSize = bucket.volume;
@@ -256,8 +290,17 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         MatcherTradeEvent eventsTail = null;
 
+        final long takerUid = takerOrder.getUid();
+        boolean selfTradeDetected = false;
+
         // iterate through all orders
         do {
+
+            if (cfgSelfTradeProtectionMode == OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST
+                    && makerOrder.uid == takerUid) {
+                selfTradeDetected = true;
+                break;
+            }
 
 //            log.debug("  matching from maker order: {}", makerOrder);
 
@@ -329,6 +372,10 @@ public final class OrderBookDirectImpl implements IOrderBook {
             bestAskOrder = makerOrder;
         } else {
             bestBidOrder = makerOrder;
+        }
+
+        if (selfTradeDetected && remainingSize > 0) {
+            eventsHelper.attachRejectEvent(triggerCmd, remainingSize);
         }
 
         // return filled amount
@@ -429,6 +476,12 @@ public final class OrderBookDirectImpl implements IOrderBook {
             // order was fully matched - removing
             orderIdIndex.remove(cmd.orderId);
             // returning free object back to the pool
+            objectsPool.put(ObjectsPool.DIRECT_ORDER, orderToMove);
+            return CommandResultCode.SUCCESS;
+        }
+
+        if (cmd.matcherEvent != null && cmd.matcherEvent.eventType == MatcherEventType.REJECT) {
+            orderIdIndex.remove(cmd.orderId);
             objectsPool.put(ObjectsPool.DIRECT_ORDER, orderToMove);
             return CommandResultCode.SUCCESS;
         }

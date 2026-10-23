@@ -18,17 +18,24 @@ package exchange.core2.core.orderbook;
 import exchange.core2.collections.objpool.ObjectsPool;
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.config.LoggingConfiguration;
+import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.tests.util.TestConstants;
 
 public final class OrderBookDirectImplExchangeTest extends OrderBookDirectImplTest {
 
     @Override
     protected IOrderBook createNewOrderBook() {
+        return createNewOrderBook(OrdersProcessingConfiguration.DEFAULT);
+    }
+
+    @Override
+    protected IOrderBook createNewOrderBook(OrdersProcessingConfiguration ordersProcessingConfiguration) {
         return new OrderBookDirectImpl(
                 getCoreSymbolSpec(),
                 ObjectsPool.createDefaultTestPool(),
                 OrderBookEventsHelper.NON_POOLED_EVENTS_HELPER,
-                LoggingConfiguration.DEFAULT);
+                LoggingConfiguration.DEFAULT,
+                ordersProcessingConfiguration);
     }
 
     @Override

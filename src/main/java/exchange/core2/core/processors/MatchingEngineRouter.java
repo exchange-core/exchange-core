@@ -72,6 +72,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
     private final String exchangeId; // TODO validate
     private final Path folder;
 
+    private final OrdersProcessingConfiguration ordersProcCfg;
     private final boolean cfgMarginTradingEnabled;
 
     private final boolean cfgSendL2ForEveryCmd;
@@ -103,6 +104,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
         this.serializationProcessor = serializationProcessor;
         this.orderBookFactory = orderBookFactory;
         this.eventsHelper = new OrderBookEventsHelper(sharedPool::getChain);
+        this.ordersProcCfg = exchangeCfg.getOrdersProcessingCfg();
 
         this.loggingCfg = exchangeCfg.getLoggingCfg();
         this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
@@ -141,7 +143,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
 
                         final IntObjectHashMap<IOrderBook> ob = SerializationUtils.readIntHashMap(
                                 bytesIn,
-                                bytes -> IOrderBook.create(bytes, objectsPool, eventsHelper, loggingCfg));
+                                bytes -> IOrderBook.create(bytes, objectsPool, eventsHelper, loggingCfg, ordersProcCfg));
 
                         return DeserializedData.builder().binaryCommandsProcessor(bcp).orderBooks(ob).build();
                     });
@@ -160,7 +162,6 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
             this.orderBooks = new IntObjectHashMap<>();
         }
 
-        final OrdersProcessingConfiguration ordersProcCfg = exchangeCfg.getOrdersProcessingCfg();
         this.cfgMarginTradingEnabled = ordersProcCfg.getMarginTradingMode() == OrdersProcessingConfiguration.MarginTradingMode.MARGIN_TRADING_ENABLED;
 
         final PerformanceConfiguration perfCfg = exchangeCfg.getPerformanceCfg();
@@ -244,7 +245,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
         }
 
         if (orderBooks.get(spec.symbolId) == null) {
-            orderBooks.put(spec.symbolId, orderBookFactory.create(spec, objectsPool, eventsHelper, loggingCfg));
+            orderBooks.put(spec.symbolId, orderBookFactory.create(spec, objectsPool, eventsHelper, loggingCfg, ordersProcCfg));
         } else {
             log.warn("OrderBook for symbol id={} already exists! Can not add symbol: {}", spec.symbolId, spec);
         }

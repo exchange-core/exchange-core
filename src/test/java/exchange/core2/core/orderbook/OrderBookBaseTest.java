@@ -16,6 +16,7 @@
 package exchange.core2.core.orderbook;
 
 import exchange.core2.core.common.CoreSymbolSpecification;
+import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.common.L2MarketData;
 import exchange.core2.core.common.MatcherEventType;
 import exchange.core2.core.common.MatcherTradeEvent;
@@ -62,6 +63,10 @@ public abstract class OrderBookBaseTest {
     static final long UID_2 = 413L;
 
     protected abstract IOrderBook createNewOrderBook();
+
+    protected IOrderBook createNewOrderBook(OrdersProcessingConfiguration ordersProcessingConfiguration) {
+        return createNewOrderBook();
+    }
 
     protected abstract CoreSymbolSpecification getCoreSymbolSpec();
 
@@ -859,4 +864,77 @@ public abstract class OrderBookBaseTest {
         }
     }
 
+
+    @Test
+    public void testSelfTradePreventionGtcCancelTaker() {
+        this.orderBook = createNewOrderBook(OrdersProcessingConfiguration.builder()
+                .riskProcessingMode(OrdersProcessingConfiguration.RiskProcessingMode.FULL_PER_CURRENCY)
+                .marginTradingMode(OrdersProcessingConfiguration.MarginTradingMode.MARGIN_TRADING_ENABLED)
+                .selfTradeProtectionMode(OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST)
+                .build());
+        clearOrderBook();
+
+        final long price = 100_000L;
+        final long uid = 5001L;
+
+        OrderCommand makerAsk = OrderCommand.newOrder(GTC, 1001L, uid, price, 0L, 10L, ASK);
+        processAndValidate(makerAsk, SUCCESS);
+
+        L2MarketData snapshotBefore = orderBook.getL2MarketDataSnapshot(10);
+        assertEquals(1, snapshotBefore.askSize);
+        assertEquals(price, snapshotBefore.askPrices[0]);
+        assertEquals(10L, snapshotBefore.askVolumes[0]);
+        assertEquals(0, snapshotBefore.bidSize);
+
+        OrderCommand takerBid = OrderCommand.newOrder(GTC, 1002L, uid, price, price * 2, 10L, BID);
+        processAndValidate(takerBid, SUCCESS);
+
+        assertNotNull(takerBid.matcherEvent);
+        assertEquals(MatcherEventType.REJECT, takerBid.matcherEvent.eventType);
+        assertEquals(10L, takerBid.matcherEvent.size);
+
+        L2MarketData snapshotAfter = orderBook.getL2MarketDataSnapshot(10);
+        assertEquals(1, snapshotAfter.askSize);
+        assertEquals(price, snapshotAfter.askPrices[0]);
+        assertEquals(10L, snapshotAfter.askVolumes[0]);
+        assertEquals(0, snapshotAfter.bidSize);
+    }
+
+    @Test
+    public void testSelfTradePreventionPartialFillThenReject() {
+        this.orderBook = createNewOrderBook(OrdersProcessingConfiguration.builder()
+                .riskProcessingMode(OrdersProcessingConfiguration.RiskProcessingMode.FULL_PER_CURRENCY)
+                .marginTradingMode(OrdersProcessingConfiguration.MarginTradingMode.MARGIN_TRADING_ENABLED)
+                .selfTradeProtectionMode(OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST)
+                .build());
+        clearOrderBook();
+
+        final long price = 100_000L;
+        final long userA = 7001L;
+        final long userB = 7002L;
+
+        OrderCommand makerAskB = OrderCommand.newOrder(GTC, 2001L, userB, price, 0L, 5L, ASK);
+        processAndValidate(makerAskB, SUCCESS);
+
+        OrderCommand makerAskA = OrderCommand.newOrder(GTC, 2002L, userA, price, 0L, 10L, ASK);
+        processAndValidate(makerAskA, SUCCESS);
+
+        OrderCommand takerBidA = OrderCommand.newOrder(GTC, 2003L, userA, price, price * 2, 15L, BID);
+        processAndValidate(takerBidA, SUCCESS);
+
+        assertNotNull(takerBidA.matcherEvent);
+        assertEquals(MatcherEventType.REJECT, takerBidA.matcherEvent.eventType);
+        assertEquals(10L, takerBidA.matcherEvent.size);
+
+        MatcherTradeEvent tradeEvent = takerBidA.matcherEvent.nextEvent;
+        assertNotNull(tradeEvent);
+        assertEquals(MatcherEventType.TRADE, tradeEvent.eventType);
+        assertEquals(5L, tradeEvent.size);
+        assertEquals(userB, tradeEvent.matchedOrderUid);
+
+        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
+        assertEquals(1, snapshot.askSize);
+        assertEquals(10L, snapshot.askVolumes[0]);
+        assertEquals(0, snapshot.bidSize);
+    }
 }

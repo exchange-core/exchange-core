@@ -21,6 +21,7 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.LoggingConfiguration;
+import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.utils.HashingUtils;
 import lombok.Getter;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -210,11 +211,15 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     }
 
     static IOrderBook create(BytesIn bytes, ObjectsPool objectsPool, OrderBookEventsHelper eventsHelper, LoggingConfiguration loggingCfg) {
+        return create(bytes, objectsPool, eventsHelper, loggingCfg, OrdersProcessingConfiguration.DEFAULT);
+    }
+
+    static IOrderBook create(BytesIn bytes, ObjectsPool objectsPool, OrderBookEventsHelper eventsHelper, LoggingConfiguration loggingCfg, OrdersProcessingConfiguration ordersProcCfg) {
         switch (OrderBookImplType.of(bytes.readByte())) {
             case NAIVE:
-                return new OrderBookNaiveImpl(bytes, loggingCfg);
+                return new OrderBookNaiveImpl(bytes, loggingCfg, ordersProcCfg);
             case DIRECT:
-                return new OrderBookDirectImpl(bytes, objectsPool, eventsHelper, loggingCfg);
+                return new OrderBookDirectImpl(bytes, objectsPool, eventsHelper, loggingCfg, ordersProcCfg);
             default:
                 throw new IllegalArgumentException();
         }
@@ -224,6 +229,10 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     interface OrderBookFactory {
 
         IOrderBook create(CoreSymbolSpecification spec, ObjectsPool pool, OrderBookEventsHelper eventsHelper, LoggingConfiguration loggingCfg);
+
+        default IOrderBook create(CoreSymbolSpecification spec, ObjectsPool pool, OrderBookEventsHelper eventsHelper, LoggingConfiguration loggingCfg, OrdersProcessingConfiguration ordersProcCfg) {
+            return create(spec, pool, eventsHelper, loggingCfg);
+        }
     }
 
     @Getter

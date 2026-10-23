@@ -20,6 +20,7 @@ import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.config.LoggingConfiguration;
+import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.utils.SerializationUtils;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -44,29 +45,55 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
     private final boolean logDebug;
 
+    private final OrdersProcessingConfiguration.SelfTradeProtectionMode cfgSelfTradeProtectionMode;
+
     public OrderBookNaiveImpl(final CoreSymbolSpecification symbolSpec,
                               final ObjectsPool pool,
                               final OrderBookEventsHelper eventsHelper,
                               final LoggingConfiguration loggingCfg) {
+        this(symbolSpec, pool, eventsHelper, loggingCfg, OrdersProcessingConfiguration.DEFAULT);
+    }
+
+    public OrderBookNaiveImpl(final CoreSymbolSpecification symbolSpec,
+                              final ObjectsPool pool,
+                              final OrderBookEventsHelper eventsHelper,
+                              final LoggingConfiguration loggingCfg,
+                              final OrdersProcessingConfiguration ordersProcCfg) {
 
         this.symbolSpec = symbolSpec;
         this.askBuckets = new TreeMap<>();
         this.bidBuckets = new TreeMap<>(Collections.reverseOrder());
         this.eventsHelper = eventsHelper;
         this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
+        this.cfgSelfTradeProtectionMode = (ordersProcCfg != null && ordersProcCfg.getSelfTradeProtectionMode() != null)
+                ? ordersProcCfg.getSelfTradeProtectionMode()
+                : OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST;
     }
 
     public OrderBookNaiveImpl(final CoreSymbolSpecification symbolSpec,
                               final LoggingConfiguration loggingCfg) {
+        this(symbolSpec, loggingCfg, OrdersProcessingConfiguration.DEFAULT);
+    }
+
+    public OrderBookNaiveImpl(final CoreSymbolSpecification symbolSpec,
+                              final LoggingConfiguration loggingCfg,
+                              final OrdersProcessingConfiguration ordersProcCfg) {
 
         this.symbolSpec = symbolSpec;
         this.askBuckets = new TreeMap<>();
         this.bidBuckets = new TreeMap<>(Collections.reverseOrder());
         this.eventsHelper = OrderBookEventsHelper.NON_POOLED_EVENTS_HELPER;
         this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
+        this.cfgSelfTradeProtectionMode = (ordersProcCfg != null && ordersProcCfg.getSelfTradeProtectionMode() != null)
+                ? ordersProcCfg.getSelfTradeProtectionMode()
+                : OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST;
     }
 
     public OrderBookNaiveImpl(final BytesIn bytes, final LoggingConfiguration loggingCfg) {
+        this(bytes, loggingCfg, OrdersProcessingConfiguration.DEFAULT);
+    }
+
+    public OrderBookNaiveImpl(final BytesIn bytes, final LoggingConfiguration loggingCfg, final OrdersProcessingConfiguration ordersProcCfg) {
         this.symbolSpec = new CoreSymbolSpecification(bytes);
         this.askBuckets = SerializationUtils.readLongMap(bytes, TreeMap::new, OrdersBucketNaive::new);
         this.bidBuckets = SerializationUtils.readLongMap(bytes, () -> new TreeMap<>(Collections.reverseOrder()), OrdersBucketNaive::new);
@@ -78,6 +105,9 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         bidBuckets.values().forEach(bucket -> bucket.forEachOrder(order -> idMap.put(order.orderId, order)));
 
         this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
+        this.cfgSelfTradeProtectionMode = (ordersProcCfg != null && ordersProcCfg.getSelfTradeProtectionMode() != null)
+                ? ordersProcCfg.getSelfTradeProtectionMode()
+                : OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST;
         //validateInternalState();
     }
 
@@ -114,6 +144,10 @@ public final class OrderBookNaiveImpl implements IOrderBook {
             return;
         }
 
+        if (cmd.matcherEvent != null && cmd.matcherEvent.eventType == MatcherEventType.REJECT) {
+            return;
+        }
+
         long newOrderId = cmd.orderId;
         if (idMap.containsKey(newOrderId)) {
             // duplicate order id - can match, but can not place
@@ -146,7 +180,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
         final long rejectedSize = cmd.size - filledSize;
 
-        if (rejectedSize != 0) {
+        if (rejectedSize != 0 && (cmd.matcherEvent == null || cmd.matcherEvent.eventType != MatcherEventType.REJECT)) {
             // was not matched completely - send reject for not-completed IoC order
             eventsHelper.attachRejectEvent(cmd, rejectedSize);
         }
@@ -233,6 +267,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         MatcherTradeEvent eventsTail = null;
 
         List<Long> emptyBuckets = new ArrayList<>();
+        boolean selfTradeDetected = false;
         for (final OrdersBucketNaive bucket : matchingBuckets.values()) {
 
 //            log.debug("Matching bucket: {} ...", bucket);
@@ -240,7 +275,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
             final long sizeLeft = orderSize - filled;
 
-            final OrdersBucketNaive.MatcherResult bucketMatchings = bucket.match(sizeLeft, activeOrder, eventsHelper);
+            final OrdersBucketNaive.MatcherResult bucketMatchings = bucket.match(sizeLeft, activeOrder, eventsHelper, cfgSelfTradeProtectionMode);
 
             bucketMatchings.ordersToRemove.forEach(idMap::remove);
 
@@ -264,10 +299,19 @@ public final class OrderBookNaiveImpl implements IOrderBook {
                 emptyBuckets.add(price);
             }
 
+            if (bucketMatchings.selfTradeDetected) {
+                selfTradeDetected = true;
+                break;
+            }
+
             if (filled == orderSize) {
                 // enough matched
                 break;
             }
+        }
+
+        if (selfTradeDetected && (orderSize - filled) > 0) {
+            eventsHelper.attachRejectEvent(triggerCmd, orderSize - filled);
         }
 
         // remove empty buckets (is it necessary?)
@@ -412,6 +456,11 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         final long filled = tryMatchInstantly(order, matchingArea, order.filled, cmd);
         if (filled == order.size) {
             // order was fully matched (100% marketable) - removing from order book
+            idMap.remove(orderId);
+            return CommandResultCode.SUCCESS;
+        }
+
+        if (cmd.matcherEvent != null && cmd.matcherEvent.eventType == MatcherEventType.REJECT) {
             idMap.remove(orderId);
             return CommandResultCode.SUCCESS;
         }
