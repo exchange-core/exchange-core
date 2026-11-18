@@ -6,6 +6,8 @@ public class ITExchangeCoreIntegrationRejectionLatency extends ITExchangeCoreInt
 
     @Override
     public PerformanceConfiguration getPerformanceConfiguration() {
-        return PerformanceConfiguration.latencyPerformanceBuilder().build();
+        return PerformanceConfiguration.latencyPerformanceBuilder()
+                .threadFactory(Thread::new)
+                .build();
     }
 }

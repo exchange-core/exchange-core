@@ -23,7 +23,7 @@ import org.junit.platform.suite.api.Suite;
     @SelectClasspathResource("exchange/core2/tests/features/risk.feature")
 })
 @ConfigurationParameters({
-    @ConfigurationParameter(key = PLUGIN_PROPERTY_NAME, value = "pretty, html:target/cucumber/cucumber.html, exchange.core2.tests.RunCukesDirectLatencyTests$CukeNaiveLifeCycleHandler"),
+    @ConfigurationParameter(key = PLUGIN_PROPERTY_NAME, value = "pretty, html:target/cucumber/direct-latency.html, exchange.core2.tests.RunCukesDirectLatencyTests$CukeNaiveLifeCycleHandler"),
 })
 @Slf4j
 public class RunCukesDirectLatencyTests {
@@ -34,6 +34,7 @@ public class RunCukesDirectLatencyTests {
         public void setEventPublisher(EventPublisher eventPublisher) {
             eventPublisher.registerHandlerFor(TestRunStarted.class,
                 event -> OrderStepdefs.testPerformanceConfiguration = PerformanceConfiguration.latencyPerformanceBuilder()
+                    .threadFactory(Thread::new)
                     .build());
             eventPublisher.registerHandlerFor(TestRunFinished.class,
                 event -> OrderStepdefs.testPerformanceConfiguration = null);

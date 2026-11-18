@@ -1,5 +1,4 @@
 # exchange-core
-[![Build Status](https://travis-ci.org/mzheravin/exchange-core.svg?branch=master)](https://travis-ci.org/mzheravin/exchange-core)
 [![Javadocs](https://www.javadoc.io/badge/exchange.core2/exchange-core.svg)](https://www.javadoc.io/doc/exchange.core2/exchange-core)
 [![Language grade: Java](https://img.shields.io/lgtm/grade/java/g/mzheravin/exchange-core.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/mzheravin/exchange-core/context:java)
 [![][license img]][license]
@@ -9,7 +8,7 @@ Exchange-core is an **open source market exchange core** based on
 [Eclipse Collections](https://www.eclipse.org/collections/) (ex. Goldman Sachs GS Collections), 
 [Real Logic Agrona](https://github.com/real-logic/agrona),
 [OpenHFT Chronicle-Wire](https://github.com/OpenHFT/Chronicle-Wire),
-[LZ4 Java](https://github.com/lz4/lz4-java),
+[LZ4 Java](https://github.com/yawkat/lz4-java),
 and [Adaptive Radix Trees](https://db.in.tum.de/~leis/papers/ART.pdf).
 
 Exchange-core includes:
@@ -257,10 +256,19 @@ System.out.println("LTC fees collected: " + totalsReport.get().getFees().get(cur
 ```
 
 ### Testing
-- latency test: mvn -Dtest=PerfLatency#testLatencyMargin test
-- throughput test: mvn -Dtest=PerfThroughput#testThroughputMargin test
-- hiccups test: mvn -Dtest=PerfHiccups#testHiccups test
-- serialization test: mvn -Dtest=PerfPersistence#testPersistenceMargin test
+
+Build and run exchange-core with Java 25 or newer. Maven 3.6.3 or newer is required for the build.
+The test JVM options in `pom.xml` also document the native access and module flags
+needed when running an application that embeds exchange-core.
+
+- `mvn test` runs unit tests and Cucumber scenarios. Cucumber HTML reports are in `target/cucumber`.
+- `mvn -Pit test` runs the integration suite. Dedicated stress tests and benchmarks run separately.
+- Select a stress test or benchmark explicitly with `-Dtest`.
+  - `mvn "-Dtest=ITExchangeCoreIntegrationStressBasic" test`
+  - `mvn "-Dtest=PerfLatency#testLatencyMargin" test`
+  - `mvn "-Dtest=PerfThroughput#testThroughputMargin" test`
+  - `mvn "-Dtest=PerfHiccups#testHiccupMargin" test`
+  - `mvn "-Dtest=PerfPersistence#testPersistenceMargin" test`
 
 ### TODOs
 - market data feeds (full order log, L2 market data, BBO, trades)

@@ -231,7 +231,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
         @Override
         public void close() {
-            bytes.release();
+            bytes.releaseLast();
         }
     }
 
@@ -256,8 +256,10 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
         final OrderCommandType cmdType = cmd.command;
 
         if (cmdType == OrderCommandType.SHUTDOWN_SIGNAL) {
-            flushBufferSync(false, cmd.timestamp);
-            log.debug("Shutdown signal received, flushed to disk");
+            if (channel != null) {
+                flushBufferSync(false, cmd.timestamp);
+                log.debug("Shutdown signal received, flushed to disk");
+            }
             return;
         }
 

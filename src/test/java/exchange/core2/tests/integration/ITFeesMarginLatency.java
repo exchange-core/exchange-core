@@ -5,6 +5,8 @@ import exchange.core2.core.common.config.PerformanceConfiguration;
 public final class ITFeesMarginLatency extends ITFeesMargin {
     @Override
     public PerformanceConfiguration getPerformanceConfiguration() {
-        return PerformanceConfiguration.latencyPerformanceBuilder().build();
+        return PerformanceConfiguration.latencyPerformanceBuilder()
+                .threadFactory(Thread::new)
+                .build();
     }
 }
