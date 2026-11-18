@@ -49,6 +49,7 @@
         <maven.compiler.release>${java.version}</maven.compiler.release>
         <lombok.version>1.18.48</lombok.version>
         <chronicle-wire.version>2026.3</chronicle-wire.version>
+        <eclipse-collections.version>13.0.0</eclipse-collections.version>
 
         <delombok.output>target/delombok</delombok.output>
     </properties>
@@ -129,13 +130,13 @@
         <dependency>
             <groupId>org.eclipse.collections</groupId>
             <artifactId>eclipse-collections-api</artifactId>
-            <version>11.0.0</version>
+            <version>${eclipse-collections.version}</version>
         </dependency>
 
         <dependency>
             <groupId>org.eclipse.collections</groupId>
             <artifactId>eclipse-collections</artifactId>
-            <version>11.0.0</version>
+            <version>${eclipse-collections.version}</version>
         </dependency>
 
         <!-- lz4-java -->
