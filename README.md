@@ -8,7 +8,7 @@ Exchange-core is an **open source market exchange core** based on
 [Eclipse Collections](https://www.eclipse.org/collections/) (ex. Goldman Sachs GS Collections), 
 [Real Logic Agrona](https://github.com/real-logic/agrona),
 [OpenHFT Chronicle-Wire](https://github.com/OpenHFT/Chronicle-Wire),
-[LZ4 Java](https://github.com/lz4/lz4-java),
+[LZ4 Java](https://github.com/yawkat/lz4-java),
 and [Adaptive Radix Trees](https://db.in.tum.de/~leis/papers/ART.pdf).
 
 Exchange-core includes:
