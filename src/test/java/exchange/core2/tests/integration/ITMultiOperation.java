@@ -30,6 +30,7 @@ public final class ITMultiOperation {
     public void shouldPerformMarginOperations() {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
+                        .threadFactory(Thread::new)
                         .matchingEnginesNum(1)
                         .riskEnginesNum(1)
                         .build(),
@@ -53,6 +54,7 @@ public final class ITMultiOperation {
     public void shouldPerformExchangeOperations() {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
+                        .threadFactory(Thread::new)
                         .matchingEnginesNum(1)
                         .riskEnginesNum(1)
                         .build(),
@@ -75,6 +77,7 @@ public final class ITMultiOperation {
     public void shouldPerformSharded() {
         ThroughputTestsModule.throughputTestImpl(
                 PerformanceConfiguration.throughputPerformanceBuilder()
+                        .threadFactory(Thread::new)
                         .matchingEnginesNum(2)
                         .riskEnginesNum(2)
                         .build(),

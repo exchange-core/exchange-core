@@ -257,10 +257,17 @@ System.out.println("LTC fees collected: " + totalsReport.get().getFees().get(cur
 ```
 
 ### Testing
-- latency test: mvn -Dtest=PerfLatency#testLatencyMargin test
-- throughput test: mvn -Dtest=PerfThroughput#testThroughputMargin test
-- hiccups test: mvn -Dtest=PerfHiccups#testHiccups test
-- serialization test: mvn -Dtest=PerfPersistence#testPersistenceMargin test
+
+The reference build uses JDK 8 and Maven 3.6.3 or newer.
+
+- `mvn test` runs unit tests and Cucumber scenarios. Cucumber HTML reports are in `target/cucumber`.
+- `mvn -Pit test` runs the integration suite. Dedicated stress tests and benchmarks run separately.
+- Select a stress test or benchmark explicitly with `-Dtest`.
+  - `mvn "-Dtest=ITExchangeCoreIntegrationStressBasic" test`
+  - `mvn "-Dtest=PerfLatency#testLatencyMargin" test`
+  - `mvn "-Dtest=PerfThroughput#testThroughputMargin" test`
+  - `mvn "-Dtest=PerfHiccups#testHiccupMargin" test`
+  - `mvn "-Dtest=PerfPersistence#testPersistenceMargin" test`
 
 ### TODOs
 - market data feeds (full order log, L2 market data, BBO, trades)

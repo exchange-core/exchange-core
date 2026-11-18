@@ -268,6 +268,24 @@
         </dependency>
     </dependencies>
 
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <failIfNoTests>true</failIfNoTests>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
     <profiles>
         <profile>
             <id>default</id>
@@ -276,12 +294,6 @@
             </activation>
             <build>
                 <plugins>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-surefire-plugin</artifactId>
-                        <version>3.0.0-M3</version>
-                    </plugin>
-
                     <plugin>
                         <groupId>org.projectlombok</groupId>
                         <artifactId>lombok-maven-plugin</artifactId>
@@ -418,7 +430,7 @@
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-surefire-plugin</artifactId>
-                        <configuration combine.self="override">
+                        <configuration>
                             <!--<argLine>-XX:+PrintApplicationStoppedTime</argLine>-->
                             <redirectTestOutputToFile>true</redirectTestOutputToFile>
                             <includes>
@@ -428,8 +440,10 @@
                             <excludes>
                                 <exclude>**/remote/**/*.class</exclude>
                                 <exclude>**/stress/**/*.class</exclude>
+                                <exclude>**/perf/**</exclude>
                                 <exclude>**/*Remote*Test.java</exclude>
                                 <exclude>**/*Stress*Test.java</exclude>
+                                <exclude>**/ITExchangeCoreIntegrationStress*.java</exclude>
                             </excludes>
                         </configuration>
                     </plugin>

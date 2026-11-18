@@ -23,7 +23,7 @@ import org.junit.platform.suite.api.Suite;
     @SelectClasspathResource("exchange/core2/tests/features/risk.feature")
 })
 @ConfigurationParameters({
-    @ConfigurationParameter(key = PLUGIN_PROPERTY_NAME, value = "pretty, html:target/cucumber/cucumber.html, exchange.core2.tests.RunCukesDirectThroughputTests$CukeNaiveLifeCycleHandler"),
+    @ConfigurationParameter(key = PLUGIN_PROPERTY_NAME, value = "pretty, html:target/cucumber/direct-throughput.html, exchange.core2.tests.RunCukesDirectThroughputTests$CukeNaiveLifeCycleHandler"),
 })
 @Slf4j
 public class RunCukesDirectThroughputTests {
@@ -34,6 +34,7 @@ public class RunCukesDirectThroughputTests {
         public void setEventPublisher(EventPublisher eventPublisher) {
             eventPublisher.registerHandlerFor(TestRunStarted.class,
                 event -> OrderStepdefs.testPerformanceConfiguration = PerformanceConfiguration.throughputPerformanceBuilder()
+                    .threadFactory(Thread::new)
                     .build());
             eventPublisher.registerHandlerFor(TestRunFinished.class,
                 event -> OrderStepdefs.testPerformanceConfiguration = null);

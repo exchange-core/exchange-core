@@ -60,7 +60,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
     private final ExchangeApi api;
 
     @Getter
-    private final AffinityThreadFactory threadFactory;
+    private final ThreadFactory threadFactory;
 
     private AtomicLong uniqueIdCounterLong = new AtomicLong();
     private AtomicInteger uniqueIdCounterInt = new AtomicInteger();
@@ -129,7 +129,10 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
         //log.debug("CREATING exchange container");
 
-        this.threadFactory = new AffinityThreadFactory(AffinityThreadFactory.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_PHYSICAL_CORE);
+        final ThreadFactory engineThreadFactory = perfCfg.getThreadFactory();
+        this.threadFactory = engineThreadFactory instanceof AffinityThreadFactory
+                ? new AffinityThreadFactory(AffinityThreadFactory.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_PHYSICAL_CORE)
+                : engineThreadFactory;
 
         final ExchangeConfiguration exchangeConfiguration = ExchangeConfiguration.defaultBuilder()
                 .initStateCfg(initStateCfg)

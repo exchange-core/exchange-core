@@ -23,7 +23,7 @@ import org.junit.platform.suite.api.Suite;
     @SelectClasspathResource("exchange/core2/tests/features/risk.feature")
 })
 @ConfigurationParameters({
-    @ConfigurationParameter(key = PLUGIN_PROPERTY_NAME, value = "pretty, html:target/cucumber/cucumber.html, exchange.core2.tests.RunCukeNaiveTests$CukeNaiveLifeCycleHandler"),
+    @ConfigurationParameter(key = PLUGIN_PROPERTY_NAME, value = "pretty, html:target/cucumber/naive.html, exchange.core2.tests.RunCukeNaiveTests$CukeNaiveLifeCycleHandler"),
 })
 @Slf4j
 public class RunCukeNaiveTests {
