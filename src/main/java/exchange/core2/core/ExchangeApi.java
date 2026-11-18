@@ -270,8 +270,9 @@ public final class ExchangeApi {
         return submitQueryAsync(
                 query,
                 transferId,
+                // The Chronicle buffers are owned by the results thread.
                 cmd -> query.createResult(
-                        OrderBookEventsHelper.deserializeEvents(cmd).values().parallelStream().map(Wire::bytes)));
+                        OrderBookEventsHelper.deserializeEvents(cmd).values().stream().map(Wire::bytes)));
     }
 
     public void publishBinaryData(final ApiBinaryDataCommand apiCmd, final LongConsumer endSeqConsumer) {
