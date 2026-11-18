@@ -11,7 +11,8 @@ import java.util.List;
  * Convenient events handler interface for non latency-critical applications.<br>
  * Custom handler implementation should be attached to SimpleEventProcessor.<br>
  * Handler method are invoked from single thread in following order:
- * <table summary="execution order">
+ * <table>
+ * <caption>Execution order</caption>
  * <tr><td>1. </td><td> commandResult</td></tr>
  * <tr><td>2A.  </td><td> optional reduceEvent <td> optional tradeEvent</td></tr>
  * <tr><td>2B. </td><td> <td>optional rejectEvent</td></tr>
