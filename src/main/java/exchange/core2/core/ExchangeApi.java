@@ -146,6 +146,13 @@ public final class ExchangeApi {
         }
     }
 
+    /**
+     * Submits a command and returns an independent snapshot of its response.
+     * The caller can retain the response, including matcher events and market data.
+     *
+     * @param cmd the command to submit
+     * @return a future for the full response
+     */
     public CompletableFuture<OrderCommand> submitCommandAsyncFullResponse(ApiCommand cmd) {
 
         if (cmd instanceof ApiMoveOrder) {
@@ -198,7 +205,7 @@ public final class ExchangeApi {
     }
 
     private <T extends ApiCommand> CompletableFuture<OrderCommand> submitCommandAsyncFullResponse(EventTranslatorOneArg<OrderCommand, T> translator, final T apiCommand) {
-        return submitCommandAsync(translator, apiCommand, Function.identity());
+        return submitCommandAsync(translator, apiCommand, OrderCommand::copy);
     }
 
     private <T extends ApiCommand, R> CompletableFuture<R> submitCommandAsync(final EventTranslatorOneArg<OrderCommand, T> translator,

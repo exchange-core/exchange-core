@@ -109,13 +109,16 @@ public final class L2MarketData {
 
 
     public L2MarketData copy() {
-        return new L2MarketData(
+        final L2MarketData copy = new L2MarketData(
                 getAskPricesCopy(),
                 getAskVolumesCopy(),
                 getAskOrdersCopy(),
                 getBidPricesCopy(),
                 getBidVolumesCopy(),
                 getBidOrdersCopy());
+        copy.timestamp = timestamp;
+        copy.referenceSeq = referenceSeq;
+        return copy;
     }
 
     @Override

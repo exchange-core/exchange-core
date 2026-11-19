@@ -68,7 +68,7 @@ public final class MatcherTradeEvent {
     public MatcherTradeEvent nextEvent;
 
 
-    // testing only
+    // Copies a single event.
     public MatcherTradeEvent copy() {
         MatcherTradeEvent evt = new MatcherTradeEvent();
         evt.eventType = this.eventType;

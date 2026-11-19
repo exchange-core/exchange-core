@@ -198,29 +198,35 @@ public final class OrderCommand implements IOrder {
         orderMakerFee = restingOrder.getOrderMakerFee();
     }
 
-    // slow - testing only
+    /**
+     * Copies the command and its response data, preserving matcher event order.
+     *
+     * @return an independent copy of this command
+     */
     public OrderCommand copy() {
+        final OrderCommand copy = new OrderCommand();
+        writeTo(copy);
+        copy.userCookie = userCookie;
+        copy.eventsGroup = eventsGroup;
+        copy.serviceFlags = serviceFlags;
+        copy.resultCode = resultCode;
 
-        OrderCommand newCmd = new OrderCommand();
-        writeTo(newCmd);
-        newCmd.resultCode = this.resultCode;
-
-        List<MatcherTradeEvent> events = extractEvents();
-
-//        System.out.println(">>> events: " + events);
-        for (MatcherTradeEvent event : events) {
-            MatcherTradeEvent copy = event.copy();
-            copy.nextEvent = newCmd.matcherEvent;
-            newCmd.matcherEvent = copy;
-//            System.out.println(">>> newCmd.matcherEvent: " + newCmd.matcherEvent);
+        MatcherTradeEvent tail = null;
+        for (MatcherTradeEvent event = matcherEvent; event != null; event = event.nextEvent) {
+            final MatcherTradeEvent eventCopy = event.copy();
+            if (tail == null) {
+                copy.matcherEvent = eventCopy;
+            } else {
+                tail.nextEvent = eventCopy;
+            }
+            tail = eventCopy;
         }
 
         if (marketData != null) {
-            newCmd.marketData = marketData.copy();
+            copy.marketData = marketData.copy();
         }
 
-//        System.out.println(">>> newCmd: " + newCmd);
-        return newCmd;
+        return copy;
     }
 
     @Override
