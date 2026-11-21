@@ -61,15 +61,23 @@ public final class Order implements WriteBytesMarshallable, IOrder {
     public long uid;
 
     @Getter
-    public long orderTakerFee;
+    public long orderTakerFee = -1;
 
     @Getter
-    public long orderMakerFee;
+    public long orderMakerFee = -1;
 
     @Getter
     public long timestamp;
 
 //    public int userCookie;
+
+    // The existing action is 0 or 1. Default-fee orders retain the original format.
+    public static final int FEE_OVERRIDES_FLAG = 2;
+
+    public Order(long orderId, long price, long size, long filled, long reserveBidPrice,
+                 OrderAction action, long uid, long timestamp) {
+        this(orderId, price, size, filled, reserveBidPrice, action, uid, -1, -1, timestamp);
+    }
 
     public Order(BytesIn bytes) {
 
@@ -79,10 +87,12 @@ public final class Order implements WriteBytesMarshallable, IOrder {
         this.size = bytes.readLong(); // size
         this.filled = bytes.readLong(); // filled
         this.reserveBidPrice = bytes.readLong(); // price2
-        this.action = OrderAction.of(bytes.readByte());
+        final byte actionAndFlags = bytes.readByte();
+        this.action = OrderAction.of((byte) (actionAndFlags & ~FEE_OVERRIDES_FLAG));
         this.uid = bytes.readLong(); // uid
-        this.orderTakerFee = bytes.readLong();
-        this.orderMakerFee = bytes.readLong();
+        final boolean hasFees = (actionAndFlags & FEE_OVERRIDES_FLAG) != 0;
+        this.orderTakerFee = hasFees ? bytes.readLong() : -1;
+        this.orderMakerFee = hasFees ? bytes.readLong() : -1;
         this.timestamp = bytes.readLong(); // timestamp
 //        this.userCookie = bytes.readInt();  // userCookie
 
@@ -90,17 +100,23 @@ public final class Order implements WriteBytesMarshallable, IOrder {
 
     @Override
     public void writeMarshallable(BytesOut bytes) {
-        bytes.writeLong(orderId);
-        bytes.writeLong(price);
-        bytes.writeLong(size);
-        bytes.writeLong(filled);
-        bytes.writeLong(reserveBidPrice);
-        bytes.writeByte(action.getCode());
-        bytes.writeLong(uid);
-        bytes.writeLong(orderTakerFee);
-        bytes.writeLong(orderMakerFee);
-        bytes.writeLong(timestamp);
-//        bytes.writeInt(userCookie);
+        writeOrder(this, bytes);
+    }
+
+    public static void writeOrder(IOrder order, BytesOut bytes) {
+        final boolean hasFees = order.getOrderTakerFee() != -1 || order.getOrderMakerFee() != -1;
+        bytes.writeLong(order.getOrderId());
+        bytes.writeLong(order.getPrice());
+        bytes.writeLong(order.getSize());
+        bytes.writeLong(order.getFilled());
+        bytes.writeLong(order.getReserveBidPrice());
+        bytes.writeByte((byte) (order.getAction().getCode() | (hasFees ? FEE_OVERRIDES_FLAG : 0)));
+        bytes.writeLong(order.getUid());
+        if (hasFees) {
+            bytes.writeLong(order.getOrderTakerFee());
+            bytes.writeLong(order.getOrderMakerFee());
+        }
+        bytes.writeLong(order.getTimestamp());
     }
 
     @Override
@@ -113,11 +129,17 @@ public final class Order implements WriteBytesMarshallable, IOrder {
 
     @Override
     public int hashCode() {
-        return Objects.hash(orderId, action, price, size, reserveBidPrice, filled,
-                //userCookie, timestamp
-                uid, orderTakerFee, orderMakerFee);
+        return hashOrder(this);
     }
 
+
+    public static int hashOrder(IOrder order) {
+        final int base = Objects.hash(order.getOrderId(), order.getAction(), order.getPrice(),
+                order.getSize(), order.getReserveBidPrice(), order.getFilled(), order.getUid());
+        return order.getOrderTakerFee() == -1 && order.getOrderMakerFee() == -1
+                ? base
+                : Objects.hash(base, order.getOrderTakerFee(), order.getOrderMakerFee());
+    }
 
     /**
      * timestamp is not included into hashCode() and equals() for repeatable results

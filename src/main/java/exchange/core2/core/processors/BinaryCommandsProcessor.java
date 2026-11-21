@@ -137,7 +137,7 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
                                     final MatcherTradeEvent binaryEventsChain = eventsHelper.createBinaryEventsChain(cmd.timestamp, section, bytes);
                                     UnsafeUtils.appendEventsVolatile(cmd, binaryEventsChain);
                                 } finally {
-                                    bytes.release();
+                                    bytes.releaseLast();
                                 }
                             });
 
@@ -152,7 +152,7 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
                     throw new IllegalStateException();
                 }
             } finally {
-                wire.close();
+                wire.bytes().releaseLast();
             }
 
             return CommandResultCode.SUCCESS;
@@ -199,9 +199,14 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
 
     public static NativeBytes<Void> serializeObject(WriteBytesMarshallable data, int objectType) {
         final NativeBytes<Void> bytes = Bytes.allocateElasticDirect(128);
-        bytes.writeInt(objectType);
-        data.writeMarshallable(bytes);
-        return bytes;
+        try {
+            bytes.writeInt(objectType);
+            data.writeMarshallable(bytes);
+            return bytes;
+        } catch (RuntimeException | Error e) {
+            bytes.releaseLast();
+            throw e;
+        }
     }
 
     public void reset() {

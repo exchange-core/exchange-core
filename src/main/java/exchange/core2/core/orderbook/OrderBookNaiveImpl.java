@@ -25,7 +25,6 @@ import exchange.core2.core.utils.SerializationUtils;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
-import org.agrona.collections.MutableInteger;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 
 import java.util.*;
@@ -68,7 +67,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
         this.cfgSelfTradeProtectionMode = (ordersProcCfg != null && ordersProcCfg.getSelfTradeProtectionMode() != null)
                 ? ordersProcCfg.getSelfTradeProtectionMode()
-                : OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST;
+                : OrdersProcessingConfiguration.SelfTradeProtectionMode.IGNORE;
     }
 
     public OrderBookNaiveImpl(final CoreSymbolSpecification symbolSpec,
@@ -87,7 +86,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
         this.cfgSelfTradeProtectionMode = (ordersProcCfg != null && ordersProcCfg.getSelfTradeProtectionMode() != null)
                 ? ordersProcCfg.getSelfTradeProtectionMode()
-                : OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST;
+                : OrdersProcessingConfiguration.SelfTradeProtectionMode.IGNORE;
     }
 
     public OrderBookNaiveImpl(final BytesIn bytes, final LoggingConfiguration loggingCfg) {
@@ -108,12 +107,13 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
         this.cfgSelfTradeProtectionMode = (ordersProcCfg != null && ordersProcCfg.getSelfTradeProtectionMode() != null)
                 ? ordersProcCfg.getSelfTradeProtectionMode()
-                : OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST;
+                : OrdersProcessingConfiguration.SelfTradeProtectionMode.IGNORE;
         //validateInternalState();
     }
 
     @Override
     public void newOrder(final OrderCommand cmd) {
+        cmd.matcherEvent = null;
 
         switch (cmd.orderType) {
             case GTC:
@@ -190,51 +190,11 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     }
 
     private void newOrderMatchFokBudget(final OrderCommand cmd) {
-
-        final long size = cmd.size;
-
-        final SortedMap<Long, OrdersBucketNaive> subtreeForMatching =
-                cmd.action == OrderAction.ASK ? bidBuckets : askBuckets;
-
-        final Optional<Long> budget = checkBudgetToFill(size, subtreeForMatching);
-
-        if (logDebug) log.debug("Budget calc: {} requested: {}", budget, cmd.price);
-
-        if (budget.isPresent() && isBudgetLimitSatisfied(cmd.action, budget.get(), cmd.price)) {
-            tryMatchInstantly(cmd, subtreeForMatching, 0, cmd);
+        if (IOrderBook.canFillBudget(this, cmd, cfgSelfTradeProtectionMode)) {
+            tryMatchInstantly(cmd, cmd.action == OrderAction.ASK ? bidBuckets : askBuckets, 0, cmd);
         } else {
-            eventsHelper.attachRejectEvent(cmd, size);
+            eventsHelper.attachRejectEvent(cmd, cmd.size);
         }
-    }
-
-    private boolean isBudgetLimitSatisfied(final OrderAction orderAction, final long calculated, final long limit) {
-        return calculated == limit || (orderAction == OrderAction.BID ^ calculated > limit);
-    }
-
-
-    private Optional<Long> checkBudgetToFill(
-            long size,
-            final SortedMap<Long, OrdersBucketNaive> matchingBuckets) {
-
-        long budget = 0;
-
-        for (final OrdersBucketNaive bucket : matchingBuckets.values()) {
-
-            final long availableSize = bucket.getTotalVolume();
-            final long price = bucket.getPrice();
-
-            if (size > availableSize) {
-                size -= availableSize;
-                budget += availableSize * price;
-                if (logDebug) log.debug("add    {} * {} -> {}", price, availableSize, budget);
-            } else {
-                final long result = budget + size * price;
-                if (logDebug) log.debug("return {} * {} -> {}", price, size, result);
-                return Optional.of(result);
-            }
-        }
-        if (logDebug) log.debug("not enough liquidity to fill size={}", size);
-        return Optional.empty();
     }
 
     private SortedMap<Long, OrdersBucketNaive> subtreeForMatching(final OrderAction action, final long price) {
@@ -341,8 +301,6 @@ public final class OrderBookNaiveImpl implements IOrderBook {
             // order already matched and removed from order book previously
             return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
-        cmd.orderTakerFee = order.orderTakerFee;
-        cmd.orderMakerFee = order.orderMakerFee;
 
         // now can remove it
         idMap.remove(orderId);
@@ -365,71 +323,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         cmd.matcherEvent = eventsHelper.sendReduceEvent(order, order.getSize() - order.getFilled(), true);
 
         // fill action fields (for events handling)
-        cmd.action = order.getAction();
-
-        return CommandResultCode.SUCCESS;
-    }
-
-    /**
-     * Remove an order.<p>
-     *
-     * @param order cancel (order to remove)
-     * @return true if order removed, false if not found (can be removed/matched earlier)
-     */
-    public boolean cancelOrder(Order order) {
-        final long orderId = order.orderId;
-
-        if (order == null) {
-            // order already matched and removed from order book previously
-            return false;
-        }
-
-        // now can remove it
-        idMap.remove(orderId);
-
-        final NavigableMap<Long, OrdersBucketNaive> buckets = getBucketsByAction(order.action);
-        final long price = order.price;
-        final OrdersBucketNaive ordersBucket = buckets.get(price);
-        if (ordersBucket == null) {
-            // not possible state
-            throw new IllegalStateException("Can not find bucket for order price=" + price + " for order " + order);
-        }
-
-        // remove order and whole bucket if its empty
-        ordersBucket.remove(orderId, order.uid);
-        if (ordersBucket.getTotalVolume() == 0) {
-            buckets.remove(price);
-        }
-
-        return true;
-    }
-
-    /**
-     * Remove User orders.<p>
-     *
-     * @param cmd cancel orders (by UID)
-     * @return true if order removed, false if not found (can be removed/matched earlier)
-     */
-    public CommandResultCode cancelOrdersByUid(OrderCommand cmd) {
-
-        if(symbolSpec.type != SymbolType.CURRENCY_EXCHANGE_PAIR) {
-            return CommandResultCode.UNSUPPORTED_SYMBOL_TYPE;
-        }
-
-        final long userId = cmd.uid;
-        MutableInteger sizeOrders = new MutableInteger();
-
-        List<Order> userOrders = findUserOrders(userId);
-        if (!userOrders.isEmpty()) {
-            userOrders.stream().forEach(order -> {
-                if(cancelOrder(order)) {
-                    sizeOrders.getAndIncrement();
-                }
-            });
-        }
-
-        // send suspend event
-        cmd.matcherEvent = eventsHelper.sendSuspendEvent(userId, sizeOrders.get(), true);
+        cmd.copySettlementFields(order);
 
         return CommandResultCode.SUCCESS;
     }
@@ -482,7 +376,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         cmd.matcherEvent = eventsHelper.sendReduceEvent(order, reduceBy, canRemove);
 
         // fill action fields (for events handling)
-        cmd.action = order.getAction();
+        cmd.copySettlementFields(order);
 
         return CommandResultCode.SUCCESS;
     }
@@ -505,11 +399,11 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         final OrdersBucketNaive bucket = buckets.get(price);
 
         // fill action fields (for events handling)
-        cmd.action = order.getAction();
+        cmd.copySettlementFields(order);
 
-        // reserved price risk check for exchange bids
-        if (symbolSpec.type == SymbolType.CURRENCY_EXCHANGE_PAIR && order.action == OrderAction.BID && cmd.price > order.reserveBidPrice) {
-            return CommandResultCode.MATCHING_MOVE_FAILED_PRICE_OVER_RISK_LIMIT;
+        final CommandResultCode priceCheck = IOrderBook.validateMovePrice(symbolSpec, order, cmd.price);
+        if (priceCheck != CommandResultCode.SUCCESS) {
+            return priceCheck;
         }
 
         // take order out of the original bucket and clean bucket if its empty
@@ -521,6 +415,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
         order.price = newPrice;
         order.timestamp = newTimestamp;
+        cmd.matcherEvent = null;
 
         // try match with new price
         final SortedMap<Long, OrdersBucketNaive> matchingArea = subtreeForMatching(order.action, newPrice);

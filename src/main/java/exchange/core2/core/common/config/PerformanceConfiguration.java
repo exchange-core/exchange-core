@@ -126,7 +126,7 @@ public final class PerformanceConfiguration {
                 .threadFactory(Thread::new)
                 .waitStrategy(CoreWaitStrategy.BLOCKING)
                 .binaryCommandsLz4CompressorFactory(() -> LZ4Factory.fastestInstance().highCompressor())
-                .orderBookFactory(OrderBookNaiveImpl::new);
+                .orderBookFactory((IOrderBook.ConfiguredOrderBookFactory) OrderBookNaiveImpl::new);
     }
 
     public static PerformanceConfiguration.PerformanceConfigurationBuilder latencyPerformanceBuilder() {
@@ -142,7 +142,7 @@ public final class PerformanceConfiguration {
                 .threadFactory(new AffinityThreadFactory(AffinityThreadFactory.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE))
                 .waitStrategy(CoreWaitStrategy.BUSY_SPIN)
                 .binaryCommandsLz4CompressorFactory(() -> LZ4Factory.fastestInstance().highCompressor())
-                .orderBookFactory(OrderBookDirectImpl::new);
+                .orderBookFactory((IOrderBook.ConfiguredOrderBookFactory) OrderBookDirectImpl::new);
     }
 
     public static PerformanceConfiguration.PerformanceConfigurationBuilder throughputPerformanceBuilder() {
@@ -158,6 +158,6 @@ public final class PerformanceConfiguration {
                 .threadFactory(new AffinityThreadFactory(AffinityThreadFactory.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE))
                 .waitStrategy(CoreWaitStrategy.BUSY_SPIN)
                 .binaryCommandsLz4CompressorFactory(() -> LZ4Factory.fastestInstance().highCompressor())
-                .orderBookFactory(OrderBookDirectImpl::new);
+                .orderBookFactory((IOrderBook.ConfiguredOrderBookFactory) OrderBookDirectImpl::new);
     }
 }

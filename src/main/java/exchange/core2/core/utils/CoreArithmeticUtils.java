@@ -29,17 +29,44 @@ public final class CoreArithmeticUtils {
         return size * (price * spec.quoteScaleK);
     }
 
+    public static long resolveFee(long override, long symbolFee) {
+        return override == -1 ? symbolFee : override;
+    }
+
+    public static long bidHoldFee(long takerFee, long makerFee, CoreSymbolSpecification spec) {
+        return Math.max(resolveFee(takerFee, spec.takerFee), resolveFee(makerFee, spec.makerFee));
+    }
+
+    public static long calculateAmountBidHold(long size, long price, long holdFee, CoreSymbolSpecification spec) {
+        return Math.multiplyExact(size, Math.addExact(Math.multiplyExact(price, spec.quoteScaleK), holdFee));
+    }
+
+    public static long calculateAmountBidTakerFee(long size, long price, CoreSymbolSpecification spec) {
+        return calculateAmountBidTakerFee(size, price, -1, spec);
+    }
+
     public static long calculateAmountBidTakerFee(long size, long price, long orderTakerFee, CoreSymbolSpecification spec) {
-        return size * (price * spec.quoteScaleK + ( (orderTakerFee != -1) ? orderTakerFee : spec.takerFee));
+        return calculateAmountBidHold(size, price, resolveFee(orderTakerFee, spec.takerFee), spec);
     }
 
-    public static long calculateAmountBidReleaseCorrMaker(long size, long priceDiff, CoreSymbolSpecification spec, long orderTakerFee, long orderMakerFee) {
-        return size * (priceDiff * spec.quoteScaleK + (( (orderTakerFee != -1) ? orderTakerFee : spec.takerFee) - ( (orderMakerFee != -1) ? orderMakerFee : spec.makerFee)));
+    public static long calculateAmountBidReleaseCorrMaker(long size, long priceDiff, CoreSymbolSpecification spec) {
+        return calculateAmountBidReleaseCorrMaker(size, priceDiff, spec, -1, -1);
     }
 
-    public static long calculateAmountBidTakerFeeForBudget(long size, long budgetInSteps, long orderTakerFee, CoreSymbolSpecification spec) {
-
-        return budgetInSteps * spec.quoteScaleK + size * ( (orderTakerFee != -1) ? orderTakerFee : spec.takerFee);
+    public static long calculateAmountBidReleaseCorrMaker(long size, long priceDiff, CoreSymbolSpecification spec,
+                                                           long orderTakerFee, long orderMakerFee) {
+        final long held = bidHoldFee(orderTakerFee, orderMakerFee, spec);
+        final long charged = resolveFee(orderMakerFee, spec.makerFee);
+        return size * (priceDiff * spec.quoteScaleK + held - charged);
     }
 
+    public static long calculateAmountBidTakerFeeForBudget(long size, long budgetInSteps, CoreSymbolSpecification spec) {
+        return calculateAmountBidTakerFeeForBudget(size, budgetInSteps, -1, spec);
+    }
+
+    public static long calculateAmountBidTakerFeeForBudget(long size, long budgetInSteps,
+                                                           long orderTakerFee, CoreSymbolSpecification spec) {
+        return Math.addExact(Math.multiplyExact(budgetInSteps, spec.quoteScaleK),
+                Math.multiplyExact(size, resolveFee(orderTakerFee, spec.takerFee)));
+    }
 }

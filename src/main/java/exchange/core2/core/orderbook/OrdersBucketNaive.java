@@ -97,7 +97,7 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
      * @return - total matched volume, events, completed orders to remove
      */
     public MatcherResult match(long volumeToCollect, IOrder activeOrder, OrderBookEventsHelper helper) {
-        return match(volumeToCollect, activeOrder, helper, OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST);
+        return match(volumeToCollect, activeOrder, helper, OrdersProcessingConfiguration.SelfTradeProtectionMode.IGNORE);
     }
 
     public MatcherResult match(long volumeToCollect,

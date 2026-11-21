@@ -36,6 +36,7 @@ public final class ApiPlaceOrder extends ApiCommand {
     public final int symbol;
     public final int userCookie;
     public final long reservePrice;
+    // Non-negative overrides are per lot. A value of -1 uses the symbol fee.
     @Builder.Default
     public final long orderTakerFee = -1L;
     @Builder.Default

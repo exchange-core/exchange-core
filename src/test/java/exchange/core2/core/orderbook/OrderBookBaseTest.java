@@ -937,4 +937,33 @@ public abstract class OrderBookBaseTest {
         assertEquals(10L, snapshot.askVolumes[0]);
         assertEquals(0, snapshot.bidSize);
     }
+
+    @Test
+    void shouldRejectEntireFokWhenOwnOrderBlocksSamePriceQueue() {
+        orderBook = createNewOrderBook(OrdersProcessingConfiguration.builder()
+                .selfTradeProtectionMode(OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST)
+                .build());
+        clearOrderBook();
+
+        final long price = 100_000L;
+        processAndValidate(OrderCommand.newOrder(GTC, 3001L, 1, price, 0, 3, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 3002L, 2, price, 0, 2, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 3003L, 3, price, 0, 3, ASK), SUCCESS);
+
+        final OrderCommand fok = OrderCommand.newOrder(FOK_BUDGET, 3004L, 2, price * 4, price * 4, 4, BID);
+        processAndValidate(fok, SUCCESS);
+
+        assertNotNull(fok.matcherEvent);
+        assertEquals(MatcherEventType.REJECT, fok.matcherEvent.eventType);
+        assertEquals(4L, fok.matcherEvent.size);
+        assertNull(fok.matcherEvent.nextEvent);
+        assertEquals(8L, orderBook.getL2MarketDataSnapshot(1).askVolumes[0]);
+
+        final OrderCommand fullyFillable = OrderCommand.newOrder(FOK_BUDGET, 3005L, 2, price * 3, price * 3, 3, BID);
+        processAndValidate(fullyFillable, SUCCESS);
+        assertNotNull(fullyFillable.matcherEvent);
+        assertEquals(MatcherEventType.TRADE, fullyFillable.matcherEvent.eventType);
+        assertEquals(3001L, fullyFillable.matcherEvent.matchedOrderId);
+    }
+
 }

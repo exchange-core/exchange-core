@@ -95,8 +95,6 @@ public final class ExchangeApi {
             ringBuffer.publishEvent(REMOVE_USER_TRANSLATOR, (ApiRemoveUser) cmd);
         } else if (cmd instanceof ApiSuspendUser) {
             ringBuffer.publishEvent(SUSPEND_USER_TRANSLATOR, (ApiSuspendUser) cmd);
-        } else if (cmd instanceof ApiLiquidationOrder) {
-            ringBuffer.publishEvent(LIQUIDATION_ORDER_TRANSLATOR, (ApiLiquidationOrder) cmd);
         } else if (cmd instanceof ApiBinaryDataCommand) {
             publishBinaryData((ApiBinaryDataCommand) cmd, seq -> {
             });
@@ -135,8 +133,6 @@ public final class ExchangeApi {
             return submitCommandAsync(REMOVE_USER_TRANSLATOR, (ApiRemoveUser) cmd);
         } else if (cmd instanceof ApiSuspendUser) {
             return submitCommandAsync(SUSPEND_USER_TRANSLATOR, (ApiSuspendUser) cmd);
-        } else if (cmd instanceof ApiLiquidationOrder) {
-            return submitCommandAsync(LIQUIDATION_ORDER_TRANSLATOR, (ApiLiquidationOrder) cmd);
         } else if (cmd instanceof ApiBinaryDataCommand) {
             return submitBinaryDataAsync(((ApiBinaryDataCommand) cmd).data);
         } else if (cmd instanceof ApiPersistState) {
@@ -172,8 +168,6 @@ public final class ExchangeApi {
             return submitCommandAsyncFullResponse(REMOVE_USER_TRANSLATOR, (ApiRemoveUser) cmd);
         } else if (cmd instanceof ApiSuspendUser) {
             return submitCommandAsyncFullResponse(SUSPEND_USER_TRANSLATOR, (ApiSuspendUser) cmd);
-        } else if (cmd instanceof ApiLiquidationOrder) {
-            return submitCommandAsyncFullResponse(LIQUIDATION_ORDER_TRANSLATOR, (ApiLiquidationOrder) cmd);
         } else if (cmd instanceof ApiReset) {
             return submitCommandAsyncFullResponse(RESET_TRANSLATOR, (ApiReset) cmd);
         } else if (cmd instanceof ApiNop) {
@@ -315,9 +309,6 @@ public final class ExchangeApi {
                                    final long timestamp,
                                    final LongConsumer endSeqConsumer) {
 
-        // FIX: NativeBytes uses a Chronicle off-heap allocator (not limited by -XX:MaxDirectMemorySize)
-        // You must call release() after use to avoid off-heap memory leaks.
-        // Previously: bytes were created inline and NEVER released → accumulating millions of bytes after hours of operation.
         final net.openhft.chronicle.bytes.NativeBytes<Void> serializedBytes =
                 BinaryCommandsProcessor.serializeObject(data, dataTypeCode);
 
@@ -325,7 +316,7 @@ public final class ExchangeApi {
         try {
             longsArrayData = SerializationUtils.bytesToLongArrayLz4(lz4Compressor, serializedBytes, LONGS_PER_MESSAGE);
         } finally {
-            serializedBytes.release(); // Release off-heap memory after convertor to long[]
+            serializedBytes.releaseLast();
         }
 
         final int totalNumMessagesToClaim = longsArrayData.length / LONGS_PER_MESSAGE;
@@ -462,19 +453,6 @@ public final class ExchangeApi {
         cmd.resultCode = CommandResultCode.NEW;
     };
 
-    private static final EventTranslatorOneArg<OrderCommand, ApiLiquidationOrder> LIQUIDATION_ORDER_TRANSLATOR = (cmd, seq, api) -> {
-        cmd.command = OrderCommandType.FORCE_LIQUIDATION;
-        cmd.price = api.price;
-        cmd.size = api.size;
-        cmd.orderId = api.orderId;
-        cmd.timestamp = api.timestamp;
-        cmd.action = api.action;
-        cmd.orderType = api.orderType;
-        cmd.symbol = api.symbol;
-        cmd.uid = api.uid;
-        cmd.resultCode = CommandResultCode.NEW;
-    };
-
     private static final EventTranslatorOneArg<OrderCommand, ApiMoveOrder> MOVE_ORDER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.MOVE_ORDER;
         cmd.price = api.newPrice;
@@ -596,10 +574,10 @@ public final class ExchangeApi {
         }));
     }
 
-    public void suspendUser(long userId, long orderId, Consumer<OrderCommand> callback) {
+    public void suspendUser(long userId, Consumer<OrderCommand> callback) {
         ringBuffer.publishEvent(((cmd, seq) -> {
             cmd.command = OrderCommandType.SUSPEND_USER;
-            cmd.orderId = -((orderId == 1) ? orderId : 0);
+            cmd.orderId = -1;
             cmd.symbol = -1;
             cmd.uid = userId;
             cmd.timestamp = System.currentTimeMillis();
@@ -651,14 +629,14 @@ public final class ExchangeApi {
         }));
     }
 
-    public void suspendUser(int serviceFlags, long eventsGroup, long timestampNs, long userId, long orderId) {
+    public void suspendUser(int serviceFlags, long eventsGroup, long timestampNs, long userId) {
         ringBuffer.publishEvent(((cmd, seq) -> {
 
             cmd.serviceFlags = serviceFlags;
             cmd.eventsGroup = eventsGroup;
 
             cmd.command = OrderCommandType.SUSPEND_USER;
-            cmd.orderId = -((orderId == 1) ? orderId : 0);
+            cmd.orderId = -1;
             cmd.symbol = -1;
             cmd.uid = userId;
             cmd.timestamp = timestampNs;
@@ -782,6 +760,12 @@ public final class ExchangeApi {
         return future;
     }
 
+    public long placeNewOrder(int userCookie, long price, long reservedBidPrice, long size,
+                              OrderAction action, OrderType orderType, int symbol, long uid,
+                              Consumer<OrderCommand> callback) {
+        return placeNewOrder(userCookie, price, reservedBidPrice, size, action, orderType, symbol, uid, -1, -1, callback);
+    }
+
     public long placeNewOrder(
             int userCookie,
             long price,
@@ -792,7 +776,7 @@ public final class ExchangeApi {
             int symbol,
             long uid,
             long orderTakerFee,
-            int orderMakerFee,
+            long orderMakerFee,
             Consumer<OrderCommand> callback) {
 
         final long seq = ringBuffer.next();
@@ -821,6 +805,13 @@ public final class ExchangeApi {
         return seq;
     }
 
+
+    public void placeNewOrder(int serviceFlags, long eventsGroup, long timestampNs, long orderId,
+                              int userCookie, long price, long reservedBidPrice, long size,
+                              OrderAction action, OrderType orderType, int symbol, long uid) {
+        placeNewOrder(serviceFlags, eventsGroup, timestampNs, orderId, userCookie, price, reservedBidPrice,
+                size, action, orderType, symbol, uid, -1, -1);
+    }
 
     public void placeNewOrder(int serviceFlags,
                               long eventsGroup,
