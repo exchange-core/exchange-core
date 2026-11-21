@@ -19,10 +19,13 @@ public final class OrdersProcessingConfiguration {
     public static OrdersProcessingConfiguration DEFAULT = OrdersProcessingConfiguration.builder()
             .riskProcessingMode(RiskProcessingMode.FULL_PER_CURRENCY)
             .marginTradingMode(MarginTradingMode.MARGIN_TRADING_ENABLED)
+            .selfTradeProtectionMode(SelfTradeProtectionMode.IGNORE)
             .build();
 
     private final RiskProcessingMode riskProcessingMode;
     private final MarginTradingMode marginTradingMode;
+
+    private final SelfTradeProtectionMode selfTradeProtectionMode;
 
     public enum RiskProcessingMode {
         // risk processing is on, every currency/asset account is checked independently
@@ -35,5 +38,13 @@ public final class OrdersProcessingConfiguration {
     public enum MarginTradingMode {
         MARGIN_TRADING_DISABLED,
         MARGIN_TRADING_ENABLED
+    }
+
+    public enum SelfTradeProtectionMode {
+        // self matching allowed
+        IGNORE,
+
+        // cancel taker order when matching against own resting order
+        CANCEL_NEWEST
     }
 }

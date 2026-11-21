@@ -17,13 +17,19 @@ package exchange.core2.core.orderbook;
 
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.config.LoggingConfiguration;
+import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.tests.util.TestConstants;
 
 public final class OrderBookNaiveImplExchangeTest extends OrderBookBaseTest {
 
     @Override
     protected IOrderBook createNewOrderBook() {
-        return new OrderBookNaiveImpl(getCoreSymbolSpec(), LoggingConfiguration.DEFAULT);
+        return createNewOrderBook(OrdersProcessingConfiguration.DEFAULT);
+    }
+
+    @Override
+    protected IOrderBook createNewOrderBook(OrdersProcessingConfiguration ordersProcessingConfiguration) {
+        return new OrderBookNaiveImpl(getCoreSymbolSpec(), LoggingConfiguration.DEFAULT, ordersProcessingConfiguration);
     }
 
     @Override

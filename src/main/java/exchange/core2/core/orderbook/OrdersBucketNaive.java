@@ -19,6 +19,7 @@ import exchange.core2.core.common.IOrder;
 import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.Order;
 import exchange.core2.core.common.OrderAction;
+import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.utils.SerializationUtils;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -96,6 +97,13 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
      * @return - total matched volume, events, completed orders to remove
      */
     public MatcherResult match(long volumeToCollect, IOrder activeOrder, OrderBookEventsHelper helper) {
+        return match(volumeToCollect, activeOrder, helper, OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST);
+    }
+
+    public MatcherResult match(long volumeToCollect,
+                               IOrder activeOrder,
+                               OrderBookEventsHelper helper,
+                               OrdersProcessingConfiguration.SelfTradeProtectionMode stpMode) {
 
 //        log.debug("---- match: {}", volumeToCollect);
 
@@ -107,11 +115,20 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
 
         MatcherTradeEvent eventsHead = null;
         MatcherTradeEvent eventsTail = null;
+        boolean selfTradeDetected = false;
+
+        final long takerUid = activeOrder.getUid();
 
         // iterate through all orders
         while (iterator.hasNext() && volumeToCollect > 0) {
             final Map.Entry<Long, Order> next = iterator.next();
             final Order order = next.getValue();
+
+            if (stpMode == OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST
+                    && order.uid == takerUid) {
+                selfTradeDetected = true;
+                break;
+            }
 
             // calculate exact volume can fill for this order
 //            log.debug("volumeToCollect={} order: s{} f{}", volumeToCollect, order.size, order.filled);
@@ -142,7 +159,7 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
             }
         }
 
-        return new MatcherResult(eventsHead, eventsTail, totalMatchingVolume, ordersToRemove);
+        return new MatcherResult(eventsHead, eventsTail, totalMatchingVolume, ordersToRemove, selfTradeDetected);
     }
 
     /**
@@ -238,6 +255,11 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
         public MatcherTradeEvent eventsChainTail;
         public long volume;
         public List<Long> ordersToRemove;
+        public boolean selfTradeDetected;
+
+        public MatcherResult(MatcherTradeEvent eventsChainHead, MatcherTradeEvent eventsChainTail, long volume, List<Long> ordersToRemove) {
+            this(eventsChainHead, eventsChainTail, volume, ordersToRemove, false);
+        }
     }
 
 }
