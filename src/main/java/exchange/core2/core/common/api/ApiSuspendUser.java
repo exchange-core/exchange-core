@@ -24,9 +24,10 @@ import lombok.EqualsAndHashCode;
 public final class ApiSuspendUser extends ApiCommand {
 
     public final long uid;
+    public final long orderId;
 
     @Override
     public String toString() {
-        return "[SUSPEND_USER " + uid + "]";
+        return "[SUSPEND_USER " + uid + " with/without orders suspend ("+orderId+") ]";
     }
 }

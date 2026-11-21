@@ -337,7 +337,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
         } else if (cmdType == OrderCommandType.ADD_USER ||
                 cmdType == OrderCommandType.SUSPEND_USER ||
-                cmdType == OrderCommandType.RESUME_USER) {
+                cmdType == OrderCommandType.RESUME_USER ||
+                cmdType == OrderCommandType.REMOVE_USER) {
 
             buffer.putLong(cmd.uid); // 8 bytes can be compressed as delta
 
@@ -591,10 +592,11 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
                 } else if (cmdType == OrderCommandType.SUSPEND_USER) {
 
                     final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                    final long orderId = jr.readLong(); // 8 bytes
 
-                    if (debug) log.debug("suspend user seq={}  {} uid:{} ", lastSeq, timestampNs, uid);
+                    if (debug) log.debug("suspend user seq={}  {} uid:{} orderId={} ", lastSeq, timestampNs, uid, orderId);
 
-                    api.suspendUser(serviceFlags, eventsGroup, timestampNs, uid);
+                    api.suspendUser(serviceFlags, eventsGroup, timestampNs, uid, orderId);
 
                 } else if (cmdType == OrderCommandType.RESUME_USER) {
 
@@ -603,6 +605,14 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
                     if (debug) log.debug("resume user seq={}  {} uid:{} ", lastSeq, timestampNs, uid);
 
                     api.resumeUser(serviceFlags, eventsGroup, timestampNs, uid);
+
+                } else if (cmdType == OrderCommandType.REMOVE_USER) {
+
+                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+
+                    if (debug) log.debug("remove user seq={}  {} uid:{} ", lastSeq, timestampNs, uid);
+
+                    api.removeUser(serviceFlags, eventsGroup, timestampNs, uid);
 
                 } else if (cmdType == OrderCommandType.BINARY_DATA_COMMAND) {
 

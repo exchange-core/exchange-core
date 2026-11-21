@@ -57,6 +57,14 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     CommandResultCode cancelOrder(OrderCommand cmd);
 
     /**
+     * Cancel orders completely to refund suspended users.
+     *
+     * @param cmd - order command
+     * @return MATCHING_UNKNOWN_ORDER_ID if order was not found, otherwise SUCCESS
+     */
+    CommandResultCode cancelOrdersByUid(OrderCommand cmd);
+
+    /**
      * Decrease the size of the order by specific number of lots
      * <p>
      * fills cmd.action  with original  order action
@@ -202,6 +210,10 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
             int size = (int) cmd.size;
             cmd.marketData = orderBook.getL2MarketDataSnapshot(size >= 0 ? size : Integer.MAX_VALUE);
             return CommandResultCode.SUCCESS;
+
+        } else if (commandType == OrderCommandType.SUSPEND_USER && cmd.orderId == -2) {
+
+            return orderBook.cancelOrdersByUid(cmd);
 
         } else {
             return CommandResultCode.MATCHING_UNSUPPORTED_COMMAND;
