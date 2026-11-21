@@ -7,13 +7,16 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.core.Is.is;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
+import com.google.common.collect.Maps;
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.MatcherEventType;
 import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.Order;
 import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.OrderType;
+import exchange.core2.core.common.UserStatus;
 import exchange.core2.core.common.api.ApiAddUser;
 import exchange.core2.core.common.api.ApiAdjustUserBalance;
 import exchange.core2.core.common.api.ApiCancelOrder;
@@ -21,7 +24,9 @@ import exchange.core2.core.common.api.ApiCommand;
 import exchange.core2.core.common.api.ApiMoveOrder;
 import exchange.core2.core.common.api.ApiPlaceOrder;
 import exchange.core2.core.common.api.reports.SingleUserReportResult;
+import exchange.core2.core.common.api.reports.SingleUserReportResult.QueryExecutionStatus;
 import exchange.core2.core.common.cmd.CommandResultCode;
+import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
@@ -33,9 +38,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 
 @Slf4j
 public class OrderStepdefs implements En {
@@ -45,23 +50,12 @@ public class OrderStepdefs implements En {
     private ExchangeTestContainer container = null;
 
     private List<MatcherTradeEvent> matcherEvents;
-    private Map<Long, ApiPlaceOrder> orders = new HashMap<>();
+    private final Map<Long, ApiPlaceOrder> orders = new HashMap<>();
 
     final Map<String, CoreSymbolSpecification> symbolSpecificationMap = new HashMap<>();
     final Map<String, Long> users = new HashMap<>();
 
-    @BeforeEach
-    public void before() {
-        container = ExchangeTestContainer.create(testPerformanceConfiguration);
-        container.initBasicSymbols();
-    }
-
-    @AfterEach
-    public void after() {
-        if (container != null) {
-            container.close();
-        }
-    }
+    private AtomicLong uniqueIdCounterLong = new AtomicLong();
 
     public OrderStepdefs() {
         symbolSpecificationMap.put("EUR_USD", SYMBOLSPEC_EUR_USD);
@@ -111,27 +105,27 @@ public class OrderStepdefs implements En {
             }
         });
 
-        Given("New client {user} has a balance:",
-            (Long clientId, DataTable table) -> {
-                List<List<String>> balance = table.asLists();
-
-                final List<ApiCommand> cmds = new ArrayList<>();
-
-                cmds.add(ApiAddUser.builder().uid(clientId).build());
-
-                int transactionId = 0;
-
-                for (List<String> entry : balance) {
-                    transactionId++;
-                    cmds.add(ApiAdjustUserBalance.builder().uid(clientId).transactionId(transactionId)
-                        .amount(Long.parseLong(entry.get(1)))
-                        .currency(TestConstants.getCurrency(entry.get(0)))
-                        .build());
-                }
-
-                container.getApi().submitCommandsSync(cmds);
-
+        Given("^Users and their balances:$", (DataTable datatable) -> {
+            Map<Long, Map<Integer, Long>> userBalances = Maps.newHashMap();
+            datatable.cells().stream().skip(1)
+                .forEach(row -> {
+                    Long uid = users.get(row.get(0));
+                    Map<Integer, Long> balances = userBalances.computeIfAbsent(uid, aLong -> Maps.newHashMap());
+                    balances.put(TestConstants.getCurrency(row.get(1)), Long.parseLong(row.get(2)));
+                    userBalances.putIfAbsent(uid, balances);
+                });
+            final List<ApiCommand> cmds = new ArrayList<>();
+            userBalances.forEach((uid, value1) -> {
+                cmds.add(ApiAddUser.builder().uid(uid).build());
+                value1.forEach((key, value) -> cmds.add(
+                    ApiAdjustUserBalance.builder()
+                        .uid(uid)
+                        .transactionId(uniqueIdCounterLong.incrementAndGet())
+                        .currency(key)
+                        .amount(value).build()));
             });
+            container.getApi().submitCommandsSync(cmds);
+        });
 
         When("A client {user} places an {word} order {long} at {long}@{long} \\(type: {word}, symbol: {symbol})",
             (Long clientId, String side, Long orderId, Long price, Long size, String orderType, CoreSymbolSpecification symbol) -> {
@@ -246,7 +240,7 @@ public class OrderStepdefs implements En {
                 container.submitCommandSync(ApiAdjustUserBalance.builder()
                     .uid(clientId)
                     .currency(TestConstants.getCurrency(currency))
-                    .amount(ammount).transactionId(2193842938742L).build(), CHECK_SUCCESS);
+                    .amount(ammount).transactionId(uniqueIdCounterLong.incrementAndGet()).build(), CHECK_SUCCESS);
             });
 
         When("A client {user} cancels the remaining size {long} of the order {long}",
@@ -272,6 +266,25 @@ public class OrderStepdefs implements En {
                         assertThat(evt.size, is(size));
                     }).join();
             });
+
+        When("Suspend {user} who has balances will return {string}", (Long clientId, String resultCode) -> {
+            CompletableFuture<OrderCommand> future = new CompletableFuture<>();
+            container.getApi().suspendUser(clientId, future::complete);
+            log.debug("Suspend user result: {}", future.get());
+            assertSame(future.get().resultCode, CommandResultCode.valueOf(resultCode));
+        });
+        When("Suspend {user} who has no balances", (Long clientId) -> {
+            container.getApi().suspendUser(clientId, CHECK_SUCCESS);
+        });
+        Then(
+                "Status of {user} is {string}",
+                (Long clientId, String status) ->
+                        assertSame(container.getUserProfile(clientId).getUserStatus(), UserStatus.valueOf(status)));
+        Then(
+                "Query {user} will return {string}",
+                (Long clientId, String status) -> assertSame(
+                        container.getUserProfile(clientId).getQueryExecutionStatus(),
+                        QueryExecutionStatus.valueOf(status)));
     }
 
     private void aClientPassAnOrder(long clientId, String side, long orderId, long price, long size, String orderType,
@@ -341,5 +354,4 @@ public class OrderStepdefs implements En {
             assertEquals(actual, expected, "Unexpected value for " + field);
         }
     }
-
 }

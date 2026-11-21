@@ -1,14 +1,14 @@
 Feature: An exchange accepts bid\ask orders, manage and publish order book and match cross orders
 
   Background:
-    Given New client Alice has a balance:
-      | USD | 1000000   |
-      | XBT | 100000000 |
-      | ETH | 100000000 |
-    And New client Bob has a balance:
-      | USD | 2000000   |
-      | XBT | 100000000 |
-      | ETH | 100000000 |
+    Given Users and their balances:
+      | user  | asset | balance   |
+      | Alice | USD   | 1000000   |
+      | Alice | XBT   | 100000000 |
+      | Alice | ETH   | 100000000 |
+      | Bob   | USD   | 2000000   |
+      | Bob   | XBT   | 100000000 |
+      | Bob   | ETH   | 100000000 |
 
   @BasicFullCycleTest
   Scenario Outline: basic full cycle test
@@ -51,9 +51,9 @@ Feature: An exchange accepts bid\ask orders, manage and publish order book and m
 
   @CancelBidOrder
   Scenario: cancel BID order
-
-    Given New client Charlie has a balance:
-      | XBT | 94000000 |
+    Given Users and their balances:
+      | user    | asset | balance  |
+      | Charlie | XBT   | 94000000 |
 
     When A client Charlie places an BID order 203 at 18500@500 (type: GTC, symbol: ETH_XBT, reservePrice: 18500)
 
