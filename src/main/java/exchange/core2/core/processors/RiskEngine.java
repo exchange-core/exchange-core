@@ -682,30 +682,10 @@ public final class RiskEngine implements WriteBytesMarshallable {
         if (takerUp != null) {
             if (ev.eventType == MatcherEventType.TRADE) {
                 // update taker's position
-                long preVolume = takerSpr.openVolume;
-                long prePriceSum = takerSpr.openPriceSum;
-
-                final long sizeToOpen = takerSpr.closeOppositePosition(takerAction, ev.size, ev.price);
-                long closedSize = Math.max(0, preVolume - takerSpr.openVolume);
-
-                if (closedSize > 0) {
-                    long avgOpenPrice = preVolume > 0 ? prePriceSum / preVolume : 0;
-                    long closePnl = (ev.price - avgOpenPrice) * closedSize * takerSpr.direction.getMultiplier();
-                    long locked = takerSpr.calculateRequiredMarginForFutures(spec);
-                    long free = takerUp.accounts.get(spec.quoteCurrency) - locked;
-                    //send some event
-                }
-
-                if (sizeToOpen > 0) {
-                    takerSpr.openRemainingPosition(takerAction, sizeToOpen, ev.price);
-
-                    final long fee = spec.takerFee * sizeToOpen;
-                    long balance = takerUp.accounts.addToValue(spec.quoteCurrency, -fee);
-                    fees.addToValue(spec.quoteCurrency, fee);
-                    long locked = takerSpr.calculateRequiredMarginForFutures(spec);
-                    long free = balance - locked;
-                    //send some event
-                }
+                final long sizeOpen = takerSpr.updatePositionForMarginTrade(takerAction, ev.size, ev.price);
+                final long fee = spec.takerFee * sizeOpen;
+                takerUp.accounts.addToValue(spec.quoteCurrency, -fee);
+                fees.addToValue(spec.quoteCurrency, fee);
             } else if (ev.eventType == MatcherEventType.REJECT || ev.eventType == MatcherEventType.REDUCE) {
                 takerSpr.pendingRelease(takerAction, ev.size);
             }
@@ -716,31 +696,12 @@ public final class RiskEngine implements WriteBytesMarshallable {
 
         if (ev.eventType == MatcherEventType.TRADE && uidForThisHandler(ev.matchedOrderUid)) {
             // update maker's position
-            UserProfile maker = userProfileService.getUserProfileOrAddSuspended(ev.matchedOrderUid);
-            SymbolPositionRecord makerSpr = maker.getPositionRecordOrThrowEx(spec.symbolId);
-            long preVolume = makerSpr.openVolume;
-            long prePriceSum = makerSpr.openPriceSum;
-
-            final long sizeToOpen = makerSpr.closeOppositePosition(takerAction.opposite(), ev.size, ev.price);
-            long sizeClosed = Math.max(0, preVolume - makerSpr.openVolume);
-
-            if (sizeClosed > 0) {
-                long avgOpenPrice = preVolume > 0 ? prePriceSum / preVolume : ev.price;
-                long closePnl = (ev.price - avgOpenPrice) * sizeClosed * makerSpr.direction.getMultiplier();
-                long locked = makerSpr.calculateRequiredMarginForFutures(spec);
-                long free = maker.accounts.get(spec.quoteCurrency) - locked;
-            }
-
-            if (sizeToOpen > 0) {
-                makerSpr.openRemainingPosition(takerAction.opposite(), sizeToOpen, ev.price);
-
-                final long fee = spec.makerFee * sizeToOpen;
-                long balance = maker.accounts.addToValue(spec.quoteCurrency, -fee);
-                fees.addToValue(spec.quoteCurrency, fee);
-                long locked = makerSpr.calculateRequiredMarginForFutures(spec);
-                long free = balance - locked;
-
-            }
+            final UserProfile maker = userProfileService.getUserProfileOrAddSuspended(ev.matchedOrderUid);
+            final SymbolPositionRecord makerSpr = maker.getPositionRecordOrThrowEx(spec.symbolId);
+            long sizeOpen = makerSpr.updatePositionForMarginTrade(takerAction.opposite(), ev.size, ev.price);
+            final long fee = spec.makerFee * sizeOpen;
+            maker.accounts.addToValue(spec.quoteCurrency, -fee);
+            fees.addToValue(spec.quoteCurrency, fee);
             if (makerSpr.isEmpty()) {
                 removePositionRecord(makerSpr, maker);
             }
