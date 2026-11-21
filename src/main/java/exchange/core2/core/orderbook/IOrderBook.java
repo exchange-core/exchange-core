@@ -22,11 +22,13 @@ import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.core.common.config.OrdersProcessingConfiguration;
+import exchange.core2.core.utils.CoreArithmeticUtils;
 import exchange.core2.core.utils.HashingUtils;
 import lombok.Getter;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 
+import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Stream;
@@ -56,14 +58,6 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
      * @return MATCHING_UNKNOWN_ORDER_ID if order was not found, otherwise SUCCESS
      */
     CommandResultCode cancelOrder(OrderCommand cmd);
-
-    /**
-     * Cancel orders completely to refund suspended users.
-     *
-     * @param cmd - order command
-     * @return MATCHING_UNKNOWN_ORDER_ID if order was not found, otherwise SUCCESS
-     */
-    CommandResultCode cancelOrdersByUid(OrderCommand cmd);
 
     /**
      * Decrease the size of the order by specific number of lots
@@ -212,10 +206,6 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
             cmd.marketData = orderBook.getL2MarketDataSnapshot(size >= 0 ? size : Integer.MAX_VALUE);
             return CommandResultCode.SUCCESS;
 
-        } else if (commandType == OrderCommandType.SUSPEND_USER && cmd.orderId == -2) {
-
-            return orderBook.cancelOrdersByUid(cmd);
-
         } else {
             return CommandResultCode.MATCHING_UNSUPPORTED_COMMAND;
         }
@@ -237,6 +227,58 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
         }
     }
 
+    static CommandResultCode validateMovePrice(CoreSymbolSpecification spec, IOrder order, long price) {
+        if (spec.type != SymbolType.CURRENCY_EXCHANGE_PAIR) {
+            return CommandResultCode.SUCCESS;
+        }
+        if (price < 0) {
+            return CommandResultCode.INVALID_PRICE_STEP;
+        }
+        if (order.getAction() == OrderAction.BID) {
+            return price > order.getReserveBidPrice()
+                    ? CommandResultCode.MATCHING_MOVE_FAILED_PRICE_OVER_RISK_LIMIT : CommandResultCode.SUCCESS;
+        }
+        try {
+            final long fee = CoreArithmeticUtils.bidHoldFee(order.getOrderTakerFee(), order.getOrderMakerFee(), spec);
+            return Math.multiplyExact(price, spec.quoteScaleK) < fee
+                    ? CommandResultCode.RISK_ASK_PRICE_LOWER_THAN_FEE : CommandResultCode.SUCCESS;
+        } catch (ArithmeticException overflow) {
+            return CommandResultCode.INVALID_PRICE_STEP;
+        }
+    }
+
+    // FOK must inspect liquidity in the same price/FIFO order as execution.
+    static boolean canFillBudget(IOrderBook book, OrderCommand cmd,
+                                 OrdersProcessingConfiguration.SelfTradeProtectionMode stpMode) {
+        if (cmd.size <= 0) {
+            return false;
+        }
+
+        final boolean buy = cmd.action == OrderAction.BID;
+        final Iterator<? extends IOrder> makers =
+                (buy ? book.askOrdersStream(true) : book.bidOrdersStream(true)).iterator();
+        long remaining = cmd.size;
+        long total = 0;
+        try {
+            while (makers.hasNext()) {
+                final IOrder maker = makers.next();
+                if (stpMode == OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST
+                        && maker.getUid() == cmd.uid) {
+                    return false;
+                }
+                final long quantity = Math.min(remaining, maker.getSize() - maker.getFilled());
+                total = Math.addExact(total, Math.multiplyExact(quantity, maker.getPrice()));
+                remaining -= quantity;
+                if (remaining == 0) {
+                    return buy ? total <= cmd.price : total >= cmd.price;
+                }
+            }
+        } catch (ArithmeticException overflow) {
+            return false;
+        }
+        return false;
+    }
+
     @FunctionalInterface
     interface OrderBookFactory {
 
@@ -245,6 +287,19 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
         default IOrderBook create(CoreSymbolSpecification spec, ObjectsPool pool, OrderBookEventsHelper eventsHelper, LoggingConfiguration loggingCfg, OrdersProcessingConfiguration ordersProcCfg) {
             return create(spec, pool, eventsHelper, loggingCfg);
         }
+    }
+
+    @FunctionalInterface
+    interface ConfiguredOrderBookFactory extends OrderBookFactory {
+        @Override
+        default IOrderBook create(CoreSymbolSpecification spec, ObjectsPool pool, OrderBookEventsHelper eventsHelper,
+                                  LoggingConfiguration loggingCfg) {
+            return create(spec, pool, eventsHelper, loggingCfg, OrdersProcessingConfiguration.DEFAULT);
+        }
+
+        @Override
+        IOrderBook create(CoreSymbolSpecification spec, ObjectsPool pool, OrderBookEventsHelper eventsHelper,
+                          LoggingConfiguration loggingCfg, OrdersProcessingConfiguration ordersProcCfg);
     }
 
     @Getter

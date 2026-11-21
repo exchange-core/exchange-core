@@ -148,9 +148,8 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
             return CommandResultCode.USER_MGMT_USER_NOT_SUSPENDABLE_NON_EMPTY_ACCOUNTS;
 
         } else {
-            //Cancel actives orders and fill balance
-            userProfile.userStatus = UserStatus.SUSPENDED;
             log.debug("Suspended user profile: {}", userProfile);
+            userProfiles.remove(uid);
             // TODO pool UserProfile objects
             return CommandResultCode.SUCCESS;
         }

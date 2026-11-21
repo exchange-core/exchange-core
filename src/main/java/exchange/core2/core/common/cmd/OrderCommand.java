@@ -28,6 +28,8 @@ import java.util.function.Consumer;
 @ToString
 public final class OrderCommand implements IOrder {
 
+    public static final int LEGACY_WITHDRAWAL_REPLAY = 1 << 1;
+
     public OrderCommandType command;
 
     @Getter
@@ -42,9 +44,11 @@ public final class OrderCommand implements IOrder {
     public long size;
 
     @Getter
+    @Builder.Default
     public long orderTakerFee = -1;
 
     @Getter
+    @Builder.Default
     public long orderMakerFee = -1;
 
     @Getter
@@ -184,6 +188,14 @@ public final class OrderCommand implements IOrder {
         cmd2.orderType = this.orderType;
         cmd2.orderTakerFee = this.orderTakerFee;
         cmd2.orderMakerFee = this.orderMakerFee;
+    }
+
+    // A move, cancellation or reduction must settle against the original order.
+    public void copySettlementFields(IOrder restingOrder) {
+        action = restingOrder.getAction();
+        reserveBidPrice = restingOrder.getReserveBidPrice();
+        orderTakerFee = restingOrder.getOrderTakerFee();
+        orderMakerFee = restingOrder.getOrderMakerFee();
     }
 
     // slow - testing only

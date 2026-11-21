@@ -27,7 +27,6 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.ExchangeConfiguration;
-import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.core.common.config.SerializationConfiguration;
 import exchange.core2.core.orderbook.IOrderBook;
@@ -68,8 +67,6 @@ public final class ExchangeCore {
 
     // enable MatcherTradeEvent pooling
     public static final boolean EVENTS_POOLING = false;
-
-    private LiquidationScanner liquidationScanner;
 
     /**
      * Exchange core constructor.
@@ -213,11 +210,6 @@ public final class ExchangeCore {
         // attach slave processors to master processor
         IntStream.range(0, riskEnginesNum).forEach(i -> procR1.get(i).setSlaveProcessor(procR2.get(i)));
 
-        if (exchangeConfiguration.getOrdersProcessingCfg().getMarginTradingMode() == OrdersProcessingConfiguration.MarginTradingMode.MARGIN_TRADING_ENABLED) {
-            liquidationScanner = new LiquidationScanner(api, riskEngines.values());
-            liquidationScanner.start();
-        }
-
         try {
             loaderExecutor.shutdown();
             loaderExecutor.awaitTermination(1, TimeUnit.SECONDS);
@@ -267,11 +259,6 @@ public final class ExchangeCore {
         if (!stopped) {
             stopped = true;
             // TODO stop accepting new events first
-            if (liquidationScanner != null) {
-                log.info("Shutdown liquidation scanner...");
-                liquidationScanner.stop(timeout, timeUnit);
-                log.info("Liquidation scanner stopped");
-            }
             try {
                 log.info("Shutdown disruptor...");
                 ringBuffer.publishEvent(SHUTDOWN_SIGNAL_TRANSLATOR);

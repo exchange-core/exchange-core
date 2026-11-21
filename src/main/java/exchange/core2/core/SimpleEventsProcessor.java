@@ -1,5 +1,6 @@
 package exchange.core2.core;
 
+import exchange.core2.core.common.BalanceAdjustmentType;
 import exchange.core2.core.common.L2MarketData;
 import exchange.core2.core.common.MatcherEventType;
 import exchange.core2.core.common.MatcherTradeEvent;
@@ -181,7 +182,8 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
                 break;
 
             case BALANCE_ADJUSTMENT:
-                sendApiCommandResult(new ApiAdjustUserBalance(cmd.uid, cmd.symbol, cmd.price, cmd.orderId), cmd.resultCode, cmd.timestamp, seq);
+                sendApiCommandResult(new ApiAdjustUserBalance(cmd.uid, cmd.symbol, cmd.price, cmd.orderId,
+                        BalanceAdjustmentType.of(cmd.orderType.getCode())), cmd.resultCode, cmd.timestamp, seq);
                 break;
 
             case BINARY_DATA_COMMAND:

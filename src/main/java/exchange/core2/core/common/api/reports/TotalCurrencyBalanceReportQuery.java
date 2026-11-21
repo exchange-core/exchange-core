@@ -68,7 +68,8 @@ public final class TotalCurrencyBalanceReportQuery implements ReportQuery<TotalC
 
                     currencyBalance.addToValue(
                             spec.getQuoteCurrency(),
-                            ob.bidOrdersStream(false).mapToLong(ord -> CoreArithmeticUtils.calculateAmountBidTakerFee(ord.getSize() - ord.getFilled(), ord.getReserveBidPrice(), ord.getOrderTakerFee(), spec)).sum());
+                            ob.bidOrdersStream(false).mapToLong(ord -> CoreArithmeticUtils.calculateAmountBidHold(ord.getSize() - ord.getFilled(), ord.getReserveBidPrice(),
+                                     CoreArithmeticUtils.bidHoldFee(ord.getOrderTakerFee(), ord.getOrderMakerFee(), spec), spec)).sum());
                 });
 
         return Optional.of(TotalCurrencyBalanceReportResult.ofOrderBalances(currencyBalance));

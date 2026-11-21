@@ -51,6 +51,12 @@ import java.util.function.Function;
 @Slf4j
 public final class DiskSerializationProcessor implements ISerializationProcessor {
 
+    // Journal-only opcode. Older PLACE_ORDER records carry symbol fees implicitly.
+    private static final byte PLACE_ORDER_WITH_FEES = 5;
+
+    // Untagged withdrawals were admitted under the legacy balance-only rule.
+    private static final byte WITHDRAWAL_WITH_MARGIN_CHECK = 15;
+
     private final int journalBufferFlushTrigger;
     private final long journalFileMaxSize;
     private final int journalBatchCompressThreshold;
@@ -257,8 +263,14 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
         if (cmdType == OrderCommandType.SHUTDOWN_SIGNAL) {
             if (channel != null) {
-                flushBufferSync(false, cmd.timestamp);
-                log.debug("Shutdown signal received, flushed to disk");
+                try {
+                    flushBufferSync(false, cmd.timestamp);
+                    log.debug("Shutdown signal received, flushed to disk");
+                } finally {
+                    raf.close();
+                    raf = null;
+                    channel = null;
+                }
             }
             return;
         }
@@ -275,10 +287,16 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
         final ByteBuffer buffer = journalWriteBuffer;
 
         // mandatory fields
-        buffer.put(cmdType.getCode()); // 1 byte
+        final boolean hasOrderFees = cmdType == OrderCommandType.PLACE_ORDER
+                && (cmd.orderTakerFee != -1 || cmd.orderMakerFee != -1);
+        final boolean checkedWithdrawal = cmdType == OrderCommandType.BALANCE_ADJUSTMENT && cmd.price < 0
+                && (cmd.serviceFlags & OrderCommand.LEGACY_WITHDRAWAL_REPLAY) == 0;
+        final byte opcode = hasOrderFees ? PLACE_ORDER_WITH_FEES
+                : checkedWithdrawal ? WITHDRAWAL_WITH_MARGIN_CHECK : cmdType.getCode();
+        buffer.put(opcode);
         buffer.putLong(baseSeq + dSeq); // 8 bytes - can be compressed as delta
         buffer.putLong(cmd.timestamp); // 8 bytes - can be compressed as delta
-        buffer.putInt(cmd.serviceFlags); // 4 bytes - can be compressed as dictionary
+        buffer.putInt(cmd.serviceFlags & ~OrderCommand.LEGACY_WITHDRAWAL_REPLAY);
         buffer.putLong(cmd.eventsGroup); // 8 bytes - can be compressed as delta
 
         if (debug)
@@ -321,8 +339,10 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
             buffer.putLong(cmd.price); // 8 bytes - can be compressed as delta
             buffer.putLong(cmd.reserveBidPrice); // 8 bytes - can be compressed (diff to price or 0)
             buffer.putLong(cmd.size); // 8 bytes - can be compressed
-            buffer.putLong(cmd.orderTakerFee); // 8 bytes
-            buffer.putLong(cmd.orderMakerFee); // 8 bytes
+            if (hasOrderFees) {
+                buffer.putLong(cmd.orderTakerFee);
+                buffer.putLong(cmd.orderMakerFee);
+            }
             buffer.putInt(cmd.userCookie); // 4 bytes can be log-compressed
 
             final int actionAndType = (cmd.orderType.getCode() << 1) | cmd.action.getCode();
@@ -511,7 +531,12 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
                 final long timestampNs = jr.readLong();
                 final int serviceFlags = jr.readInt();
                 final long eventsGroup = jr.readLong();
-                final OrderCommandType cmdType = OrderCommandType.fromCode(cmd);
+                final boolean hasOrderFees = cmd == PLACE_ORDER_WITH_FEES;
+                final OrderCommandType cmdType = switch (cmd) {
+                    case PLACE_ORDER_WITH_FEES -> OrderCommandType.PLACE_ORDER;
+                    case WITHDRAWAL_WITH_MARGIN_CHECK -> OrderCommandType.BALANCE_ADJUSTMENT;
+                    default -> OrderCommandType.fromCode(cmd);
+                };
 
                 if (seq != lastSeq.value + 1) {
                     log.warn("Sequence gap {}->{} ({})", lastSeq, seq, seq - lastSeq.value);
@@ -567,8 +592,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
                     final long price = jr.readLong(); // 8 bytes - can be compressed as delta
                     final long reservedBidPrice = jr.readLong(); // 8 bytes - can be compressed (diff to price or 0)
                     final long size = jr.readLong(); // 8 bytes - can be compressed
-                    final long orderTakerFee = jr.readLong();
-                    final long orderMakerFee = jr.readLong();
+                    final long orderTakerFee = hasOrderFees ? jr.readLong() : -1;
+                    final long orderMakerFee = hasOrderFees ? jr.readLong() : -1;
                     final int userCookie = jr.readInt(); // 4 bytes can be compressed as a optional low value
 
                     final byte actionAndType = jr.readByte(); // 1 byte
@@ -592,7 +617,9 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
                     if (debug)
                         log.debug("balanceAdjustment seq={}  {} uid:{} curre:{}", lastSeq, timestampNs, uid, currency);
 
-                    api.balanceAdjustment(serviceFlags, eventsGroup, timestampNs, uid, transactionId, currency, amount, adjustmentType);
+                    final int replayFlags = amount < 0 && cmd != WITHDRAWAL_WITH_MARGIN_CHECK
+                            ? serviceFlags | OrderCommand.LEGACY_WITHDRAWAL_REPLAY : serviceFlags;
+                    api.balanceAdjustment(replayFlags, eventsGroup, timestampNs, uid, transactionId, currency, amount, adjustmentType);
 
                 } else if (cmdType == OrderCommandType.ADD_USER) {
 
@@ -605,11 +632,10 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
                 } else if (cmdType == OrderCommandType.SUSPEND_USER) {
 
                     final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
-                    final long orderId = jr.readLong(); // 8 bytes
 
-                    if (debug) log.debug("suspend user seq={}  {} uid:{} orderId={} ", lastSeq, timestampNs, uid, orderId);
+                    if (debug) log.debug("suspend user seq={}  {} uid:{} ", lastSeq, timestampNs, uid);
 
-                    api.suspendUser(serviceFlags, eventsGroup, timestampNs, uid, orderId);
+                    api.suspendUser(serviceFlags, eventsGroup, timestampNs, uid);
 
                 } else if (cmdType == OrderCommandType.RESUME_USER) {
 

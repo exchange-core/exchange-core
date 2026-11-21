@@ -25,7 +25,12 @@ public final class OrdersProcessingConfiguration {
     private final RiskProcessingMode riskProcessingMode;
     private final MarginTradingMode marginTradingMode;
 
-    private final SelfTradeProtectionMode selfTradeProtectionMode;
+    @Builder.Default
+    private final SelfTradeProtectionMode selfTradeProtectionMode = SelfTradeProtectionMode.IGNORE;
+
+    public OrdersProcessingConfiguration(RiskProcessingMode riskProcessingMode, MarginTradingMode marginTradingMode) {
+        this(riskProcessingMode, marginTradingMode, SelfTradeProtectionMode.IGNORE);
+    }
 
     public enum RiskProcessingMode {
         // risk processing is on, every currency/asset account is checked independently

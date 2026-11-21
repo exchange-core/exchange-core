@@ -181,43 +181,38 @@ public final class RiskEngine implements WriteBytesMarshallable {
     public static class LastPriceCacheRecord implements BytesMarshallable, StateHash {
         public long askPrice = Long.MAX_VALUE;
         public long bidPrice = 0L;
-        public long markPrice = 0L;
 
         public LastPriceCacheRecord() {
         }
 
-        public LastPriceCacheRecord(long askPrice, long bidPrice, long markPrice) {
+        public LastPriceCacheRecord(long askPrice, long bidPrice) {
             this.askPrice = askPrice;
             this.bidPrice = bidPrice;
-            this.markPrice = markPrice;
         }
 
         public LastPriceCacheRecord(BytesIn bytes) {
             this.askPrice = bytes.readLong();
             this.bidPrice = bytes.readLong();
-            this.markPrice = bytes.readLong();
         }
 
         @Override
         public void writeMarshallable(BytesOut bytes) {
             bytes.writeLong(askPrice);
             bytes.writeLong(bidPrice);
-            bytes.writeLong(markPrice);
         }
 
         public LastPriceCacheRecord averagingRecord() {
             LastPriceCacheRecord average = new LastPriceCacheRecord();
             average.askPrice = (this.askPrice + this.bidPrice) >> 1;
             average.bidPrice = average.askPrice;
-            average.markPrice = average.askPrice;
             return average;
         }
 
-        public static LastPriceCacheRecord dummy = new LastPriceCacheRecord(42, 42,42);
+        public static LastPriceCacheRecord dummy = new LastPriceCacheRecord(42, 42);
 
         @Override
         public int stateHash() {
-            return Objects.hash(askPrice, bidPrice, markPrice);
+            return Objects.hash(askPrice, bidPrice);
         }
     }
 
@@ -240,7 +235,6 @@ public final class RiskEngine implements WriteBytesMarshallable {
             case CANCEL_ORDER:
             case REDUCE_ORDER:
             case ORDER_BOOK_REQUEST:
-            case FORCE_LIQUIDATION:
                 return false;
 
             case PLACE_ORDER:
@@ -259,25 +253,9 @@ public final class RiskEngine implements WriteBytesMarshallable {
 
             case BALANCE_ADJUSTMENT:
                 if (uidForThisHandler(cmd.uid)) {
-                    final long uid = cmd.uid;
-                    final int currency = cmd.symbol;
-                    final long amountDiff = cmd.price;
-                    final UserProfile userProfile = userProfileService.getUserProfile(uid);
-                    if (userProfile == null) {
-                        cmd.resultCode = CommandResultCode.AUTH_INVALID_USER;
-                        return false;
-                    }
-                    final long currentBalance = userProfile.accounts.get(cmd.symbol);
-                    if (amountDiff < 0 && cfgMarginTradingEnabled ) {
-                        long withdrawalAmount = -amountDiff;
-                        long lockedMargin = calculateLockedMargin(userProfile, cmd.symbol);
-                        if (currentBalance - withdrawalAmount < lockedMargin) {
-                            cmd.resultCode = CommandResultCode.RISK_NSF;
-                            return false;
-                        }
-                    }
                     cmd.resultCode = adjustBalance(
-                            cmd.uid, cmd.symbol, cmd.price, cmd.orderId, BalanceAdjustmentType.of(cmd.orderType.getCode()));
+                            cmd.uid, cmd.symbol, cmd.price, cmd.orderId, BalanceAdjustmentType.of(cmd.orderType.getCode()),
+                            (cmd.serviceFlags & OrderCommand.LEGACY_WITHDRAWAL_REPLAY) == 0);
                 }
                 return false;
 
@@ -333,7 +311,19 @@ public final class RiskEngine implements WriteBytesMarshallable {
     }
 
 
-    private CommandResultCode adjustBalance(long uid, int currency, long amountDiff, long fundingTransactionId, BalanceAdjustmentType adjustmentType) {
+    private CommandResultCode adjustBalance(long uid, int currency, long amountDiff, long fundingTransactionId,
+                                            BalanceAdjustmentType adjustmentType, boolean checkMargin) {
+        if (checkMargin && cfgMarginTradingEnabled && amountDiff < 0) {
+            final UserProfile profile = userProfileService.getUserProfile(uid);
+            if (profile != null && fundingTransactionId > profile.adjustmentsCounter) {
+                final long balance = profile.accounts.get(currency);
+                final long lockedMargin = calculateLockedMargin(profile, currency);
+                if (lockedMargin > 0 && (balance < lockedMargin || amountDiff < lockedMargin - balance)) {
+                    return CommandResultCode.RISK_NSF;
+                }
+            }
+        }
+
         final CommandResultCode res = userProfileService.balanceAdjustment(uid, currency, amountDiff, fundingTransactionId);
         if (res == CommandResultCode.SUCCESS) {
             switch (adjustmentType) {
@@ -367,7 +357,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
             ((BatchAddAccountsCommand) message).getUsers().forEachKeyValue((uid, accounts) -> {
                 if (userProfileService.addEmptyUserProfile(uid)) {
                     accounts.forEachKeyValue((cur, bal) ->
-                            adjustBalance(uid, cur, bal, 1_000_000_000 + cur, BalanceAdjustmentType.ADJUSTMENT));
+                            adjustBalance(uid, cur, bal, 1_000_000_000 + cur, BalanceAdjustmentType.ADJUSTMENT, true));
                 } else {
                     log.debug("User already exist: {}", uid);
                 }
@@ -410,6 +400,15 @@ public final class RiskEngine implements WriteBytesMarshallable {
         }
 
         // check if account has enough funds
+        if (cmd.orderTakerFee < -1 || cmd.orderMakerFee < -1) {
+            return CommandResultCode.RISK_INVALID_ORDER_FEE;
+        }
+        try {
+            Math.multiplyExact(cmd.size, CoreArithmeticUtils.resolveFee(cmd.orderTakerFee, spec.takerFee));
+            Math.multiplyExact(cmd.size, CoreArithmeticUtils.resolveFee(cmd.orderMakerFee, spec.makerFee));
+        } catch (ArithmeticException overflow) {
+            return CommandResultCode.RISK_INVALID_ORDER_FEE;
+        }
         final CommandResultCode resultCode = placeOrder(cmd, userProfile, spec);
 
         if (resultCode != CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
@@ -469,58 +468,46 @@ public final class RiskEngine implements WriteBytesMarshallable {
 
         // futures positions check for this currency
         long freeFuturesMargin = 0L;
-        long totalLockedMargin = 0L;
         if (cfgMarginTradingEnabled) {
             for (final SymbolPositionRecord position : userProfile.positions) {
                 if (position.currency == currency) {
                     final int recSymbol = position.symbol;
                     final CoreSymbolSpecification spec2 = symbolSpecificationProvider.getSymbolSpecification(recSymbol);
                     // add P&L subtract margin
-                    long requiredMarginForFutures = position.calculateRequiredMarginForFutures(spec2);
                     freeFuturesMargin +=
                             (position.estimateProfit(spec2, lastPriceCache.get(recSymbol)) - position.calculateRequiredMarginForFutures(spec2));
-                    freeFuturesMargin += (position.estimateProfit(spec2, lastPriceCache.get(recSymbol)) - requiredMarginForFutures);
-                    totalLockedMargin += requiredMarginForFutures;
                 }
             }
         }
 
         final long size = cmd.size;
+        final boolean budgetOrder = isBudgetOrder(cmd);
         final long orderHoldAmount;
-        if (cmd.action == OrderAction.BID) {
+        try {
+            if (size <= 0 || cmd.price < 0) {
+                return CommandResultCode.RISK_NSF;
+            }
 
-            if (cmd.orderType == OrderType.FOK_BUDGET || cmd.orderType == OrderType.IOC_BUDGET) {
-
-                if (cmd.reserveBidPrice != cmd.price) {
-                    //log.warn("reserveBidPrice={} less than price={}", cmd.reserveBidPrice, cmd.price);
+            if (cmd.action == OrderAction.BID) {
+                if ((budgetOrder && cmd.reserveBidPrice != cmd.price) || cmd.reserveBidPrice < cmd.price) {
                     return CommandResultCode.RISK_INVALID_RESERVE_BID_PRICE;
                 }
-
-                orderHoldAmount = CoreArithmeticUtils.calculateAmountBidTakerFeeForBudget(size, cmd.price, cmd.orderTakerFee, spec);
-                if (logDebug)
-                    log.debug("hold amount budget buy {} = {} * {} + {} * {}", cmd.price, size, spec.quoteScaleK, size, (cmd.orderTakerFee != -1) ? cmd.orderTakerFee : spec.takerFee);
-
+                orderHoldAmount = budgetOrder
+                        ? CoreArithmeticUtils.calculateAmountBidTakerFeeForBudget(size, cmd.price, cmd.orderTakerFee, spec)
+                        : CoreArithmeticUtils.calculateAmountBidHold(size, cmd.reserveBidPrice, reservationFee(cmd, spec), spec);
             } else {
-
-                if (cmd.reserveBidPrice < cmd.price) {
-                    //log.warn("reserveBidPrice={} less than price={}", cmd.reserveBidPrice, cmd.price);
-                    return CommandResultCode.RISK_INVALID_RESERVE_BID_PRICE;
+                final long fee = reservationFee(cmd, spec);
+                final long requiredFee = budgetOrder ? Math.multiplyExact(size, fee) : fee;
+                if (Math.multiplyExact(cmd.price, spec.quoteScaleK) < requiredFee) {
+                    return CommandResultCode.RISK_ASK_PRICE_LOWER_THAN_FEE;
                 }
-                orderHoldAmount = CoreArithmeticUtils.calculateAmountBidTakerFee(size, cmd.reserveBidPrice, cmd.orderTakerFee, spec);
-                if (logDebug)
-                    log.debug("hold amount buy {} = {} * ( {} * {} + {} )", orderHoldAmount, size, cmd.reserveBidPrice, spec.quoteScaleK, (cmd.orderTakerFee != -1) ? cmd.orderTakerFee : spec.takerFee);
+                orderHoldAmount = Math.multiplyExact(size, spec.baseScaleK);
             }
-
-        } else {
-
-            if (cmd.price * spec.quoteScaleK < ((cmd.orderTakerFee != -1) ? cmd.orderTakerFee : spec.takerFee)) {
-                // log.debug("cmd.price {} * spec.quoteScaleK {} < {} spec.takerFee", cmd.price, spec.quoteScaleK, spec.takerFee);
-                // todo also check for move command
-                return CommandResultCode.RISK_ASK_PRICE_LOWER_THAN_FEE;
-            }
-
-            orderHoldAmount = CoreArithmeticUtils.calculateAmountAsk(size, spec);
-            if (logDebug) log.debug("hold sell {} = {} * {} ", orderHoldAmount, size, spec.baseScaleK);
+        } catch (ArithmeticException overflow) {
+            return CommandResultCode.RISK_NSF;
+        }
+        if (orderHoldAmount < 0) {
+            return CommandResultCode.RISK_NSF;
         }
 
         if (logDebug) {
@@ -528,19 +515,29 @@ public final class RiskEngine implements WriteBytesMarshallable {
                     userProfile.uid, orderHoldAmount, currency, userProfile.accounts.get(currency), freeFuturesMargin);
         }
 
-        // speculative change balance
-        long newBalance = userProfile.accounts.addToValue(currency, -orderHoldAmount);
-
-        final boolean canPlace = newBalance + freeFuturesMargin >= 0;
-
-        if (!canPlace) {
-            // revert balance change
-            userProfile.accounts.addToValue(currency, orderHoldAmount);
-//            log.warn("orderAmount={} > userProfile.accounts.get({})={}", orderAmount, currency, userProfile.accounts.get(currency));
-            return CommandResultCode.RISK_NSF;
-        } else {
+        final long balance = userProfile.accounts.get(currency);
+        try {
+            final long available = Math.addExact(balance, freeFuturesMargin);
+            final long remaining = Math.subtractExact(balance, orderHoldAmount);
+            if (available < orderHoldAmount) {
+                return CommandResultCode.RISK_NSF;
+            }
+            userProfile.accounts.put(currency, remaining);
             return CommandResultCode.VALID_FOR_MATCHING_ENGINE;
+        } catch (ArithmeticException overflow) {
+            return CommandResultCode.RISK_NSF;
         }
+    }
+
+    private static boolean isBudgetOrder(OrderCommand cmd) {
+        return cmd.command == OrderCommandType.PLACE_ORDER
+                && (cmd.orderType == OrderType.FOK_BUDGET || cmd.orderType == OrderType.IOC_BUDGET);
+    }
+
+    private static long reservationFee(OrderCommand cmd, CoreSymbolSpecification spec) {
+        return cmd.command == OrderCommandType.PLACE_ORDER && cmd.orderType != OrderType.GTC
+                ? CoreArithmeticUtils.resolveFee(cmd.orderTakerFee, spec.takerFee)
+                : CoreArithmeticUtils.bidHoldFee(cmd.orderTakerFee, cmd.orderMakerFee, spec);
     }
 
 
@@ -652,14 +649,10 @@ public final class RiskEngine implements WriteBytesMarshallable {
         }
 
         // Process marked data
-        if (cfgMarginTradingEnabled) {
-            final LastPriceCacheRecord record = lastPriceCache.getIfAbsentPut(symbol, LastPriceCacheRecord::new);
-            if (marketData != null) {
-                record.askPrice = (marketData.askSize != 0) ? marketData.askPrices[0] : Long.MAX_VALUE;
-                record.bidPrice = (marketData.bidSize != 0) ? marketData.bidPrices[0] : 0;
-                // update markPrice, now just using avg
-                record.markPrice = (record.askPrice != Long.MAX_VALUE && record.bidPrice != 0) ? (record.askPrice + record.bidPrice) >> 1 : record.markPrice;
-            }
+        if (marketData != null && cfgMarginTradingEnabled) {
+            final RiskEngine.LastPriceCacheRecord record = lastPriceCache.getIfAbsentPut(symbol, RiskEngine.LastPriceCacheRecord::new);
+            record.askPrice = (marketData.askSize != 0) ? marketData.askPrices[0] : Long.MAX_VALUE;
+            record.bidPrice = (marketData.bidSize != 0) ? marketData.bidPrices[0] : 0;
         }
 
         return false;
@@ -668,7 +661,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
     private long calculateLockedMargin(UserProfile userProfile, int currency) {
         long locked = 0;
         for (SymbolPositionRecord position : userProfile.positions) {
-            if (position.currency == currency && position.direction != PositionDirection.EMPTY) {
+            if (position.currency == currency) {
                 CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(position.symbol);
                 locked += position.calculateRequiredMarginForFutures(spec);
             }
@@ -728,10 +721,10 @@ public final class RiskEngine implements WriteBytesMarshallable {
 
         } else {
 
-            if (cmd.command == OrderCommandType.PLACE_ORDER && cmd.orderType == OrderType.FOK_BUDGET) {
+            if (isBudgetOrder(cmd)) {
                 taker.accounts.addToValue(spec.quoteCurrency, CoreArithmeticUtils.calculateAmountBidTakerFeeForBudget(ev.size, ev.price, cmd.orderTakerFee, spec));
             } else {
-                taker.accounts.addToValue(spec.quoteCurrency, CoreArithmeticUtils.calculateAmountBidTakerFee(ev.size, ev.bidderHoldPrice, cmd.orderTakerFee, spec));
+                taker.accounts.addToValue(spec.quoteCurrency, CoreArithmeticUtils.calculateAmountBidHold(ev.size, ev.bidderHoldPrice, reservationFee(cmd, spec), spec));
             }
             // TODO for OrderType.IOC_BUDGET - for REJECT should release leftover deposit after all trades calculated
         }
@@ -747,12 +740,11 @@ public final class RiskEngine implements WriteBytesMarshallable {
         //log.debug("TRADE EXCH SELL {}", ev);
 
         long takerSizeForThisHandler = 0L;
-        long makerSizeForThisHandler = 0L;
 
         long takerSizePriceForThisHandler = 0L;
 
         final int quoteCurrency = spec.quoteCurrency;
-        long allMakerFee = 0;
+        long makerFees = 0L;
         while (ev != null) {
             assert ev.eventType == MatcherEventType.TRADE;
 
@@ -776,9 +768,8 @@ public final class RiskEngine implements WriteBytesMarshallable {
                 final long gainedAmountInBaseCurrency = CoreArithmeticUtils.calculateAmountAsk(size, spec);
                 maker.accounts.addToValue(spec.baseCurrency, gainedAmountInBaseCurrency);
 
-                makerSizeForThisHandler += size;
+                makerFees += CoreArithmeticUtils.resolveFee(ev.matchedOrderMakerFee, spec.makerFee) * size;
             }
-            allMakerFee += (ev.matchedOrderMakerFee != -1 ? ev.matchedOrderMakerFee : spec.makerFee);
             ev = ev.nextEvent;
         }
 
@@ -786,9 +777,9 @@ public final class RiskEngine implements WriteBytesMarshallable {
             taker.accounts.addToValue(quoteCurrency, takerSizePriceForThisHandler * spec.quoteScaleK - ((orderTakerFee != -1) ? orderTakerFee : spec.takerFee) * takerSizeForThisHandler);
         }
 
-        if (takerSizeForThisHandler != 0 || makerSizeForThisHandler != 0) {
+        if (takerSizeForThisHandler != 0 || makerFees != 0) {
 
-            fees.addToValue(quoteCurrency, ((orderTakerFee != -1) ? orderTakerFee : spec.takerFee) * takerSizeForThisHandler + (allMakerFee) * makerSizeForThisHandler);
+            fees.addToValue(quoteCurrency, ((orderTakerFee != -1) ? orderTakerFee : spec.takerFee) * takerSizeForThisHandler + makerFees);
         }
     }
 
@@ -799,14 +790,13 @@ public final class RiskEngine implements WriteBytesMarshallable {
         //log.debug("TRADE EXCH BUY {}", ev);
 
         long takerSizeForThisHandler = 0L;
-        long makerSizeForThisHandler = 0L;
 
         long takerSizePriceSum = 0L;
         long takerSizePriceHeldSum = 0L;
 
         final int quoteCurrency = spec.quoteCurrency;
 
-        long allMakerFee = 0;
+        long makerFees = 0L;
         while (ev != null) {
             assert ev.eventType == MatcherEventType.TRADE;
 
@@ -825,26 +815,27 @@ public final class RiskEngine implements WriteBytesMarshallable {
                 final UserProfile maker = userProfileService.getUserProfileOrAddSuspended(ev.matchedOrderUid);
                 final long gainedAmountInQuoteCurrency = CoreArithmeticUtils.calculateAmountBid(size, ev.price, spec);
                 maker.accounts.addToValue(quoteCurrency, gainedAmountInQuoteCurrency - ((ev.matchedOrderMakerFee != -1) ? ev.matchedOrderMakerFee : spec.makerFee) * size);
-                makerSizeForThisHandler += size;
+                makerFees += CoreArithmeticUtils.resolveFee(ev.matchedOrderMakerFee, spec.makerFee) * size;
             }
-            allMakerFee += (ev.matchedOrderMakerFee != -1 ? ev.matchedOrderMakerFee : spec.makerFee);
             ev = ev.nextEvent;
         }
 
         if (taker != null) {
 
-            if (cmd.command == OrderCommandType.PLACE_ORDER && cmd.orderType == OrderType.FOK_BUDGET) {
+            if (isBudgetOrder(cmd)) {
                 // for FOK budget held sum calculated differently
                 takerSizePriceHeldSum = cmd.price;
             }
             // TODO IOC_BUDGET - order can be partially rejected - need held taker fee correction
 
-            taker.accounts.addToValue(quoteCurrency, (takerSizePriceHeldSum - takerSizePriceSum) * spec.quoteScaleK);
+            final long unusedFee = reservationFee(cmd, spec) - CoreArithmeticUtils.resolveFee(cmd.orderTakerFee, spec.takerFee);
+            taker.accounts.addToValue(quoteCurrency,
+                    (takerSizePriceHeldSum - takerSizePriceSum) * spec.quoteScaleK + unusedFee * takerSizeForThisHandler);
             taker.accounts.addToValue(spec.baseCurrency, takerSizeForThisHandler * spec.baseScaleK);
         }
 
-        if (takerSizeForThisHandler != 0 || makerSizeForThisHandler != 0) {
-            fees.addToValue(quoteCurrency, ((cmd.orderTakerFee != -1) ? cmd.orderTakerFee : spec.takerFee) * takerSizeForThisHandler + allMakerFee * makerSizeForThisHandler);
+        if (takerSizeForThisHandler != 0 || makerFees != 0) {
+            fees.addToValue(quoteCurrency, ((cmd.orderTakerFee != -1) ? cmd.orderTakerFee : spec.takerFee) * takerSizeForThisHandler + makerFees);
         }
     }
 

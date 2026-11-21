@@ -157,7 +157,8 @@ public final class GroupingProcessor implements EventProcessor {
                         // some commands should trigger R2 stage to avoid unprocessed events that could affect accounting state
                         if (cmd.command == OrderCommandType.RESET
                                 || cmd.command == OrderCommandType.PERSIST_STATE_MATCHING
-                                || cmd.command == OrderCommandType.GROUPING_CONTROL) {
+                                || cmd.command == OrderCommandType.GROUPING_CONTROL
+                                || (cmd.command == OrderCommandType.BALANCE_ADJUSTMENT && cmd.price < 0)) {
                             groupCounter++;
                             msgsInGroup = 0;
                         }

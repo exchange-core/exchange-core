@@ -32,7 +32,12 @@ public final class ApiAdjustUserBalance extends ApiCommand {
     public final long amount;
     public final long transactionId;
 
-    public final BalanceAdjustmentType adjustmentType;
+    @Builder.Default
+    public final BalanceAdjustmentType adjustmentType = BalanceAdjustmentType.ADJUSTMENT;
+
+    public ApiAdjustUserBalance(long uid, int currency, long amount, long transactionId) {
+        this(uid, currency, amount, transactionId, BalanceAdjustmentType.ADJUSTMENT);
+    }
 
     @Override
     public String toString() {
