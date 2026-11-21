@@ -1,12 +1,11 @@
 package exchange.core2.core.processors.journaling;
 
-import lombok.Data;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.NavigableMap;
+import java.util.Objects;
 import java.util.TreeMap;
 
-@Data
 public class SnapshotDescriptor implements Comparable<SnapshotDescriptor> {
 
     private final long snapshotId; // 0 means empty snapshot (clean start)
@@ -44,5 +43,107 @@ public class SnapshotDescriptor implements Comparable<SnapshotDescriptor> {
     @Override
     public int compareTo(@NotNull SnapshotDescriptor o) {
         return Long.compare(this.seq, o.seq);
+    }
+
+    public SnapshotDescriptor(
+            long snapshotId,
+            long seq,
+            long timestampNs,
+            SnapshotDescriptor prev,
+            int numMatchingEngines,
+            int numRiskEngines) {
+        this.snapshotId = snapshotId;
+        this.seq = seq;
+        this.timestampNs = timestampNs;
+        this.prev = prev;
+        this.numMatchingEngines = numMatchingEngines;
+        this.numRiskEngines = numRiskEngines;
+    }
+
+    public long getSnapshotId() {
+        return this.snapshotId;
+    }
+
+    public long getSeq() {
+        return this.seq;
+    }
+
+    public long getTimestampNs() {
+        return this.timestampNs;
+    }
+
+    public SnapshotDescriptor getPrev() {
+        return this.prev;
+    }
+
+    public SnapshotDescriptor getNext() {
+        return this.next;
+    }
+
+    public int getNumMatchingEngines() {
+        return this.numMatchingEngines;
+    }
+
+    public int getNumRiskEngines() {
+        return this.numRiskEngines;
+    }
+
+    public NavigableMap<Long, JournalDescriptor> getJournals() {
+        return this.journals;
+    }
+
+    public void setNext(SnapshotDescriptor next) {
+        this.next = next;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        return o instanceof SnapshotDescriptor other
+                && other.canEqual(this)
+                && this.getSnapshotId() == other.getSnapshotId()
+                && this.getSeq() == other.getSeq()
+                && this.getTimestampNs() == other.getTimestampNs()
+                && this.getNumMatchingEngines() == other.getNumMatchingEngines()
+                && this.getNumRiskEngines() == other.getNumRiskEngines()
+                && Objects.equals(this.getPrev(), other.getPrev())
+                && Objects.equals(this.getNext(), other.getNext())
+                && Objects.equals(this.getJournals(), other.getJournals());
+    }
+
+    protected boolean canEqual(Object other) {
+        return other instanceof SnapshotDescriptor;
+    }
+
+    @Override
+    public int hashCode() {
+        final int prime = 59;
+        int result = 1;
+        result = result * prime + Long.hashCode(this.getSnapshotId());
+        result = result * prime + Long.hashCode(this.getSeq());
+        result = result * prime + Long.hashCode(this.getTimestampNs());
+        result = result * prime + this.getNumMatchingEngines();
+        result = result * prime + this.getNumRiskEngines();
+        var prev = this.getPrev();
+        result = result * prime + (prev == null ? 43 : prev.hashCode());
+        var next = this.getNext();
+        result = result * prime + (next == null ? 43 : next.hashCode());
+        var journals = this.getJournals();
+        result = result * prime + (journals == null ? 43 : journals.hashCode());
+        return result;
+    }
+
+    @Override
+    public String toString() {
+        return "SnapshotDescriptor(snapshotId=" + this.getSnapshotId()
+                + ", seq=" + this.getSeq()
+                + ", timestampNs=" + this.getTimestampNs()
+                + ", prev=" + this.getPrev()
+                + ", next=" + this.getNext()
+                + ", numMatchingEngines=" + this.getNumMatchingEngines()
+                + ", numRiskEngines=" + this.getNumRiskEngines()
+                + ", journals=" + this.getJournals() + ")";
     }
 }

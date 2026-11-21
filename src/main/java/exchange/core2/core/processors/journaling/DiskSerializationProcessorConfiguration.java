@@ -1,17 +1,10 @@
 package exchange.core2.core.processors.journaling;
 
-
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
 import net.jpountz.lz4.LZ4Compressor;
 import net.jpountz.lz4.LZ4Factory;
 
 import java.util.function.Supplier;
 
-@AllArgsConstructor
-@Getter
-@Builder
 public class DiskSerializationProcessorConfiguration {
 
     public static final String DEFAULT_FOLDER = "./dumps";
@@ -53,5 +46,110 @@ public class DiskSerializationProcessorConfiguration {
                 .journalBatchCompressThreshold(2048)
                 .journalLz4CompressorFactory(LZ4_FAST)
                 .build();
+    }
+
+    public DiskSerializationProcessorConfiguration(
+            String storageFolder,
+            Supplier<LZ4Compressor> snapshotLz4CompressorFactory,
+            long journalFileMaxSize,
+            int journalBufferSize,
+            int journalBatchCompressThreshold,
+            Supplier<LZ4Compressor> journalLz4CompressorFactory) {
+        this.storageFolder = storageFolder;
+        this.snapshotLz4CompressorFactory = snapshotLz4CompressorFactory;
+        this.journalFileMaxSize = journalFileMaxSize;
+        this.journalBufferSize = journalBufferSize;
+        this.journalBatchCompressThreshold = journalBatchCompressThreshold;
+        this.journalLz4CompressorFactory = journalLz4CompressorFactory;
+    }
+
+    public static DiskSerializationProcessorConfigurationBuilder builder() {
+        return new DiskSerializationProcessorConfigurationBuilder();
+    }
+
+    public String getStorageFolder() {
+        return this.storageFolder;
+    }
+
+    public Supplier<LZ4Compressor> getSnapshotLz4CompressorFactory() {
+        return this.snapshotLz4CompressorFactory;
+    }
+
+    public long getJournalFileMaxSize() {
+        return this.journalFileMaxSize;
+    }
+
+    public int getJournalBufferSize() {
+        return this.journalBufferSize;
+    }
+
+    public int getJournalBatchCompressThreshold() {
+        return this.journalBatchCompressThreshold;
+    }
+
+    public Supplier<LZ4Compressor> getJournalLz4CompressorFactory() {
+        return this.journalLz4CompressorFactory;
+    }
+
+    public static class DiskSerializationProcessorConfigurationBuilder {
+        private String storageFolder;
+        private Supplier<LZ4Compressor> snapshotLz4CompressorFactory;
+        private long journalFileMaxSize;
+        private int journalBufferSize;
+        private int journalBatchCompressThreshold;
+        private Supplier<LZ4Compressor> journalLz4CompressorFactory;
+
+        DiskSerializationProcessorConfigurationBuilder() {
+        }
+
+        public DiskSerializationProcessorConfigurationBuilder storageFolder(String storageFolder) {
+            this.storageFolder = storageFolder;
+            return this;
+        }
+
+        public DiskSerializationProcessorConfigurationBuilder snapshotLz4CompressorFactory(Supplier<LZ4Compressor> snapshotLz4CompressorFactory) {
+            this.snapshotLz4CompressorFactory = snapshotLz4CompressorFactory;
+            return this;
+        }
+
+        public DiskSerializationProcessorConfigurationBuilder journalFileMaxSize(long journalFileMaxSize) {
+            this.journalFileMaxSize = journalFileMaxSize;
+            return this;
+        }
+
+        public DiskSerializationProcessorConfigurationBuilder journalBufferSize(int journalBufferSize) {
+            this.journalBufferSize = journalBufferSize;
+            return this;
+        }
+
+        public DiskSerializationProcessorConfigurationBuilder journalBatchCompressThreshold(int journalBatchCompressThreshold) {
+            this.journalBatchCompressThreshold = journalBatchCompressThreshold;
+            return this;
+        }
+
+        public DiskSerializationProcessorConfigurationBuilder journalLz4CompressorFactory(Supplier<LZ4Compressor> journalLz4CompressorFactory) {
+            this.journalLz4CompressorFactory = journalLz4CompressorFactory;
+            return this;
+        }
+
+        public DiskSerializationProcessorConfiguration build() {
+            return new DiskSerializationProcessorConfiguration(
+                    this.storageFolder,
+                    this.snapshotLz4CompressorFactory,
+                    this.journalFileMaxSize,
+                    this.journalBufferSize,
+                    this.journalBatchCompressThreshold,
+                    this.journalLz4CompressorFactory);
+        }
+
+        @Override
+        public String toString() {
+            return "DiskSerializationProcessorConfiguration.DiskSerializationProcessorConfigurationBuilder(storageFolder=" + this.storageFolder
+                    + ", snapshotLz4CompressorFactory=" + this.snapshotLz4CompressorFactory
+                    + ", journalFileMaxSize=" + this.journalFileMaxSize
+                    + ", journalBufferSize=" + this.journalBufferSize
+                    + ", journalBatchCompressThreshold=" + this.journalBatchCompressThreshold
+                    + ", journalLz4CompressorFactory=" + this.journalLz4CompressorFactory + ")";
+        }
     }
 }

@@ -18,22 +18,22 @@ package exchange.core2.core.utils;
 import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
-import lombok.extern.slf4j.Slf4j;
 
-import static net.openhft.chronicle.core.UnsafeMemory.UNSAFE;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 
-@Slf4j
 public final class UnsafeUtils {
 
-    private static final long OFFSET_RESULT_CODE;
-    private static final long OFFSET_EVENT;
+    private static final VarHandle RESULT_CODE;
+    private static final VarHandle MATCHER_EVENT;
 
     static {
         try {
-            OFFSET_RESULT_CODE = UNSAFE.objectFieldOffset(OrderCommand.class.getDeclaredField("resultCode"));
-            OFFSET_EVENT = UNSAFE.objectFieldOffset(OrderCommand.class.getDeclaredField("matcherEvent"));
-        } catch (NoSuchFieldException ex) {
-            throw new IllegalStateException(ex);
+            final MethodHandles.Lookup lookup = MethodHandles.lookup();
+            RESULT_CODE = lookup.findVarHandle(OrderCommand.class, "resultCode", CommandResultCode.class);
+            MATCHER_EVENT = lookup.findVarHandle(OrderCommand.class, "matcherEvent", MatcherTradeEvent.class);
+        } catch (ReflectiveOperationException ex) {
+            throw new ExceptionInInitializerError(ex);
         }
     }
 
@@ -46,8 +46,7 @@ public final class UnsafeUtils {
 
         CommandResultCode currentCode;
         do {
-            // read current code
-            currentCode = (CommandResultCode) UNSAFE.getObjectVolatile(cmd, OFFSET_RESULT_CODE);
+            currentCode = (CommandResultCode) RESULT_CODE.getVolatile(cmd);
 
             // finish if desired code was already set
             // or if someone has set failure
@@ -55,8 +54,7 @@ public final class UnsafeUtils {
                 break;
             }
 
-            // do a CAS operation
-        } while (!UNSAFE.compareAndSwapObject(cmd, OFFSET_RESULT_CODE, currentCode, codeToSet));
+        } while (!RESULT_CODE.compareAndSet(cmd, currentCode, codeToSet));
     }
 
     public static void appendEventsVolatile(final OrderCommand cmd,
@@ -64,14 +62,9 @@ public final class UnsafeUtils {
 
         final MatcherTradeEvent tail = eventHead.findTail();
 
-        //MatcherTradeEvent.asList(eventHead).forEach(a -> log.info("in {}", a));
-
         do {
-            // read current head and attach to the tail of new
-            tail.nextEvent = (MatcherTradeEvent) UNSAFE.getObjectVolatile(cmd, OFFSET_EVENT);
-
-            // do a CAS operation
-        } while (!UNSAFE.compareAndSwapObject(cmd, OFFSET_EVENT, tail.nextEvent, eventHead));
+            tail.nextEvent = (MatcherTradeEvent) MATCHER_EVENT.getVolatile(cmd);
+        } while (!MATCHER_EVENT.compareAndSet(cmd, tail.nextEvent, eventHead));
     }
 
 }

@@ -25,11 +25,12 @@ import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.L2MarketDataHelper;
-import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import org.junit.jupiter.api.Timeout;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static exchange.core2.core.common.OrderAction.ASK;
 import static exchange.core2.core.common.OrderType.GTC;
@@ -39,9 +40,10 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.core.Is.is;
 import static org.junit.jupiter.api.Assertions.*;
 
-@Slf4j
 //TODO test cases are moved to cucumber scenarios, remove this class
 public abstract class ITExchangeCoreIntegration {
+
+    private static final Logger log = LoggerFactory.getLogger(ITExchangeCoreIntegration.class);
 
     // configuration provided by child class
     public abstract PerformanceConfiguration getPerformanceConfiguration();

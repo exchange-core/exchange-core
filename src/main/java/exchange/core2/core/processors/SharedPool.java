@@ -16,17 +16,13 @@
 package exchange.core2.core.processors;
 
 import exchange.core2.core.common.MatcherTradeEvent;
-import lombok.Getter;
-import lombok.extern.slf4j.Slf4j;
 
 import java.util.concurrent.LinkedBlockingQueue;
 
-@Slf4j
 public final class SharedPool {
 
     private final LinkedBlockingQueue<MatcherTradeEvent> eventChainsBuffer;
 
-    @Getter
     private final int chainLength;
 
     public static SharedPool createTestSharedPool() {
@@ -81,4 +77,8 @@ public final class SharedPool {
 //        log.debug(">>> OFFER CHAIN HEAD  size={} orrder={}", head.getChainSize(), offer);
     }
 
+
+    public int getChainLength() {
+        return this.chainLength;
+    }
 }

@@ -32,13 +32,13 @@ import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.orderbook.OrderBookEventsHelper;
 import exchange.core2.core.processors.BinaryCommandsProcessor;
 import exchange.core2.core.utils.SerializationUtils;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import net.jpountz.lz4.LZ4Compressor;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import net.openhft.chronicle.wire.Wire;
 import org.agrona.collections.LongLongConsumer;
 import org.eclipse.collections.impl.map.mutable.ConcurrentHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
@@ -48,9 +48,9 @@ import java.util.function.Function;
 import java.util.function.LongConsumer;
 import java.util.stream.Stream;
 
-@Slf4j
-@RequiredArgsConstructor
 public final class ExchangeApi {
+
+    private static final Logger log = LoggerFactory.getLogger(ExchangeApi.class);
 
     private final RingBuffer<OrderCommand> ringBuffer;
     private final LZ4Compressor lz4Compressor;
@@ -73,77 +73,43 @@ public final class ExchangeApi {
     }
 
     public void submitCommand(ApiCommand cmd) {
-        //log.debug("{}", cmd);
-
-        if (cmd instanceof ApiMoveOrder) {
-            ringBuffer.publishEvent(MOVE_ORDER_TRANSLATOR, (ApiMoveOrder) cmd);
-        } else if (cmd instanceof ApiPlaceOrder) {
-            ringBuffer.publishEvent(NEW_ORDER_TRANSLATOR, (ApiPlaceOrder) cmd);
-        } else if (cmd instanceof ApiCancelOrder) {
-            ringBuffer.publishEvent(CANCEL_ORDER_TRANSLATOR, (ApiCancelOrder) cmd);
-        } else if (cmd instanceof ApiReduceOrder) {
-            ringBuffer.publishEvent(REDUCE_ORDER_TRANSLATOR, (ApiReduceOrder) cmd);
-        } else if (cmd instanceof ApiOrderBookRequest) {
-            ringBuffer.publishEvent(ORDER_BOOK_REQUEST_TRANSLATOR, (ApiOrderBookRequest) cmd);
-        } else if (cmd instanceof ApiAddUser) {
-            ringBuffer.publishEvent(ADD_USER_TRANSLATOR, (ApiAddUser) cmd);
-        } else if (cmd instanceof ApiAdjustUserBalance) {
-            ringBuffer.publishEvent(ADJUST_USER_BALANCE_TRANSLATOR, (ApiAdjustUserBalance) cmd);
-        } else if (cmd instanceof ApiResumeUser) {
-            ringBuffer.publishEvent(RESUME_USER_TRANSLATOR, (ApiResumeUser) cmd);
-        } else if (cmd instanceof ApiRemoveUser) {
-            ringBuffer.publishEvent(REMOVE_USER_TRANSLATOR, (ApiRemoveUser) cmd);
-        } else if (cmd instanceof ApiSuspendUser) {
-            ringBuffer.publishEvent(SUSPEND_USER_TRANSLATOR, (ApiSuspendUser) cmd);
-        } else if (cmd instanceof ApiBinaryDataCommand) {
-            publishBinaryData((ApiBinaryDataCommand) cmd, seq -> {
-            });
-        } else if (cmd instanceof ApiPersistState) {
-            publishPersistCmd((ApiPersistState) cmd, (seq1, seq2) -> {
-            });
-        } else if (cmd instanceof ApiReset) {
-            ringBuffer.publishEvent(RESET_TRANSLATOR, (ApiReset) cmd);
-        } else if (cmd instanceof ApiNop) {
-            ringBuffer.publishEvent(NOP_TRANSLATOR, (ApiNop) cmd);
-        } else {
-            throw new IllegalArgumentException("Unsupported command type: " + cmd.getClass().getSimpleName());
+        switch (cmd) {
+            case ApiMoveOrder order -> ringBuffer.publishEvent(MOVE_ORDER_TRANSLATOR, order);
+            case ApiPlaceOrder order -> ringBuffer.publishEvent(NEW_ORDER_TRANSLATOR, order);
+            case ApiCancelOrder order -> ringBuffer.publishEvent(CANCEL_ORDER_TRANSLATOR, order);
+            case ApiReduceOrder order -> ringBuffer.publishEvent(REDUCE_ORDER_TRANSLATOR, order);
+            case ApiOrderBookRequest request -> ringBuffer.publishEvent(ORDER_BOOK_REQUEST_TRANSLATOR, request);
+            case ApiAddUser user -> ringBuffer.publishEvent(ADD_USER_TRANSLATOR, user);
+            case ApiAdjustUserBalance adjustment -> ringBuffer.publishEvent(ADJUST_USER_BALANCE_TRANSLATOR, adjustment);
+            case ApiResumeUser user -> ringBuffer.publishEvent(RESUME_USER_TRANSLATOR, user);
+            case ApiRemoveUser user -> ringBuffer.publishEvent(REMOVE_USER_TRANSLATOR, user);
+            case ApiSuspendUser user -> ringBuffer.publishEvent(SUSPEND_USER_TRANSLATOR, user);
+            case ApiBinaryDataCommand binary -> publishBinaryData(binary, _ -> {});
+            case ApiPersistState persist -> publishPersistCmd(persist, (_, _) -> {});
+            case ApiReset reset -> ringBuffer.publishEvent(RESET_TRANSLATOR, reset);
+            case ApiNop nop -> ringBuffer.publishEvent(NOP_TRANSLATOR, nop);
+            default -> throw new IllegalArgumentException("Unsupported command type: " + cmd.getClass().getSimpleName());
         }
     }
 
     public CompletableFuture<CommandResultCode> submitCommandAsync(ApiCommand cmd) {
-        //log.debug("{}", cmd);
-
-        if (cmd instanceof ApiMoveOrder) {
-            return submitCommandAsync(MOVE_ORDER_TRANSLATOR, (ApiMoveOrder) cmd);
-        } else if (cmd instanceof ApiPlaceOrder) {
-            return submitCommandAsync(NEW_ORDER_TRANSLATOR, (ApiPlaceOrder) cmd);
-        } else if (cmd instanceof ApiCancelOrder) {
-            return submitCommandAsync(CANCEL_ORDER_TRANSLATOR, (ApiCancelOrder) cmd);
-        } else if (cmd instanceof ApiReduceOrder) {
-            return submitCommandAsync(REDUCE_ORDER_TRANSLATOR, (ApiReduceOrder) cmd);
-        } else if (cmd instanceof ApiOrderBookRequest) {
-            return submitCommandAsync(ORDER_BOOK_REQUEST_TRANSLATOR, (ApiOrderBookRequest) cmd);
-        } else if (cmd instanceof ApiAddUser) {
-            return submitCommandAsync(ADD_USER_TRANSLATOR, (ApiAddUser) cmd);
-        } else if (cmd instanceof ApiAdjustUserBalance) {
-            return submitCommandAsync(ADJUST_USER_BALANCE_TRANSLATOR, (ApiAdjustUserBalance) cmd);
-        } else if (cmd instanceof ApiResumeUser) {
-            return submitCommandAsync(RESUME_USER_TRANSLATOR, (ApiResumeUser) cmd);
-        } else if (cmd instanceof ApiRemoveUser) {
-            return submitCommandAsync(REMOVE_USER_TRANSLATOR, (ApiRemoveUser) cmd);
-        } else if (cmd instanceof ApiSuspendUser) {
-            return submitCommandAsync(SUSPEND_USER_TRANSLATOR, (ApiSuspendUser) cmd);
-        } else if (cmd instanceof ApiBinaryDataCommand) {
-            return submitBinaryDataAsync(((ApiBinaryDataCommand) cmd).data);
-        } else if (cmd instanceof ApiPersistState) {
-            return submitPersistCommandAsync((ApiPersistState) cmd);
-        } else if (cmd instanceof ApiReset) {
-            return submitCommandAsync(RESET_TRANSLATOR, (ApiReset) cmd);
-        } else if (cmd instanceof ApiNop) {
-            return submitCommandAsync(NOP_TRANSLATOR, (ApiNop) cmd);
-        } else {
-            throw new IllegalArgumentException("Unsupported command type: " + cmd.getClass().getSimpleName());
-        }
+        return switch (cmd) {
+            case ApiMoveOrder order -> submitCommandAsync(MOVE_ORDER_TRANSLATOR, order);
+            case ApiPlaceOrder order -> submitCommandAsync(NEW_ORDER_TRANSLATOR, order);
+            case ApiCancelOrder order -> submitCommandAsync(CANCEL_ORDER_TRANSLATOR, order);
+            case ApiReduceOrder order -> submitCommandAsync(REDUCE_ORDER_TRANSLATOR, order);
+            case ApiOrderBookRequest request -> submitCommandAsync(ORDER_BOOK_REQUEST_TRANSLATOR, request);
+            case ApiAddUser user -> submitCommandAsync(ADD_USER_TRANSLATOR, user);
+            case ApiAdjustUserBalance adjustment -> submitCommandAsync(ADJUST_USER_BALANCE_TRANSLATOR, adjustment);
+            case ApiResumeUser user -> submitCommandAsync(RESUME_USER_TRANSLATOR, user);
+            case ApiRemoveUser user -> submitCommandAsync(REMOVE_USER_TRANSLATOR, user);
+            case ApiSuspendUser user -> submitCommandAsync(SUSPEND_USER_TRANSLATOR, user);
+            case ApiBinaryDataCommand binary -> submitBinaryDataAsync(binary.data);
+            case ApiPersistState persist -> submitPersistCommandAsync(persist);
+            case ApiReset reset -> submitCommandAsync(RESET_TRANSLATOR, reset);
+            case ApiNop nop -> submitCommandAsync(NOP_TRANSLATOR, nop);
+            default -> throw new IllegalArgumentException("Unsupported command type: " + cmd.getClass().getSimpleName());
+        };
     }
 
     /**
@@ -154,34 +120,21 @@ public final class ExchangeApi {
      * @return a future for the full response
      */
     public CompletableFuture<OrderCommand> submitCommandAsyncFullResponse(ApiCommand cmd) {
-
-        if (cmd instanceof ApiMoveOrder) {
-            return submitCommandAsyncFullResponse(MOVE_ORDER_TRANSLATOR, (ApiMoveOrder) cmd);
-        } else if (cmd instanceof ApiPlaceOrder) {
-            return submitCommandAsyncFullResponse(NEW_ORDER_TRANSLATOR, (ApiPlaceOrder) cmd);
-        } else if (cmd instanceof ApiCancelOrder) {
-            return submitCommandAsyncFullResponse(CANCEL_ORDER_TRANSLATOR, (ApiCancelOrder) cmd);
-        } else if (cmd instanceof ApiReduceOrder) {
-            return submitCommandAsyncFullResponse(REDUCE_ORDER_TRANSLATOR, (ApiReduceOrder) cmd);
-        } else if (cmd instanceof ApiOrderBookRequest) {
-            return submitCommandAsyncFullResponse(ORDER_BOOK_REQUEST_TRANSLATOR, (ApiOrderBookRequest) cmd);
-        } else if (cmd instanceof ApiAddUser) {
-            return submitCommandAsyncFullResponse(ADD_USER_TRANSLATOR, (ApiAddUser) cmd);
-        } else if (cmd instanceof ApiAdjustUserBalance) {
-            return submitCommandAsyncFullResponse(ADJUST_USER_BALANCE_TRANSLATOR, (ApiAdjustUserBalance) cmd);
-        } else if (cmd instanceof ApiResumeUser) {
-            return submitCommandAsyncFullResponse(RESUME_USER_TRANSLATOR, (ApiResumeUser) cmd);
-        } else if (cmd instanceof ApiRemoveUser) {
-            return submitCommandAsyncFullResponse(REMOVE_USER_TRANSLATOR, (ApiRemoveUser) cmd);
-        } else if (cmd instanceof ApiSuspendUser) {
-            return submitCommandAsyncFullResponse(SUSPEND_USER_TRANSLATOR, (ApiSuspendUser) cmd);
-        } else if (cmd instanceof ApiReset) {
-            return submitCommandAsyncFullResponse(RESET_TRANSLATOR, (ApiReset) cmd);
-        } else if (cmd instanceof ApiNop) {
-            return submitCommandAsyncFullResponse(NOP_TRANSLATOR, (ApiNop) cmd);
-        } else {
-            throw new IllegalArgumentException("Unsupported command type: " + cmd.getClass().getSimpleName());
-        }
+        return switch (cmd) {
+            case ApiMoveOrder order -> submitCommandAsyncFullResponse(MOVE_ORDER_TRANSLATOR, order);
+            case ApiPlaceOrder order -> submitCommandAsyncFullResponse(NEW_ORDER_TRANSLATOR, order);
+            case ApiCancelOrder order -> submitCommandAsyncFullResponse(CANCEL_ORDER_TRANSLATOR, order);
+            case ApiReduceOrder order -> submitCommandAsyncFullResponse(REDUCE_ORDER_TRANSLATOR, order);
+            case ApiOrderBookRequest request -> submitCommandAsyncFullResponse(ORDER_BOOK_REQUEST_TRANSLATOR, request);
+            case ApiAddUser user -> submitCommandAsyncFullResponse(ADD_USER_TRANSLATOR, user);
+            case ApiAdjustUserBalance adjustment -> submitCommandAsyncFullResponse(ADJUST_USER_BALANCE_TRANSLATOR, adjustment);
+            case ApiResumeUser user -> submitCommandAsyncFullResponse(RESUME_USER_TRANSLATOR, user);
+            case ApiRemoveUser user -> submitCommandAsyncFullResponse(REMOVE_USER_TRANSLATOR, user);
+            case ApiSuspendUser user -> submitCommandAsyncFullResponse(SUSPEND_USER_TRANSLATOR, user);
+            case ApiReset reset -> submitCommandAsyncFullResponse(RESET_TRANSLATOR, reset);
+            case ApiNop nop -> submitCommandAsyncFullResponse(NOP_TRANSLATOR, nop);
+            default -> throw new IllegalArgumentException("Unsupported command type: " + cmd.getClass().getSimpleName());
+        };
     }
 
 
@@ -191,7 +144,7 @@ public final class ExchangeApi {
         }
 
         cmd.subList(0, cmd.size() - 1).forEach(this::submitCommand);
-        submitCommandAsync(cmd.get(cmd.size() - 1)).join();
+        submitCommandAsync(cmd.getLast()).join();
     }
 
     public void submitCommandsSync(Stream<? extends ApiCommand> stream) {
@@ -1009,5 +962,10 @@ public final class ExchangeApi {
             cmd.timestamp = timestampNs;
         });
 
+    }
+
+    public ExchangeApi(RingBuffer<OrderCommand> ringBuffer, LZ4Compressor lz4Compressor) {
+        this.ringBuffer = ringBuffer;
+        this.lz4Compressor = lz4Compressor;
     }
 }

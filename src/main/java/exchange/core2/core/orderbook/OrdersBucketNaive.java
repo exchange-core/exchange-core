@@ -21,10 +21,6 @@ import exchange.core2.core.common.Order;
 import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.utils.SerializationUtils;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.ToString;
-import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
@@ -33,16 +29,12 @@ import java.util.*;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
-@Slf4j
-@ToString
 public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, WriteBytesMarshallable {
 
-    @Getter
     private final long price;
 
     private final LinkedHashMap<Long, Order> entries;
 
-    @Getter
     private long totalVolume;
 
     public OrdersBucketNaive(final long price) {
@@ -249,7 +241,6 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
                 && getAllOrders().equals(other.getAllOrders());
     }
 
-    @AllArgsConstructor
     public final class MatcherResult {
         public MatcherTradeEvent eventsChainHead;
         public MatcherTradeEvent eventsChainTail;
@@ -260,6 +251,30 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
         public MatcherResult(MatcherTradeEvent eventsChainHead, MatcherTradeEvent eventsChainTail, long volume, List<Long> ordersToRemove) {
             this(eventsChainHead, eventsChainTail, volume, ordersToRemove, false);
         }
+
+        public MatcherResult(MatcherTradeEvent eventsChainHead, MatcherTradeEvent eventsChainTail,
+                             long volume, List<Long> ordersToRemove, boolean selfTradeDetected) {
+            this.eventsChainHead = eventsChainHead;
+            this.eventsChainTail = eventsChainTail;
+            this.volume = volume;
+            this.ordersToRemove = ordersToRemove;
+            this.selfTradeDetected = selfTradeDetected;
+        }
     }
 
+
+    @Override
+    public String toString() {
+        return "OrdersBucketNaive(price=" + this.getPrice()
+                + ", entries=" + this.entries
+                + ", totalVolume=" + this.getTotalVolume() + ")";
+    }
+
+    public long getPrice() {
+        return this.price;
+    }
+
+    public long getTotalVolume() {
+        return this.totalVolume;
+    }
 }

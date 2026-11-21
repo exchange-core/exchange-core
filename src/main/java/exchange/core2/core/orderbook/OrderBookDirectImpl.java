@@ -23,8 +23,6 @@ import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.core.common.config.OrdersProcessingConfiguration;
-import lombok.*;
-import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
@@ -32,6 +30,8 @@ import org.agrona.collections.Long2ObjectHashMap;
 import org.agrona.collections.MutableInteger;
 import org.agrona.collections.MutableLong;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -40,8 +40,9 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
-@Slf4j
 public final class OrderBookDirectImpl implements IOrderBook {
+
+    private static final Logger log = LoggerFactory.getLogger(OrderBookDirectImpl.class);
 
     // buckets
     private final LongAdaptiveRadixTreeMap<Bucket> askPriceBuckets;
@@ -809,41 +810,28 @@ public final class OrderBookDirectImpl implements IOrderBook {
     }
 
 
-    @NoArgsConstructor
-    @AllArgsConstructor
-    @Builder
     public static final class DirectOrder implements WriteBytesMarshallable, IOrder {
 
-        @Getter
         public long orderId;
 
-        @Getter
         public long price;
 
-        @Getter
         public long size;
 
-        @Getter
         public long filled;
 
         // new orders - reserved price for fast moves of GTC bid orders in exchange mode
-        @Getter
         public long reserveBidPrice;
 
         // required for PLACE_ORDER only;
-        @Getter
         public OrderAction action;
 
-        @Getter
         public long uid;
 
-        @Getter
         public long orderTakerFee = -1;
 
-        @Getter
         public long orderMakerFee = -1;
 
-        @Getter
         public long timestamp;
 
         // fast orders structure
@@ -925,12 +913,202 @@ public final class OrderBookDirectImpl implements IOrderBook {
         public int stateHash() {
             return hashCode();
         }
+
+        public DirectOrder() {
+        }
+
+        public DirectOrder(
+                long orderId,
+                long price,
+                long size,
+                long filled,
+                long reserveBidPrice,
+                OrderAction action,
+                long uid,
+                long orderTakerFee,
+                long orderMakerFee,
+                long timestamp,
+                Bucket parent,
+                DirectOrder next,
+                DirectOrder prev) {
+            this.orderId = orderId;
+            this.price = price;
+            this.size = size;
+            this.filled = filled;
+            this.reserveBidPrice = reserveBidPrice;
+            this.action = action;
+            this.uid = uid;
+            this.orderTakerFee = orderTakerFee;
+            this.orderMakerFee = orderMakerFee;
+            this.timestamp = timestamp;
+            this.parent = parent;
+            this.next = next;
+            this.prev = prev;
+        }
+
+        public static OrderBookDirectImpl.DirectOrder.DirectOrderBuilder builder() {
+            return new OrderBookDirectImpl.DirectOrder.DirectOrderBuilder();
+        }
+
+        public long getOrderId() {
+            return this.orderId;
+        }
+
+        public long getPrice() {
+            return this.price;
+        }
+
+        public long getSize() {
+            return this.size;
+        }
+
+        public long getFilled() {
+            return this.filled;
+        }
+
+        public long getReserveBidPrice() {
+            return this.reserveBidPrice;
+        }
+
+        public OrderAction getAction() {
+            return this.action;
+        }
+
+        public long getUid() {
+            return this.uid;
+        }
+
+        @Override
+        public long getOrderTakerFee() {
+            return orderTakerFee;
+        }
+
+        @Override
+        public long getOrderMakerFee() {
+            return orderMakerFee;
+        }
+
+        public long getTimestamp() {
+            return this.timestamp;
+        }
+
+        public static class DirectOrderBuilder {
+            private long orderId;
+            private long price;
+            private long size;
+            private long filled;
+            private long reserveBidPrice;
+            private OrderAction action;
+            private long uid;
+            private long orderTakerFee;
+            private long orderMakerFee;
+            private long timestamp;
+            private Bucket parent;
+            private DirectOrder next;
+            private DirectOrder prev;
+
+            DirectOrderBuilder() {
+            }
+
+            public OrderBookDirectImpl.DirectOrder.DirectOrderBuilder orderId(long orderId) {
+                this.orderId = orderId;
+                return this;
+            }
+
+            public OrderBookDirectImpl.DirectOrder.DirectOrderBuilder price(long price) {
+                this.price = price;
+                return this;
+            }
+
+            public OrderBookDirectImpl.DirectOrder.DirectOrderBuilder size(long size) {
+                this.size = size;
+                return this;
+            }
+
+            public OrderBookDirectImpl.DirectOrder.DirectOrderBuilder filled(long filled) {
+                this.filled = filled;
+                return this;
+            }
+
+            public OrderBookDirectImpl.DirectOrder.DirectOrderBuilder reserveBidPrice(long reserveBidPrice) {
+                this.reserveBidPrice = reserveBidPrice;
+                return this;
+            }
+
+            public OrderBookDirectImpl.DirectOrder.DirectOrderBuilder action(OrderAction action) {
+                this.action = action;
+                return this;
+            }
+
+            public OrderBookDirectImpl.DirectOrder.DirectOrderBuilder uid(long uid) {
+                this.uid = uid;
+                return this;
+            }
+
+            public DirectOrderBuilder orderTakerFee(long orderTakerFee) {
+                this.orderTakerFee = orderTakerFee;
+                return this;
+            }
+
+            public DirectOrderBuilder orderMakerFee(long orderMakerFee) {
+                this.orderMakerFee = orderMakerFee;
+                return this;
+            }
+
+            public OrderBookDirectImpl.DirectOrder.DirectOrderBuilder timestamp(long timestamp) {
+                this.timestamp = timestamp;
+                return this;
+            }
+
+            public OrderBookDirectImpl.DirectOrder.DirectOrderBuilder parent(Bucket parent) {
+                this.parent = parent;
+                return this;
+            }
+
+            public OrderBookDirectImpl.DirectOrder.DirectOrderBuilder next(DirectOrder next) {
+                this.next = next;
+                return this;
+            }
+
+            public OrderBookDirectImpl.DirectOrder.DirectOrderBuilder prev(DirectOrder prev) {
+                this.prev = prev;
+                return this;
+            }
+
+            public OrderBookDirectImpl.DirectOrder build() {
+                return new DirectOrder(orderId, price, size, filled, reserveBidPrice, action, uid,
+                        orderTakerFee, orderMakerFee, timestamp, parent, next, prev);
+            }
+
+            @Override
+            public String toString() {
+                return "OrderBookDirectImpl.DirectOrder.DirectOrderBuilder(orderId=" + this.orderId
+                        + ", price=" + this.price
+                        + ", size=" + this.size
+                        + ", filled=" + this.filled
+                        + ", reserveBidPrice=" + this.reserveBidPrice
+                        + ", action=" + this.action
+                        + ", uid=" + this.uid
+                        + ", orderTakerFee=" + this.orderTakerFee
+                        + ", orderMakerFee=" + this.orderMakerFee
+                        + ", timestamp=" + this.timestamp
+                        + ", parent=" + this.parent
+                        + ", next=" + this.next
+                        + ", prev=" + this.prev + ")";
+            }
+        }
     }
 
-    @ToString
     private static class Bucket {
         long volume;
         int numOrders;
         DirectOrder tail;
+
+        @Override
+        public String toString() {
+            return "OrderBookDirectImpl.Bucket(volume=" + this.volume
+                    + ", numOrders=" + this.numOrders
+                    + ", tail=" + this.tail + ")";
+        }
     }
 }

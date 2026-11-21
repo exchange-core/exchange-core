@@ -13,7 +13,6 @@ import exchange.core2.core.common.api.reports.TotalCurrencyBalanceReportQuery;
 import exchange.core2.core.common.api.reports.TotalCurrencyBalanceReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.config.ExchangeConfiguration;
-import lombok.extern.slf4j.Slf4j;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
@@ -22,7 +21,6 @@ import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
-@Slf4j
 public class ITCoreExample {
 
     @Test

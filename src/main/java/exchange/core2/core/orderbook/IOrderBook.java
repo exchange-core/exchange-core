@@ -24,7 +24,6 @@ import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.utils.CoreArithmeticUtils;
 import exchange.core2.core.utils.HashingUtils;
-import lombok.Getter;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 
@@ -302,7 +301,6 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
                           LoggingConfiguration loggingCfg, OrdersProcessingConfiguration ordersProcCfg);
     }
 
-    @Getter
     enum OrderBookImplType {
         NAIVE(0),
         DIRECT(2);
@@ -322,6 +320,10 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
                 default:
                     throw new IllegalArgumentException("unknown OrderBookImplType:" + code);
             }
+        }
+
+        public byte getCode() {
+            return this.code;
         }
     }
 

@@ -29,10 +29,11 @@ import exchange.core2.core.orderbook.OrderBookEventsHelper;
 import exchange.core2.core.utils.HashingUtils;
 import exchange.core2.core.utils.SerializationUtils;
 import exchange.core2.core.utils.UnsafeUtils;
-import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.*;
 import net.openhft.chronicle.wire.Wire;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
@@ -47,8 +48,9 @@ import java.util.function.Consumer;
  * Has incoming data buffer
  * Can receive events in arbitrary order and duplicates - at-least-once-delivery compatible.
  */
-@Slf4j
 public final class BinaryCommandsProcessor implements WriteBytesMarshallable, StateHash {
+
+    private static final Logger log = LoggerFactory.getLogger(BinaryCommandsProcessor.class);
 
     // TODO connect object pool
 

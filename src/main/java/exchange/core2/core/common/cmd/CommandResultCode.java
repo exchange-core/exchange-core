@@ -15,11 +15,8 @@
  */
 package exchange.core2.core.common.cmd;
 
-import lombok.Getter;
-
 import java.util.Arrays;
 
-@Getter
 public enum CommandResultCode {
     NEW(0),
     VALID_FOR_MATCHING_ENGINE(1),
@@ -94,4 +91,8 @@ public enum CommandResultCode {
                 .orElse(Arrays.stream(results).anyMatch(r -> r == SUCCESS) ? SUCCESS : ACCEPTED);
     }
 
+
+    public int getCode() {
+        return this.code;
+    }
 }

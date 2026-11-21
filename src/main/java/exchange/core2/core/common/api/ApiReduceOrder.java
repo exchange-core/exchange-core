@@ -15,14 +15,6 @@
  */
 package exchange.core2.core.common.api;
 
-
-import lombok.Builder;
-import lombok.EqualsAndHashCode;
-import lombok.RequiredArgsConstructor;
-
-@Builder
-@EqualsAndHashCode(callSuper = false)
-@RequiredArgsConstructor
 public final class ApiReduceOrder extends ApiCommand {
 
     public final long orderId;
@@ -34,5 +26,86 @@ public final class ApiReduceOrder extends ApiCommand {
     @Override
     public String toString() {
         return "[REDUCE " + orderId + " by " + reduceSize + "]";
+    }
+
+    public ApiReduceOrder(long orderId, long uid, int symbol, long reduceSize) {
+        this.orderId = orderId;
+        this.uid = uid;
+        this.symbol = symbol;
+        this.reduceSize = reduceSize;
+    }
+
+    public static ApiReduceOrderBuilder builder() {
+        return new ApiReduceOrderBuilder();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        return o instanceof ApiReduceOrder other
+                && other.canEqual(this)
+                && this.orderId == other.orderId
+                && this.uid == other.uid
+                && this.symbol == other.symbol
+                && this.reduceSize == other.reduceSize;
+    }
+
+    protected boolean canEqual(Object other) {
+        return other instanceof ApiReduceOrder;
+    }
+
+    @Override
+    public int hashCode() {
+        final int prime = 59;
+        int result = 1;
+        result = result * prime + Long.hashCode(this.orderId);
+        result = result * prime + Long.hashCode(this.uid);
+        result = result * prime + this.symbol;
+        result = result * prime + Long.hashCode(this.reduceSize);
+        return result;
+    }
+
+    public static class ApiReduceOrderBuilder {
+        private long orderId;
+        private long uid;
+        private int symbol;
+        private long reduceSize;
+
+        ApiReduceOrderBuilder() {
+        }
+
+        public ApiReduceOrderBuilder orderId(long orderId) {
+            this.orderId = orderId;
+            return this;
+        }
+
+        public ApiReduceOrderBuilder uid(long uid) {
+            this.uid = uid;
+            return this;
+        }
+
+        public ApiReduceOrderBuilder symbol(int symbol) {
+            this.symbol = symbol;
+            return this;
+        }
+
+        public ApiReduceOrderBuilder reduceSize(long reduceSize) {
+            this.reduceSize = reduceSize;
+            return this;
+        }
+
+        public ApiReduceOrder build() {
+            return new ApiReduceOrder(this.orderId, this.uid, this.symbol, this.reduceSize);
+        }
+
+        @Override
+        public String toString() {
+            return "ApiReduceOrder.ApiReduceOrderBuilder(orderId=" + this.orderId
+                    + ", uid=" + this.uid
+                    + ", symbol=" + this.symbol
+                    + ", reduceSize=" + this.reduceSize + ")";
+        }
     }
 }

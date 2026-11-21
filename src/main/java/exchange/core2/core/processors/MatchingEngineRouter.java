@@ -32,22 +32,20 @@ import exchange.core2.core.processors.journaling.DiskSerializationProcessorConfi
 import exchange.core2.core.processors.journaling.ISerializationProcessor;
 import exchange.core2.core.utils.SerializationUtils;
 import exchange.core2.core.utils.UnsafeUtils;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Optional;
 
-@Slf4j
-@Getter
 public final class MatchingEngineRouter implements WriteBytesMarshallable {
+
+    private static final Logger log = LoggerFactory.getLogger(MatchingEngineRouter.class);
 
     public static final ISerializationProcessor.SerializedModuleType MODULE_ME =
             ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER;
@@ -145,11 +143,11 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
                                 bytesIn,
                                 bytes -> IOrderBook.create(bytes, objectsPool, eventsHelper, loggingCfg, ordersProcCfg));
 
-                        return DeserializedData.builder().binaryCommandsProcessor(bcp).orderBooks(ob).build();
+                        return new DeserializedData(bcp, ob);
                     });
 
-            this.binaryCommandsProcessor = deserialized.binaryCommandsProcessor;
-            this.orderBooks = deserialized.orderBooks;
+            this.binaryCommandsProcessor = deserialized.binaryCommandsProcessor();
+            this.orderBooks = deserialized.orderBooks();
 
         } else {
             this.binaryCommandsProcessor = new BinaryCommandsProcessor(
@@ -280,10 +278,71 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
         SerializationUtils.marshallIntHashMap(orderBooks, bytes);
     }
 
-    @Builder
-    @RequiredArgsConstructor
-    private static class DeserializedData {
-        private final BinaryCommandsProcessor binaryCommandsProcessor;
-        private final IntObjectHashMap<IOrderBook> orderBooks;
+    private record DeserializedData(BinaryCommandsProcessor binaryCommandsProcessor,
+                                    IntObjectHashMap<IOrderBook> orderBooks) {
+    }
+
+    public BinaryCommandsProcessor getBinaryCommandsProcessor() {
+        return this.binaryCommandsProcessor;
+    }
+
+    public IntObjectHashMap<IOrderBook> getOrderBooks() {
+        return this.orderBooks;
+    }
+
+    public IOrderBook.OrderBookFactory getOrderBookFactory() {
+        return this.orderBookFactory;
+    }
+
+    public OrderBookEventsHelper getEventsHelper() {
+        return this.eventsHelper;
+    }
+
+    public ObjectsPool getObjectsPool() {
+        return this.objectsPool;
+    }
+
+    public int getShardId() {
+        return this.shardId;
+    }
+
+    public long getShardMask() {
+        return this.shardMask;
+    }
+
+    public String getExchangeId() {
+        return this.exchangeId;
+    }
+
+    public Path getFolder() {
+        return this.folder;
+    }
+
+    public OrdersProcessingConfiguration getOrdersProcCfg() {
+        return this.ordersProcCfg;
+    }
+
+    public boolean isCfgMarginTradingEnabled() {
+        return this.cfgMarginTradingEnabled;
+    }
+
+    public boolean isCfgSendL2ForEveryCmd() {
+        return this.cfgSendL2ForEveryCmd;
+    }
+
+    public int getCfgL2RefreshDepth() {
+        return this.cfgL2RefreshDepth;
+    }
+
+    public ISerializationProcessor getSerializationProcessor() {
+        return this.serializationProcessor;
+    }
+
+    public LoggingConfiguration getLoggingCfg() {
+        return this.loggingCfg;
+    }
+
+    public boolean isLogDebug() {
+        return this.logDebug;
     }
 }

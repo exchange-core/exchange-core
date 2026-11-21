@@ -15,10 +15,6 @@
  */
 package exchange.core2.core.common;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
@@ -32,41 +28,28 @@ import java.util.Objects;
  * <p>
  * No external references allowed to such object - order objects only live inside OrderBook.
  */
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
 public final class Order implements WriteBytesMarshallable, IOrder {
 
-    @Getter
     public long orderId;
 
-    @Getter
     public long price;
 
-    @Getter
     public long size;
 
-    @Getter
     public long filled;
 
     // new orders - reserved price for fast moves of GTC bid orders in exchange mode
-    @Getter
     public long reserveBidPrice;
 
     // required for PLACE_ORDER only;
-    @Getter
     public OrderAction action;
 
-    @Getter
     public long uid;
 
-    @Getter
     public long orderTakerFee = -1;
 
-    @Getter
     public long orderMakerFee = -1;
 
-    @Getter
     public long timestamp;
 
 //    public int userCookie;
@@ -167,5 +150,171 @@ public final class Order implements WriteBytesMarshallable, IOrder {
     @Override
     public int stateHash() {
         return hashCode();
+    }
+
+    public Order() {
+    }
+
+    public Order(
+            long orderId,
+            long price,
+            long size,
+            long filled,
+            long reserveBidPrice,
+            OrderAction action,
+            long uid,
+            long orderTakerFee,
+            long orderMakerFee,
+            long timestamp) {
+        this.orderId = orderId;
+        this.price = price;
+        this.size = size;
+        this.filled = filled;
+        this.reserveBidPrice = reserveBidPrice;
+        this.action = action;
+        this.uid = uid;
+        this.orderTakerFee = orderTakerFee;
+        this.orderMakerFee = orderMakerFee;
+        this.timestamp = timestamp;
+    }
+
+    public static OrderBuilder builder() {
+        return new OrderBuilder();
+    }
+
+    public long getOrderId() {
+        return this.orderId;
+    }
+
+    public long getPrice() {
+        return this.price;
+    }
+
+    public long getSize() {
+        return this.size;
+    }
+
+    public long getFilled() {
+        return this.filled;
+    }
+
+    public long getReserveBidPrice() {
+        return this.reserveBidPrice;
+    }
+
+    public OrderAction getAction() {
+        return this.action;
+    }
+
+    public long getUid() {
+        return this.uid;
+    }
+
+    @Override
+    public long getOrderTakerFee() {
+        return orderTakerFee;
+    }
+
+    @Override
+    public long getOrderMakerFee() {
+        return orderMakerFee;
+    }
+
+    public long getTimestamp() {
+        return this.timestamp;
+    }
+
+    public static class OrderBuilder {
+        private long orderId;
+        private long price;
+        private long size;
+        private long filled;
+        private long reserveBidPrice;
+        private OrderAction action;
+        private long uid;
+        private long orderTakerFee;
+        private long orderMakerFee;
+        private long timestamp;
+
+        OrderBuilder() {
+        }
+
+        public OrderBuilder orderId(long orderId) {
+            this.orderId = orderId;
+            return this;
+        }
+
+        public OrderBuilder price(long price) {
+            this.price = price;
+            return this;
+        }
+
+        public OrderBuilder size(long size) {
+            this.size = size;
+            return this;
+        }
+
+        public OrderBuilder filled(long filled) {
+            this.filled = filled;
+            return this;
+        }
+
+        public OrderBuilder reserveBidPrice(long reserveBidPrice) {
+            this.reserveBidPrice = reserveBidPrice;
+            return this;
+        }
+
+        public OrderBuilder action(OrderAction action) {
+            this.action = action;
+            return this;
+        }
+
+        public OrderBuilder uid(long uid) {
+            this.uid = uid;
+            return this;
+        }
+
+        public OrderBuilder orderTakerFee(long orderTakerFee) {
+            this.orderTakerFee = orderTakerFee;
+            return this;
+        }
+
+        public OrderBuilder orderMakerFee(long orderMakerFee) {
+            this.orderMakerFee = orderMakerFee;
+            return this;
+        }
+
+        public OrderBuilder timestamp(long timestamp) {
+            this.timestamp = timestamp;
+            return this;
+        }
+
+        public Order build() {
+            return new Order(
+                    this.orderId,
+                    this.price,
+                    this.size,
+                    this.filled,
+                    this.reserveBidPrice,
+                    this.action,
+                    this.uid,
+                    this.orderTakerFee,
+                    this.orderMakerFee,
+                    this.timestamp);
+        }
+
+        @Override
+        public String toString() {
+            return "Order.OrderBuilder(orderId=" + this.orderId
+                    + ", price=" + this.price
+                    + ", size=" + this.size
+                    + ", filled=" + this.filled
+                    + ", reserveBidPrice=" + this.reserveBidPrice
+                    + ", action=" + this.action
+                    + ", uid=" + this.uid
+                    + ", orderTakerFee=" + this.orderTakerFee
+                    + ", orderMakerFee=" + this.orderMakerFee
+                    + ", timestamp=" + this.timestamp + ")";
+        }
     }
 }

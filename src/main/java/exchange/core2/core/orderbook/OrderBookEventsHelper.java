@@ -20,8 +20,6 @@ import exchange.core2.core.common.MatcherEventType;
 import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.utils.SerializationUtils;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.NativeBytes;
 import net.openhft.chronicle.wire.Wire;
 
@@ -31,8 +29,6 @@ import java.util.stream.Stream;
 
 import static exchange.core2.core.ExchangeCore.EVENTS_POOLING;
 
-@Slf4j
-@RequiredArgsConstructor
 public final class OrderBookEventsHelper {
 
     public static final OrderBookEventsHelper NON_POOLED_EVENTS_HELPER = new OrderBookEventsHelper(MatcherTradeEvent::new);
@@ -200,4 +196,8 @@ public final class OrderBookEventsHelper {
         }
     }
 
+
+    public OrderBookEventsHelper(Supplier<MatcherTradeEvent> eventChainsSupplier) {
+        this.eventChainsSupplier = eventChainsSupplier;
+    }
 }

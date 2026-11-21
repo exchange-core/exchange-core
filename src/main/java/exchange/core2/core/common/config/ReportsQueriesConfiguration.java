@@ -1,12 +1,10 @@
 package exchange.core2.core.common.config;
 
-
 import exchange.core2.core.common.api.binary.BatchAddAccountsCommand;
 import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
 import exchange.core2.core.common.api.binary.BinaryCommandType;
 import exchange.core2.core.common.api.binary.BinaryDataCommand;
 import exchange.core2.core.common.api.reports.*;
-import lombok.Getter;
 import net.openhft.chronicle.bytes.BytesIn;
 
 import java.lang.reflect.Constructor;
@@ -18,7 +16,6 @@ import java.util.stream.Collectors;
 /**
  * Reports configuration
  */
-@Getter
 public final class ReportsQueriesConfiguration {
 
     public static final ReportsQueriesConfiguration DEFAULT = createStandardConfig();
@@ -109,5 +106,13 @@ public final class ReportsQueriesConfiguration {
         return mapping.entrySet().stream()
                 .map(entry -> String.format("%d:%s", entry.getKey(), entry.getValue().getDeclaringClass().getSimpleName()))
                 .collect(Collectors.joining(", "));
+    }
+
+    public Map<Integer, Constructor<? extends ReportQuery<?>>> getReportConstructors() {
+        return this.reportConstructors;
+    }
+
+    public Map<Integer, Constructor<? extends BinaryDataCommand>> getBinaryCommandConstructors() {
+        return this.binaryCommandConstructors;
     }
 }

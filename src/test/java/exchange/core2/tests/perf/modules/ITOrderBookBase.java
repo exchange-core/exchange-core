@@ -20,11 +20,12 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.tests.util.TestOrdersGenerator;
-import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -40,8 +41,9 @@ import static org.hamcrest.Matchers.is;
 /**
  * TODO add tests where orders for same UID ignored during matching
  */
-@Slf4j
 public abstract class ITOrderBookBase {
+
+    private static final Logger log = LoggerFactory.getLogger(ITOrderBookBase.class);
 
     private IOrderBook orderBook;
 

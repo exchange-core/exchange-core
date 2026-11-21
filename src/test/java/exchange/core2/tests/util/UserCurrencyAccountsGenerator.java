@@ -17,15 +17,17 @@ package exchange.core2.tests.util;
 
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.SymbolType;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.math3.distribution.ParetoDistribution;
 import org.apache.commons.math3.distribution.RealDistribution;
 import org.apache.commons.math3.random.JDKRandomGenerator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.*;
 
-@Slf4j
 public final class UserCurrencyAccountsGenerator {
+
+    private static final Logger log = LoggerFactory.getLogger(UserCurrencyAccountsGenerator.class);
 
     /**
      * Generates random users and different currencies they should have, so the total account is between

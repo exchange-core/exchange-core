@@ -15,12 +15,6 @@
  */
 package exchange.core2.core.common.api;
 
-
-import lombok.Builder;
-import lombok.EqualsAndHashCode;
-
-@Builder
-@EqualsAndHashCode(callSuper = false)
 public final class ApiPersistState extends ApiCommand {
 
     public long dumpId;
@@ -29,5 +23,65 @@ public final class ApiPersistState extends ApiCommand {
     @Override
     public String toString() {
         return "[PERSIST]-" + dumpId + " seal=" + seal;
+    }
+
+    ApiPersistState(long dumpId, boolean seal) {
+        this.dumpId = dumpId;
+        this.seal = seal;
+    }
+
+    public static ApiPersistStateBuilder builder() {
+        return new ApiPersistStateBuilder();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        return o instanceof ApiPersistState other
+                && other.canEqual(this)
+                && this.dumpId == other.dumpId
+                && this.seal == other.seal;
+    }
+
+    protected boolean canEqual(Object other) {
+        return other instanceof ApiPersistState;
+    }
+
+    @Override
+    public int hashCode() {
+        final int prime = 59;
+        int result = 1;
+        result = result * prime + Long.hashCode(this.dumpId);
+        result = result * prime + (this.seal ? 79 : 97);
+        return result;
+    }
+
+    public static class ApiPersistStateBuilder {
+        private long dumpId;
+        private boolean seal;
+
+        ApiPersistStateBuilder() {
+        }
+
+        public ApiPersistStateBuilder dumpId(long dumpId) {
+            this.dumpId = dumpId;
+            return this;
+        }
+
+        public ApiPersistStateBuilder seal(boolean seal) {
+            this.seal = seal;
+            return this;
+        }
+
+        public ApiPersistState build() {
+            return new ApiPersistState(this.dumpId, this.seal);
+        }
+
+        @Override
+        public String toString() {
+            return "ApiPersistState.ApiPersistStateBuilder(dumpId=" + this.dumpId + ", seal=" + this.seal + ")";
+        }
     }
 }

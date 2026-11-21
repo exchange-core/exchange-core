@@ -15,15 +15,48 @@
  */
 package exchange.core2.core.common.api;
 
-
-import lombok.Builder;
-import lombok.EqualsAndHashCode;
-
-@Builder
-@EqualsAndHashCode(callSuper = false)
 public final class ApiReset extends ApiCommand {
     @Override
     public String toString() {
         return "[RESET]";
+    }
+
+    ApiReset() {
+    }
+
+    public static ApiResetBuilder builder() {
+        return new ApiResetBuilder();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        return o instanceof ApiReset other
+                && other.canEqual(this);
+    }
+
+    protected boolean canEqual(Object other) {
+        return other instanceof ApiReset;
+    }
+
+    @Override
+    public int hashCode() {
+        return 1;
+    }
+
+    public static class ApiResetBuilder {
+        ApiResetBuilder() {
+        }
+
+        public ApiReset build() {
+            return new ApiReset();
+        }
+
+        @Override
+        public String toString() {
+            return "ApiReset.ApiResetBuilder()";
+        }
     }
 }

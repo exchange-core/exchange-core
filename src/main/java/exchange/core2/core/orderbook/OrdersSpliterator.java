@@ -15,13 +15,9 @@
  */
 package exchange.core2.core.orderbook;
 
-import lombok.AllArgsConstructor;
-
 import java.util.Spliterator;
 import java.util.function.Consumer;
 
-
-@AllArgsConstructor
 public final class OrdersSpliterator implements Spliterator<OrderBookDirectImpl.DirectOrder> {
 
     private OrderBookDirectImpl.DirectOrder pointer;
@@ -50,5 +46,9 @@ public final class OrdersSpliterator implements Spliterator<OrderBookDirectImpl.
     @Override
     public int characteristics() {
         return Spliterator.ORDERED;
+    }
+
+    public OrdersSpliterator(OrderBookDirectImpl.DirectOrder pointer) {
+        this.pointer = pointer;
     }
 }

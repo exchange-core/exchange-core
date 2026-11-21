@@ -15,22 +15,14 @@
  */
 package exchange.core2.core.common.api.reports;
 
-
 import exchange.core2.core.utils.SerializationUtils;
-import lombok.AllArgsConstructor;
-import lombok.EqualsAndHashCode;
-import lombok.Getter;
-import lombok.ToString;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 
+import java.util.Objects;
 import java.util.stream.Stream;
 
-@AllArgsConstructor
-@EqualsAndHashCode
-@Getter
-@ToString
 public final class TotalCurrencyBalanceReportResult implements ReportResult {
 
     // currency -> balance
@@ -104,4 +96,96 @@ public final class TotalCurrencyBalanceReportResult implements ReportResult {
                                 SerializationUtils.mergeSum(a.openInterestShort, b.openInterestShort)));
     }
 
+
+    public TotalCurrencyBalanceReportResult(
+            IntLongHashMap accountBalances,
+            IntLongHashMap fees,
+            IntLongHashMap adjustments,
+            IntLongHashMap suspends,
+            IntLongHashMap ordersBalances,
+            IntLongHashMap openInterestLong,
+            IntLongHashMap openInterestShort) {
+        this.accountBalances = accountBalances;
+        this.fees = fees;
+        this.adjustments = adjustments;
+        this.suspends = suspends;
+        this.ordersBalances = ordersBalances;
+        this.openInterestLong = openInterestLong;
+        this.openInterestShort = openInterestShort;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        return o instanceof TotalCurrencyBalanceReportResult other
+                && Objects.equals(this.getAccountBalances(), other.getAccountBalances())
+                && Objects.equals(this.getFees(), other.getFees())
+                && Objects.equals(this.getAdjustments(), other.getAdjustments())
+                && Objects.equals(this.getSuspends(), other.getSuspends())
+                && Objects.equals(this.getOrdersBalances(), other.getOrdersBalances())
+                && Objects.equals(this.getOpenInterestLong(), other.getOpenInterestLong())
+                && Objects.equals(this.getOpenInterestShort(), other.getOpenInterestShort());
+    }
+
+    @Override
+    public int hashCode() {
+        final int prime = 59;
+        int result = 1;
+        var accountBalances = this.getAccountBalances();
+        result = result * prime + (accountBalances == null ? 43 : accountBalances.hashCode());
+        var fees = this.getFees();
+        result = result * prime + (fees == null ? 43 : fees.hashCode());
+        var adjustments = this.getAdjustments();
+        result = result * prime + (adjustments == null ? 43 : adjustments.hashCode());
+        var suspends = this.getSuspends();
+        result = result * prime + (suspends == null ? 43 : suspends.hashCode());
+        var ordersBalances = this.getOrdersBalances();
+        result = result * prime + (ordersBalances == null ? 43 : ordersBalances.hashCode());
+        var openInterestLong = this.getOpenInterestLong();
+        result = result * prime + (openInterestLong == null ? 43 : openInterestLong.hashCode());
+        var openInterestShort = this.getOpenInterestShort();
+        result = result * prime + (openInterestShort == null ? 43 : openInterestShort.hashCode());
+        return result;
+    }
+
+    public IntLongHashMap getAccountBalances() {
+        return this.accountBalances;
+    }
+
+    public IntLongHashMap getFees() {
+        return this.fees;
+    }
+
+    public IntLongHashMap getAdjustments() {
+        return this.adjustments;
+    }
+
+    public IntLongHashMap getSuspends() {
+        return this.suspends;
+    }
+
+    public IntLongHashMap getOrdersBalances() {
+        return this.ordersBalances;
+    }
+
+    public IntLongHashMap getOpenInterestLong() {
+        return this.openInterestLong;
+    }
+
+    public IntLongHashMap getOpenInterestShort() {
+        return this.openInterestShort;
+    }
+
+    @Override
+    public String toString() {
+        return "TotalCurrencyBalanceReportResult(accountBalances=" + this.getAccountBalances()
+                + ", fees=" + this.getFees()
+                + ", adjustments=" + this.getAdjustments()
+                + ", suspends=" + this.getSuspends()
+                + ", ordersBalances=" + this.getOrdersBalances()
+                + ", openInterestLong=" + this.getOpenInterestLong()
+                + ", openInterestShort=" + this.getOpenInterestShort() + ")";
+    }
 }

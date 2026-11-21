@@ -15,9 +15,6 @@
  */
 package exchange.core2.core.common.api.binary;
 
-import lombok.Getter;
-
-@Getter
 public enum BinaryCommandType {
 
     ADD_ACCOUNTS(1002),
@@ -42,4 +39,8 @@ public enum BinaryCommandType {
 
     }
 
+
+    public int getCode() {
+        return this.code;
+    }
 }

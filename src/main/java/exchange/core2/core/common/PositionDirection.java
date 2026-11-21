@@ -15,16 +15,11 @@
  */
 package exchange.core2.core.common;
 
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-
-@AllArgsConstructor
 public enum PositionDirection {
     LONG(1),
     SHORT(-1),
     EMPTY(0);
 
-    @Getter
     private int multiplier;
 
     public static PositionDirection of(OrderAction action) {
@@ -53,4 +48,12 @@ public enum PositionDirection {
         return (this == PositionDirection.LONG && action == OrderAction.BID) || (this == PositionDirection.SHORT && action == OrderAction.ASK);
     }
 
+
+    private PositionDirection(int multiplier) {
+        this.multiplier = multiplier;
+    }
+
+    public int getMultiplier() {
+        return this.multiplier;
+    }
 }

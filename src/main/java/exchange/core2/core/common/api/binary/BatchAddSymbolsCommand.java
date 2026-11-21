@@ -17,18 +17,13 @@ package exchange.core2.core.common.api.binary;
 
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.utils.SerializationUtils;
-import lombok.AllArgsConstructor;
-import lombok.EqualsAndHashCode;
-import lombok.Getter;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
 import java.util.Collection;
+import java.util.Objects;
 
-@AllArgsConstructor
-@EqualsAndHashCode
-@Getter
 public final class BatchAddSymbolsCommand implements BinaryDataCommand {
 
     private final IntObjectHashMap<CoreSymbolSpecification> symbols;
@@ -55,5 +50,31 @@ public final class BatchAddSymbolsCommand implements BinaryDataCommand {
     @Override
     public int getBinaryCommandTypeCode() {
         return BinaryCommandType.ADD_SYMBOLS.getCode();
+    }
+
+    public BatchAddSymbolsCommand(IntObjectHashMap<CoreSymbolSpecification> symbols) {
+        this.symbols = symbols;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        return o instanceof BatchAddSymbolsCommand other
+                && Objects.equals(this.getSymbols(), other.getSymbols());
+    }
+
+    @Override
+    public int hashCode() {
+        final int prime = 59;
+        int result = 1;
+        var symbols = this.getSymbols();
+        result = result * prime + (symbols == null ? 43 : symbols.hashCode());
+        return result;
+    }
+
+    public IntObjectHashMap<CoreSymbolSpecification> getSymbols() {
+        return this.symbols;
     }
 }

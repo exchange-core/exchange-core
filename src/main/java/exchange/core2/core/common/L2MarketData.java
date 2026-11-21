@@ -15,8 +15,6 @@
  */
 package exchange.core2.core.common;
 
-import lombok.ToString;
-
 import java.util.Arrays;
 
 /**
@@ -24,7 +22,6 @@ import java.util.Arrays;
  * <p>
  * NOTE: Can have dirty data, askSize and bidSize are important!
  */
-@ToString
 public final class L2MarketData {
 
     public static final int L2_SIZE = 32;
@@ -147,4 +144,18 @@ public final class L2MarketData {
     }
 
     // TODO hashcode
+
+    @Override
+    public String toString() {
+        return "L2MarketData(askSize=" + this.askSize
+                + ", bidSize=" + this.bidSize
+                + ", askPrices=" + java.util.Arrays.toString(this.askPrices)
+                + ", askVolumes=" + java.util.Arrays.toString(this.askVolumes)
+                + ", askOrders=" + java.util.Arrays.toString(this.askOrders)
+                + ", bidPrices=" + java.util.Arrays.toString(this.bidPrices)
+                + ", bidVolumes=" + java.util.Arrays.toString(this.bidVolumes)
+                + ", bidOrders=" + java.util.Arrays.toString(this.bidOrders)
+                + ", timestamp=" + this.timestamp
+                + ", referenceSeq=" + this.referenceSeq + ")";
+    }
 }

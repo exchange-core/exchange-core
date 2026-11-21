@@ -15,15 +15,48 @@
  */
 package exchange.core2.core.common.api;
 
-
-import lombok.Builder;
-import lombok.EqualsAndHashCode;
-
-@Builder
-@EqualsAndHashCode(callSuper = false)
 public final class ApiNop extends ApiCommand {
     @Override
     public String toString() {
         return "[NOP]";
+    }
+
+    ApiNop() {
+    }
+
+    public static ApiNopBuilder builder() {
+        return new ApiNopBuilder();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        return o instanceof ApiNop other
+                && other.canEqual(this);
+    }
+
+    protected boolean canEqual(Object other) {
+        return other instanceof ApiNop;
+    }
+
+    @Override
+    public int hashCode() {
+        return 1;
+    }
+
+    public static class ApiNopBuilder {
+        ApiNopBuilder() {
+        }
+
+        public ApiNop build() {
+            return new ApiNop();
+        }
+
+        @Override
+        public String toString() {
+            return "ApiNop.ApiNopBuilder()";
+        }
     }
 }

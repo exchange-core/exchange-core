@@ -29,13 +29,10 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.config.*;
 import exchange.core2.core.utils.AffinityThreadFactory;
-import lombok.Builder;
-import lombok.Data;
-import lombok.Getter;
-import lombok.Setter;
-import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.hamcrest.core.Is;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.*;
@@ -51,21 +48,19 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-@Slf4j
 public final class ExchangeTestContainer implements AutoCloseable {
+
+    private static final Logger log = LoggerFactory.getLogger(ExchangeTestContainer.class);
 
     private final ExchangeCore exchangeCore;
 
-    @Getter
     private final ExchangeApi api;
 
-    @Getter
     private final ThreadFactory threadFactory;
 
     private AtomicLong uniqueIdCounterLong = new AtomicLong();
     private AtomicInteger uniqueIdCounterInt = new AtomicInteger();
 
-    @Setter
     private ObjLongConsumer<OrderCommand> consumer = (cmd, seq) -> {
     };
 
@@ -115,12 +110,106 @@ public final class ExchangeTestContainer implements AutoCloseable {
                 .build();
     }
 
-    @Data
-    @Builder
     public static class TestDataFutures {
         final CompletableFuture<List<CoreSymbolSpecification>> coreSymbolSpecifications;
         final CompletableFuture<List<BitSet>> usersAccounts;
         final CompletableFuture<TestOrdersGenerator.MultiSymbolGenResult> genResult;
+
+        TestDataFutures(
+                CompletableFuture<List<CoreSymbolSpecification>> coreSymbolSpecifications,
+                CompletableFuture<List<BitSet>> usersAccounts,
+                CompletableFuture<TestOrdersGenerator.MultiSymbolGenResult> genResult) {
+            this.coreSymbolSpecifications = coreSymbolSpecifications;
+            this.usersAccounts = usersAccounts;
+            this.genResult = genResult;
+        }
+
+        public static ExchangeTestContainer.TestDataFutures.TestDataFuturesBuilder builder() {
+            return new ExchangeTestContainer.TestDataFutures.TestDataFuturesBuilder();
+        }
+
+        public CompletableFuture<List<CoreSymbolSpecification>> getCoreSymbolSpecifications() {
+            return this.coreSymbolSpecifications;
+        }
+
+        public CompletableFuture<List<BitSet>> getUsersAccounts() {
+            return this.usersAccounts;
+        }
+
+        public CompletableFuture<TestOrdersGenerator.MultiSymbolGenResult> getGenResult() {
+            return this.genResult;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            return o instanceof TestDataFutures other
+                    && other.canEqual(this)
+                    && Objects.equals(this.getCoreSymbolSpecifications(), other.getCoreSymbolSpecifications())
+                    && Objects.equals(this.getUsersAccounts(), other.getUsersAccounts())
+                    && Objects.equals(this.getGenResult(), other.getGenResult());
+        }
+
+        protected boolean canEqual(Object other) {
+            return other instanceof ExchangeTestContainer.TestDataFutures;
+        }
+
+        @Override
+        public int hashCode() {
+            final int prime = 59;
+            int result = 1;
+            var coreSymbolSpecifications = this.getCoreSymbolSpecifications();
+            result = result * prime + (coreSymbolSpecifications == null ? 43 : coreSymbolSpecifications.hashCode());
+            var usersAccounts = this.getUsersAccounts();
+            result = result * prime + (usersAccounts == null ? 43 : usersAccounts.hashCode());
+            var genResult = this.getGenResult();
+            result = result * prime + (genResult == null ? 43 : genResult.hashCode());
+            return result;
+        }
+
+        @Override
+        public String toString() {
+            return "ExchangeTestContainer.TestDataFutures(coreSymbolSpecifications=" + this.getCoreSymbolSpecifications()
+                    + ", usersAccounts=" + this.getUsersAccounts()
+                    + ", genResult=" + this.getGenResult() + ")";
+        }
+
+        public static class TestDataFuturesBuilder {
+            private CompletableFuture<List<CoreSymbolSpecification>> coreSymbolSpecifications;
+            private CompletableFuture<List<BitSet>> usersAccounts;
+            private CompletableFuture<TestOrdersGenerator.MultiSymbolGenResult> genResult;
+
+            TestDataFuturesBuilder() {
+            }
+
+            public ExchangeTestContainer.TestDataFutures.TestDataFuturesBuilder coreSymbolSpecifications(CompletableFuture<List<CoreSymbolSpecification>> coreSymbolSpecifications) {
+                this.coreSymbolSpecifications = coreSymbolSpecifications;
+                return this;
+            }
+
+            public ExchangeTestContainer.TestDataFutures.TestDataFuturesBuilder usersAccounts(CompletableFuture<List<BitSet>> usersAccounts) {
+                this.usersAccounts = usersAccounts;
+                return this;
+            }
+
+            public ExchangeTestContainer.TestDataFutures.TestDataFuturesBuilder genResult(CompletableFuture<TestOrdersGenerator.MultiSymbolGenResult> genResult) {
+                this.genResult = genResult;
+                return this;
+            }
+
+            public ExchangeTestContainer.TestDataFutures build() {
+                return new ExchangeTestContainer.TestDataFutures(this.coreSymbolSpecifications, this.usersAccounts, this.genResult);
+            }
+
+            @Override
+            public String toString() {
+                return "ExchangeTestContainer.TestDataFutures.TestDataFuturesBuilder(coreSymbolSpecifications=" + this.coreSymbolSpecifications
+                        + ", usersAccounts=" + this.usersAccounts
+                        + ", genResult=" + this.genResult + ")";
+            }
+        }
     }
 
     private ExchangeTestContainer(final PerformanceConfiguration perfCfg,
@@ -460,5 +549,17 @@ public final class ExchangeTestContainer implements AutoCloseable {
         FUTURES_CONTRACT,
         CURRENCY_EXCHANGE_PAIR,
         BOTH
+    }
+
+    public ExchangeApi getApi() {
+        return this.api;
+    }
+
+    public ThreadFactory getThreadFactory() {
+        return this.threadFactory;
+    }
+
+    public void setConsumer(ObjLongConsumer<OrderCommand> consumer) {
+        this.consumer = consumer;
     }
 }

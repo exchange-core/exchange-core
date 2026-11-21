@@ -47,11 +47,8 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <java.version>25</java.version>
         <maven.compiler.release>${java.version}</maven.compiler.release>
-        <lombok.version>1.18.48</lombok.version>
         <chronicle-wire.version>2026.3</chronicle-wire.version>
         <eclipse-collections.version>13.0.0</eclipse-collections.version>
-
-        <delombok.output>target/delombok</delombok.output>
     </properties>
 
     <dependencies>
@@ -78,13 +75,6 @@
             <groupId>com.lmax</groupId>
             <artifactId>disruptor</artifactId>
             <version>3.4.4</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <version>${lombok.version}</version>
-            <scope>provided</scope>
         </dependency>
 
         <!-- logging -->
@@ -276,15 +266,6 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.13.0</version>
-                <configuration>
-                    <annotationProcessorPaths>
-                        <path>
-                            <groupId>org.projectlombok</groupId>
-                            <artifactId>lombok</artifactId>
-                            <version>${lombok.version}</version>
-                        </path>
-                    </annotationProcessorPaths>
-                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -320,70 +301,16 @@
             <build>
                 <plugins>
                     <plugin>
-                        <groupId>org.projectlombok</groupId>
-                        <artifactId>lombok-maven-plugin</artifactId>
-                        <version>1.18.12.0</version>
-                        <dependencies>
-                            <dependency>
-                                <groupId>org.projectlombok</groupId>
-                                <artifactId>lombok</artifactId>
-                                <version>${lombok.version}</version>
-                            </dependency>
-                        </dependencies>
-                        <configuration>
-                            <sourceDirectory>${project.basedir}/src/main/java</sourceDirectory>
-                            <outputDirectory>${delombok.output}</outputDirectory>
-                            <addOutputDirectory>false</addOutputDirectory>
-                            <encoding>UTF-8</encoding>
-                        </configuration>
-                        <executions>
-                            <execution>
-                                <phase>generate-sources</phase>
-                                <goals>
-                                    <goal>delombok</goal>
-                                </goals>
-                            </execution>
-                        </executions>
-                    </plugin>
-                    <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-antrun-plugin</artifactId>
-                        <version>1.8</version>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <version>3.4.0</version>
                         <executions>
                             <execution>
-                                <id>generate-delomboked-sources-jar</id>
+                                <id>attach-sources</id>
                                 <phase>package</phase>
                                 <goals>
-                                    <goal>run</goal>
+                                    <goal>jar-no-fork</goal>
                                 </goals>
-                                <configuration>
-                                    <target>
-                                        <jar destfile="${project.build.directory}/${project.build.finalName}-sources.jar" basedir="${delombok.output}" />
-                                    </target>
-                                </configuration>
-                            </execution>
-                        </executions>
-                    </plugin>
-                    <plugin>
-                        <groupId>org.codehaus.mojo</groupId>
-                        <artifactId>build-helper-maven-plugin</artifactId>
-                        <version>3.1.0</version>
-                        <executions>
-                            <execution>
-                                <id>attach-delomboked-sources-jar</id>
-                                <phase>package</phase>
-                                <goals>
-                                    <goal>attach-artifact</goal>
-                                </goals>
-                                <configuration>
-                                    <artifacts>
-                                        <artifact>
-                                            <file>${project.build.directory}/${project.build.finalName}-sources.jar</file>
-                                            <type>jar</type>
-                                            <classifier>sources</classifier>
-                                        </artifact>
-                                    </artifacts>
-                                </configuration>
                             </execution>
                         </executions>
                     </plugin>
@@ -447,9 +374,6 @@
                                 </goals>
                             </execution>
                         </executions>
-                        <configuration>
-                            <sourcepath>${delombok.output}</sourcepath>
-                        </configuration>
                     </plugin>
                 </plugins>
             </build>

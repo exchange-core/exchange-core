@@ -15,9 +15,6 @@
  */
 package exchange.core2.core.common;
 
-import lombok.Getter;
-
-@Getter
 public enum BalanceAdjustmentType {
     ADJUSTMENT(0),
     SUSPEND(1);
@@ -37,5 +34,9 @@ public enum BalanceAdjustmentType {
             default:
                 throw new IllegalArgumentException("unknown BalanceAdjustmentType:" + code);
         }
+    }
+
+    public byte getCode() {
+        return this.code;
     }
 }

@@ -18,7 +18,6 @@ package exchange.core2.core.processors.journaling;
 import exchange.core2.core.ExchangeApi;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.config.InitialStateConfiguration;
-import lombok.AllArgsConstructor;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 
@@ -115,12 +114,15 @@ public interface ISerializationProcessor {
      */
     boolean checkSnapshotExists(long snapshotId, SerializedModuleType type, int instanceId);
 
-    @AllArgsConstructor
     enum SerializedModuleType {
         RISK_ENGINE("RE"),
         MATCHING_ENGINE_ROUTER("ME");
 
         final String code;
+
+        private SerializedModuleType(String code) {
+            this.code = code;
+        }
     }
 
     static boolean canLoadFromSnapshot(final ISerializationProcessor serializationProcessor,

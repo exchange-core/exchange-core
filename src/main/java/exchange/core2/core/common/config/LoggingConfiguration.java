@@ -1,21 +1,10 @@
 package exchange.core2.core.common.config;
 
-
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.ToString;
-
 import java.util.EnumSet;
-
 
 /**
  * Exchange core logging configuration
  */
-@AllArgsConstructor
-@Getter
-@Builder
-@ToString
 public final class LoggingConfiguration {
 
     // only warnings
@@ -29,5 +18,43 @@ public final class LoggingConfiguration {
         LOGGING_WARNINGS,
         LOGGING_RISK_DEBUG,
         LOGGING_MATCHING_DEBUG
+    }
+
+    public LoggingConfiguration(EnumSet<LoggingLevel> loggingLevels) {
+        this.loggingLevels = loggingLevels;
+    }
+
+    public static LoggingConfigurationBuilder builder() {
+        return new LoggingConfigurationBuilder();
+    }
+
+    public EnumSet<LoggingLevel> getLoggingLevels() {
+        return this.loggingLevels;
+    }
+
+    @Override
+    public String toString() {
+        return "LoggingConfiguration(loggingLevels=" + this.getLoggingLevels() + ")";
+    }
+
+    public static class LoggingConfigurationBuilder {
+        private EnumSet<LoggingLevel> loggingLevels;
+
+        LoggingConfigurationBuilder() {
+        }
+
+        public LoggingConfigurationBuilder loggingLevels(EnumSet<LoggingLevel> loggingLevels) {
+            this.loggingLevels = loggingLevels;
+            return this;
+        }
+
+        public LoggingConfiguration build() {
+            return new LoggingConfiguration(this.loggingLevels);
+        }
+
+        @Override
+        public String toString() {
+            return "LoggingConfiguration.LoggingConfigurationBuilder(loggingLevels=" + this.loggingLevels + ")";
+        }
     }
 }

@@ -15,9 +15,6 @@
  */
 package exchange.core2.core.common;
 
-import lombok.Getter;
-
-@Getter
 public enum OrderType {
 
     // Good till Cancel - equivalent to regular limit order
@@ -54,4 +51,8 @@ public enum OrderType {
         }
     }
 
+
+    public byte getCode() {
+        return this.code;
+    }
 }

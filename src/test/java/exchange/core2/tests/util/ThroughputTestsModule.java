@@ -21,13 +21,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.core.common.config.SerializationConfiguration;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.stream.IntStream;
 
-
-@Slf4j
 public class ThroughputTestsModule {
+
+    private static final Logger log = LoggerFactory.getLogger(ThroughputTestsModule.class);
 
     public static void throughputTestImpl(final PerformanceConfiguration performanceCfg,
                                           final TestDataParameters testDataParameters,

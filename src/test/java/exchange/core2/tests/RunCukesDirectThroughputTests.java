@@ -8,7 +8,6 @@ import io.cucumber.plugin.EventListener;
 import io.cucumber.plugin.event.EventPublisher;
 import io.cucumber.plugin.event.TestRunFinished;
 import io.cucumber.plugin.event.TestRunStarted;
-import lombok.extern.slf4j.Slf4j;
 import org.junit.platform.suite.api.ConfigurationParameter;
 import org.junit.platform.suite.api.ConfigurationParameters;
 import org.junit.platform.suite.api.IncludeEngines;
@@ -25,7 +24,6 @@ import org.junit.platform.suite.api.Suite;
 @ConfigurationParameters({
     @ConfigurationParameter(key = PLUGIN_PROPERTY_NAME, value = "pretty, html:target/cucumber/direct-throughput.html, exchange.core2.tests.RunCukesDirectThroughputTests$CukeNaiveLifeCycleHandler"),
 })
-@Slf4j
 public class RunCukesDirectThroughputTests {
 
     public static class CukeNaiveLifeCycleHandler implements EventListener {

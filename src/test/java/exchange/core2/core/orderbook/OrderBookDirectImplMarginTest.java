@@ -20,9 +20,7 @@ import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.tests.util.TestConstants;
-import lombok.extern.slf4j.Slf4j;
 
-@Slf4j
 public final class OrderBookDirectImplMarginTest extends OrderBookDirectImplTest {
 
     @Override

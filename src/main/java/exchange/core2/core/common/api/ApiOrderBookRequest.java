@@ -15,14 +15,6 @@
  */
 package exchange.core2.core.common.api;
 
-
-import lombok.Builder;
-import lombok.EqualsAndHashCode;
-import lombok.RequiredArgsConstructor;
-
-@Builder
-@EqualsAndHashCode(callSuper = false)
-@RequiredArgsConstructor
 public final class ApiOrderBookRequest extends ApiCommand {
 
     final public int symbol;
@@ -32,5 +24,65 @@ public final class ApiOrderBookRequest extends ApiCommand {
     @Override
     public String toString() {
         return "[OB " + symbol + " " + size + "]";
+    }
+
+    public ApiOrderBookRequest(int symbol, int size) {
+        this.symbol = symbol;
+        this.size = size;
+    }
+
+    public static ApiOrderBookRequestBuilder builder() {
+        return new ApiOrderBookRequestBuilder();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        return o instanceof ApiOrderBookRequest other
+                && other.canEqual(this)
+                && this.symbol == other.symbol
+                && this.size == other.size;
+    }
+
+    protected boolean canEqual(Object other) {
+        return other instanceof ApiOrderBookRequest;
+    }
+
+    @Override
+    public int hashCode() {
+        final int prime = 59;
+        int result = 1;
+        result = result * prime + this.symbol;
+        result = result * prime + this.size;
+        return result;
+    }
+
+    public static class ApiOrderBookRequestBuilder {
+        private int symbol;
+        private int size;
+
+        ApiOrderBookRequestBuilder() {
+        }
+
+        public ApiOrderBookRequestBuilder symbol(int symbol) {
+            this.symbol = symbol;
+            return this;
+        }
+
+        public ApiOrderBookRequestBuilder size(int size) {
+            this.size = size;
+            return this;
+        }
+
+        public ApiOrderBookRequest build() {
+            return new ApiOrderBookRequest(this.symbol, this.size);
+        }
+
+        @Override
+        public String toString() {
+            return "ApiOrderBookRequest.ApiOrderBookRequestBuilder(symbol=" + this.symbol + ", size=" + this.size + ")";
+        }
     }
 }

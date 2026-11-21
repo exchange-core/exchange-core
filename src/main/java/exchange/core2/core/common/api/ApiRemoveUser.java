@@ -15,12 +15,6 @@
  */
 package exchange.core2.core.common.api;
 
-
-import lombok.Builder;
-import lombok.EqualsAndHashCode;
-
-@Builder
-@EqualsAndHashCode(callSuper = false)
 public final class ApiRemoveUser extends ApiCommand {
 
     public final long uid;
@@ -28,5 +22,53 @@ public final class ApiRemoveUser extends ApiCommand {
     @Override
     public String toString() {
         return "[REMOVE_USER " + uid + "]";
+    }
+
+    ApiRemoveUser(long uid) {
+        this.uid = uid;
+    }
+
+    public static ApiRemoveUserBuilder builder() {
+        return new ApiRemoveUserBuilder();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        return o instanceof ApiRemoveUser other
+                && other.canEqual(this)
+                && this.uid == other.uid;
+    }
+
+    protected boolean canEqual(Object other) {
+        return other instanceof ApiRemoveUser;
+    }
+
+    @Override
+    public int hashCode() {
+        return 59 + Long.hashCode(uid);
+    }
+
+    public static class ApiRemoveUserBuilder {
+        private long uid;
+
+        ApiRemoveUserBuilder() {
+        }
+
+        public ApiRemoveUserBuilder uid(long uid) {
+            this.uid = uid;
+            return this;
+        }
+
+        public ApiRemoveUser build() {
+            return new ApiRemoveUser(uid);
+        }
+
+        @Override
+        public String toString() {
+            return "ApiRemoveUser.ApiRemoveUserBuilder(uid=" + uid + ")";
+        }
     }
 }

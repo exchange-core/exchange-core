@@ -15,14 +15,6 @@
  */
 package exchange.core2.core.common.api;
 
-
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.EqualsAndHashCode;
-
-@Builder
-@EqualsAndHashCode(callSuper = false)
-@AllArgsConstructor
 public final class ApiAddUser extends ApiCommand {
 
     public final long uid;
@@ -30,5 +22,56 @@ public final class ApiAddUser extends ApiCommand {
     @Override
     public String toString() {
         return "[ADDUSER " + uid + "]";
+    }
+
+    public ApiAddUser(long uid) {
+        this.uid = uid;
+    }
+
+    public static ApiAddUserBuilder builder() {
+        return new ApiAddUserBuilder();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        return o instanceof ApiAddUser other
+                && other.canEqual(this)
+                && this.uid == other.uid;
+    }
+
+    protected boolean canEqual(Object other) {
+        return other instanceof ApiAddUser;
+    }
+
+    @Override
+    public int hashCode() {
+        final int prime = 59;
+        int result = 1;
+        result = result * prime + Long.hashCode(this.uid);
+        return result;
+    }
+
+    public static class ApiAddUserBuilder {
+        private long uid;
+
+        ApiAddUserBuilder() {
+        }
+
+        public ApiAddUserBuilder uid(long uid) {
+            this.uid = uid;
+            return this;
+        }
+
+        public ApiAddUser build() {
+            return new ApiAddUser(this.uid);
+        }
+
+        @Override
+        public String toString() {
+            return "ApiAddUser.ApiAddUserBuilder(uid=" + this.uid + ")";
+        }
     }
 }

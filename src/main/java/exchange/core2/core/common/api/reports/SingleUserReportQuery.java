@@ -19,9 +19,6 @@ import exchange.core2.core.common.Order;
 import exchange.core2.core.common.UserProfile;
 import exchange.core2.core.processors.MatchingEngineRouter;
 import exchange.core2.core.processors.RiskEngine;
-import lombok.EqualsAndHashCode;
-import lombok.ToString;
-import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
@@ -30,9 +27,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 
-@EqualsAndHashCode
-@ToString
-@Slf4j
 public final class SingleUserReportQuery implements ReportQuery<SingleUserReportResult> {
 
     private final long uid;
@@ -109,5 +103,27 @@ public final class SingleUserReportQuery implements ReportQuery<SingleUserReport
     @Override
     public void writeMarshallable(final BytesOut bytes) {
         bytes.writeLong(uid);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        return o instanceof SingleUserReportQuery other
+                && this.getUid() == other.getUid();
+    }
+
+    @Override
+    public int hashCode() {
+        final int prime = 59;
+        int result = 1;
+        result = result * prime + Long.hashCode(this.getUid());
+        return result;
+    }
+
+    @Override
+    public String toString() {
+        return "SingleUserReportQuery(uid=" + this.getUid() + ")";
     }
 }

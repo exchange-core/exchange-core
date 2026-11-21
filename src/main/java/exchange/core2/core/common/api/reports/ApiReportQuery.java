@@ -15,12 +15,8 @@
  */
 package exchange.core2.core.common.api.reports;
 
+import java.util.Objects;
 
-import lombok.Builder;
-import lombok.EqualsAndHashCode;
-
-@Builder
-@EqualsAndHashCode
 public final class ApiReportQuery {
 
     public long timestamp;
@@ -35,5 +31,72 @@ public final class ApiReportQuery {
     @Override
     public String toString() {
         return "[REPORT_QUERY tid=" + transferId + " query=" + query + "]";
+    }
+
+    ApiReportQuery(long timestamp, int transferId, ReportQuery<?> query) {
+        this.timestamp = timestamp;
+        this.transferId = transferId;
+        this.query = query;
+    }
+
+    public static ApiReportQueryBuilder builder() {
+        return new ApiReportQueryBuilder();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        return o instanceof ApiReportQuery other
+                && this.timestamp == other.timestamp
+                && this.transferId == other.transferId
+                && Objects.equals(this.query, other.query);
+    }
+
+    @Override
+    public int hashCode() {
+        final int prime = 59;
+        int result = 1;
+        result = result * prime + Long.hashCode(this.timestamp);
+        result = result * prime + this.transferId;
+        var query = this.query;
+        result = result * prime + (query == null ? 43 : query.hashCode());
+        return result;
+    }
+
+    public static class ApiReportQueryBuilder {
+        private long timestamp;
+        private int transferId;
+        private ReportQuery<?> query;
+
+        ApiReportQueryBuilder() {
+        }
+
+        public ApiReportQueryBuilder timestamp(long timestamp) {
+            this.timestamp = timestamp;
+            return this;
+        }
+
+        public ApiReportQueryBuilder transferId(int transferId) {
+            this.transferId = transferId;
+            return this;
+        }
+
+        public ApiReportQueryBuilder query(ReportQuery<?> query) {
+            this.query = query;
+            return this;
+        }
+
+        public ApiReportQuery build() {
+            return new ApiReportQuery(this.timestamp, this.transferId, this.query);
+        }
+
+        @Override
+        public String toString() {
+            return "ApiReportQuery.ApiReportQueryBuilder(timestamp=" + this.timestamp
+                    + ", transferId=" + this.transferId
+                    + ", query=" + this.query + ")";
+        }
     }
 }

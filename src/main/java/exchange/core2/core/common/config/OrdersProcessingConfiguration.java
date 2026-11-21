@@ -1,19 +1,8 @@
 package exchange.core2.core.common.config;
 
-
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.ToString;
-
-
 /**
  * Order processing configuration
  */
-@AllArgsConstructor
-@Getter
-@Builder
-@ToString
 public final class OrdersProcessingConfiguration {
 
     public static OrdersProcessingConfiguration DEFAULT = OrdersProcessingConfiguration.builder()
@@ -25,8 +14,7 @@ public final class OrdersProcessingConfiguration {
     private final RiskProcessingMode riskProcessingMode;
     private final MarginTradingMode marginTradingMode;
 
-    @Builder.Default
-    private final SelfTradeProtectionMode selfTradeProtectionMode = SelfTradeProtectionMode.IGNORE;
+    private final SelfTradeProtectionMode selfTradeProtectionMode;
 
     public OrdersProcessingConfiguration(RiskProcessingMode riskProcessingMode, MarginTradingMode marginTradingMode) {
         this(riskProcessingMode, marginTradingMode, SelfTradeProtectionMode.IGNORE);
@@ -51,5 +39,71 @@ public final class OrdersProcessingConfiguration {
 
         // cancel taker order when matching against own resting order
         CANCEL_NEWEST
+    }
+
+    public OrdersProcessingConfiguration(RiskProcessingMode riskProcessingMode,
+                                         MarginTradingMode marginTradingMode,
+                                         SelfTradeProtectionMode selfTradeProtectionMode) {
+        this.riskProcessingMode = riskProcessingMode;
+        this.marginTradingMode = marginTradingMode;
+        this.selfTradeProtectionMode = selfTradeProtectionMode;
+    }
+
+    public static OrdersProcessingConfigurationBuilder builder() {
+        return new OrdersProcessingConfigurationBuilder();
+    }
+
+    public RiskProcessingMode getRiskProcessingMode() {
+        return this.riskProcessingMode;
+    }
+
+    public MarginTradingMode getMarginTradingMode() {
+        return this.marginTradingMode;
+    }
+
+    public SelfTradeProtectionMode getSelfTradeProtectionMode() {
+        return this.selfTradeProtectionMode;
+    }
+
+    @Override
+    public String toString() {
+        return "OrdersProcessingConfiguration(riskProcessingMode=" + this.getRiskProcessingMode()
+                + ", marginTradingMode=" + this.getMarginTradingMode()
+                + ", selfTradeProtectionMode=" + this.getSelfTradeProtectionMode() + ")";
+    }
+
+    public static class OrdersProcessingConfigurationBuilder {
+        private RiskProcessingMode riskProcessingMode;
+        private MarginTradingMode marginTradingMode;
+        private SelfTradeProtectionMode selfTradeProtectionMode = SelfTradeProtectionMode.IGNORE;
+
+        OrdersProcessingConfigurationBuilder() {
+        }
+
+        public OrdersProcessingConfigurationBuilder riskProcessingMode(RiskProcessingMode riskProcessingMode) {
+            this.riskProcessingMode = riskProcessingMode;
+            return this;
+        }
+
+        public OrdersProcessingConfigurationBuilder marginTradingMode(MarginTradingMode marginTradingMode) {
+            this.marginTradingMode = marginTradingMode;
+            return this;
+        }
+
+        public OrdersProcessingConfigurationBuilder selfTradeProtectionMode(SelfTradeProtectionMode selfTradeProtectionMode) {
+            this.selfTradeProtectionMode = selfTradeProtectionMode;
+            return this;
+        }
+
+        public OrdersProcessingConfiguration build() {
+            return new OrdersProcessingConfiguration(riskProcessingMode, marginTradingMode, selfTradeProtectionMode);
+        }
+
+        @Override
+        public String toString() {
+            return "OrdersProcessingConfiguration.OrdersProcessingConfigurationBuilder(riskProcessingMode=" + this.riskProcessingMode
+                    + ", marginTradingMode=" + this.marginTradingMode
+                    + ", selfTradeProtectionMode=" + this.selfTradeProtectionMode + ")";
+        }
     }
 }

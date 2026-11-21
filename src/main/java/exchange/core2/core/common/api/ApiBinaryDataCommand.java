@@ -15,16 +15,10 @@
  */
 package exchange.core2.core.common.api;
 
-
 import exchange.core2.core.common.api.binary.BinaryDataCommand;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.EqualsAndHashCode;
 
+import java.util.Objects;
 
-@Builder
-@EqualsAndHashCode(callSuper = false)
-@AllArgsConstructor
 public final class ApiBinaryDataCommand extends ApiCommand {
 
     // transfer unique id
@@ -37,5 +31,67 @@ public final class ApiBinaryDataCommand extends ApiCommand {
     @Override
     public String toString() {
         return "[BINARY_DATA tid=" + transferId + " data=" + data + "]";
+    }
+
+    public ApiBinaryDataCommand(int transferId, BinaryDataCommand data) {
+        this.transferId = transferId;
+        this.data = data;
+    }
+
+    public static ApiBinaryDataCommandBuilder builder() {
+        return new ApiBinaryDataCommandBuilder();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        return o instanceof ApiBinaryDataCommand other
+                && other.canEqual(this)
+                && this.transferId == other.transferId
+                && Objects.equals(this.data, other.data);
+    }
+
+    protected boolean canEqual(Object other) {
+        return other instanceof ApiBinaryDataCommand;
+    }
+
+    @Override
+    public int hashCode() {
+        final int prime = 59;
+        int result = 1;
+        result = result * prime + this.transferId;
+        var data = this.data;
+        result = result * prime + (data == null ? 43 : data.hashCode());
+        return result;
+    }
+
+    public static class ApiBinaryDataCommandBuilder {
+        private int transferId;
+        private BinaryDataCommand data;
+
+        ApiBinaryDataCommandBuilder() {
+        }
+
+        public ApiBinaryDataCommandBuilder transferId(int transferId) {
+            this.transferId = transferId;
+            return this;
+        }
+
+        public ApiBinaryDataCommandBuilder data(BinaryDataCommand data) {
+            this.data = data;
+            return this;
+        }
+
+        public ApiBinaryDataCommand build() {
+            return new ApiBinaryDataCommand(this.transferId, this.data);
+        }
+
+        @Override
+        public String toString() {
+            return "ApiBinaryDataCommand.ApiBinaryDataCommandBuilder(transferId=" + this.transferId
+                    + ", data=" + this.data + ")";
+        }
     }
 }

@@ -22,17 +22,19 @@ import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.utils.SerializationUtils;
-import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
-@Slf4j
 public final class OrderBookNaiveImpl implements IOrderBook {
+
+    private static final Logger log = LoggerFactory.getLogger(OrderBookNaiveImpl.class);
 
     private final NavigableMap<Long, OrdersBucketNaive> askBuckets;
     private final NavigableMap<Long, OrdersBucketNaive> bidBuckets;

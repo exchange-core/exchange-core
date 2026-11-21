@@ -34,16 +34,14 @@ import exchange.core2.core.processors.journaling.ISerializationProcessor;
 import exchange.core2.core.utils.CoreArithmeticUtils;
 import exchange.core2.core.utils.SerializationUtils;
 import exchange.core2.core.utils.UnsafeUtils;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.ToString;
-import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesMarshallable;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -54,9 +52,9 @@ import java.util.Optional;
 /**
  * Stateful risk engine
  */
-@Slf4j
-@Getter
 public final class RiskEngine implements WriteBytesMarshallable {
+
+    private static final Logger log = LoggerFactory.getLogger(RiskEngine.class);
 
     public static final ISerializationProcessor.SerializedModuleType MODULE_RE =
             ISerializationProcessor.SerializedModuleType.RISK_ENGINE;
@@ -149,13 +147,13 @@ public final class RiskEngine implements WriteBytesMarshallable {
                                 suspends);
                     });
 
-            this.symbolSpecificationProvider = state.symbolSpecificationProvider;
-            this.userProfileService = state.userProfileService;
-            this.binaryCommandsProcessor = state.binaryCommandsProcessor;
-            this.lastPriceCache = state.lastPriceCache;
-            this.fees = state.fees;
-            this.adjustments = state.adjustments;
-            this.suspends = state.suspends;
+            this.symbolSpecificationProvider = state.symbolSpecificationProvider();
+            this.userProfileService = state.userProfileService();
+            this.binaryCommandsProcessor = state.binaryCommandsProcessor();
+            this.lastPriceCache = state.lastPriceCache();
+            this.fees = state.fees();
+            this.adjustments = state.adjustments();
+            this.suspends = state.suspends();
 
         } else {
             this.symbolSpecificationProvider = new SymbolSpecificationProvider();
@@ -177,7 +175,6 @@ public final class RiskEngine implements WriteBytesMarshallable {
         this.cfgMarginTradingEnabled = ordersProcCfg.getMarginTradingMode() == OrdersProcessingConfiguration.MarginTradingMode.MARGIN_TRADING_ENABLED;
     }
 
-    @ToString
     public static class LastPriceCacheRecord implements BytesMarshallable, StateHash {
         public long askPrice = Long.MAX_VALUE;
         public long bidPrice = 0L;
@@ -213,6 +210,11 @@ public final class RiskEngine implements WriteBytesMarshallable {
         @Override
         public int stateHash() {
             return Objects.hash(askPrice, bidPrice);
+        }
+
+        @Override
+        public String toString() {
+            return "RiskEngine.LastPriceCacheRecord(askPrice=" + this.askPrice + ", bidPrice=" + this.bidPrice + ")";
         }
     }
 
@@ -869,15 +871,76 @@ public final class RiskEngine implements WriteBytesMarshallable {
         suspends.clear();
     }
 
-    @AllArgsConstructor
-    @Getter
-    private static class State {
-        private final SymbolSpecificationProvider symbolSpecificationProvider;
-        private final UserProfileService userProfileService;
-        private final BinaryCommandsProcessor binaryCommandsProcessor;
-        private final IntObjectHashMap<LastPriceCacheRecord> lastPriceCache;
-        private final IntLongHashMap fees;
-        private final IntLongHashMap adjustments;
-        private final IntLongHashMap suspends;
+    public SymbolSpecificationProvider getSymbolSpecificationProvider() {
+        return this.symbolSpecificationProvider;
+    }
+
+    public UserProfileService getUserProfileService() {
+        return this.userProfileService;
+    }
+
+    public BinaryCommandsProcessor getBinaryCommandsProcessor() {
+        return this.binaryCommandsProcessor;
+    }
+
+    public IntObjectHashMap<LastPriceCacheRecord> getLastPriceCache() {
+        return this.lastPriceCache;
+    }
+
+    public IntLongHashMap getFees() {
+        return this.fees;
+    }
+
+    public IntLongHashMap getAdjustments() {
+        return this.adjustments;
+    }
+
+    public IntLongHashMap getSuspends() {
+        return this.suspends;
+    }
+
+    public ObjectsPool getObjectsPool() {
+        return this.objectsPool;
+    }
+
+    public int getShardId() {
+        return this.shardId;
+    }
+
+    public long getShardMask() {
+        return this.shardMask;
+    }
+
+    public String getExchangeId() {
+        return this.exchangeId;
+    }
+
+    public Path getFolder() {
+        return this.folder;
+    }
+
+    public boolean isCfgIgnoreRiskProcessing() {
+        return this.cfgIgnoreRiskProcessing;
+    }
+
+    public boolean isCfgMarginTradingEnabled() {
+        return this.cfgMarginTradingEnabled;
+    }
+
+    public ISerializationProcessor getSerializationProcessor() {
+        return this.serializationProcessor;
+    }
+
+    public boolean isLogDebug() {
+        return this.logDebug;
+    }
+
+    private record State(SymbolSpecificationProvider symbolSpecificationProvider,
+                         UserProfileService userProfileService,
+                         BinaryCommandsProcessor binaryCommandsProcessor,
+                         IntObjectHashMap<LastPriceCacheRecord> lastPriceCache,
+                         IntLongHashMap fees,
+                         IntLongHashMap adjustments,
+                         IntLongHashMap suspends) {
     }
 }

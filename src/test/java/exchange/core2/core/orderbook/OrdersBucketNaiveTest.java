@@ -15,11 +15,9 @@
  */
 package exchange.core2.core.orderbook;
 
-
 import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.Order;
 import exchange.core2.core.common.cmd.OrderCommand;
-import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -33,7 +31,6 @@ import static org.hamcrest.Matchers.is;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
-@Slf4j
 public final class OrdersBucketNaiveTest {
 
     private static final int PRICE = 1000;

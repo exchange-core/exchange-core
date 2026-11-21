@@ -3,11 +3,9 @@ package exchange.core2.core.processors;
 import com.lmax.disruptor.EventHandler;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
-import lombok.RequiredArgsConstructor;
 
 import java.util.function.ObjLongConsumer;
 
-@RequiredArgsConstructor
 public final class ResultsHandler implements EventHandler<OrderCommand> {
 
     private final ObjLongConsumer<OrderCommand> resultsConsumer;
@@ -25,5 +23,9 @@ public final class ResultsHandler implements EventHandler<OrderCommand> {
             resultsConsumer.accept(cmd, sequence);
         }
 
+    }
+
+    public ResultsHandler(ObjLongConsumer<OrderCommand> resultsConsumer) {
+        this.resultsConsumer = resultsConsumer;
     }
 }
