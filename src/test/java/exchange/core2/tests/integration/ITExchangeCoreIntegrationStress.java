@@ -22,7 +22,6 @@ import exchange.core2.core.common.api.ApiCommand;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.TestOrdersGenerator;
-import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.junit.jupiter.api.Test;
 
@@ -33,6 +32,8 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Timeout;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static exchange.core2.tests.util.TestConstants.SYMBOLSPEC_ETH_XBT;
 import static exchange.core2.tests.util.TestConstants.SYMBOLSPEC_EUR_USD;
@@ -41,8 +42,9 @@ import static org.hamcrest.core.Is.is;
 import static org.hamcrest.number.OrderingComparison.greaterThan;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-@Slf4j
 public abstract class ITExchangeCoreIntegrationStress {
+
+    private static final Logger log = LoggerFactory.getLogger(ITExchangeCoreIntegrationStress.class);
 
     // configuration provided by child class
     public abstract PerformanceConfiguration getPerformanceConfiguration();

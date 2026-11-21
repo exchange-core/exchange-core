@@ -20,8 +20,9 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.tests.util.TestOrdersGenerator;
-import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -35,8 +36,9 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-@Slf4j
 public abstract class OrderBookDirectImplTest extends OrderBookBaseTest {
+
+    private static final Logger log = LoggerFactory.getLogger(OrderBookDirectImplTest.class);
 
     @Test
     public void multipleCommandsCompareTest() {

@@ -1,12 +1,8 @@
 package exchange.core2.tests.util;
 
-import lombok.Builder;
-import lombok.Data;
-
+import java.util.Objects;
 import java.util.Set;
 
-@Data
-@Builder
 public class TestDataParameters {
     public final int totalTransactionsNumber;
     public final int targetOrderBookOrdersTotal;
@@ -17,7 +13,7 @@ public class TestDataParameters {
     public final TestOrdersGeneratorConfig.PreFillMode preFillMode;
     public final boolean avalancheIOC;
 
-    public static TestDataParameters.TestDataParametersBuilder singlePairMarginBuilder() {
+    public static TestDataParametersBuilder singlePairMarginBuilder() {
         return TestDataParameters.builder()
                 .totalTransactionsNumber(3_000_000)
                 .targetOrderBookOrdersTotal(1000)
@@ -28,7 +24,7 @@ public class TestDataParameters {
                 .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER);
     }
 
-    public static TestDataParameters.TestDataParametersBuilder singlePairExchangeBuilder() {
+    public static TestDataParametersBuilder singlePairExchangeBuilder() {
         return TestDataParameters.builder()
                 .totalTransactionsNumber(3_000_000)
                 .targetOrderBookOrdersTotal(1000)
@@ -46,7 +42,7 @@ public class TestDataParameters {
      *
      * @return medium exchange test data configuration
      */
-    public static TestDataParameters.TestDataParametersBuilder mediumBuilder() {
+    public static TestDataParametersBuilder mediumBuilder() {
         return TestDataParameters.builder()
                 .totalTransactionsNumber(3_000_000)
                 .targetOrderBookOrdersTotal(1_000_000)
@@ -64,7 +60,7 @@ public class TestDataParameters {
      *
      * @return large exchange test data configuration
      */
-    public static TestDataParameters.TestDataParametersBuilder largeBuilder() {
+    public static TestDataParametersBuilder largeBuilder() {
         return TestDataParameters.builder()
                 .totalTransactionsNumber(3_000_000)
                 .targetOrderBookOrdersTotal(3_000_000)
@@ -82,7 +78,7 @@ public class TestDataParameters {
      *
      * @return huge exchange test data configuration
      */
-    public static TestDataParameters.TestDataParametersBuilder hugeBuilder() {
+    public static TestDataParametersBuilder hugeBuilder() {
         return TestDataParameters.builder()
                 .totalTransactionsNumber(10_000_000)
                 .targetOrderBookOrdersTotal(30_000_000)
@@ -91,5 +87,189 @@ public class TestDataParameters {
                 .numSymbols(100_000)
                 .allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes.BOTH)
                 .preFillMode(TestOrdersGeneratorConfig.PreFillMode.ORDERS_NUMBER);
+    }
+
+    TestDataParameters(
+            int totalTransactionsNumber,
+            int targetOrderBookOrdersTotal,
+            int numAccounts,
+            Set<Integer> currenciesAllowed,
+            int numSymbols,
+            ExchangeTestContainer.AllowedSymbolTypes allowedSymbolTypes,
+            TestOrdersGeneratorConfig.PreFillMode preFillMode,
+            boolean avalancheIOC) {
+        this.totalTransactionsNumber = totalTransactionsNumber;
+        this.targetOrderBookOrdersTotal = targetOrderBookOrdersTotal;
+        this.numAccounts = numAccounts;
+        this.currenciesAllowed = currenciesAllowed;
+        this.numSymbols = numSymbols;
+        this.allowedSymbolTypes = allowedSymbolTypes;
+        this.preFillMode = preFillMode;
+        this.avalancheIOC = avalancheIOC;
+    }
+
+    public static TestDataParametersBuilder builder() {
+        return new TestDataParametersBuilder();
+    }
+
+    public int getTotalTransactionsNumber() {
+        return this.totalTransactionsNumber;
+    }
+
+    public int getTargetOrderBookOrdersTotal() {
+        return this.targetOrderBookOrdersTotal;
+    }
+
+    public int getNumAccounts() {
+        return this.numAccounts;
+    }
+
+    public Set<Integer> getCurrenciesAllowed() {
+        return this.currenciesAllowed;
+    }
+
+    public int getNumSymbols() {
+        return this.numSymbols;
+    }
+
+    public ExchangeTestContainer.AllowedSymbolTypes getAllowedSymbolTypes() {
+        return this.allowedSymbolTypes;
+    }
+
+    public TestOrdersGeneratorConfig.PreFillMode getPreFillMode() {
+        return this.preFillMode;
+    }
+
+    public boolean isAvalancheIOC() {
+        return this.avalancheIOC;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        return o instanceof TestDataParameters other
+                && other.canEqual(this)
+                && this.getTotalTransactionsNumber() == other.getTotalTransactionsNumber()
+                && this.getTargetOrderBookOrdersTotal() == other.getTargetOrderBookOrdersTotal()
+                && this.getNumAccounts() == other.getNumAccounts()
+                && this.getNumSymbols() == other.getNumSymbols()
+                && this.isAvalancheIOC() == other.isAvalancheIOC()
+                && Objects.equals(this.getCurrenciesAllowed(), other.getCurrenciesAllowed())
+                && Objects.equals(this.getAllowedSymbolTypes(), other.getAllowedSymbolTypes())
+                && Objects.equals(this.getPreFillMode(), other.getPreFillMode());
+    }
+
+    protected boolean canEqual(Object other) {
+        return other instanceof TestDataParameters;
+    }
+
+    @Override
+    public int hashCode() {
+        final int prime = 59;
+        int result = 1;
+        result = result * prime + this.getTotalTransactionsNumber();
+        result = result * prime + this.getTargetOrderBookOrdersTotal();
+        result = result * prime + this.getNumAccounts();
+        result = result * prime + this.getNumSymbols();
+        result = result * prime + (this.isAvalancheIOC() ? 79 : 97);
+        var currenciesAllowed = this.getCurrenciesAllowed();
+        result = result * prime + (currenciesAllowed == null ? 43 : currenciesAllowed.hashCode());
+        var allowedSymbolTypes = this.getAllowedSymbolTypes();
+        result = result * prime + (allowedSymbolTypes == null ? 43 : allowedSymbolTypes.hashCode());
+        var preFillMode = this.getPreFillMode();
+        result = result * prime + (preFillMode == null ? 43 : preFillMode.hashCode());
+        return result;
+    }
+
+    @Override
+    public String toString() {
+        return "TestDataParameters(totalTransactionsNumber=" + this.getTotalTransactionsNumber()
+                + ", targetOrderBookOrdersTotal=" + this.getTargetOrderBookOrdersTotal()
+                + ", numAccounts=" + this.getNumAccounts()
+                + ", currenciesAllowed=" + this.getCurrenciesAllowed()
+                + ", numSymbols=" + this.getNumSymbols()
+                + ", allowedSymbolTypes=" + this.getAllowedSymbolTypes()
+                + ", preFillMode=" + this.getPreFillMode()
+                + ", avalancheIOC=" + this.isAvalancheIOC() + ")";
+    }
+
+    public static class TestDataParametersBuilder {
+        private int totalTransactionsNumber;
+        private int targetOrderBookOrdersTotal;
+        private int numAccounts;
+        private Set<Integer> currenciesAllowed;
+        private int numSymbols;
+        private ExchangeTestContainer.AllowedSymbolTypes allowedSymbolTypes;
+        private TestOrdersGeneratorConfig.PreFillMode preFillMode;
+        private boolean avalancheIOC;
+
+        TestDataParametersBuilder() {
+        }
+
+        public TestDataParametersBuilder totalTransactionsNumber(int totalTransactionsNumber) {
+            this.totalTransactionsNumber = totalTransactionsNumber;
+            return this;
+        }
+
+        public TestDataParametersBuilder targetOrderBookOrdersTotal(int targetOrderBookOrdersTotal) {
+            this.targetOrderBookOrdersTotal = targetOrderBookOrdersTotal;
+            return this;
+        }
+
+        public TestDataParametersBuilder numAccounts(int numAccounts) {
+            this.numAccounts = numAccounts;
+            return this;
+        }
+
+        public TestDataParametersBuilder currenciesAllowed(Set<Integer> currenciesAllowed) {
+            this.currenciesAllowed = currenciesAllowed;
+            return this;
+        }
+
+        public TestDataParametersBuilder numSymbols(int numSymbols) {
+            this.numSymbols = numSymbols;
+            return this;
+        }
+
+        public TestDataParametersBuilder allowedSymbolTypes(ExchangeTestContainer.AllowedSymbolTypes allowedSymbolTypes) {
+            this.allowedSymbolTypes = allowedSymbolTypes;
+            return this;
+        }
+
+        public TestDataParametersBuilder preFillMode(TestOrdersGeneratorConfig.PreFillMode preFillMode) {
+            this.preFillMode = preFillMode;
+            return this;
+        }
+
+        public TestDataParametersBuilder avalancheIOC(boolean avalancheIOC) {
+            this.avalancheIOC = avalancheIOC;
+            return this;
+        }
+
+        public TestDataParameters build() {
+            return new TestDataParameters(
+                    this.totalTransactionsNumber,
+                    this.targetOrderBookOrdersTotal,
+                    this.numAccounts,
+                    this.currenciesAllowed,
+                    this.numSymbols,
+                    this.allowedSymbolTypes,
+                    this.preFillMode,
+                    this.avalancheIOC);
+        }
+
+        @Override
+        public String toString() {
+            return "TestDataParameters.TestDataParametersBuilder(totalTransactionsNumber=" + this.totalTransactionsNumber
+                    + ", targetOrderBookOrdersTotal=" + this.targetOrderBookOrdersTotal
+                    + ", numAccounts=" + this.numAccounts
+                    + ", currenciesAllowed=" + this.currenciesAllowed
+                    + ", numSymbols=" + this.numSymbols
+                    + ", allowedSymbolTypes=" + this.allowedSymbolTypes
+                    + ", preFillMode=" + this.preFillMode
+                    + ", avalancheIOC=" + this.avalancheIOC + ")";
+        }
     }
 }

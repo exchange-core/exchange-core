@@ -32,8 +32,8 @@ import exchange.core2.core.common.config.SerializationConfiguration;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.processors.*;
 import exchange.core2.core.processors.journaling.ISerializationProcessor;
-import lombok.Builder;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -48,8 +48,9 @@ import java.util.stream.IntStream;
  * Main exchange core class.
  * Builds configuration and starts disruptor.
  */
-@Slf4j
 public final class ExchangeCore {
+
+    private static final Logger log = LoggerFactory.getLogger(ExchangeCore.class);
 
     private final Disruptor<OrderCommand> disruptor;
 
@@ -73,7 +74,6 @@ public final class ExchangeCore {
      *  @param resultsConsumer       - custom consumer of processed commands
      * @param exchangeConfiguration - exchange configuration
      */
-    @Builder
     public ExchangeCore(final ObjLongConsumer<OrderCommand> resultsConsumer,
                         final ExchangeConfiguration exchangeConfiguration) {
 
@@ -279,5 +279,45 @@ public final class ExchangeCore {
     @SuppressWarnings(value = {"unchecked"})
     private static EventHandler<OrderCommand>[] newEventHandlersArray(int size) {
         return new EventHandler[size];
+    }
+
+    public static ExchangeCoreBuilder builder() {
+        return new ExchangeCoreBuilder();
+    }
+
+    public static class ExchangeCoreBuilder {
+        private ObjLongConsumer<OrderCommand> resultsConsumer;
+        private ExchangeConfiguration exchangeConfiguration;
+
+        ExchangeCoreBuilder() {
+        }
+
+        /**
+         * @param resultsConsumer       - custom consumer of processed commands
+         * @return {@code this}.
+         */
+        public ExchangeCoreBuilder resultsConsumer(ObjLongConsumer<OrderCommand> resultsConsumer) {
+            this.resultsConsumer = resultsConsumer;
+            return this;
+        }
+
+        /**
+         * @param exchangeConfiguration - exchange configuration
+         * @return {@code this}.
+         */
+        public ExchangeCoreBuilder exchangeConfiguration(ExchangeConfiguration exchangeConfiguration) {
+            this.exchangeConfiguration = exchangeConfiguration;
+            return this;
+        }
+
+        public ExchangeCore build() {
+            return new ExchangeCore(this.resultsConsumer, this.exchangeConfiguration);
+        }
+
+        @Override
+        public String toString() {
+            return "ExchangeCore.ExchangeCoreBuilder(resultsConsumer=" + this.resultsConsumer
+                    + ", exchangeConfiguration=" + this.exchangeConfiguration + ")";
+        }
     }
 }

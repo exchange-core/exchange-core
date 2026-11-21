@@ -24,7 +24,6 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.tests.util.L2MarketDataHelper;
 import exchange.core2.tests.util.TestOrdersGenerator;
-import lombok.extern.slf4j.Slf4j;
 import org.hamcrest.core.Is;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,14 +40,12 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.junit.jupiter.api.Assertions.*;
 
-
 /**
  * TODO tests where IOC order is not fully matched because of limit price (similar to GTC tests)
  * TODO tests where GTC order has duplicate id - rejection event should be sent
  * TODO add tests for exchange mode (moves)
  * TODO test reserve price validation for BID orders in exchange mode
  */
-@Slf4j
 public abstract class OrderBookBaseTest {
 
     IOrderBook orderBook;

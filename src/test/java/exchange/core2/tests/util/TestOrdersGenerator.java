@@ -24,14 +24,13 @@ import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.LoggingConfiguration;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.orderbook.OrderBookNaiveImpl;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.math3.distribution.ParetoDistribution;
 import org.apache.commons.math3.distribution.RealDistribution;
 import org.apache.commons.math3.random.JDKRandomGenerator;
 import org.eclipse.collections.impl.map.mutable.primitive.IntIntHashMap;
 import org.jetbrains.annotations.NotNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -45,8 +44,9 @@ import java.util.stream.DoubleStream;
 
 import static exchange.core2.tests.util.TestConstants.SYMBOLSPEC_EUR_USD;
 
-@Slf4j
 public final class TestOrdersGenerator {
+
+    private static final Logger log = LoggerFactory.getLogger(TestOrdersGenerator.class);
 
 
     public static final double CENTRAL_MOVE_ALPHA = 0.01;
@@ -655,8 +655,6 @@ public final class TestOrdersGenerator {
         log.info("commands per symbol: max:{}; avg:{}; min:{}", cpsMax, cpsAvg, cpsMin);
     }
 
-    @Builder
-    @Getter
     public static class GenResult {
         final private L2MarketData finalOrderBookSnapshot;
         final private int finalOrderbookHash;
@@ -670,14 +668,158 @@ public final class TestOrdersGenerator {
         public int size() {
             return commandsFill.size() + commandsBenchmark.size();
         }
+
+        GenResult(
+                L2MarketData finalOrderBookSnapshot,
+                int finalOrderbookHash,
+                List<OrderCommand> commandsFill,
+                List<OrderCommand> commandsBenchmark) {
+            this.finalOrderBookSnapshot = finalOrderBookSnapshot;
+            this.finalOrderbookHash = finalOrderbookHash;
+            this.commandsFill = commandsFill;
+            this.commandsBenchmark = commandsBenchmark;
+        }
+
+        public static TestOrdersGenerator.GenResult.GenResultBuilder builder() {
+            return new TestOrdersGenerator.GenResult.GenResultBuilder();
+        }
+
+        public L2MarketData getFinalOrderBookSnapshot() {
+            return this.finalOrderBookSnapshot;
+        }
+
+        public int getFinalOrderbookHash() {
+            return this.finalOrderbookHash;
+        }
+
+        public List<OrderCommand> getCommandsFill() {
+            return this.commandsFill;
+        }
+
+        public List<OrderCommand> getCommandsBenchmark() {
+            return this.commandsBenchmark;
+        }
+
+        public static class GenResultBuilder {
+            private L2MarketData finalOrderBookSnapshot;
+            private int finalOrderbookHash;
+            private List<OrderCommand> commandsFill;
+            private List<OrderCommand> commandsBenchmark;
+
+            GenResultBuilder() {
+            }
+
+            public TestOrdersGenerator.GenResult.GenResultBuilder finalOrderBookSnapshot(L2MarketData finalOrderBookSnapshot) {
+                this.finalOrderBookSnapshot = finalOrderBookSnapshot;
+                return this;
+            }
+
+            public TestOrdersGenerator.GenResult.GenResultBuilder finalOrderbookHash(int finalOrderbookHash) {
+                this.finalOrderbookHash = finalOrderbookHash;
+                return this;
+            }
+
+            public TestOrdersGenerator.GenResult.GenResultBuilder commandsFill(List<OrderCommand> commandsFill) {
+                this.commandsFill = commandsFill;
+                return this;
+            }
+
+            public TestOrdersGenerator.GenResult.GenResultBuilder commandsBenchmark(List<OrderCommand> commandsBenchmark) {
+                this.commandsBenchmark = commandsBenchmark;
+                return this;
+            }
+
+            public TestOrdersGenerator.GenResult build() {
+                return new TestOrdersGenerator.GenResult(this.finalOrderBookSnapshot, this.finalOrderbookHash, this.commandsFill, this.commandsBenchmark);
+            }
+
+            @Override
+            public String toString() {
+                return "TestOrdersGenerator.GenResult.GenResultBuilder(finalOrderBookSnapshot=" + this.finalOrderBookSnapshot
+                        + ", finalOrderbookHash=" + this.finalOrderbookHash
+                        + ", commandsFill=" + this.commandsFill
+                        + ", commandsBenchmark=" + this.commandsBenchmark + ")";
+            }
+        }
     }
 
-    @Builder
-    @Getter
     public static class MultiSymbolGenResult {
         final Map<Integer, TestOrdersGenerator.GenResult> genResults;
         final CompletableFuture<List<ApiCommand>> apiCommandsFill;
         final CompletableFuture<List<ApiCommand>> apiCommandsBenchmark;
         final int benchmarkCommandsSize;
+
+        MultiSymbolGenResult(
+                Map<Integer, TestOrdersGenerator.GenResult> genResults,
+                CompletableFuture<List<ApiCommand>> apiCommandsFill,
+                CompletableFuture<List<ApiCommand>> apiCommandsBenchmark,
+                int benchmarkCommandsSize) {
+            this.genResults = genResults;
+            this.apiCommandsFill = apiCommandsFill;
+            this.apiCommandsBenchmark = apiCommandsBenchmark;
+            this.benchmarkCommandsSize = benchmarkCommandsSize;
+        }
+
+        public static TestOrdersGenerator.MultiSymbolGenResult.MultiSymbolGenResultBuilder builder() {
+            return new TestOrdersGenerator.MultiSymbolGenResult.MultiSymbolGenResultBuilder();
+        }
+
+        public Map<Integer, TestOrdersGenerator.GenResult> getGenResults() {
+            return this.genResults;
+        }
+
+        public CompletableFuture<List<ApiCommand>> getApiCommandsFill() {
+            return this.apiCommandsFill;
+        }
+
+        public CompletableFuture<List<ApiCommand>> getApiCommandsBenchmark() {
+            return this.apiCommandsBenchmark;
+        }
+
+        public int getBenchmarkCommandsSize() {
+            return this.benchmarkCommandsSize;
+        }
+
+        public static class MultiSymbolGenResultBuilder {
+            private Map<Integer, TestOrdersGenerator.GenResult> genResults;
+            private CompletableFuture<List<ApiCommand>> apiCommandsFill;
+            private CompletableFuture<List<ApiCommand>> apiCommandsBenchmark;
+            private int benchmarkCommandsSize;
+
+            MultiSymbolGenResultBuilder() {
+            }
+
+            public TestOrdersGenerator.MultiSymbolGenResult.MultiSymbolGenResultBuilder genResults(Map<Integer, TestOrdersGenerator.GenResult> genResults) {
+                this.genResults = genResults;
+                return this;
+            }
+
+            public TestOrdersGenerator.MultiSymbolGenResult.MultiSymbolGenResultBuilder apiCommandsFill(CompletableFuture<List<ApiCommand>> apiCommandsFill) {
+                this.apiCommandsFill = apiCommandsFill;
+                return this;
+            }
+
+            public TestOrdersGenerator.MultiSymbolGenResult.MultiSymbolGenResultBuilder apiCommandsBenchmark(CompletableFuture<List<ApiCommand>> apiCommandsBenchmark) {
+                this.apiCommandsBenchmark = apiCommandsBenchmark;
+                return this;
+            }
+
+            public TestOrdersGenerator.MultiSymbolGenResult.MultiSymbolGenResultBuilder benchmarkCommandsSize(int benchmarkCommandsSize) {
+                this.benchmarkCommandsSize = benchmarkCommandsSize;
+                return this;
+            }
+
+            public TestOrdersGenerator.MultiSymbolGenResult build() {
+                return new TestOrdersGenerator.MultiSymbolGenResult(this.genResults, this.apiCommandsFill, this.apiCommandsBenchmark, this.benchmarkCommandsSize);
+            }
+
+            @Override
+            public String toString() {
+                return "TestOrdersGenerator.MultiSymbolGenResult.MultiSymbolGenResultBuilder(genResults=" + this.genResults
+                        + ", apiCommandsFill=" + this.apiCommandsFill
+                        + ", apiCommandsBenchmark=" + this.apiCommandsBenchmark
+                        + ", benchmarkCommandsSize=" + this.benchmarkCommandsSize + ")";
+            }
+        }
     }
 }

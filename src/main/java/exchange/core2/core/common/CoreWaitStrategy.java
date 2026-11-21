@@ -19,12 +19,9 @@ import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.BusySpinWaitStrategy;
 import com.lmax.disruptor.WaitStrategy;
 import com.lmax.disruptor.YieldingWaitStrategy;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 
 import java.util.function.Supplier;
 
-@RequiredArgsConstructor
 public enum CoreWaitStrategy {
 
     BUSY_SPIN(BusySpinWaitStrategy::new, false, false),
@@ -36,12 +33,27 @@ public enum CoreWaitStrategy {
     // special case
     SECOND_STEP_NO_WAIT(null, false, false);
 
-    @Getter
     private final Supplier<WaitStrategy> disruptorWaitStrategyFactory;
 
-    @Getter
     private final boolean yield;
 
-    @Getter
     private final boolean block;
+
+    private CoreWaitStrategy(Supplier<WaitStrategy> disruptorWaitStrategyFactory, boolean yield, boolean block) {
+        this.disruptorWaitStrategyFactory = disruptorWaitStrategyFactory;
+        this.yield = yield;
+        this.block = block;
+    }
+
+    public Supplier<WaitStrategy> getDisruptorWaitStrategyFactory() {
+        return this.disruptorWaitStrategyFactory;
+    }
+
+    public boolean isYield() {
+        return this.yield;
+    }
+
+    public boolean isBlock() {
+        return this.block;
+    }
 }

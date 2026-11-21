@@ -15,13 +15,10 @@
  */
 package exchange.core2.core.common.api.reports;
 
-
 import exchange.core2.core.common.Order;
 import exchange.core2.core.common.PositionDirection;
 import exchange.core2.core.common.UserStatus;
 import exchange.core2.core.utils.SerializationUtils;
-import lombok.*;
-import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
@@ -31,13 +28,10 @@ import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-@AllArgsConstructor(access = AccessLevel.PRIVATE)
-@EqualsAndHashCode
-@Getter
-@Slf4j
 public final class SingleUserReportResult implements ReportResult {
 
     public static SingleUserReportResult IDENTITY = new SingleUserReportResult(0L, null, null, null, null, QueryExecutionStatus.OK);
@@ -157,8 +151,6 @@ public final class SingleUserReportResult implements ReportResult {
                                 a.queryExecutionStatus != QueryExecutionStatus.OK ? a.queryExecutionStatus : b.queryExecutionStatus));
     }
 
-    @RequiredArgsConstructor
-    @Getter
     public static class Position implements WriteBytesMarshallable {
 
         public final int quoteCurrency;
@@ -195,6 +187,51 @@ public final class SingleUserReportResult implements ReportResult {
             bytes.writeLong(pendingSellSize);
             bytes.writeLong(pendingBuySize);
         }
+
+        public Position(
+                int quoteCurrency,
+                PositionDirection direction,
+                long openVolume,
+                long openPriceSum,
+                long profit,
+                long pendingSellSize,
+                long pendingBuySize) {
+            this.quoteCurrency = quoteCurrency;
+            this.direction = direction;
+            this.openVolume = openVolume;
+            this.openPriceSum = openPriceSum;
+            this.profit = profit;
+            this.pendingSellSize = pendingSellSize;
+            this.pendingBuySize = pendingBuySize;
+        }
+
+        public int getQuoteCurrency() {
+            return this.quoteCurrency;
+        }
+
+        public PositionDirection getDirection() {
+            return this.direction;
+        }
+
+        public long getOpenVolume() {
+            return this.openVolume;
+        }
+
+        public long getOpenPriceSum() {
+            return this.openPriceSum;
+        }
+
+        public long getProfit() {
+            return this.profit;
+        }
+
+        public long getPendingSellSize() {
+            return this.pendingSellSize;
+        }
+
+        public long getPendingBuySize() {
+            return this.pendingBuySize;
+        }
     }
 
 
@@ -206,5 +243,76 @@ public final class SingleUserReportResult implements ReportResult {
                 ", orders=" + orders +
                 ", queryExecutionStatus=" + queryExecutionStatus +
                 '}';
+    }
+
+    private SingleUserReportResult(
+            long uid,
+            UserStatus userStatus,
+            IntLongHashMap accounts,
+            IntObjectHashMap<Position> positions,
+            IntObjectHashMap<List<Order>> orders,
+            QueryExecutionStatus queryExecutionStatus) {
+        this.uid = uid;
+        this.userStatus = userStatus;
+        this.accounts = accounts;
+        this.positions = positions;
+        this.orders = orders;
+        this.queryExecutionStatus = queryExecutionStatus;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        return o instanceof SingleUserReportResult other
+                && this.getUid() == other.getUid()
+                && Objects.equals(this.getUserStatus(), other.getUserStatus())
+                && Objects.equals(this.getAccounts(), other.getAccounts())
+                && Objects.equals(this.getPositions(), other.getPositions())
+                && Objects.equals(this.getOrders(), other.getOrders())
+                && Objects.equals(this.getQueryExecutionStatus(), other.getQueryExecutionStatus());
+    }
+
+    @Override
+    public int hashCode() {
+        final int prime = 59;
+        int result = 1;
+        result = result * prime + Long.hashCode(this.getUid());
+        var userStatus = this.getUserStatus();
+        result = result * prime + (userStatus == null ? 43 : userStatus.hashCode());
+        var accounts = this.getAccounts();
+        result = result * prime + (accounts == null ? 43 : accounts.hashCode());
+        var positions = this.getPositions();
+        result = result * prime + (positions == null ? 43 : positions.hashCode());
+        var orders = this.getOrders();
+        result = result * prime + (orders == null ? 43 : orders.hashCode());
+        var queryExecutionStatus = this.getQueryExecutionStatus();
+        result = result * prime + (queryExecutionStatus == null ? 43 : queryExecutionStatus.hashCode());
+        return result;
+    }
+
+    public long getUid() {
+        return this.uid;
+    }
+
+    public UserStatus getUserStatus() {
+        return this.userStatus;
+    }
+
+    public IntLongHashMap getAccounts() {
+        return this.accounts;
+    }
+
+    public IntObjectHashMap<Position> getPositions() {
+        return this.positions;
+    }
+
+    public IntObjectHashMap<List<Order>> getOrders() {
+        return this.orders;
+    }
+
+    public QueryExecutionStatus getQueryExecutionStatus() {
+        return this.queryExecutionStatus;
     }
 }

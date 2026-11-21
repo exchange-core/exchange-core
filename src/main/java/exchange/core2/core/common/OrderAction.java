@@ -15,9 +15,6 @@
  */
 package exchange.core2.core.common;
 
-import lombok.Getter;
-
-@Getter
 public enum OrderAction {
     ASK(0),
     BID(1);
@@ -44,4 +41,8 @@ public enum OrderAction {
         return this == ASK ? BID : ASK;
     }
 
+
+    public byte getCode() {
+        return this.code;
+    }
 }

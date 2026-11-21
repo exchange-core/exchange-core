@@ -3,16 +3,13 @@ package exchange.core2.tests.nasdaq;
 import com.paritytrading.foundation.ASCII;
 import com.paritytrading.juncture.nasdaq.itch50.ITCH50;
 import com.paritytrading.juncture.nasdaq.itch50.ITCH50Listener;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.eclipse.collections.impl.map.mutable.primitive.ByteIntHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.Map;
-
 
 /*
 VTI      8491 ls=100 mc=P etpF=Y etpL=0 SUCCESS
@@ -44,9 +41,9 @@ WFC     :
  OrderReplace = 46049
  */
 
-@Slf4j
-@Getter
 public class ITCH50StatListener implements ITCH50Listener {
+
+    private static final Logger log = LoggerFactory.getLogger(ITCH50StatListener.class);
 
     private final Map<Integer, StockStat> symbolStat = new HashMap<>();
     private final IntObjectHashMap<StockDescr> symbolDescr = new IntObjectHashMap<>();
@@ -59,7 +56,6 @@ public class ITCH50StatListener implements ITCH50Listener {
         });
     }
 
-    @AllArgsConstructor
     public static class StockDescr {
         final String name;
         final byte etpFlag;
@@ -69,9 +65,14 @@ public class ITCH50StatListener implements ITCH50Listener {
         public String toString() {
             return name + " ETP=" + (char) etpFlag + " LF" + etpLeverageFactor;
         }
+
+        public StockDescr(String name, byte etpFlag, long etpLeverageFactor) {
+            this.name = name;
+            this.etpFlag = etpFlag;
+            this.etpLeverageFactor = etpLeverageFactor;
+        }
     }
 
-    @RequiredArgsConstructor
     public static class StockStat {
         final int stockLocate;
 
@@ -90,6 +91,10 @@ public class ITCH50StatListener implements ITCH50Listener {
             counters.forEachKeyValue((k, v) -> sb.append((char) k).append(v).append(' '));
 
             return stockLocate + " p:" + minPrice + "-" + (int) priceAvg + "-" + maxPrice + " s:" + priceStep + " c:" + counter + " ca:" + sb;
+        }
+
+        public StockStat(int stockLocate) {
+            this.stockLocate = stockLocate;
         }
     }
 
@@ -345,5 +350,13 @@ public class ITCH50StatListener implements ITCH50Listener {
     public void rpii(ITCH50.RPII message) {
 //                log.debug("{}", message);
         updateStat(ITCH50.MESSAGE_TYPE_RPII, message.stockLocate);
+    }
+
+    public Map<Integer, StockStat> getSymbolStat() {
+        return this.symbolStat;
+    }
+
+    public IntObjectHashMap<StockDescr> getSymbolDescr() {
+        return this.symbolDescr;
     }
 }

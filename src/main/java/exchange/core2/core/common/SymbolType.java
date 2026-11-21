@@ -15,11 +15,8 @@
  */
 package exchange.core2.core.common;
 
-import lombok.Getter;
-
 import java.util.Arrays;
 
-@Getter
 public enum SymbolType {
     CURRENCY_EXCHANGE_PAIR(0),
     FUTURES_CONTRACT(1),
@@ -36,5 +33,9 @@ public enum SymbolType {
                 .filter(c -> c.code == (byte) code)
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("unknown SymbolType code: " + code));
+    }
+
+    public byte getCode() {
+        return this.code;
     }
 }

@@ -40,10 +40,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
-import lombok.extern.slf4j.Slf4j;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-@Slf4j
 public class OrderStepdefs implements En {
+
+    private static final Logger log = LoggerFactory.getLogger(OrderStepdefs.class);
 
     public static PerformanceConfiguration testPerformanceConfiguration = null;
 

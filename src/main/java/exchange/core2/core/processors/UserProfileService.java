@@ -21,25 +21,25 @@ import exchange.core2.core.common.UserStatus;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.utils.HashingUtils;
 import exchange.core2.core.utils.SerializationUtils;
-import lombok.Getter;
-import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Stateful (!) User profile service
  * <p>
  * TODO make multi instance
  */
-@Slf4j
 public final class UserProfileService implements WriteBytesMarshallable, StateHash {
+
+    private static final Logger log = LoggerFactory.getLogger(UserProfileService.class);
 
     /*
      * State: uid to UserProfile
      */
-    @Getter
     private final LongObjectHashMap<UserProfile> userProfiles;
 
     public UserProfileService() {
@@ -215,4 +215,8 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
         return HashingUtils.stateHash(userProfiles);
     }
 
+
+    public LongObjectHashMap<UserProfile> getUserProfiles() {
+        return this.userProfiles;
+    }
 }

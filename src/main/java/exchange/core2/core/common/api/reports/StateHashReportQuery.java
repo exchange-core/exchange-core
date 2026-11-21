@@ -18,10 +18,6 @@ package exchange.core2.core.common.api.reports;
 import exchange.core2.core.processors.MatchingEngineRouter;
 import exchange.core2.core.processors.RiskEngine;
 import exchange.core2.core.utils.HashingUtils;
-import lombok.EqualsAndHashCode;
-import lombok.NoArgsConstructor;
-import lombok.ToString;
-import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 
@@ -30,10 +26,6 @@ import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.stream.Stream;
 
-@NoArgsConstructor
-@EqualsAndHashCode
-@ToString
-@Slf4j
 public final class StateHashReportQuery implements ReportQuery<StateHashReportResult> {
 
     public StateHashReportQuery(BytesIn bytesIn) {
@@ -119,5 +111,25 @@ public final class StateHashReportQuery implements ReportQuery<StateHashReportRe
     @Override
     public void writeMarshallable(BytesOut bytes) {
         // do nothing
+    }
+
+    public StateHashReportQuery() {
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == this) return true;
+        if (!(o instanceof StateHashReportQuery)) return false;
+        return true;
+    }
+
+    @Override
+    public int hashCode() {
+        return 1;
+    }
+
+    @Override
+    public String toString() {
+        return "StateHashReportQuery()";
     }
 }

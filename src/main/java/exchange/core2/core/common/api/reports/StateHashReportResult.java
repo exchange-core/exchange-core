@@ -15,10 +15,7 @@
  */
 package exchange.core2.core.common.api.reports;
 
-
 import exchange.core2.core.utils.SerializationUtils;
-import lombok.*;
-import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
@@ -27,11 +24,6 @@ import org.jetbrains.annotations.NotNull;
 import java.util.*;
 import java.util.stream.Stream;
 
-@Getter
-@Slf4j
-@EqualsAndHashCode
-@RequiredArgsConstructor
-@ToString
 public final class StateHashReportResult implements ReportResult {
 
     public static final StateHashReportResult EMPTY = new StateHashReportResult(new TreeMap<>());
@@ -77,7 +69,6 @@ public final class StateHashReportResult implements ReportResult {
         MATCHING_ENGINE
     }
 
-    @AllArgsConstructor
     public enum SubmoduleType {
         RISK_SYMBOL_SPEC_PROVIDER(0, ModuleType.RISK_ENGINE),
         RISK_USER_PROFILE_SERVICE(1, ModuleType.RISK_ENGINE),
@@ -98,10 +89,13 @@ public final class StateHashReportResult implements ReportResult {
         public static SubmoduleType fromCode(int code) {
             return Arrays.stream(values()).filter(c -> c.code == code).findFirst().orElseThrow(() -> new IllegalArgumentException("Unknown SubmoduleType"));
         }
+
+        private SubmoduleType(int code, ModuleType moduleType) {
+            this.code = code;
+            this.moduleType = moduleType;
+        }
     }
 
-    @RequiredArgsConstructor
-    @EqualsAndHashCode
     public static final class SubmoduleKey implements WriteBytesMarshallable, Comparable<SubmoduleKey> {
 
         public final int moduleId;
@@ -122,5 +116,61 @@ public final class StateHashReportResult implements ReportResult {
         public int compareTo(@NotNull SubmoduleKey o) {
             return SUBMODULE_KEY_COMPARATOR.compare(this, o);
         }
+
+        public SubmoduleKey(int moduleId, SubmoduleType submodule) {
+            this.moduleId = moduleId;
+            this.submodule = submodule;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            return o instanceof SubmoduleKey other
+                    && this.moduleId == other.moduleId
+                    && Objects.equals(this.submodule, other.submodule);
+        }
+
+        @Override
+        public int hashCode() {
+            final int prime = 59;
+            int result = 1;
+            result = result * prime + this.moduleId;
+            var submodule = this.submodule;
+            result = result * prime + (submodule == null ? 43 : submodule.hashCode());
+            return result;
+        }
+    }
+
+    public StateHashReportResult(SortedMap<SubmoduleKey, Integer> hashCodes) {
+        this.hashCodes = hashCodes;
+    }
+
+    public SortedMap<SubmoduleKey, Integer> getHashCodes() {
+        return this.hashCodes;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        return o instanceof StateHashReportResult other
+                && Objects.equals(this.getHashCodes(), other.getHashCodes());
+    }
+
+    @Override
+    public int hashCode() {
+        final int prime = 59;
+        int result = 1;
+        var hashCodes = this.getHashCodes();
+        result = result * prime + (hashCodes == null ? 43 : hashCodes.hashCode());
+        return result;
+    }
+
+    @Override
+    public String toString() {
+        return "StateHashReportResult(hashCodes=" + this.getHashCodes() + ")";
     }
 }

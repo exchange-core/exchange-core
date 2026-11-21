@@ -27,13 +27,13 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.core.common.config.SerializationConfiguration;
-import lombok.AllArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.HdrHistogram.Histogram;
 import org.HdrHistogram.SingleWriterRecorder;
 import org.agrona.collections.MutableInteger;
 import org.agrona.collections.MutableLong;
 import org.eclipse.collections.impl.map.mutable.primitive.LongLongHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -49,9 +49,9 @@ import java.util.function.Function;
 import java.util.function.IntFunction;
 import java.util.stream.IntStream;
 
-
-@Slf4j
 public class LatencyTestsModule {
+
+    private static final Logger log = LoggerFactory.getLogger(LatencyTestsModule.class);
 
     private static final boolean WRITE_HDR_HISTOGRAMS = false;
 
@@ -299,12 +299,18 @@ public class LatencyTestsModule {
         }
     }
 
-    @AllArgsConstructor
     private static class SlowCommandRecord {
         int minLatency;
         int seqNumber;
         ApiCommand apiCommand;
         int eventsNum;
+
+        public SlowCommandRecord(int minLatency, int seqNumber, ApiCommand apiCommand, int eventsNum) {
+            this.minLatency = minLatency;
+            this.seqNumber = seqNumber;
+            this.apiCommand = apiCommand;
+            this.eventsNum = eventsNum;
+        }
     }
 
     private static Comparator<SlowCommandRecord> COMPARATOR_LATENCY_DESC = Comparator.<SlowCommandRecord>comparingInt(c -> c.minLatency).reversed();

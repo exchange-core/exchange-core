@@ -17,14 +17,10 @@ package exchange.core2.tests.util;
 
 import com.google.common.base.Strings;
 import exchange.core2.core.common.L2MarketData;
-import lombok.NoArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ArrayUtils;
 
 import java.util.Arrays;
 
-@NoArgsConstructor
-@Slf4j
 public class L2MarketDataHelper {
 
     private long[] askPrices;
@@ -259,4 +255,7 @@ public class L2MarketDataHelper {
     }
 
 
+
+    public L2MarketDataHelper() {
+    }
 }

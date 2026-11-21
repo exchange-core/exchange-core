@@ -24,7 +24,6 @@ import exchange.core2.core.common.api.reports.TotalCurrencyBalanceReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
-import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
@@ -39,7 +38,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * TODO more place scenarios, IOC reject tests, GTC move matching, Cancel tests
  */
 
-@Slf4j
 public abstract class ITFeesMargin {
 
     private final long makerFee = SYMBOLSPECFEE_USD_JPY.makerFee;

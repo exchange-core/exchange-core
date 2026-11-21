@@ -19,12 +19,10 @@ import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.core.common.config.SerializationConfiguration;
 import exchange.core2.tests.util.TestDataParameters;
-import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
 
 import static exchange.core2.tests.util.LatencyTestsModule.latencyTestImpl;
 
-@Slf4j
 public final class PerfLatency {
 
     /**

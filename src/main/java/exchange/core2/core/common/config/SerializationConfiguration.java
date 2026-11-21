@@ -4,17 +4,9 @@ import exchange.core2.core.processors.journaling.DiskSerializationProcessor;
 import exchange.core2.core.processors.journaling.DiskSerializationProcessorConfiguration;
 import exchange.core2.core.processors.journaling.DummySerializationProcessor;
 import exchange.core2.core.processors.journaling.ISerializationProcessor;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.ToString;
 
 import java.util.function.Function;
 
-@AllArgsConstructor
-@Getter
-@Builder
-@ToString
 public class SerializationConfiguration {
 
     // no serialization
@@ -47,4 +39,57 @@ public class SerializationConfiguration {
     private final Function<ExchangeConfiguration, ? extends ISerializationProcessor> serializationProcessorFactory;
 
 
+
+    public SerializationConfiguration(
+            boolean enableJournaling,
+            Function<ExchangeConfiguration, ? extends ISerializationProcessor> serializationProcessorFactory) {
+        this.enableJournaling = enableJournaling;
+        this.serializationProcessorFactory = serializationProcessorFactory;
+    }
+
+    public static SerializationConfigurationBuilder builder() {
+        return new SerializationConfigurationBuilder();
+    }
+
+    public boolean isEnableJournaling() {
+        return this.enableJournaling;
+    }
+
+    public Function<ExchangeConfiguration, ? extends ISerializationProcessor> getSerializationProcessorFactory() {
+        return this.serializationProcessorFactory;
+    }
+
+    @Override
+    public String toString() {
+        return "SerializationConfiguration(enableJournaling=" + this.isEnableJournaling()
+                + ", serializationProcessorFactory=" + this.getSerializationProcessorFactory() + ")";
+    }
+
+    public static class SerializationConfigurationBuilder {
+        private boolean enableJournaling;
+        private Function<ExchangeConfiguration, ? extends ISerializationProcessor> serializationProcessorFactory;
+
+        SerializationConfigurationBuilder() {
+        }
+
+        public SerializationConfigurationBuilder enableJournaling(boolean enableJournaling) {
+            this.enableJournaling = enableJournaling;
+            return this;
+        }
+
+        public SerializationConfigurationBuilder serializationProcessorFactory(Function<ExchangeConfiguration, ? extends ISerializationProcessor> serializationProcessorFactory) {
+            this.serializationProcessorFactory = serializationProcessorFactory;
+            return this;
+        }
+
+        public SerializationConfiguration build() {
+            return new SerializationConfiguration(this.enableJournaling, this.serializationProcessorFactory);
+        }
+
+        @Override
+        public String toString() {
+            return "SerializationConfiguration.SerializationConfigurationBuilder(enableJournaling=" + this.enableJournaling
+                    + ", serializationProcessorFactory=" + this.serializationProcessorFactory + ")";
+        }
+    }
 }

@@ -15,10 +15,6 @@
  */
 package exchange.core2.core.common;
 
-
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.NoArgsConstructor;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -29,9 +25,6 @@ import java.util.Objects;
 // TODO REDUCE needs remaining size (can write into size), bidderHoldPrice - can write into price
 // TODO REJECT needs remaining size (can not write into size),
 
-@AllArgsConstructor
-@NoArgsConstructor
-@Builder
 public final class MatcherTradeEvent {
 
     public MatcherEventType eventType; // TRADE, REDUCE, REJECT (rare) or BINARY_EVENT (reports data)
@@ -68,7 +61,7 @@ public final class MatcherTradeEvent {
     public MatcherTradeEvent nextEvent;
 
 
-    // testing only
+    // Copies a single event.
     public MatcherTradeEvent copy() {
         MatcherTradeEvent evt = new MatcherTradeEvent();
         evt.eventType = this.eventType;
@@ -187,5 +180,149 @@ public final class MatcherTradeEvent {
                 ", bidderHoldPrice=" + bidderHoldPrice +
                 ", nextEvent=" + (nextEvent != null) +
                 '}';
+    }
+
+    public MatcherTradeEvent(
+            MatcherEventType eventType,
+            int section,
+            boolean activeOrderCompleted,
+            long matchedOrderId,
+            long matchedOrderUid,
+            boolean matchedOrderCompleted,
+            long price,
+            long size,
+            long bidderHoldPrice,
+            long matchedOrderTakerFee,
+            long matchedOrderMakerFee,
+            MatcherTradeEvent nextEvent) {
+        this.eventType = eventType;
+        this.section = section;
+        this.activeOrderCompleted = activeOrderCompleted;
+        this.matchedOrderId = matchedOrderId;
+        this.matchedOrderUid = matchedOrderUid;
+        this.matchedOrderCompleted = matchedOrderCompleted;
+        this.price = price;
+        this.size = size;
+        this.bidderHoldPrice = bidderHoldPrice;
+        this.matchedOrderTakerFee = matchedOrderTakerFee;
+        this.matchedOrderMakerFee = matchedOrderMakerFee;
+        this.nextEvent = nextEvent;
+    }
+
+    public MatcherTradeEvent() {
+    }
+
+    public static MatcherTradeEventBuilder builder() {
+        return new MatcherTradeEventBuilder();
+    }
+
+    public static class MatcherTradeEventBuilder {
+        private MatcherEventType eventType;
+        private int section;
+        private boolean activeOrderCompleted;
+        private long matchedOrderId;
+        private long matchedOrderUid;
+        private boolean matchedOrderCompleted;
+        private long price;
+        private long size;
+        private long bidderHoldPrice;
+        private long matchedOrderTakerFee;
+        private long matchedOrderMakerFee;
+        private MatcherTradeEvent nextEvent;
+
+        MatcherTradeEventBuilder() {
+        }
+
+        public MatcherTradeEventBuilder eventType(MatcherEventType eventType) {
+            this.eventType = eventType;
+            return this;
+        }
+
+        public MatcherTradeEventBuilder section(int section) {
+            this.section = section;
+            return this;
+        }
+
+        public MatcherTradeEventBuilder activeOrderCompleted(boolean activeOrderCompleted) {
+            this.activeOrderCompleted = activeOrderCompleted;
+            return this;
+        }
+
+        public MatcherTradeEventBuilder matchedOrderId(long matchedOrderId) {
+            this.matchedOrderId = matchedOrderId;
+            return this;
+        }
+
+        public MatcherTradeEventBuilder matchedOrderUid(long matchedOrderUid) {
+            this.matchedOrderUid = matchedOrderUid;
+            return this;
+        }
+
+        public MatcherTradeEventBuilder matchedOrderCompleted(boolean matchedOrderCompleted) {
+            this.matchedOrderCompleted = matchedOrderCompleted;
+            return this;
+        }
+
+        public MatcherTradeEventBuilder price(long price) {
+            this.price = price;
+            return this;
+        }
+
+        public MatcherTradeEventBuilder size(long size) {
+            this.size = size;
+            return this;
+        }
+
+        public MatcherTradeEventBuilder bidderHoldPrice(long bidderHoldPrice) {
+            this.bidderHoldPrice = bidderHoldPrice;
+            return this;
+        }
+
+        public MatcherTradeEventBuilder matchedOrderTakerFee(long matchedOrderTakerFee) {
+            this.matchedOrderTakerFee = matchedOrderTakerFee;
+            return this;
+        }
+
+        public MatcherTradeEventBuilder matchedOrderMakerFee(long matchedOrderMakerFee) {
+            this.matchedOrderMakerFee = matchedOrderMakerFee;
+            return this;
+        }
+
+        public MatcherTradeEventBuilder nextEvent(MatcherTradeEvent nextEvent) {
+            this.nextEvent = nextEvent;
+            return this;
+        }
+
+        public MatcherTradeEvent build() {
+            return new MatcherTradeEvent(
+                    this.eventType,
+                    this.section,
+                    this.activeOrderCompleted,
+                    this.matchedOrderId,
+                    this.matchedOrderUid,
+                    this.matchedOrderCompleted,
+                    this.price,
+                    this.size,
+                    this.bidderHoldPrice,
+                    this.matchedOrderTakerFee,
+                    this.matchedOrderMakerFee,
+                    this.nextEvent);
+        }
+
+        @Override
+        public String toString() {
+            return "MatcherTradeEvent.MatcherTradeEventBuilder(eventType=" + this.eventType
+                    + ", section=" + this.section
+                    + ", activeOrderCompleted=" + this.activeOrderCompleted
+                    + ", matchedOrderId=" + this.matchedOrderId
+                    + ", matchedOrderUid=" + this.matchedOrderUid
+                    + ", matchedOrderCompleted=" + this.matchedOrderCompleted
+                    + ", price=" + this.price
+                    + ", size=" + this.size
+                    + ", bidderHoldPrice=" + this.bidderHoldPrice
+                    + ", matchedOrderTakerFee=" + this.matchedOrderTakerFee
+                    + ", matchedOrderMakerFee=" + this.matchedOrderMakerFee
+                    + ", nextEvent=" + this.nextEvent + ")";
+        }
     }
 }

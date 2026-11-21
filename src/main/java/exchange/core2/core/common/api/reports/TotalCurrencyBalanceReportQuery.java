@@ -22,9 +22,6 @@ import exchange.core2.core.processors.MatchingEngineRouter;
 import exchange.core2.core.processors.RiskEngine;
 import exchange.core2.core.processors.SymbolSpecificationProvider;
 import exchange.core2.core.utils.CoreArithmeticUtils;
-import lombok.EqualsAndHashCode;
-import lombok.NoArgsConstructor;
-import lombok.ToString;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
@@ -33,9 +30,6 @@ import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 import java.util.Optional;
 import java.util.stream.Stream;
 
-@NoArgsConstructor
-@EqualsAndHashCode
-@ToString
 public final class TotalCurrencyBalanceReportQuery implements ReportQuery<TotalCurrencyBalanceReportResult> {
 
     public TotalCurrencyBalanceReportQuery(BytesIn bytesIn) {
@@ -118,5 +112,25 @@ public final class TotalCurrencyBalanceReportQuery implements ReportQuery<TotalC
     @Override
     public void writeMarshallable(BytesOut bytes) {
         // do nothing
+    }
+
+    public TotalCurrencyBalanceReportQuery() {
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == this) return true;
+        if (!(o instanceof TotalCurrencyBalanceReportQuery)) return false;
+        return true;
+    }
+
+    @Override
+    public int hashCode() {
+        return 1;
+    }
+
+    @Override
+    public String toString() {
+        return "TotalCurrencyBalanceReportQuery()";
     }
 }

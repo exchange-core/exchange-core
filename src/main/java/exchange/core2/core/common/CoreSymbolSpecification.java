@@ -15,23 +15,16 @@
  */
 package exchange.core2.core.common;
 
-
-import lombok.*;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 
 import java.util.Objects;
 
-@Builder
-@AllArgsConstructor
-@Getter
-@ToString
 public final class CoreSymbolSpecification implements WriteBytesMarshallable, StateHash {
 
     public final int symbolId;
 
-    @NonNull
     public final SymbolType type;
 
     // currency pair specification
@@ -119,5 +112,182 @@ public final class CoreSymbolSpecification implements WriteBytesMarshallable, St
                 marginBuy == that.marginBuy &&
                 marginSell == that.marginSell &&
                 type == that.type;
+    }
+
+    public CoreSymbolSpecification(
+            int symbolId,
+            SymbolType type,
+            int baseCurrency,
+            int quoteCurrency,
+            long baseScaleK,
+            long quoteScaleK,
+            long takerFee,
+            long makerFee,
+            long marginBuy,
+            long marginSell) {
+        Objects.requireNonNull(type, "type is marked non-null but is null");
+        this.symbolId = symbolId;
+        this.type = type;
+        this.baseCurrency = baseCurrency;
+        this.quoteCurrency = quoteCurrency;
+        this.baseScaleK = baseScaleK;
+        this.quoteScaleK = quoteScaleK;
+        this.takerFee = takerFee;
+        this.makerFee = makerFee;
+        this.marginBuy = marginBuy;
+        this.marginSell = marginSell;
+    }
+
+    public static CoreSymbolSpecificationBuilder builder() {
+        return new CoreSymbolSpecificationBuilder();
+    }
+
+    public int getSymbolId() {
+        return this.symbolId;
+    }
+
+    public SymbolType getType() {
+        return this.type;
+    }
+
+    public int getBaseCurrency() {
+        return this.baseCurrency;
+    }
+
+    public int getQuoteCurrency() {
+        return this.quoteCurrency;
+    }
+
+    public long getBaseScaleK() {
+        return this.baseScaleK;
+    }
+
+    public long getQuoteScaleK() {
+        return this.quoteScaleK;
+    }
+
+    public long getTakerFee() {
+        return this.takerFee;
+    }
+
+    public long getMakerFee() {
+        return this.makerFee;
+    }
+
+    public long getMarginBuy() {
+        return this.marginBuy;
+    }
+
+    public long getMarginSell() {
+        return this.marginSell;
+    }
+
+    @Override
+    public String toString() {
+        return "CoreSymbolSpecification(symbolId=" + this.getSymbolId()
+                + ", type=" + this.getType()
+                + ", baseCurrency=" + this.getBaseCurrency()
+                + ", quoteCurrency=" + this.getQuoteCurrency()
+                + ", baseScaleK=" + this.getBaseScaleK()
+                + ", quoteScaleK=" + this.getQuoteScaleK()
+                + ", takerFee=" + this.getTakerFee()
+                + ", makerFee=" + this.getMakerFee()
+                + ", marginBuy=" + this.getMarginBuy()
+                + ", marginSell=" + this.getMarginSell() + ")";
+    }
+
+    public static class CoreSymbolSpecificationBuilder {
+        private int symbolId;
+        private SymbolType type;
+        private int baseCurrency;
+        private int quoteCurrency;
+        private long baseScaleK;
+        private long quoteScaleK;
+        private long takerFee;
+        private long makerFee;
+        private long marginBuy;
+        private long marginSell;
+
+        CoreSymbolSpecificationBuilder() {
+        }
+
+        public CoreSymbolSpecificationBuilder symbolId(int symbolId) {
+            this.symbolId = symbolId;
+            return this;
+        }
+
+        public CoreSymbolSpecificationBuilder type(SymbolType type) {
+            Objects.requireNonNull(type, "type is marked non-null but is null");
+            this.type = type;
+            return this;
+        }
+
+        public CoreSymbolSpecificationBuilder baseCurrency(int baseCurrency) {
+            this.baseCurrency = baseCurrency;
+            return this;
+        }
+
+        public CoreSymbolSpecificationBuilder quoteCurrency(int quoteCurrency) {
+            this.quoteCurrency = quoteCurrency;
+            return this;
+        }
+
+        public CoreSymbolSpecificationBuilder baseScaleK(long baseScaleK) {
+            this.baseScaleK = baseScaleK;
+            return this;
+        }
+
+        public CoreSymbolSpecificationBuilder quoteScaleK(long quoteScaleK) {
+            this.quoteScaleK = quoteScaleK;
+            return this;
+        }
+
+        public CoreSymbolSpecificationBuilder takerFee(long takerFee) {
+            this.takerFee = takerFee;
+            return this;
+        }
+
+        public CoreSymbolSpecificationBuilder makerFee(long makerFee) {
+            this.makerFee = makerFee;
+            return this;
+        }
+
+        public CoreSymbolSpecificationBuilder marginBuy(long marginBuy) {
+            this.marginBuy = marginBuy;
+            return this;
+        }
+
+        public CoreSymbolSpecificationBuilder marginSell(long marginSell) {
+            this.marginSell = marginSell;
+            return this;
+        }
+
+        public CoreSymbolSpecification build() {
+            return new CoreSymbolSpecification(
+                    this.symbolId,
+                    this.type,
+                    this.baseCurrency,
+                    this.quoteCurrency,
+                    this.baseScaleK,
+                    this.quoteScaleK,
+                    this.takerFee,
+                    this.makerFee,
+                    this.marginBuy,
+                    this.marginSell);
+        }
+
+        @Override
+        public String toString() {
+            return "CoreSymbolSpecification.CoreSymbolSpecificationBuilder(symbolId=" + this.symbolId
+                    + ", type=" + this.type
+                    + ", baseCurrency=" + this.baseCurrency
+                    + ", quoteCurrency=" + this.quoteCurrency
+                    + ", baseScaleK=" + this.baseScaleK
+                    + ", quoteScaleK=" + this.quoteScaleK
+                    + ", takerFee=" + this.takerFee
+                    + ", makerFee=" + this.makerFee
+                    + ", marginBuy=" + this.marginBuy
+                    + ", marginSell=" + this.marginSell + ")";
+        }
     }
 }

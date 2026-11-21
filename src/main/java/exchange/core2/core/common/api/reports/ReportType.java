@@ -15,9 +15,6 @@
  */
 package exchange.core2.core.common.api.reports;
 
-import lombok.Getter;
-
-@Getter
 public enum ReportType {
 
     STATE_HASH(10001),
@@ -47,4 +44,8 @@ public enum ReportType {
 
     }
 
+
+    public int getCode() {
+        return this.code;
+    }
 }

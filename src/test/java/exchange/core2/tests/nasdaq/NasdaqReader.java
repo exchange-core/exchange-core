@@ -9,9 +9,10 @@ import exchange.core2.core.common.config.SerializationConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.ExecutionTime;
 import exchange.core2.tests.util.TestConstants;
-import lombok.extern.slf4j.Slf4j;
 import org.agrona.BitUtil;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -19,8 +20,9 @@ import java.util.BitSet;
 import java.util.List;
 import java.util.stream.IntStream;
 
-@Slf4j
 public class NasdaqReader {
+
+    private static final Logger log = LoggerFactory.getLogger(NasdaqReader.class);
 
 
     @Test

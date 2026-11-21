@@ -15,15 +15,10 @@
  */
 package exchange.core2.core.common.api;
 
-
 import exchange.core2.core.common.BalanceAdjustmentType;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.EqualsAndHashCode;
 
-@Builder
-@EqualsAndHashCode(callSuper = false)
-@AllArgsConstructor
+import java.util.Objects;
+
 public final class ApiAdjustUserBalance extends ApiCommand {
 
     public final long uid;
@@ -32,8 +27,7 @@ public final class ApiAdjustUserBalance extends ApiCommand {
     public final long amount;
     public final long transactionId;
 
-    @Builder.Default
-    public final BalanceAdjustmentType adjustmentType = BalanceAdjustmentType.ADJUSTMENT;
+    public final BalanceAdjustmentType adjustmentType;
 
     public ApiAdjustUserBalance(long uid, int currency, long amount, long transactionId) {
         this(uid, currency, amount, transactionId, BalanceAdjustmentType.ADJUSTMENT);
@@ -44,5 +38,98 @@ public final class ApiAdjustUserBalance extends ApiCommand {
         String amountFmt = String.format("%s%d c%d", amount >= 0 ? "+" : "-", Math.abs(amount), currency);
         return "[ADJUST_BALANCE " + uid + " id:" + transactionId + " " + amountFmt + " " + adjustmentType + "]";
 
+    }
+
+    public ApiAdjustUserBalance(long uid, int currency, long amount, long transactionId,
+                                BalanceAdjustmentType adjustmentType) {
+        this.uid = uid;
+        this.currency = currency;
+        this.amount = amount;
+        this.transactionId = transactionId;
+        this.adjustmentType = adjustmentType;
+    }
+
+    public static ApiAdjustUserBalanceBuilder builder() {
+        return new ApiAdjustUserBalanceBuilder();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        return o instanceof ApiAdjustUserBalance other
+                && other.canEqual(this)
+                && this.uid == other.uid
+                && this.currency == other.currency
+                && this.amount == other.amount
+                && this.transactionId == other.transactionId
+                && Objects.equals(this.adjustmentType, other.adjustmentType);
+    }
+
+    protected boolean canEqual(Object other) {
+        return other instanceof ApiAdjustUserBalance;
+    }
+
+    @Override
+    public int hashCode() {
+        final int prime = 59;
+        int result = 1;
+        result = result * prime + Long.hashCode(this.uid);
+        result = result * prime + this.currency;
+        result = result * prime + Long.hashCode(this.amount);
+        result = result * prime + Long.hashCode(this.transactionId);
+        var adjustmentType = this.adjustmentType;
+        result = result * prime + (adjustmentType == null ? 43 : adjustmentType.hashCode());
+        return result;
+    }
+
+    public static class ApiAdjustUserBalanceBuilder {
+        private long uid;
+        private int currency;
+        private long amount;
+        private long transactionId;
+        private BalanceAdjustmentType adjustmentType = BalanceAdjustmentType.ADJUSTMENT;
+
+        ApiAdjustUserBalanceBuilder() {
+        }
+
+        public ApiAdjustUserBalanceBuilder uid(long uid) {
+            this.uid = uid;
+            return this;
+        }
+
+        public ApiAdjustUserBalanceBuilder currency(int currency) {
+            this.currency = currency;
+            return this;
+        }
+
+        public ApiAdjustUserBalanceBuilder amount(long amount) {
+            this.amount = amount;
+            return this;
+        }
+
+        public ApiAdjustUserBalanceBuilder transactionId(long transactionId) {
+            this.transactionId = transactionId;
+            return this;
+        }
+
+        public ApiAdjustUserBalanceBuilder adjustmentType(BalanceAdjustmentType adjustmentType) {
+            this.adjustmentType = adjustmentType;
+            return this;
+        }
+
+        public ApiAdjustUserBalance build() {
+            return new ApiAdjustUserBalance(uid, currency, amount, transactionId, adjustmentType);
+        }
+
+        @Override
+        public String toString() {
+            return "ApiAdjustUserBalance.ApiAdjustUserBalanceBuilder(uid=" + this.uid
+                    + ", currency=" + this.currency
+                    + ", amount=" + this.amount
+                    + ", transactionId=" + this.transactionId
+                    + ", adjustmentType=" + this.adjustmentType + ")";
+        }
     }
 }

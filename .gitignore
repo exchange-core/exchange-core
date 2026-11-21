@@ -1,5 +1,4 @@
 target/
-delombok/
 .mvn/
 
 ### IntelliJ IDEA ###

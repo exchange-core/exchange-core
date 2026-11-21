@@ -19,12 +19,9 @@ import com.lmax.disruptor.*;
 import exchange.core2.core.common.CoreWaitStrategy;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
-import lombok.Setter;
-import lombok.extern.slf4j.Slf4j;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Slf4j
 public final class TwoStepMasterProcessor implements EventProcessor {
     private static final int IDLE = 0;
     private static final int HALTED = IDLE + 1;
@@ -41,7 +38,6 @@ public final class TwoStepMasterProcessor implements EventProcessor {
     private final String name;
     private final Sequence sequence = new Sequence(Sequencer.INITIAL_CURSOR_VALUE);
 
-    @Setter
     private TwoStepSlaveProcessor slaveProcessor;
 
     public TwoStepMasterProcessor(final RingBuffer<OrderCommand> ringBuffer,
@@ -166,5 +162,9 @@ public final class TwoStepMasterProcessor implements EventProcessor {
     @Override
     public String toString() {
         return "TwoStepMasterProcessor{" + name + "}";
+    }
+
+    public void setSlaveProcessor(TwoStepSlaveProcessor slaveProcessor) {
+        this.slaveProcessor = slaveProcessor;
     }
 }

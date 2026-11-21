@@ -20,8 +20,9 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.core.common.config.SerializationConfiguration;
-import lombok.extern.slf4j.Slf4j;
 import org.hamcrest.core.Is;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.ExecutionException;
 
@@ -29,8 +30,9 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-@Slf4j
 public class JournalingTestsModule {
+
+    private static final Logger log = LoggerFactory.getLogger(JournalingTestsModule.class);
 
 
     public static void journalingTestImpl(final PerformanceConfiguration performanceConfiguration,

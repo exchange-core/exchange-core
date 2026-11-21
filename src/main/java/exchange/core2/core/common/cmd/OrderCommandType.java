@@ -15,13 +15,8 @@
  */
 package exchange.core2.core.common.cmd;
 
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-
 import java.util.HashMap;
 
-@Getter
-@AllArgsConstructor
 public enum OrderCommandType {
     PLACE_ORDER((byte) 1, true),
     CANCEL_ORDER((byte) 2, true),
@@ -70,4 +65,17 @@ public enum OrderCommandType {
     }
 
 
+
+    private OrderCommandType(byte code, boolean mutate) {
+        this.code = code;
+        this.mutate = mutate;
+    }
+
+    public byte getCode() {
+        return this.code;
+    }
+
+    public boolean isMutate() {
+        return this.mutate;
+    }
 }

@@ -21,10 +21,8 @@ import exchange.core2.core.common.config.SerializationConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.TestDataParameters;
 import exchange.core2.tests.util.ThroughputTestsModule;
-import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
 
-@Slf4j
 public final class PerfThroughputJournaling {
 
     // TODO shutdown disruptor if test fails

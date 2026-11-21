@@ -24,7 +24,6 @@ import exchange.core2.core.common.cmd.OrderCommandType;
 import exchange.core2.core.common.config.ExchangeConfiguration;
 import exchange.core2.core.common.config.InitialStateConfiguration;
 import exchange.core2.core.common.config.PerformanceConfiguration;
-import lombok.extern.slf4j.Slf4j;
 import net.jpountz.lz4.*;
 import net.jpountz.xxhash.XXHashFactory;
 import net.openhft.chronicle.bytes.Bytes;
@@ -34,6 +33,8 @@ import net.openhft.chronicle.wire.InputStreamToWire;
 import net.openhft.chronicle.wire.Wire;
 import net.openhft.chronicle.wire.WireType;
 import org.agrona.collections.MutableLong;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.nio.ByteBuffer;
@@ -47,9 +48,9 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
-
-@Slf4j
 public final class DiskSerializationProcessor implements ISerializationProcessor {
+
+    private static final Logger log = LoggerFactory.getLogger(DiskSerializationProcessor.class);
 
     // Journal-only opcode. Older PLACE_ORDER records carry symbol fees implicitly.
     private static final byte PLACE_ORDER_WITH_FEES = 5;

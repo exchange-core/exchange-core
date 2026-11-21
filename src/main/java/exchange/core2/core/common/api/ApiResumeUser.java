@@ -15,12 +15,6 @@
  */
 package exchange.core2.core.common.api;
 
-
-import lombok.Builder;
-import lombok.EqualsAndHashCode;
-
-@Builder
-@EqualsAndHashCode(callSuper = false)
 public final class ApiResumeUser extends ApiCommand {
 
     public final long uid;
@@ -28,5 +22,56 @@ public final class ApiResumeUser extends ApiCommand {
     @Override
     public String toString() {
         return "[RESUME_USER " + uid + "]";
+    }
+
+    ApiResumeUser(long uid) {
+        this.uid = uid;
+    }
+
+    public static ApiResumeUserBuilder builder() {
+        return new ApiResumeUserBuilder();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        return o instanceof ApiResumeUser other
+                && other.canEqual(this)
+                && this.uid == other.uid;
+    }
+
+    protected boolean canEqual(Object other) {
+        return other instanceof ApiResumeUser;
+    }
+
+    @Override
+    public int hashCode() {
+        final int prime = 59;
+        int result = 1;
+        result = result * prime + Long.hashCode(this.uid);
+        return result;
+    }
+
+    public static class ApiResumeUserBuilder {
+        private long uid;
+
+        ApiResumeUserBuilder() {
+        }
+
+        public ApiResumeUserBuilder uid(long uid) {
+            this.uid = uid;
+            return this;
+        }
+
+        public ApiResumeUser build() {
+            return new ApiResumeUser(this.uid);
+        }
+
+        @Override
+        public String toString() {
+            return "ApiResumeUser.ApiResumeUserBuilder(uid=" + this.uid + ")";
+        }
     }
 }

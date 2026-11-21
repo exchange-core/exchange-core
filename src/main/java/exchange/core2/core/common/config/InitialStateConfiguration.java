@@ -1,19 +1,10 @@
 package exchange.core2.core.common.config;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.ToString;
-
 /**
  * Exchange initialization configuration
  * <p>
  * TODO use interface with different implementations for Clean, Snapshot, Journal
  */
-@AllArgsConstructor
-@Getter
-@Builder
-@ToString
 public final class InitialStateConfiguration {
 
     public static InitialStateConfiguration DEFAULT = InitialStateConfiguration.cleanStart("MY_EXCHANGE");
@@ -118,5 +109,105 @@ public final class InitialStateConfiguration {
                 .throwIfSnapshotNotFound(true)
                 .journalTimestampNs(Long.MAX_VALUE)
                 .build();
+    }
+
+    public InitialStateConfiguration(
+            String exchangeId,
+            long snapshotId,
+            long snapshotBaseSeq,
+            long journalTimestampNs,
+            boolean throwIfSnapshotNotFound) {
+        this.exchangeId = exchangeId;
+        this.snapshotId = snapshotId;
+        this.snapshotBaseSeq = snapshotBaseSeq;
+        this.journalTimestampNs = journalTimestampNs;
+        this.throwIfSnapshotNotFound = throwIfSnapshotNotFound;
+    }
+
+    public static InitialStateConfigurationBuilder builder() {
+        return new InitialStateConfigurationBuilder();
+    }
+
+    public String getExchangeId() {
+        return this.exchangeId;
+    }
+
+    public long getSnapshotId() {
+        return this.snapshotId;
+    }
+
+    public long getSnapshotBaseSeq() {
+        return this.snapshotBaseSeq;
+    }
+
+    public long getJournalTimestampNs() {
+        return this.journalTimestampNs;
+    }
+
+    public boolean isThrowIfSnapshotNotFound() {
+        return this.throwIfSnapshotNotFound;
+    }
+
+    @Override
+    public String toString() {
+        return "InitialStateConfiguration(exchangeId=" + this.getExchangeId()
+                + ", snapshotId=" + this.getSnapshotId()
+                + ", snapshotBaseSeq=" + this.getSnapshotBaseSeq()
+                + ", journalTimestampNs=" + this.getJournalTimestampNs()
+                + ", throwIfSnapshotNotFound=" + this.isThrowIfSnapshotNotFound() + ")";
+    }
+
+    public static class InitialStateConfigurationBuilder {
+        private String exchangeId;
+        private long snapshotId;
+        private long snapshotBaseSeq;
+        private long journalTimestampNs;
+        private boolean throwIfSnapshotNotFound;
+
+        InitialStateConfigurationBuilder() {
+        }
+
+        public InitialStateConfigurationBuilder exchangeId(String exchangeId) {
+            this.exchangeId = exchangeId;
+            return this;
+        }
+
+        public InitialStateConfigurationBuilder snapshotId(long snapshotId) {
+            this.snapshotId = snapshotId;
+            return this;
+        }
+
+        public InitialStateConfigurationBuilder snapshotBaseSeq(long snapshotBaseSeq) {
+            this.snapshotBaseSeq = snapshotBaseSeq;
+            return this;
+        }
+
+        public InitialStateConfigurationBuilder journalTimestampNs(long journalTimestampNs) {
+            this.journalTimestampNs = journalTimestampNs;
+            return this;
+        }
+
+        public InitialStateConfigurationBuilder throwIfSnapshotNotFound(boolean throwIfSnapshotNotFound) {
+            this.throwIfSnapshotNotFound = throwIfSnapshotNotFound;
+            return this;
+        }
+
+        public InitialStateConfiguration build() {
+            return new InitialStateConfiguration(
+                    this.exchangeId,
+                    this.snapshotId,
+                    this.snapshotBaseSeq,
+                    this.journalTimestampNs,
+                    this.throwIfSnapshotNotFound);
+        }
+
+        @Override
+        public String toString() {
+            return "InitialStateConfiguration.InitialStateConfigurationBuilder(exchangeId=" + this.exchangeId
+                    + ", snapshotId=" + this.snapshotId
+                    + ", snapshotBaseSeq=" + this.snapshotBaseSeq
+                    + ", journalTimestampNs=" + this.journalTimestampNs
+                    + ", throwIfSnapshotNotFound=" + this.throwIfSnapshotNotFound + ")";
+        }
     }
 }

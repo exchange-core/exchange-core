@@ -1,10 +1,10 @@
 package exchange.core2.core.utils;
 
 import exchange.core2.core.processors.TwoStepSlaveProcessor;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import net.openhft.affinity.AffinityLock;
 import org.jetbrains.annotations.NotNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -12,9 +12,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Slf4j
-@RequiredArgsConstructor
 public final class AffinityThreadFactory implements ThreadFactory {
+
+    private static final Logger log = LoggerFactory.getLogger(AffinityThreadFactory.class);
 
     // There is a bug it LMAX Disruptor, when configuring dependency graph as processors, not handlers.
     // We have to track all threads requested from the factory to avoid duplicate reservations.
@@ -81,4 +81,8 @@ public final class AffinityThreadFactory implements ThreadFactory {
         THREAD_AFFINITY_DISABLE
     }
 
+
+    public AffinityThreadFactory(ThreadAffinityMode threadAffinityMode) {
+        this.threadAffinityMode = threadAffinityMode;
+    }
 }

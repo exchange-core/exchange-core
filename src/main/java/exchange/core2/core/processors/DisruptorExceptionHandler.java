@@ -16,14 +16,14 @@
 package exchange.core2.core.processors;
 
 import com.lmax.disruptor.ExceptionHandler;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.function.BiConsumer;
 
-@Slf4j
-@RequiredArgsConstructor
 public final class DisruptorExceptionHandler<T> implements ExceptionHandler<T> {
+
+    private static final Logger log = LoggerFactory.getLogger(DisruptorExceptionHandler.class);
 
     public final String name;
     public final BiConsumer<Throwable, Long> onException;
@@ -42,5 +42,10 @@ public final class DisruptorExceptionHandler<T> implements ExceptionHandler<T> {
     @Override
     public void handleOnShutdownException(Throwable ex) {
         log.debug("Disruptor '{}' shutdown exception: {}", name, ex);
+    }
+
+    public DisruptorExceptionHandler(String name, BiConsumer<Throwable, Long> onException) {
+        this.name = name;
+        this.onException = onException;
     }
 }

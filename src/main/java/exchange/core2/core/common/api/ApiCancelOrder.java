@@ -15,14 +15,6 @@
  */
 package exchange.core2.core.common.api;
 
-
-import lombok.Builder;
-import lombok.EqualsAndHashCode;
-import lombok.RequiredArgsConstructor;
-
-@Builder
-@EqualsAndHashCode(callSuper = false)
-@RequiredArgsConstructor
 public final class ApiCancelOrder extends ApiCommand {
 
     public final long orderId;
@@ -33,5 +25,76 @@ public final class ApiCancelOrder extends ApiCommand {
     @Override
     public String toString() {
         return "[CANCEL " + orderId + " u" + uid + " s" + symbol + "]";
+    }
+
+    public ApiCancelOrder(long orderId, long uid, int symbol) {
+        this.orderId = orderId;
+        this.uid = uid;
+        this.symbol = symbol;
+    }
+
+    public static ApiCancelOrderBuilder builder() {
+        return new ApiCancelOrderBuilder();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        return o instanceof ApiCancelOrder other
+                && other.canEqual(this)
+                && this.orderId == other.orderId
+                && this.uid == other.uid
+                && this.symbol == other.symbol;
+    }
+
+    protected boolean canEqual(Object other) {
+        return other instanceof ApiCancelOrder;
+    }
+
+    @Override
+    public int hashCode() {
+        final int prime = 59;
+        int result = 1;
+        result = result * prime + Long.hashCode(this.orderId);
+        result = result * prime + Long.hashCode(this.uid);
+        result = result * prime + this.symbol;
+        return result;
+    }
+
+    public static class ApiCancelOrderBuilder {
+        private long orderId;
+        private long uid;
+        private int symbol;
+
+        ApiCancelOrderBuilder() {
+        }
+
+        public ApiCancelOrderBuilder orderId(long orderId) {
+            this.orderId = orderId;
+            return this;
+        }
+
+        public ApiCancelOrderBuilder uid(long uid) {
+            this.uid = uid;
+            return this;
+        }
+
+        public ApiCancelOrderBuilder symbol(int symbol) {
+            this.symbol = symbol;
+            return this;
+        }
+
+        public ApiCancelOrder build() {
+            return new ApiCancelOrder(this.orderId, this.uid, this.symbol);
+        }
+
+        @Override
+        public String toString() {
+            return "ApiCancelOrder.ApiCancelOrderBuilder(orderId=" + this.orderId
+                    + ", uid=" + this.uid
+                    + ", symbol=" + this.symbol + ")";
+        }
     }
 }

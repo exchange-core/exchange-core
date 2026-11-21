@@ -15,19 +15,18 @@
  */
 package exchange.core2.core.common;
 
-
 import exchange.core2.core.processors.RiskEngine;
-import lombok.NoArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Objects;
 
-@Slf4j
-@NoArgsConstructor
 public final class SymbolPositionRecord implements WriteBytesMarshallable, StateHash {
+
+    private static final Logger log = LoggerFactory.getLogger(SymbolPositionRecord.class);
 
     public long uid;
 
@@ -300,5 +299,8 @@ public final class SymbolPositionRecord implements WriteBytesMarshallable, State
                 " pendingS=" + pendingSellSize +
                 " pendingB=" + pendingBuySize +
                 '}';
+    }
+
+    public SymbolPositionRecord() {
     }
 }

@@ -15,9 +15,6 @@
  */
 package exchange.core2.core.common;
 
-import lombok.Getter;
-
-@Getter
 public enum UserStatus {
     ACTIVE(0), // normal user
     SUSPENDED(1); // suspended
@@ -39,4 +36,8 @@ public enum UserStatus {
         }
     }
 
+
+    public byte getCode() {
+        return this.code;
+    }
 }

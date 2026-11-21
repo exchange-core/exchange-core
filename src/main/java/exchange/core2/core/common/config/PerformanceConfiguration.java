@@ -1,14 +1,10 @@
 package exchange.core2.core.common.config;
 
-
 import exchange.core2.core.common.CoreWaitStrategy;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.orderbook.OrderBookDirectImpl;
 import exchange.core2.core.orderbook.OrderBookNaiveImpl;
 import exchange.core2.core.utils.AffinityThreadFactory;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
 import net.jpountz.lz4.LZ4Compressor;
 import net.jpountz.lz4.LZ4Factory;
 
@@ -18,9 +14,6 @@ import java.util.function.Supplier;
 /**
  * Exchange performance configuration
  */
-@AllArgsConstructor
-@Getter
-@Builder
 public final class PerformanceConfiguration {
 
     public static final PerformanceConfiguration DEFAULT = PerformanceConfiguration.baseBuilder().build();
@@ -113,7 +106,7 @@ public final class PerformanceConfiguration {
 
     // TODO add expected number of users and symbols
 
-    public static PerformanceConfiguration.PerformanceConfigurationBuilder baseBuilder() {
+    public static PerformanceConfigurationBuilder baseBuilder() {
 
         return builder()
                 .ringBufferSize(16 * 1024)
@@ -129,7 +122,7 @@ public final class PerformanceConfiguration {
                 .orderBookFactory((IOrderBook.ConfiguredOrderBookFactory) OrderBookNaiveImpl::new);
     }
 
-    public static PerformanceConfiguration.PerformanceConfigurationBuilder latencyPerformanceBuilder() {
+    public static PerformanceConfigurationBuilder latencyPerformanceBuilder() {
 
         return builder()
                 .ringBufferSize(2 * 1024)
@@ -145,7 +138,7 @@ public final class PerformanceConfiguration {
                 .orderBookFactory((IOrderBook.ConfiguredOrderBookFactory) OrderBookDirectImpl::new);
     }
 
-    public static PerformanceConfiguration.PerformanceConfigurationBuilder throughputPerformanceBuilder() {
+    public static PerformanceConfigurationBuilder throughputPerformanceBuilder() {
 
         return builder()
                 .ringBufferSize(64 * 1024)
@@ -159,5 +152,180 @@ public final class PerformanceConfiguration {
                 .waitStrategy(CoreWaitStrategy.BUSY_SPIN)
                 .binaryCommandsLz4CompressorFactory(() -> LZ4Factory.fastestInstance().highCompressor())
                 .orderBookFactory((IOrderBook.ConfiguredOrderBookFactory) OrderBookDirectImpl::new);
+    }
+
+    public PerformanceConfiguration(
+            int ringBufferSize,
+            int matchingEnginesNum,
+            int riskEnginesNum,
+            int msgsInGroupLimit,
+            int maxGroupDurationNs,
+            boolean sendL2ForEveryCmd,
+            int l2RefreshDepth,
+            ThreadFactory threadFactory,
+            CoreWaitStrategy waitStrategy,
+            IOrderBook.OrderBookFactory orderBookFactory,
+            Supplier<LZ4Compressor> binaryCommandsLz4CompressorFactory) {
+        this.ringBufferSize = ringBufferSize;
+        this.matchingEnginesNum = matchingEnginesNum;
+        this.riskEnginesNum = riskEnginesNum;
+        this.msgsInGroupLimit = msgsInGroupLimit;
+        this.maxGroupDurationNs = maxGroupDurationNs;
+        this.sendL2ForEveryCmd = sendL2ForEveryCmd;
+        this.l2RefreshDepth = l2RefreshDepth;
+        this.threadFactory = threadFactory;
+        this.waitStrategy = waitStrategy;
+        this.orderBookFactory = orderBookFactory;
+        this.binaryCommandsLz4CompressorFactory = binaryCommandsLz4CompressorFactory;
+    }
+
+    public static PerformanceConfigurationBuilder builder() {
+        return new PerformanceConfigurationBuilder();
+    }
+
+    public int getRingBufferSize() {
+        return this.ringBufferSize;
+    }
+
+    public int getMatchingEnginesNum() {
+        return this.matchingEnginesNum;
+    }
+
+    public int getRiskEnginesNum() {
+        return this.riskEnginesNum;
+    }
+
+    public int getMsgsInGroupLimit() {
+        return this.msgsInGroupLimit;
+    }
+
+    public int getMaxGroupDurationNs() {
+        return this.maxGroupDurationNs;
+    }
+
+    public boolean isSendL2ForEveryCmd() {
+        return this.sendL2ForEveryCmd;
+    }
+
+    public int getL2RefreshDepth() {
+        return this.l2RefreshDepth;
+    }
+
+    public ThreadFactory getThreadFactory() {
+        return this.threadFactory;
+    }
+
+    public CoreWaitStrategy getWaitStrategy() {
+        return this.waitStrategy;
+    }
+
+    public IOrderBook.OrderBookFactory getOrderBookFactory() {
+        return this.orderBookFactory;
+    }
+
+    public Supplier<LZ4Compressor> getBinaryCommandsLz4CompressorFactory() {
+        return this.binaryCommandsLz4CompressorFactory;
+    }
+
+    public static class PerformanceConfigurationBuilder {
+        private int ringBufferSize;
+        private int matchingEnginesNum;
+        private int riskEnginesNum;
+        private int msgsInGroupLimit;
+        private int maxGroupDurationNs;
+        private boolean sendL2ForEveryCmd;
+        private int l2RefreshDepth;
+        private ThreadFactory threadFactory;
+        private CoreWaitStrategy waitStrategy;
+        private IOrderBook.OrderBookFactory orderBookFactory;
+        private Supplier<LZ4Compressor> binaryCommandsLz4CompressorFactory;
+
+        PerformanceConfigurationBuilder() {
+        }
+
+        public PerformanceConfigurationBuilder ringBufferSize(int ringBufferSize) {
+            this.ringBufferSize = ringBufferSize;
+            return this;
+        }
+
+        public PerformanceConfigurationBuilder matchingEnginesNum(int matchingEnginesNum) {
+            this.matchingEnginesNum = matchingEnginesNum;
+            return this;
+        }
+
+        public PerformanceConfigurationBuilder riskEnginesNum(int riskEnginesNum) {
+            this.riskEnginesNum = riskEnginesNum;
+            return this;
+        }
+
+        public PerformanceConfigurationBuilder msgsInGroupLimit(int msgsInGroupLimit) {
+            this.msgsInGroupLimit = msgsInGroupLimit;
+            return this;
+        }
+
+        public PerformanceConfigurationBuilder maxGroupDurationNs(int maxGroupDurationNs) {
+            this.maxGroupDurationNs = maxGroupDurationNs;
+            return this;
+        }
+
+        public PerformanceConfigurationBuilder sendL2ForEveryCmd(boolean sendL2ForEveryCmd) {
+            this.sendL2ForEveryCmd = sendL2ForEveryCmd;
+            return this;
+        }
+
+        public PerformanceConfigurationBuilder l2RefreshDepth(int l2RefreshDepth) {
+            this.l2RefreshDepth = l2RefreshDepth;
+            return this;
+        }
+
+        public PerformanceConfigurationBuilder threadFactory(ThreadFactory threadFactory) {
+            this.threadFactory = threadFactory;
+            return this;
+        }
+
+        public PerformanceConfigurationBuilder waitStrategy(CoreWaitStrategy waitStrategy) {
+            this.waitStrategy = waitStrategy;
+            return this;
+        }
+
+        public PerformanceConfigurationBuilder orderBookFactory(IOrderBook.OrderBookFactory orderBookFactory) {
+            this.orderBookFactory = orderBookFactory;
+            return this;
+        }
+
+        public PerformanceConfigurationBuilder binaryCommandsLz4CompressorFactory(Supplier<LZ4Compressor> binaryCommandsLz4CompressorFactory) {
+            this.binaryCommandsLz4CompressorFactory = binaryCommandsLz4CompressorFactory;
+            return this;
+        }
+
+        public PerformanceConfiguration build() {
+            return new PerformanceConfiguration(
+                    this.ringBufferSize,
+                    this.matchingEnginesNum,
+                    this.riskEnginesNum,
+                    this.msgsInGroupLimit,
+                    this.maxGroupDurationNs,
+                    this.sendL2ForEveryCmd,
+                    this.l2RefreshDepth,
+                    this.threadFactory,
+                    this.waitStrategy,
+                    this.orderBookFactory,
+                    this.binaryCommandsLz4CompressorFactory);
+        }
+
+        @Override
+        public String toString() {
+            return "PerformanceConfiguration.PerformanceConfigurationBuilder(ringBufferSize=" + this.ringBufferSize
+                    + ", matchingEnginesNum=" + this.matchingEnginesNum
+                    + ", riskEnginesNum=" + this.riskEnginesNum
+                    + ", msgsInGroupLimit=" + this.msgsInGroupLimit
+                    + ", maxGroupDurationNs=" + this.maxGroupDurationNs
+                    + ", sendL2ForEveryCmd=" + this.sendL2ForEveryCmd
+                    + ", l2RefreshDepth=" + this.l2RefreshDepth
+                    + ", threadFactory=" + this.threadFactory
+                    + ", waitStrategy=" + this.waitStrategy
+                    + ", orderBookFactory=" + this.orderBookFactory
+                    + ", binaryCommandsLz4CompressorFactory=" + this.binaryCommandsLz4CompressorFactory + ")";
+        }
     }
 }
