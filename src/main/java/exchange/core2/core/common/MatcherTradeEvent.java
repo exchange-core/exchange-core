@@ -61,6 +61,8 @@ public final class MatcherTradeEvent {
 
     // frozen price from BID order owner (depends on activeOrderAction)
     public long bidderHoldPrice;
+    public long matchedOrderTakerFee = -1;
+    public long matchedOrderMakerFee = -1;
 
     // reference to next event in chain
     public MatcherTradeEvent nextEvent;
@@ -79,6 +81,8 @@ public final class MatcherTradeEvent {
         evt.size = this.size;
 //        evt.timestamp = this.timestamp;
         evt.bidderHoldPrice = this.bidderHoldPrice;
+        evt.matchedOrderTakerFee = this.matchedOrderTakerFee;
+        evt.matchedOrderMakerFee = this.matchedOrderMakerFee;
         return evt;
     }
 
@@ -143,7 +147,9 @@ public final class MatcherTradeEvent {
                 && price == other.price
                 && size == other.size
                 && bidderHoldPrice == other.bidderHoldPrice
-                && ((nextEvent == null && other.nextEvent == null) || (nextEvent != null && nextEvent.equals(other.nextEvent)));
+                && ((nextEvent == null && other.nextEvent == null) || (nextEvent != null && nextEvent.equals(other.nextEvent)))
+                && matchedOrderMakerFee == other.matchedOrderMakerFee
+                && matchedOrderTakerFee == other.matchedOrderTakerFee;
     }
 
     /**
@@ -160,7 +166,9 @@ public final class MatcherTradeEvent {
                 price,
                 size,
                 bidderHoldPrice,
-                nextEvent);
+                nextEvent,
+                matchedOrderMakerFee,
+                matchedOrderTakerFee);
     }
 
 

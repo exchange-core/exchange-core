@@ -61,6 +61,12 @@ public final class Order implements WriteBytesMarshallable, IOrder {
     public long uid;
 
     @Getter
+    public long orderTakerFee;
+
+    @Getter
+    public long orderMakerFee;
+
+    @Getter
     public long timestamp;
 
 //    public int userCookie;
@@ -75,6 +81,8 @@ public final class Order implements WriteBytesMarshallable, IOrder {
         this.reserveBidPrice = bytes.readLong(); // price2
         this.action = OrderAction.of(bytes.readByte());
         this.uid = bytes.readLong(); // uid
+        this.orderTakerFee = bytes.readLong();
+        this.orderMakerFee = bytes.readLong();
         this.timestamp = bytes.readLong(); // timestamp
 //        this.userCookie = bytes.readInt();  // userCookie
 
@@ -89,6 +97,8 @@ public final class Order implements WriteBytesMarshallable, IOrder {
         bytes.writeLong(reserveBidPrice);
         bytes.writeByte(action.getCode());
         bytes.writeLong(uid);
+        bytes.writeLong(orderTakerFee);
+        bytes.writeLong(orderMakerFee);
         bytes.writeLong(timestamp);
 //        bytes.writeInt(userCookie);
     }
@@ -105,7 +115,7 @@ public final class Order implements WriteBytesMarshallable, IOrder {
     public int hashCode() {
         return Objects.hash(orderId, action, price, size, reserveBidPrice, filled,
                 //userCookie, timestamp
-                uid);
+                uid, orderTakerFee, orderMakerFee);
     }
 
 
@@ -127,7 +137,9 @@ public final class Order implements WriteBytesMarshallable, IOrder {
                 && size == other.size
                 && reserveBidPrice == other.reserveBidPrice
                 && filled == other.filled
-                && uid == other.uid;
+                && uid == other.uid
+                && orderTakerFee == other.orderTakerFee
+                && orderMakerFee == other.orderMakerFee;
     }
 
     @Override
