@@ -379,6 +379,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
         final long orderId = cmd.orderId;
         final long newPrice = cmd.price;
+        final long newTimestamp = cmd.timestamp;
 
         final Order order = idMap.get(orderId);
         if (order == null || order.uid != cmd.uid) {
@@ -406,6 +407,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         }
 
         order.price = newPrice;
+        order.timestamp = newTimestamp;
 
         // try match with new price
         final SortedMap<Long, OrdersBucketNaive> matchingArea = subtreeForMatching(order.action, newPrice);
