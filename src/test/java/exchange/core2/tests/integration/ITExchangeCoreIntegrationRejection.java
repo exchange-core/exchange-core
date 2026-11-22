@@ -20,6 +20,7 @@ import exchange.core2.core.SimpleEventsProcessor;
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.OrderType;
+import exchange.core2.core.common.SymbolType;
 import exchange.core2.core.common.api.ApiPlaceOrder;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.config.PerformanceConfiguration;
@@ -243,6 +244,49 @@ public abstract class ITExchangeCoreIntegrationRejection {
     @Timeout(5)
     public void testMultiSellWithExpectationRejectionExchangeFokB() {
         testMultiSell(SYMBOLSPECFEE_XBT_LTC, FOK_BUDGET, REJECTION_BY_BUDGET);
+    }
+
+    @Test
+    @Timeout(5)
+    public void testMarginRiskAcrossMultipleFuturesPositions() {
+        final int symbolA = SYMBOL_MARGIN;
+        final int symbolB = SYMBOL_MARGIN + 1;
+        final long margin = SYMBOLSPEC_EUR_USD.marginBuy;
+        final CoreSymbolSpecification specB = CoreSymbolSpecification.builder()
+                .symbolId(symbolB)
+                .type(SymbolType.FUTURES_CONTRACT)
+                .baseCurrency(CURRENECY_GBP)
+                .quoteCurrency(CURRENECY_USD)
+                .baseScaleK(1)
+                .quoteScaleK(1)
+                .marginBuy(margin)
+                .marginSell(SYMBOLSPEC_EUR_USD.marginSell)
+                .takerFee(0)
+                .makerFee(0)
+                .build();
+
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
+            for (final long cash : new long[]{3 * margin - 1, 3 * margin}) {
+                final CommandResultCode expected = (cash < 3 * margin) ? CommandResultCode.RISK_NSF : CommandResultCode.SUCCESS;
+                for (final int targetSymbol : new int[]{symbolA, symbolB}) {
+                    container.resetExchangeCore();
+                    container.addSymbols(List.of(SYMBOLSPEC_EUR_USD, specB));
+                    container.createUserWithMoney(UID_1, CURRENECY_USD, cash);
+                    container.createUserWithMoney(UID_2, CURRENECY_USD, 10_000_000L);
+
+                    long orderId = 1L;
+                    for (final int sym : new int[]{symbolA, symbolB}) {
+                        container.submitCommandSync(builderPlace(sym, UID_2, ASK, GTC).orderId(orderId++).price(1000L).size(1L).build(), CommandResultCode.SUCCESS);
+                        container.submitCommandSync(builderPlace(sym, UID_1, BID, IOC).orderId(orderId++).price(1000L).size(1L).build(), CommandResultCode.SUCCESS);
+                        container.submitCommandSync(builderPlace(sym, UID_2, BID, GTC).orderId(orderId++).price(1000L).size(1L).build(), CommandResultCode.SUCCESS);
+                        container.requestCurrentOrderBook(sym);
+                    }
+
+                    container.submitCommandSync(builderPlace(targetSymbol, UID_1, BID, GTC).orderId(orderId).price(1000L).size(1L).build(), expected);
+                    assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
+                }
+            }
+        }
     }
 
     // configuration provided by child class

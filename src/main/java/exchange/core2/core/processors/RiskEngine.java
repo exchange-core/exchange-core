@@ -599,8 +599,8 @@ public final class RiskEngine implements WriteBytesMarshallable {
         return position.estimateProfit(spec2, lastPriceCache.get(recSymbol)) - position.calculateRequiredMarginForFutures(spec2);
     }
 
-    // one step of the free margin loop in canPlaceMarginOrder, unchanged: the position of the order's symbol
-    // replaces the sum so far with its own P&L
+    // one step of the free margin loop in canPlaceMarginOrder: the position of the order's symbol
+    // adds its own P&L while newRequiredMarginForSymbol accounts for its margin
     private long addFreeMargin(final long freeMargin,
                                final SymbolPositionRecord positionRecord,
                                final int symbol,
@@ -616,7 +616,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
             }
             return freeMargin;
         }
-        return position.estimateProfit(spec, lastPriceCache.get(spec.symbolId));
+        return freeMargin + position.estimateProfit(spec, lastPriceCache.get(spec.symbolId));
     }
 
     public boolean handlerRiskRelease(final long seq, final OrderCommand cmd) {
