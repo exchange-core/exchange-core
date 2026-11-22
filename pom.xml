@@ -53,21 +53,15 @@
 
     <dependencies>
         <dependency>
-            <groupId>net.java.dev.jna</groupId>
-            <artifactId>jna-platform</artifactId>
-            <version>5.11.0</version>
-        </dependency>
-
-        <dependency>
-            <groupId>net.java.dev.jna</groupId>
-            <artifactId>jna</artifactId>
-            <version>5.11.0</version>
+            <groupId>exchange.core2</groupId>
+            <artifactId>collections</artifactId>
+            <version>0.5.1</version>
         </dependency>
 
         <dependency>
             <groupId>exchange.core2</groupId>
-            <artifactId>collections</artifactId>
-            <version>0.5.1</version>
+            <artifactId>collections-affinity</artifactId>
+            <version>0.7.0</version>
         </dependency>
 
         <!-- LMAX Disruptor -->
@@ -82,19 +76,6 @@
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
             <version>1.7.36</version>
-        </dependency>
-
-        <!-- OpenHFT -->
-        <dependency>
-            <groupId>net.openhft</groupId>
-            <artifactId>affinity</artifactId>
-            <version>3.2.2</version>
-            <exclusions>
-                <exclusion>
-                    <artifactId>slf4j-api</artifactId>
-                    <groupId>org.slf4j</groupId>
-                </exclusion>
-            </exclusions>
         </dependency>
 
         <dependency>

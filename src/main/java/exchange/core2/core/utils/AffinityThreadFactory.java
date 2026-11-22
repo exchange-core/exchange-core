@@ -1,88 +1,97 @@
 package exchange.core2.core.utils;
 
+import exchange.core2.collections.affinity.CpuAffinity;
 import exchange.core2.core.processors.TwoStepSlaveProcessor;
-import net.openhft.affinity.AffinityLock;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.util.BitSet;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.IntStream;
 
 public final class AffinityThreadFactory implements ThreadFactory {
 
     private static final Logger log = LoggerFactory.getLogger(AffinityThreadFactory.class);
 
-    // There is a bug it LMAX Disruptor, when configuring dependency graph as processors, not handlers.
-    // We have to track all threads requested from the factory to avoid duplicate reservations.
-    private final Set<Object> affinityReservations = new HashSet<>();
-
     private final ThreadAffinityMode threadAffinityMode;
+    private final int[] logicalCpus;
+    private final ThreadFactory defaultFactory = Executors.defaultThreadFactory();
 
-    private static AtomicInteger threadsCounter = new AtomicInteger();
+    public AffinityThreadFactory(ThreadAffinityMode threadAffinityMode) {
+        this.threadAffinityMode = threadAffinityMode;
+        logicalCpus = threadAffinityMode == ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE
+                ? IntStream.concat(highestFirst(CpuAffinity.reservedCpus()), highestFirst(CpuAffinity.spareCpus())).toArray()
+                : new int[0];
+    }
 
     @Override
-    public synchronized Thread newThread(@NotNull Runnable runnable) {
-
-        // log.info("---- Requesting thread for {}", runnable);
-
-        if (threadAffinityMode == ThreadAffinityMode.THREAD_AFFINITY_DISABLE) {
-            return Executors.defaultThreadFactory().newThread(runnable);
+    public Thread newThread(@NotNull Runnable runnable) {
+        // Risk release runs on the corresponding risk master after marking the slave ready.
+        if (threadAffinityMode == ThreadAffinityMode.THREAD_AFFINITY_DISABLE
+                || runnable instanceof TwoStepSlaveProcessor) {
+            return defaultFactory.newThread(runnable);
         }
 
-        if (runnable instanceof TwoStepSlaveProcessor) {
-            log.debug("Skip pinning slave processor: {}", runnable);
-            return Executors.defaultThreadFactory().newThread(runnable);
-        }
-
-        if (affinityReservations.contains(runnable)) {
-            log.warn("Task {} was already pinned", runnable);
-//            return Executors.defaultThreadFactory().newThread(runnable);
-        }
-
-        affinityReservations.add(runnable);
-
-        return new Thread(() -> executePinned(runnable));
-
-    }
-
-    private void executePinned(@NotNull Runnable runnable) {
-
-        try (final AffinityLock lock = getAffinityLockSync()) {
-
-            final int threadId = threadsCounter.incrementAndGet();
-            Thread.currentThread().setName(String.format("Thread-AF-%d-cpu%d", threadId, lock.cpuId()));
-
-            log.debug("{} will be running on thread={} pinned to cpu {}",
-                    runnable, Thread.currentThread().getName(), lock.cpuId());
-
-            runnable.run();
-
-        } finally {
-            log.debug("Removing cpu lock/reservation from {}", runnable);
-            synchronized (this) {
-                affinityReservations.remove(runnable);
+        final CompletableFuture<Void> affinityReady = new CompletableFuture<>();
+        return new Thread(() -> executePinned(runnable, affinityReady)) {
+            @Override
+            public void start() {
+                super.start();
+                // Disruptor starts processors in registration order. Wait for each reservation
+                // before it starts the next processor so OS scheduling cannot reorder the pins.
+                affinityReady.join();
             }
+        };
+    }
+
+    private void executePinned(Runnable runnable, CompletableFuture<Void> affinityReady) {
+        try (CpuAffinity affinity = acquireAffinity()) {
+            if (affinity != null && affinity.isPinned()) {
+                final Thread thread = Thread.currentThread();
+                thread.setName(thread.getName() + "-cpu" + affinity.cpu());
+                log.debug("{} will be running on thread={} pinned to cpu {}",
+                        runnable, thread.getName(), affinity.cpu());
+            }
+            affinityReady.complete(null);
+            runnable.run();
+        } catch (RuntimeException | Error failure) {
+            affinityReady.completeExceptionally(failure);
+            throw failure;
         }
     }
 
-    private synchronized AffinityLock getAffinityLockSync() {
-        return threadAffinityMode == ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_PHYSICAL_CORE
-                ? AffinityLock.acquireCore()
-                : AffinityLock.acquireLock();
+    private CpuAffinity acquireAffinity() {
+        if (threadAffinityMode == ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_PHYSICAL_CORE) {
+            return CpuAffinity.acquireCore();
+        }
+        for (int cpu : logicalCpus) {
+            final CpuAffinity affinity;
+            try {
+                affinity = CpuAffinity.acquireCpu(cpu);
+            } catch (IllegalStateException occupied) {
+                continue;
+            }
+            if (affinity.isPinned()) {
+                return affinity;
+            }
+            affinity.close();
+        }
+        if (logicalCpus.length > 0) {
+            log.warn("No configured logical CPU available for {}", Thread.currentThread().getName());
+        }
+        return null;
+    }
+
+    private static IntStream highestFirst(BitSet cpus) {
+        return IntStream.iterate(cpus.length() - 1, cpu -> cpu >= 0, cpu -> cpus.previousSetBit(cpu - 1));
     }
 
     public enum ThreadAffinityMode {
         THREAD_AFFINITY_ENABLE_PER_PHYSICAL_CORE,
         THREAD_AFFINITY_ENABLE_PER_LOGICAL_CORE,
         THREAD_AFFINITY_DISABLE
-    }
-
-
-    public AffinityThreadFactory(ThreadAffinityMode threadAffinityMode) {
-        this.threadAffinityMode = threadAffinityMode;
     }
 }
