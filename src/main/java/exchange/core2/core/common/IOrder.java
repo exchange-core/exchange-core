@@ -41,4 +41,11 @@ public interface IOrder extends StateHash {
         return -1;
     }
 
+    /**
+     * @return fee overrides, null when the order uses symbol fees
+     */
+    default OrderFees getOrderFees() {
+        return OrderFees.of(getOrderTakerFee(), getOrderMakerFee());
+    }
+
 }

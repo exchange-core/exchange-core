@@ -54,8 +54,10 @@ public final class MatcherTradeEvent {
 
     // frozen price from BID order owner (depends on activeOrderAction)
     public long bidderHoldPrice;
-    public long matchedOrderTakerFee = -1;
-    public long matchedOrderMakerFee = -1;
+
+    // fee overrides of the maker order (for TRADE event type only), null for symbol fees;
+    // a reference instead of two longs keeps the event at 72 bytes
+    public OrderFees matchedOrderFees;
 
     // reference to next event in chain
     public MatcherTradeEvent nextEvent;
@@ -74,9 +76,18 @@ public final class MatcherTradeEvent {
         evt.size = this.size;
 //        evt.timestamp = this.timestamp;
         evt.bidderHoldPrice = this.bidderHoldPrice;
-        evt.matchedOrderTakerFee = this.matchedOrderTakerFee;
-        evt.matchedOrderMakerFee = this.matchedOrderMakerFee;
+        evt.matchedOrderFees = this.matchedOrderFees;
         return evt;
+    }
+
+    // taker fee override of the maker order (part of its bid hold), -1 for the symbol fee
+    public long getMatchedOrderTakerFee() {
+        return OrderFees.takerFee(matchedOrderFees);
+    }
+
+    // maker fee override of the maker order, -1 for the symbol fee
+    public long getMatchedOrderMakerFee() {
+        return OrderFees.makerFee(matchedOrderFees);
     }
 
     // testing only
@@ -141,8 +152,7 @@ public final class MatcherTradeEvent {
                 && size == other.size
                 && bidderHoldPrice == other.bidderHoldPrice
                 && ((nextEvent == null && other.nextEvent == null) || (nextEvent != null && nextEvent.equals(other.nextEvent)))
-                && matchedOrderMakerFee == other.matchedOrderMakerFee
-                && matchedOrderTakerFee == other.matchedOrderTakerFee;
+                && Objects.equals(matchedOrderFees, other.matchedOrderFees);
     }
 
     /**
@@ -160,8 +170,7 @@ public final class MatcherTradeEvent {
                 size,
                 bidderHoldPrice,
                 nextEvent,
-                matchedOrderMakerFee,
-                matchedOrderTakerFee);
+                matchedOrderFees);
     }
 
 
@@ -204,8 +213,7 @@ public final class MatcherTradeEvent {
         this.price = price;
         this.size = size;
         this.bidderHoldPrice = bidderHoldPrice;
-        this.matchedOrderTakerFee = matchedOrderTakerFee;
-        this.matchedOrderMakerFee = matchedOrderMakerFee;
+        this.matchedOrderFees = OrderFees.of(matchedOrderTakerFee, matchedOrderMakerFee);
         this.nextEvent = nextEvent;
     }
 
@@ -226,8 +234,8 @@ public final class MatcherTradeEvent {
         private long price;
         private long size;
         private long bidderHoldPrice;
-        private long matchedOrderTakerFee;
-        private long matchedOrderMakerFee;
+        private long matchedOrderTakerFee = -1;
+        private long matchedOrderMakerFee = -1;
         private MatcherTradeEvent nextEvent;
 
         MatcherTradeEventBuilder() {

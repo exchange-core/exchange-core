@@ -4,6 +4,7 @@ import com.lmax.disruptor.RingBuffer;
 import exchange.core2.core.ExchangeApi;
 import exchange.core2.core.common.Order;
 import exchange.core2.core.common.OrderAction;
+import exchange.core2.core.common.OrderFees;
 import exchange.core2.core.common.OrderType;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
@@ -23,6 +24,7 @@ import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 class DiskSerializationProcessorTest {
 
@@ -137,8 +139,8 @@ class DiskSerializationProcessorTest {
             assertEquals(legacy.stateHash(), direct.stateHash());
 
             bytes.clear();
-            direct.orderTakerFee = 4;
-            direct.orderMakerFee = 8;
+            assertNull(direct.fees);
+            direct.fees = OrderFees.of(4, 8);
             direct.writeMarshallable(bytes);
             final var withFees = new Order(bytes);
             assertEquals(1234L, withFees.timestamp);
