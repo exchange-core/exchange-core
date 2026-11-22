@@ -24,14 +24,18 @@ import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
 import java.util.Objects;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 public final class UserProfile implements WriteBytesMarshallable, StateHash {
 
     public final long uid;
 
-    // symbol -> margin position records
-    // TODO initialize lazily (only needed if margin trading allowed)
-    public final IntObjectHashMap<SymbolPositionRecord> positions;
+    // Margin positions by symbol. Most users hold none or one, so one position is kept in a field and the
+    // map (~200 bytes even when empty) is created for the second one. At most one of the two is not null;
+    // the map stays until its last position is removed.
+    private SymbolPositionRecord singlePosition;
+    private IntObjectHashMap<SymbolPositionRecord> positionsMap;
 
     // protects from double adjustment
     public long adjustmentsCounter;
@@ -45,7 +49,6 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
     public UserProfile(long uid, UserStatus userStatus) {
         //log.debug("New {}", uid);
         this.uid = uid;
-        this.positions = new IntObjectHashMap<>();
         this.adjustmentsCounter = 0L;
         this.accounts = new IntLongHashMap();
         this.userStatus = userStatus;
@@ -56,7 +59,16 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
         this.uid = bytesIn.readLong();
 
         // positions
-        this.positions = SerializationUtils.readIntHashMap(bytesIn, b -> new SymbolPositionRecord(uid, b));
+        final int positionsCount = bytesIn.readInt();
+        if (positionsCount == 1) {
+            bytesIn.readInt(); // symbol, also stored in the record
+            this.singlePosition = new SymbolPositionRecord(uid, bytesIn);
+        } else if (positionsCount > 1) {
+            this.positionsMap = new IntObjectHashMap<>(positionsCount);
+            for (int i = 0; i < positionsCount; i++) {
+                this.positionsMap.put(bytesIn.readInt(), new SymbolPositionRecord(uid, bytesIn));
+            }
+        }
 
         // adjustmentsCounter
         this.adjustmentsCounter = bytesIn.readLong();
@@ -69,11 +81,99 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
     }
 
     public SymbolPositionRecord getPositionRecordOrThrowEx(int symbol) {
-        final SymbolPositionRecord record = positions.get(symbol);
+        final SymbolPositionRecord record = getPosition(symbol);
         if (record == null) {
             throw new IllegalStateException("not found position for symbol " + symbol);
         }
         return record;
+    }
+
+    /**
+     * @return the position for the symbol, or null
+     */
+    public SymbolPositionRecord getPosition(final int symbol) {
+        final SymbolPositionRecord single = singlePosition;
+        if (single != null) {
+            return single.symbol == symbol ? single : null;
+        }
+        final IntObjectHashMap<SymbolPositionRecord> map = positionsMap;
+        return map != null ? map.get(symbol) : null;
+    }
+
+    /**
+     * Adds the position under its symbol, replacing the one held for that symbol.
+     */
+    public void putPosition(final SymbolPositionRecord position) {
+        final IntObjectHashMap<SymbolPositionRecord> map = positionsMap;
+        if (map != null) {
+            map.put(position.symbol, position);
+        } else if (singlePosition == null || singlePosition.symbol == position.symbol) {
+            singlePosition = position;
+        } else {
+            final IntObjectHashMap<SymbolPositionRecord> created = new IntObjectHashMap<>();
+            created.put(singlePosition.symbol, singlePosition);
+            created.put(position.symbol, position);
+            singlePosition = null;
+            positionsMap = created;
+        }
+    }
+
+    /**
+     * Removes the position for the symbol, if any.
+     */
+    public void removePosition(final int symbol) {
+        final SymbolPositionRecord single = singlePosition;
+        if (single != null) {
+            if (single.symbol == symbol) {
+                singlePosition = null;
+            }
+            return;
+        }
+        final IntObjectHashMap<SymbolPositionRecord> map = positionsMap;
+        if (map != null) {
+            map.remove(symbol);
+            if (map.isEmpty()) {
+                positionsMap = null;
+            }
+        }
+    }
+
+    public int positionsCount() {
+        if (singlePosition != null) {
+            return 1;
+        }
+        return positionsMap != null ? positionsMap.size() : 0;
+    }
+
+    /**
+     * Hot loops use this and {@link #getPositionsMap()} directly to avoid lambdas: one of them is null.
+     *
+     * @return the position held outside the map, or null
+     */
+    public SymbolPositionRecord getSinglePosition() {
+        return singlePosition;
+    }
+
+    /**
+     * @return the positions map (two or more positions, or one left after removals), or null
+     */
+    public IntObjectHashMap<SymbolPositionRecord> getPositionsMap() {
+        return positionsMap;
+    }
+
+    public void forEachPosition(final Consumer<SymbolPositionRecord> consumer) {
+        if (singlePosition != null) {
+            consumer.accept(singlePosition);
+        } else if (positionsMap != null) {
+            positionsMap.forEachValue(consumer::accept);
+        }
+    }
+
+    public boolean anyPosition(final Predicate<SymbolPositionRecord> predicate) {
+        if (singlePosition != null) {
+            return predicate.test(singlePosition);
+        }
+        return positionsMap != null && positionsMap.anySatisfy(predicate::test);
     }
 
     @Override
@@ -81,8 +181,16 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
 
         bytes.writeLong(uid);
 
-        // positions
-        SerializationUtils.marshallIntHashMap(positions, bytes);
+        // positions, same format as SerializationUtils.marshallIntHashMap
+        if (singlePosition != null) {
+            bytes.writeInt(1);
+            bytes.writeInt(singlePosition.symbol);
+            singlePosition.writeMarshallable(bytes);
+        } else if (positionsMap != null) {
+            SerializationUtils.marshallIntHashMap(positionsMap, bytes);
+        } else {
+            bytes.writeInt(0);
+        }
 
         // adjustmentsCounter
         bytes.writeLong(adjustmentsCounter);
@@ -99,7 +207,7 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
     public String toString() {
         return "UserProfile{" +
                 "uid=" + uid +
-                ", positions=" + positions.size() +
+                ", positions=" + positionsCount() +
                 ", accounts=" + accounts +
                 ", adjustmentsCounter=" + adjustmentsCounter +
                 ", userStatus=" + userStatus +
@@ -110,9 +218,17 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
     public int stateHash() {
         return Objects.hash(
                 uid,
-                HashingUtils.stateHash(positions),
+                positionsStateHash(),
                 adjustmentsCounter,
                 accounts.hashCode(),
                 userStatus.hashCode());
+    }
+
+    // same value as HashingUtils.stateHash(IntObjectHashMap) over all positions
+    private int positionsStateHash() {
+        if (singlePosition != null) {
+            return Long.hashCode(Objects.hash(singlePosition.symbol, singlePosition.stateHash()));
+        }
+        return positionsMap != null ? HashingUtils.stateHash(positionsMap) : Long.hashCode(0L);
     }
 }

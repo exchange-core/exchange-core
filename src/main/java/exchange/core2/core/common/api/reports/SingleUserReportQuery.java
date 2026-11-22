@@ -78,9 +78,9 @@ public final class SingleUserReportQuery implements ReportQuery<SingleUserReport
         final UserProfile userProfile = riskEngine.getUserProfileService().getUserProfile(this.uid);
 
         if (userProfile != null) {
-            final IntObjectHashMap<SingleUserReportResult.Position> positions = new IntObjectHashMap<>(userProfile.positions.size());
-            userProfile.positions.forEachKeyValue((symbol, pos) ->
-                    positions.put(symbol, new SingleUserReportResult.Position(
+            final IntObjectHashMap<SingleUserReportResult.Position> positions = new IntObjectHashMap<>(userProfile.positionsCount());
+            userProfile.forEachPosition(pos ->
+                    positions.put(pos.symbol, new SingleUserReportResult.Position(
                             pos.currency,
                             pos.direction,
                             pos.openVolume,

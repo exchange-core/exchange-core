@@ -439,11 +439,11 @@ public final class RiskEngine implements WriteBytesMarshallable {
                 return CommandResultCode.RISK_MARGIN_TRADING_DISABLED;
             }
 
-            SymbolPositionRecord position = userProfile.positions.get(spec.symbolId); // TODO getIfAbsentPut?
+            SymbolPositionRecord position = userProfile.getPosition(spec.symbolId);
             if (position == null) {
                 position = objectsPool.get(ObjectsPool.SYMBOL_POSITION_RECORD, SymbolPositionRecord::new);
                 position.initialize(userProfile.uid, spec.symbolId, spec.quoteCurrency);
-                userProfile.positions.put(spec.symbolId, position);
+                userProfile.putPosition(position);
             }
 
             final boolean canPlaceOrder = canPlaceMarginOrder(cmd, userProfile, spec, position);
@@ -472,13 +472,12 @@ public final class RiskEngine implements WriteBytesMarshallable {
         // futures positions check for this currency
         long freeFuturesMargin = 0L;
         if (cfgMarginTradingEnabled) {
-            for (final SymbolPositionRecord position : userProfile.positions) {
-                if (position.currency == currency) {
-                    final int recSymbol = position.symbol;
-                    final CoreSymbolSpecification spec2 = symbolSpecificationProvider.getSymbolSpecification(recSymbol);
-                    // add P&L subtract margin
-                    freeFuturesMargin +=
-                            (position.estimateProfit(spec2, lastPriceCache.get(recSymbol)) - position.calculateRequiredMarginForFutures(spec2));
+            final SymbolPositionRecord single = userProfile.getSinglePosition();
+            if (single != null) {
+                freeFuturesMargin = freeFuturesMargin(single, currency);
+            } else if (userProfile.getPositionsMap() != null) {
+                for (final SymbolPositionRecord position : userProfile.getPositionsMap()) {
+                    freeFuturesMargin += freeFuturesMargin(position, currency);
                 }
             }
         }
@@ -574,17 +573,12 @@ public final class RiskEngine implements WriteBytesMarshallable {
         final int symbol = cmd.symbol;
         // calculate free margin for all positions same currency
         long freeMargin = 0L;
-        for (final SymbolPositionRecord positionRecord : userProfile.positions) {
-            final int recSymbol = positionRecord.symbol;
-            if (recSymbol != symbol) {
-                if (positionRecord.currency == spec.quoteCurrency) {
-                    final CoreSymbolSpecification spec2 = symbolSpecificationProvider.getSymbolSpecification(recSymbol);
-                    // add P&L subtract margin
-                    freeMargin += positionRecord.estimateProfit(spec2, lastPriceCache.get(recSymbol));
-                    freeMargin -= positionRecord.calculateRequiredMarginForFutures(spec2);
-                }
-            } else {
-                freeMargin = position.estimateProfit(spec, lastPriceCache.get(spec.symbolId));
+        final SymbolPositionRecord single = userProfile.getSinglePosition();
+        if (single != null) {
+            freeMargin = addFreeMargin(freeMargin, single, symbol, spec, position);
+        } else if (userProfile.getPositionsMap() != null) {
+            for (final SymbolPositionRecord positionRecord : userProfile.getPositionsMap()) {
+                freeMargin = addFreeMargin(freeMargin, positionRecord, symbol, spec, position);
             }
         }
 
@@ -593,6 +587,36 @@ public final class RiskEngine implements WriteBytesMarshallable {
 
         // check if current balance and margin can cover new required margin for symbol position
         return newRequiredMarginForSymbol <= userProfile.accounts.get(position.currency) + freeMargin;
+    }
+
+    // free margin of a position in the currency: P&L minus the required margin, 0 for other currencies
+    private long freeFuturesMargin(final SymbolPositionRecord position, final int currency) {
+        if (position.currency != currency) {
+            return 0L;
+        }
+        final int recSymbol = position.symbol;
+        final CoreSymbolSpecification spec2 = symbolSpecificationProvider.getSymbolSpecification(recSymbol);
+        return position.estimateProfit(spec2, lastPriceCache.get(recSymbol)) - position.calculateRequiredMarginForFutures(spec2);
+    }
+
+    // one step of the free margin loop in canPlaceMarginOrder, unchanged: the position of the order's symbol
+    // replaces the sum so far with its own P&L
+    private long addFreeMargin(final long freeMargin,
+                               final SymbolPositionRecord positionRecord,
+                               final int symbol,
+                               final CoreSymbolSpecification spec,
+                               final SymbolPositionRecord position) {
+        final int recSymbol = positionRecord.symbol;
+        if (recSymbol != symbol) {
+            if (positionRecord.currency == spec.quoteCurrency) {
+                final CoreSymbolSpecification spec2 = symbolSpecificationProvider.getSymbolSpecification(recSymbol);
+                // add P&L subtract margin
+                return freeMargin + positionRecord.estimateProfit(spec2, lastPriceCache.get(recSymbol))
+                        - positionRecord.calculateRequiredMarginForFutures(spec2);
+            }
+            return freeMargin;
+        }
+        return position.estimateProfit(spec, lastPriceCache.get(spec.symbolId));
     }
 
     public boolean handlerRiskRelease(final long seq, final OrderCommand cmd) {
@@ -662,14 +686,24 @@ public final class RiskEngine implements WriteBytesMarshallable {
     }
 
     private long calculateLockedMargin(UserProfile userProfile, int currency) {
+        final SymbolPositionRecord single = userProfile.getSinglePosition();
+        if (single != null) {
+            return lockedMargin(single, currency);
+        }
         long locked = 0;
-        for (SymbolPositionRecord position : userProfile.positions) {
-            if (position.currency == currency) {
-                CoreSymbolSpecification spec = symbolSpecificationProvider.getSymbolSpecification(position.symbol);
-                locked += position.calculateRequiredMarginForFutures(spec);
+        if (userProfile.getPositionsMap() != null) {
+            for (SymbolPositionRecord position : userProfile.getPositionsMap()) {
+                locked += lockedMargin(position, currency);
             }
         }
         return locked;
+    }
+
+    private long lockedMargin(final SymbolPositionRecord position, final int currency) {
+        if (position.currency != currency) {
+            return 0L;
+        }
+        return position.calculateRequiredMarginForFutures(symbolSpecificationProvider.getSymbolSpecification(position.symbol));
     }
 
     private void handleMatcherEventMargin(final MatcherTradeEvent ev,
@@ -848,7 +882,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
 
     private void removePositionRecord(SymbolPositionRecord record, UserProfile userProfile) {
         userProfile.accounts.addToValue(record.currency, record.profit);
-        userProfile.positions.removeKey(record.symbol);
+        userProfile.removePosition(record.symbol);
         objectsPool.put(ObjectsPool.SYMBOL_POSITION_RECORD, record);
     }
 
