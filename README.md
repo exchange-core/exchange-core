@@ -1,6 +1,6 @@
 # exchange-core
 [![Javadocs](https://www.javadoc.io/badge/exchange.core2/exchange-core.svg)](https://www.javadoc.io/doc/exchange.core2/exchange-core)
-[![Language grade: Java](https://img.shields.io/lgtm/grade/java/g/mzheravin/exchange-core.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/mzheravin/exchange-core/context:java)
+[![CI](https://github.com/exchange-core/exchange-core/actions/workflows/verify.yml/badge.svg?branch=master)](https://github.com/exchange-core/exchange-core/actions/workflows/verify.yml)
 [![][license img]][license]
 
 Exchange-core is an **open source market exchange core** based on 
@@ -18,6 +18,38 @@ Exchange-core includes:
 - trading, admin and reports API
 
 Applications embed exchange-core through its Java API and provide their own web UI if needed.
+
+## Quick start
+
+### Installation
+
+**Published release (Java 8).** Add [exchange-core 0.5.3](https://central.sonatype.com/artifact/exchange.core2/exchange-core/0.5.3) to your application's `pom.xml`:
+
+```xml
+<dependency>
+    <groupId>exchange.core2</groupId>
+    <artifactId>exchange-core</artifactId>
+    <version>0.5.3</version>
+</dependency>
+```
+
+To run the [release example](https://github.com/exchange-core/exchange-core/blob/exchange-core-0.5.3/src/test/java/exchange/core2/tests/examples/ITCoreExample.java),
+check out the `exchange-core-0.5.3` tag and run the command below using JDK 8.
+
+**Development branch (Java 25 or newer).** Check out `master` and run the same command using JDK 25 or newer.
+Both examples use Maven 3.6.3 or newer.
+
+```sh
+mvn -Pit "-Dtest=ITCoreExample#sampleTest" test
+```
+
+The example matches a sell order for 0.10 BTC at 154 LTC/BTC and prints `LTC fees collected: 26000` in
+`target/surefire-reports/exchange.core2.tests.examples.ITCoreExample-output.txt`. To use `master` as a dependency, run
+`mvn install` and set the dependency version to `0.5.4-SNAPSHOT`.
+
+[Usage examples](#usage-examples) · [Snapshots and recovery](#snapshots-and-recovery) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+
+## Performance
 
 Designed for high scalability and pauseless 24/7 operation under high-load conditions and providing low-latency responses:
 - 3M users having 10M accounts in total
@@ -73,25 +105,10 @@ Benchmark configuration:
 - User suspend/resume operation (reduces memory consumption).
 - Core reports API (user balances, open interest).
 
-### Installation
+## Usage examples
 
-Use the published release from Maven Central in your application's `pom.xml`.
+These examples use `master`. See [ITCoreExample.java](src/test/java/exchange/core2/tests/examples/ITCoreExample.java) for the complete test.
 
-```xml
-<dependency>
-    <groupId>exchange.core2</groupId>
-    <artifactId>exchange-core</artifactId>
-    <version>0.5.3</version>
-</dependency>
-```
-
-See the [example for version 0.5.3](https://github.com/exchange-core/exchange-core/blob/exchange-core-0.5.3/src/test/java/exchange/core2/tests/examples/ITCoreExample.java).
-
-The examples below use `master`, which requires Java 25 or newer and Maven 3.6.3 or newer.
-From a checkout, run `mvn -Pit -Dtest=ITCoreExample test` to try the [example test](src/test/java/exchange/core2/tests/examples/ITCoreExample.java).
-To use this checkout in another Maven project, run `mvn install` and use version `0.5.4-SNAPSHOT` in your dependency.
-
-### Usage examples
 Create and start empty exchange core:
 ```java
 // simple async events handler
@@ -283,15 +300,23 @@ Future<TotalCurrencyBalanceReportResult> totalsReport = api.processReport(new To
 System.out.println("LTC fees collected: " + totalsReport.get().getFees().get(currencyCodeLtc));
 ```
 
-### Snapshots and recovery
+## Snapshots and recovery
 
 With `SerializationConfiguration.DISK_JOURNALING`, schedule snapshots in your application.
 Submit `ApiPersistState.builder().dumpId(snapshotId).build()` with a unique, nonzero ID and check for `CommandResultCode.SUCCESS`.
+
+The journal writes batches to disk. A command result can arrive while the command is still in the journal buffer,
+so an abrupt stop can lose buffered commands, including commands that returned `SUCCESS`. A normal
+`ExchangeCore.shutdown()` flushes the pending journal buffer.
 
 To recover, use the same exchange ID and storage directory. Set `initStateCfg` to
 `InitialStateConfiguration.lastKnownStateFromJournal(exchangeId, snapshotId, baseSeq)` to restore that snapshot and replay its journal.
 For `baseSeq`, add the previous run's configured base sequence (zero on a clean start) to `seq` from the `RE` entry for that snapshot
 in `<exchangeId>.eca`.
+
+Keep a complete snapshot and its journal partitions together. Replay stops at a missing partition, and
+corrupted files can prevent startup. Verify balances and open orders before resuming trading, and test
+recovery on a copy of the data before changing engine versions.
 
 ### Testing
 
@@ -317,7 +342,7 @@ When embedding `master`, use the test JVM options in [pom.xml](pom.xml) as a ref
 - NUMA-aware and CPU layout custom configuration
 
 ### Contributing
-Exchange-core is an open-source project and contributions are welcome!
+See [CONTRIBUTING.md](CONTRIBUTING.md) for local checks and pull request guidance.
 
 ### Support
 - [Discussion group in Telegram (t.me/exchangecoretalks)](https://t.me/exchangecoretalks)
