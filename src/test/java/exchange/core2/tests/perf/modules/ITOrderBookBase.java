@@ -15,12 +15,12 @@
  */
 package exchange.core2.tests.perf.modules;
 
+import exchange.core2.collections.affinity.CpuAffinity;
 import exchange.core2.core.common.L2MarketData;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.tests.util.TestOrdersGenerator;
-import net.openhft.affinity.AffinityLock;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
@@ -97,7 +97,7 @@ public abstract class ITOrderBookBase {
 
     private void performanceTest(int numOrders, int targetOrderBookOrders) {
 
-        try (AffinityLock cpuLock = AffinityLock.acquireLock()) {
+        try (CpuAffinity cpu = CpuAffinity.acquireCore()) {
 
             TestOrdersGenerator.GenResult genResult = TestOrdersGenerator.generateCommands(
                     numOrders,

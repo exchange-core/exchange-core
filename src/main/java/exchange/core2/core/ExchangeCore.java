@@ -32,16 +32,15 @@ import exchange.core2.core.common.config.SerializationConfiguration;
 import exchange.core2.core.orderbook.IOrderBook;
 import exchange.core2.core.processors.*;
 import exchange.core2.core.processors.journaling.ISerializationProcessor;
+import exchange.core2.core.utils.AffinityThreadFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.*;
 import java.util.function.ObjLongConsumer;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 /**
@@ -125,39 +124,50 @@ public final class ExchangeCore {
 
         disruptor.setDefaultExceptionHandler(exceptionHandler);
 
-        // advice completable future to use the same CPU socket as disruptor
-        final ExecutorService loaderExecutor = Executors.newFixedThreadPool(matchingEnginesNum + riskEnginesNum, threadFactory);
+        // Initialize the engine shards on the same CPU socket as the Disruptor.
+        final ConcurrentLinkedQueue<Thread> loaderThreads = new ConcurrentLinkedQueue<>();
+        final ThreadFactory loaderThreadFactory = threadFactory instanceof AffinityThreadFactory
+                ? task -> {
+                    final Thread thread = threadFactory.newThread(task);
+                    loaderThreads.add(thread);
+                    return thread;
+                }
+                : threadFactory;
+        final ExecutorService loaderExecutor = Executors.newFixedThreadPool(matchingEnginesNum + riskEnginesNum, loaderThreadFactory);
 
-        // start creating matching engines
-        final Map<Integer, CompletableFuture<MatchingEngineRouter>> matchingEngineFutures = IntStream.range(0, matchingEnginesNum)
-                .boxed()
-                .collect(Collectors.toMap(
-                        shardId -> shardId,
-                        shardId -> CompletableFuture.supplyAsync(
-                                () -> new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, orderBookFactory, sharedPool, exchangeConfiguration),
-                                loaderExecutor)));
+        final EventHandler<OrderCommand>[] matchingEngineHandlers;
+        final List<RiskEngine> riskEngines;
+        try {
+            final List<CompletableFuture<MatchingEngineRouter>> matchingEngineFutures = IntStream.range(0, matchingEnginesNum)
+                    .mapToObj(shardId -> CompletableFuture.supplyAsync(
+                            () -> new MatchingEngineRouter(shardId, matchingEnginesNum, serializationProcessor, orderBookFactory, sharedPool, exchangeConfiguration),
+                            loaderExecutor))
+                    .toList();
 
-        // TODO create processors in same thread we will execute it??
+            final List<CompletableFuture<RiskEngine>> riskEngineFutures = IntStream.range(0, riskEnginesNum)
+                    .mapToObj(shardId -> CompletableFuture.supplyAsync(
+                            () -> new RiskEngine(shardId, riskEnginesNum, serializationProcessor, sharedPool, exchangeConfiguration),
+                            loaderExecutor))
+                    .toList();
 
-        // start creating risk engines
-        final Map<Integer, CompletableFuture<RiskEngine>> riskEngineFutures = IntStream.range(0, riskEnginesNum)
-                .boxed()
-                .collect(Collectors.toMap(
-                        shardId -> shardId,
-                        shardId -> CompletableFuture.supplyAsync(
-                                () -> new RiskEngine(shardId, riskEnginesNum, serializationProcessor, sharedPool, exchangeConfiguration),
-                                loaderExecutor)));
-
-        final EventHandler<OrderCommand>[] matchingEngineHandlers = matchingEngineFutures.values().stream()
-                .map(CompletableFuture::join)
-                .map(mer -> (EventHandler<OrderCommand>) (cmd, seq, eob) -> mer.processOrder(seq, cmd))
-                .toArray(ExchangeCore::newEventHandlersArray);
-
-        final Map<Integer, RiskEngine> riskEngines = riskEngineFutures.entrySet().stream()
-                .collect(Collectors.toMap(
-                        Map.Entry::getKey,
-                        entry -> entry.getValue().join()));
-
+            matchingEngineHandlers = matchingEngineFutures.stream()
+                    .map(CompletableFuture::join)
+                    .map(mer -> (EventHandler<OrderCommand>) (cmd, seq, eob) -> mer.processOrder(seq, cmd))
+                    .toArray(ExchangeCore::newEventHandlersArray);
+            riskEngines = riskEngineFutures.stream().map(CompletableFuture::join).toList();
+        } finally {
+            loaderExecutor.shutdown();
+            try {
+                loaderExecutor.awaitTermination(1, TimeUnit.SECONDS);
+                // The executor can report termination before its thread wrappers release their CPU reservations.
+                for (Thread loaderThread : loaderThreads) {
+                    loaderThread.join();
+                }
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(ex);
+            }
+        }
 
         final List<TwoStepMasterProcessor> procR1 = new ArrayList<>(riskEnginesNum);
         final List<TwoStepSlaveProcessor> procR2 = new ArrayList<>(riskEnginesNum);
@@ -175,20 +185,25 @@ public final class ExchangeCore {
             afterGrouping.handleEventsWith(jh);
         }
 
-        riskEngines.forEach((idx, riskEngine) -> afterGrouping.handleEventsWith(
-                (rb, bs) -> {
+        // Compose the groups without registering the same master processors a second time.
+        final EventHandlerGroup<OrderCommand> afterRisk = IntStream.range(0, riskEnginesNum)
+                .mapToObj(idx -> afterGrouping.handleEventsWith((rb, bs) -> {
+                    final RiskEngine riskEngine = riskEngines.get(idx);
                     final TwoStepMasterProcessor r1 = new TwoStepMasterProcessor(rb, rb.newBarrier(bs), riskEngine::preProcessCommand, exceptionHandler, coreWaitStrategy, "R1_" + idx);
                     procR1.add(r1);
                     return r1;
-                }));
+                }))
+                .reduce(EventHandlerGroup::and)
+                .orElseGet(() -> disruptor.after(new TwoStepMasterProcessor[0]));
 
-        disruptor.after(procR1.toArray(new TwoStepMasterProcessor[0])).handleEventsWith(matchingEngineHandlers);
+        afterRisk.handleEventsWith(matchingEngineHandlers);
 
         // 3. risk release (R2) after matching engine (ME)
         final EventHandlerGroup<OrderCommand> afterMatchingEngine = disruptor.after(matchingEngineHandlers);
 
-        riskEngines.forEach((idx, riskEngine) -> afterMatchingEngine.handleEventsWith(
+        IntStream.range(0, riskEnginesNum).forEach(idx -> afterMatchingEngine.handleEventsWith(
                 (rb, bs) -> {
+                    final RiskEngine riskEngine = riskEngines.get(idx);
                     final TwoStepSlaveProcessor r2 = new TwoStepSlaveProcessor(rb, rb.newBarrier(bs), riskEngine::handlerRiskRelease, exceptionHandler, "R2_" + idx);
                     procR2.add(r2);
                     return r2;
@@ -209,13 +224,6 @@ public final class ExchangeCore {
 
         // attach slave processors to master processor
         IntStream.range(0, riskEnginesNum).forEach(i -> procR1.get(i).setSlaveProcessor(procR2.get(i)));
-
-        try {
-            loaderExecutor.shutdown();
-            loaderExecutor.awaitTermination(1, TimeUnit.SECONDS);
-        } catch (InterruptedException ex) {
-            throw new RuntimeException(ex);
-        }
     }
 
     public synchronized void startup() {

@@ -69,7 +69,7 @@ Benchmark configuration:
 - Order types: Immediate-or-Cancel (`IOC`), Good-till-Cancel (`GTC`), Fill-or-Kill Budget (`FOK_BUDGET`).
 - Testing - unit-tests, integration tests, stress tests, integrity/consistency tests.
 - Low GC pressure, objects pooling, single ring-buffer.
-- Threads affinity (requires JNA).
+- Thread affinity via `collections-affinity` on Linux and Windows. The latency and throughput presets pin processing threads in pipeline order using `-Daffinity.reserved=<hex mask>` or the Linux isolated CPU list. Enable native access with `--enable-native-access=ALL-UNNAMED`.
 - User suspend/resume operation (reduces memory consumption).
 - Core reports API (user balances, open interest).
 

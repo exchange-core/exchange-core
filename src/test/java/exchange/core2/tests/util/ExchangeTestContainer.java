@@ -28,7 +28,6 @@ import exchange.core2.core.common.api.reports.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.config.*;
-import exchange.core2.core.utils.AffinityThreadFactory;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.hamcrest.core.Is;
 import org.slf4j.Logger;
@@ -218,10 +217,7 @@ public final class ExchangeTestContainer implements AutoCloseable {
 
         //log.debug("CREATING exchange container");
 
-        final ThreadFactory engineThreadFactory = perfCfg.getThreadFactory();
-        this.threadFactory = engineThreadFactory instanceof AffinityThreadFactory
-                ? new AffinityThreadFactory(AffinityThreadFactory.ThreadAffinityMode.THREAD_AFFINITY_ENABLE_PER_PHYSICAL_CORE)
-                : engineThreadFactory;
+        this.threadFactory = perfCfg.getThreadFactory();
 
         final ExchangeConfiguration exchangeConfiguration = ExchangeConfiguration.defaultBuilder()
                 .initStateCfg(initStateCfg)
