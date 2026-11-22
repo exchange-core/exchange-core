@@ -50,13 +50,13 @@ public class ThroughputTestsModule {
 
                                 assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
 
-                                // compare orderBook final state just to make sure all commands executed same way
+                                // Check the final L2 order book for each symbol.
                                 testDataFutures.coreSymbolSpecifications.join().forEach(
                                         symbol -> assertEquals(
                                                 testDataFutures.getGenResult().join().getGenResults().get(symbol.symbolId).getFinalOrderBookSnapshot(),
                                                 container.requestCurrentOrderBook(symbol.symbolId)));
 
-                                // TODO compare events, balances, positions
+                                // TODO compare matcher events, per-account balances and positions.
 
                                 container.resetExchangeCore();
 

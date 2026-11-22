@@ -23,16 +23,19 @@ import exchange.core2.tests.util.TestDataParameters;
 import exchange.core2.tests.util.ThroughputTestsModule;
 import org.junit.jupiter.api.Test;
 
+/**
+ * Measures command throughput with disk journaling enabled.
+ */
 public final class PerfThroughputJournaling {
 
     // TODO shutdown disruptor if test fails
 
     /**
-     * This is throughput test for simplified conditions
-     * - one symbol
-     * - ~1K active users (2K currency accounts)
-     * - 1K pending limit-orders (in one order book)
-     * 6-threads CPU can run this test
+     * Single-symbol margin throughput test with disk journaling.
+     * - 1K users with 2K currency accounts
+     * - 1K limit orders targeted for prefill
+     * - 3M benchmark commands per iteration, 50 iterations
+     * - 1 RE / 1 ME
      */
     @Test
     public void testThroughputMargin() {
@@ -65,12 +68,13 @@ public final class PerfThroughputJournaling {
     }
 
     /**
-     * This is medium load throughput test for verifying "triple million" capability:
-     * * - 1M active users (3M currency accounts)
-     * * - 1M pending limit-orders
-     * * - 10K symbols
-     * * - 1M+ messages per second target throughput
-     * 12-threads CPU and 32GiB RAM is required for running this test in 4+4 configuration.
+     * Medium throughput test with disk journaling.
+     * - About 1M generated users with 3.3M currency accounts
+     * - 1M limit orders targeted for prefill across 10K symbols
+     * - 3M benchmark commands per iteration, 25 iterations
+     * - 1M+ commands/s reference throughput
+     * - 2 RE / 4 ME
+     * The Medium reference run with journaling disabled used 12 hardware threads and a 24 GiB JVM heap.
      */
     @Test
     public void testThroughputMultiSymbolMedium() {
@@ -83,13 +87,12 @@ public final class PerfThroughputJournaling {
     }
 
     /**
-     * This is high load throughput test for verifying exchange core scalability:
-     * - 3M active users (10M currency accounts)
-     * - 3M pending limit-orders
-     * - 1M+ messages per second throughput
-     * - 100K symbols
-     * - less than 1 millisecond 99.99% latency
-     * 12-threads CPU and 32GiB RAM is required for running this test in 2+4 configuration.
+     * Large throughput test with disk journaling.
+     * - About 3M generated users with 10M currency accounts
+     * - 3M limit orders targeted for prefill across 50K symbols
+     * - 3M benchmark commands per iteration, 25 iterations
+     * - 1M+ commands/s reference throughput
+     * - 2 RE / 4 ME
      */
     @Test
     public void testThroughputMultiSymbolLarge() {
@@ -102,13 +105,12 @@ public final class PerfThroughputJournaling {
     }
 
     /**
-     * This is high load throughput test for verifying exchange core scalability:
-     * - 10M active users (33M currency accounts)
-     * - 30M pending limit-orders
-     * - 1M+ messages per second throughput
-     * - 200K symbols
-     * - less than 1 millisecond 99.99% latency
-     * 12-threads CPU and 32GiB RAM is required for running this test in 2+4 configuration.
+     * Huge throughput test with disk journaling.
+     * - About 10M generated users with 33M currency accounts
+     * - 30M limit orders targeted for prefill across 100K symbols
+     * - 10M benchmark commands per iteration, 25 iterations
+     * - 1M+ commands/s reference throughput
+     * - 2 RE / 4 ME
      */
     @Test
     public void testThroughputMultiSymbolHuge() {

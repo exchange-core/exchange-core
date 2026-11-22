@@ -125,7 +125,7 @@ public abstract class ITOrderBookBase {
                 }
                 t = System.currentTimeMillis() - t;
 
-                // weak compare orderBook final state just to make sure all commands executed same way
+                // Check the final L2 order book against the generated snapshot.
                 // TODO compare events
                 orderBook.validateInternalState();
                 assertThat(orderBook.stateHash(), is(genResult.getFinalOrderbookHash()));

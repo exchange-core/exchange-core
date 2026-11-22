@@ -36,9 +36,8 @@ public class TestDataParameters {
     }
 
     /**
-     * - 1M active users (3M currency accounts)
-     * - 1M pending limit-orders
-     * - 10K symbols
+     * Mixed spot and futures workload with 10,000 symbols, about 1 million generated users
+     * with 3.3 million currency accounts, a prefill target of 1 million orders and 3 million benchmark commands.
      *
      * @return medium exchange test data configuration
      */
@@ -54,9 +53,8 @@ public class TestDataParameters {
     }
 
     /**
-     * - 3M active users (10M currency accounts)
-     * - 3M pending limit-orders
-     * - 50K symbols
+     * Mixed spot and futures workload with 50,000 symbols, about 3 million generated users
+     * with 10 million currency accounts, a prefill target of 3 million orders and 3 million benchmark commands.
      *
      * @return large exchange test data configuration
      */
@@ -72,9 +70,8 @@ public class TestDataParameters {
     }
 
     /**
-     * - 10M active users (33M currency accounts)
-     * - 30M pending limit-orders
-     * - 100K symbols
+     * Mixed spot and futures workload with 100,000 symbols, about 10 million generated users
+     * with 33 million currency accounts, a prefill target of 30 million orders and 10 million benchmark commands.
      *
      * @return huge exchange test data configuration
      */

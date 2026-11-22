@@ -34,7 +34,8 @@ public class TestOrdersGeneratorConfig {
     public enum PreFillMode {
 
         ORDERS_NUMBER(TestOrdersGeneratorConfig::getTargetOrderBookOrdersTotal),
-        ORDERS_NUMBER_PLUS_QUARTER(config -> config.targetOrderBookOrdersTotal * 5 / 4); // used for snapshot tests to let some margin positions open
+        // Snapshot tests select this mode. Command generation currently uses the base prefill target.
+        ORDERS_NUMBER_PLUS_QUARTER(config -> config.targetOrderBookOrdersTotal * 5 / 4);
 
         final Function<TestOrdersGeneratorConfig, Integer> calculateReadySeqFunc;
 

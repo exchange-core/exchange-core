@@ -17,6 +17,8 @@ Exchange-core includes:
 - disk journaling and snapshots module
 - trading, admin and reports API
 
+Applications embed exchange-core through its Java API and provide their own web UI if needed.
+
 Designed for high scalability and pauseless 24/7 operation under high-load conditions and providing low-latency responses:
 - 3M users having 10M accounts in total
 - 100K order books (symbols) having 4M pending orders in total
@@ -61,10 +63,10 @@ Benchmark configuration:
 - No floating-point arithmetic, no loss of significance is possible.
 - Matching engine and risk control operations are atomic and deterministic.
 - Pipelined multi-core processing (based on LMAX Disruptor): each CPU core is responsible for certain processing stage, user accounts shard, or symbol order books shard.
-- Two different risk processing modes (specified per symbol): direct-exchange and margin-trade.
+- Spot trading and futures margin trading.
 - Maker/taker fees (defined in quote currency units).
 - Two order books implementations: simple implementation ("Naive") and performance implementation ("Direct").
-- Order types: Immediate-or-Cancel (IOC), Good-till-Cancel (GTC), Fill-or-Kill Budget (FOK-B)
+- Order types: Immediate-or-Cancel (`IOC`), Good-till-Cancel (`GTC`), Fill-or-Kill Budget (`FOK_BUDGET`).
 - Testing - unit-tests, integration tests, stress tests, integrity/consistency tests.
 - Low GC pressure, objects pooling, single ring-buffer.
 - Threads affinity (requires JNA).
@@ -72,9 +74,10 @@ Benchmark configuration:
 - Core reports API (user balances, open interest).
 
 ### Installation
-1. Install library into your Maven's local repository by running `mvn install`
-2. Add the following Maven dependency to your project's `pom.xml`:
-```
+
+Use the published release from Maven Central in your application's `pom.xml`.
+
+```xml
 <dependency>
     <groupId>exchange.core2</groupId>
     <artifactId>exchange-core</artifactId>
@@ -82,7 +85,11 @@ Benchmark configuration:
 </dependency>
 ```
 
-Alternatively, you can clone this repository and run the [example test](https://github.com/mzheravin/exchange-core/tree/master/src/test/java/exchange/core2/tests/examples/ITCoreExample.java).
+See the [example for version 0.5.3](https://github.com/exchange-core/exchange-core/blob/exchange-core-0.5.3/src/test/java/exchange/core2/tests/examples/ITCoreExample.java).
+
+The examples below use `master`, which requires Java 25 or newer and Maven 3.6.3 or newer.
+From a checkout, run `mvn -Pit -Dtest=ITCoreExample test` to try the [example test](src/test/java/exchange/core2/tests/examples/ITCoreExample.java).
+To use this checkout in another Maven project, run `mvn install` and use version `0.5.4-SNAPSHOT` in your dependency.
 
 ### Usage examples
 Create and start empty exchange core:
@@ -118,13 +125,9 @@ SimpleEventsProcessor eventsProcessor = new SimpleEventsProcessor(new IEventsHan
 // default exchange configuration
 ExchangeConfiguration conf = ExchangeConfiguration.defaultBuilder().build();
 
-// no serialization
-Supplier<ISerializationProcessor> serializationProcessorFactory = () -> DummySerializationProcessor.INSTANCE;
-
 // build exchange core
 ExchangeCore exchangeCore = ExchangeCore.builder()
         .resultsConsumer(eventsProcessor)
-        .serializationProcessorFactory(serializationProcessorFactory)
         .exchangeConfiguration(conf)
         .build();
 
@@ -134,6 +137,10 @@ exchangeCore.startup();
 // get exchange API for publishing commands
 ExchangeApi api = exchangeCore.getApi();
 ```
+
+By default, risk checks verify and reserve the required funds for spot orders and check available margin for futures orders.
+`NO_RISK_PROCESSING` skips these checks on order placement after validating the user and symbol.
+Keep a risk engine configured for user management and post-match accounting.
 
 Create new symbol:
 ```java
@@ -156,8 +163,11 @@ CoreSymbolSpecification symbolSpecXbtLtc = CoreSymbolSpecification.builder()
         .makerFee(700L)         // maker fee 700 litoshi per 1 lot
         .build();
 
-future = api.submitBinaryDataAsync(new BatchAddSymbolsCommand(symbolSpecXbtLtc));
+Future<CommandResultCode> future = api.submitBinaryDataAsync(new BatchAddSymbolsCommand(symbolSpecXbtLtc));
 ```
+
+For spot symbols, `baseScaleK` is the lot size in base currency units. For `FUTURES_CONTRACT`, order size is a contract count,
+and `marginBuy` and `marginSell` specify margin per contract in the contract currency (`quoteCurrency`).
 
 Create new users:
 ```java
@@ -172,7 +182,7 @@ future = api.submitCommandAsync(ApiAddUser.builder()
         .build());
 ```
 
-Perform deposits:
+Check the deposit result before reading the balance or using the funds.
 ```java
 // first user deposits 20 LTC
 future = api.submitCommandAsync(ApiAdjustUserBalance.builder()
@@ -181,6 +191,10 @@ future = api.submitCommandAsync(ApiAdjustUserBalance.builder()
         .amount(2_000_000_000L)
         .transactionId(1L)
         .build());
+CommandResultCode depositResult = future.get();
+if (depositResult != CommandResultCode.SUCCESS) {
+    throw new IllegalStateException("Deposit failed: " + depositResult);
+}
 
 // second user deposits 0.10 BTC
 future = api.submitCommandAsync(ApiAdjustUserBalance.builder()
@@ -191,7 +205,14 @@ future = api.submitCommandAsync(ApiAdjustUserBalance.builder()
         .build());
 ```
 
-Place orders:
+Both order books support three order types.
+
+- `GTC` fills at the limit price or better and keeps any unfilled quantity on the book. Set `price` in price steps per lot.
+- `IOC` fills immediately up to the available quantity at the limit price or better and cancels the remainder.
+- `FOK_BUDGET` fills the entire quantity immediately or rejects it. Set `price` to the maximum total cost for a buy or
+  the minimum total proceeds for a sell, before fees. The matcher compares this limit to the sum of `fillPrice * fillSize`.
+  For spot buys, set `reservePrice` to the same limit.
+
 ```java
 // first user places Good-till-Cancel Bid order
 // he assumes BTCLTC exchange rate 154 LTC for 1 BTC
@@ -208,7 +229,7 @@ future = api.submitCommandAsync(ApiPlaceOrder.builder()
         .build());
 
 // second user places Immediate-or-Cancel Ask (Sell) order
-// he assumes wost rate to sell 152.5 LTC for 1 BTC
+// he assumes worst rate to sell 152.5 LTC for 1 BTC
 future = api.submitCommandAsync(ApiPlaceOrder.builder()
         .uid(302L)
         .orderId(5002L)
@@ -220,9 +241,12 @@ future = api.submitCommandAsync(ApiPlaceOrder.builder()
         .build());
 ```
 
+Check the `CommandResultCode` returned by `submitCommandAsync` for command failures, and handle unfilled quantities reported through `IEventsHandler.rejectEvent`.
+The core logs unhandled processing exceptions and initiates shutdown.
+
 Request order book:
 ```java
-future = api.requestOrderBookAsync(symbolXbtLtc, 10);
+Future<L2MarketData> orderBook = api.requestOrderBookAsync(symbolXbtLtc, 10);
 ```
 
 GtC orders manipulations:
@@ -243,9 +267,13 @@ future = api.submitCommandAsync(ApiCancelOrder.builder()
         .build());
 ```
 
-Check user balance and GtC orders:
+Query user balances and open orders. After a successful report, read the account map by currency ID.
 ```java
-Future<SingleUserReportResult> report = api.processReport(new SingleUserReportQuery(301), 0);
+SingleUserReportResult report = api.processReport(new SingleUserReportQuery(301L), 0).get();
+if (report.getQueryExecutionStatus() == SingleUserReportResult.QueryExecutionStatus.OK) {
+    long ltcBalance = report.getAccounts().get(currencyCodeLtc);
+    System.out.println("Available LTC balance in litoshi: " + ltcBalance);
+}
 ```
 
 Check system balance:
@@ -255,11 +283,19 @@ Future<TotalCurrencyBalanceReportResult> totalsReport = api.processReport(new To
 System.out.println("LTC fees collected: " + totalsReport.get().getFees().get(currencyCodeLtc));
 ```
 
+### Snapshots and recovery
+
+With `SerializationConfiguration.DISK_JOURNALING`, schedule snapshots in your application.
+Submit `ApiPersistState.builder().dumpId(snapshotId).build()` with a unique, nonzero ID and check for `CommandResultCode.SUCCESS`.
+
+To recover, use the same exchange ID and storage directory. Set `initStateCfg` to
+`InitialStateConfiguration.lastKnownStateFromJournal(exchangeId, snapshotId, baseSeq)` to restore that snapshot and replay its journal.
+For `baseSeq`, add the previous run's configured base sequence (zero on a clean start) to `seq` from the `RE` entry for that snapshot
+in `<exchangeId>.eca`.
+
 ### Testing
 
-Build and run exchange-core with Java 25 or newer. Maven 3.6.3 or newer is required for the build.
-The test JVM options in `pom.xml` also document the native access and module flags
-needed when running an application that embeds exchange-core.
+When embedding `master`, use the test JVM options in [pom.xml](pom.xml) as a reference for native access and module flags.
 
 - `mvn test` runs unit tests and Cucumber scenarios. Cucumber HTML reports are in `target/cucumber`.
 - `mvn -Pit test` runs the integration suite. Dedicated stress tests and benchmarks run separately.

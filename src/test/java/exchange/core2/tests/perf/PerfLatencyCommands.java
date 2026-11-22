@@ -22,13 +22,17 @@ import org.junit.jupiter.api.Test;
 
 import static exchange.core2.tests.util.LatencyTestsModule.individualLatencyTest;
 
+/**
+ * Submits one command at a time and reports per-command latency minima across repeated runs.
+ */
 public final class PerfLatencyCommands {
 
     /**
-     * - one symbol (margin mode)
-     * - ~1K active users (2K currency accounts)
-     * - 1K pending limit-orders (in one order book)
-     * 6-threads CPU can run this test
+     * Per-command latency for a single margin symbol.
+     * - 1K users with 2K currency accounts
+     * - 1K limit orders targeted for prefill
+     * - 3M benchmark commands per iteration, one command in flight at a time
+     * - 1 RE / 1 ME
      */
     @Test
     public void testLatencyMargin() {
@@ -45,10 +49,11 @@ public final class PerfLatencyCommands {
 
 
     /**
-     * - one symbol (exchange mode)
-     * - ~1K active users (2K currency accounts)
-     * - 1K pending limit-orders (in one order book)
-     * 6-threads CPU can run this test
+     * Per-command latency for a single spot symbol.
+     * - 1K users with 2K currency accounts
+     * - 1K limit orders targeted for prefill
+     * - 3M benchmark commands per iteration, one command in flight at a time
+     * - 1 RE / 1 ME
      */
     @Test
     public void testLatencyExchange() {
@@ -65,12 +70,11 @@ public final class PerfLatencyCommands {
 
 
     /**
-     * - 1M active users (3M currency accounts)
-     * - 1M pending limit-orders
-     * - 1M+ messages per second throughput
-     * - 10K symbols
-     * - less than 1 millisecond 99.99% latency
-     * 12-threads CPU and 32GiB RAM is required for running this test in 2+4 configuration.
+     * Medium per-command latency test.
+     * - About 1M generated users with 3.3M currency accounts
+     * - 1M limit orders targeted for prefill across 10K symbols
+     * - 3M benchmark commands per iteration, one command in flight at a time
+     * - 2 RE / 4 ME
      */
     @Test
     public void testLatencyMultiSymbolMedium() {

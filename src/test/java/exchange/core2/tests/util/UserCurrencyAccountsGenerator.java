@@ -30,14 +30,12 @@ public final class UserCurrencyAccountsGenerator {
     private static final Logger log = LoggerFactory.getLogger(UserCurrencyAccountsGenerator.class);
 
     /**
-     * Generates random users and different currencies they should have, so the total account is between
-     * accountsToCreate and accountsToCreate+currencies.size()
-     * <p>
-     * In average each user will have account for 4 symbols (between 1 and currencies,size)
+     * Allocates the requested number of currency accounts across generated users.
+     * The number of users depends on how many currencies each user receives.
      *
-     * @param accountsToCreate
-     * @param currencies
-     * @return n + 1 uid records with allowed currencies
+     * @param accountsToCreate total number of currency accounts to generate
+     * @param currencies currencies available to each generated user
+     * @return each user's currency set indexed by UID, with an empty entry at index zero
      */
     public static List<BitSet> generateUsers(final int accountsToCreate, Collection<Integer> currencies) {
         log.debug("Generating users with {} accounts ({} currencies)...", accountsToCreate, currencies.size());
@@ -73,8 +71,7 @@ public final class UserCurrencyAccountsGenerator {
 
     public static int[] createUserListForSymbol(final List<BitSet> users2currencies, final CoreSymbolSpecification spec, int symbolMessagesExpected) {
 
-        // we would prefer to choose from same number of users as number of messages to be generated in tests
-        // at least 2 users are required, but not more than half of all users provided
+        // Target one eligible user per five expected commands, with a minimum target of two if the pool allows.
         int numUsersToSelect = Math.min(users2currencies.size(), Math.max(2, symbolMessagesExpected / 5));
 
         final ArrayList<Integer> uids = new ArrayList<>();

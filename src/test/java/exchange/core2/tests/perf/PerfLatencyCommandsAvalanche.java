@@ -64,10 +64,12 @@ public final class PerfLatencyCommandsAvalanche {
 
 
     /**
-     * Avalanche IoC orders test to verify matching performance for big-size taker orders. </br>
-     * Why 4R1M configuration:</br>
-     * Less matching engines provides better individual command latency - due to less interference. </br>
-     * More risk engines provide better individual command latency because of parallel processing R2 stage (0.5 + 0.5/N) </br>
+     * Medium per-command latency test with large IOC taker orders.
+     * - About 1M generated users with 3.3M currency accounts
+     * - 1M limit orders targeted for prefill across 2K symbols
+     * - 3M benchmark commands per iteration, one command in flight at a time
+     * - 4 RE / 1 ME
+     * One matching engine serves all symbols and four risk engines split risk processing by user.
      */
     @Test
     public void testLatencyMultiSymbolMediumAvalancheIOC() {

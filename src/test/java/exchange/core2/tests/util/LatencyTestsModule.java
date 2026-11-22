@@ -73,7 +73,7 @@ public class LatencyTestsModule {
             final ExchangeApi api = container.getApi();
             final SingleWriterRecorder hdrRecorder = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
 
-            // TODO - first run should validate the output (orders are accepted and processed properly)
+            // TODO validate each command's result code.
 
             final BiFunction<Integer, Boolean, Boolean> testIteration = (tps, warmup) -> {
                 try {
@@ -113,7 +113,7 @@ public class LatencyTestsModule {
                     final Histogram histogram = hdrRecorder.getIntervalHistogram();
                     log.info("{} {}", tag, LatencyTools.createLatencyReportFast(histogram));
 
-                    // compare orderBook final state just to make sure all commands executed same way
+                    // Check the final L2 order book for each symbol.
                     testDataFutures.coreSymbolSpecifications.join().forEach(
                             symbol -> assertEquals(
                                     testDataFutures.getGenResult().join().getGenResults().get(symbol.symbolId).getFinalOrderBookSnapshot(),
@@ -132,7 +132,7 @@ public class LatencyTestsModule {
                     System.gc();
                     Thread.sleep(500);
 
-                    // stop testing if median latency above 1 millisecond
+                    // End the measured sweep when median latency reaches 10 ms.
                     return warmup || histogram.getValueAtPercentile(50.0) < 10_000_000;
 
                 } catch (InterruptedException | FileNotFoundException ex) {
@@ -164,8 +164,6 @@ public class LatencyTestsModule {
         Arrays.fill(minLatencies, Integer.MAX_VALUE);
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(performanceConfiguration, initialStateConfiguration, SerializationConfiguration.DEFAULT)) {
-
-            // TODO - first run should validate the output (orders are accepted and processed properly)
 
             final Function<Integer, Boolean> testIteration = (step) -> {
 
@@ -286,7 +284,6 @@ public class LatencyTestsModule {
                     System.gc();
                     Thread.sleep(500);
 
-                    // stop testing if median latency above 1 millisecond
                     return true;
 
                 } catch (InterruptedException ex) {
@@ -323,7 +320,7 @@ public class LatencyTestsModule {
 
         final int targetTps = 500_000; // transactions per second
 
-        // will print each occurrence if latency>0.2ms
+        // Record delays above 0.2 ms. Delays in the same millisecond are merged below.
         final long hiccupThresholdNs = 200_000;
 
         final ExchangeTestContainer.TestDataFutures testDataFutures = ExchangeTestContainer.prepareTestDataAsync(testDataParameters, 1);

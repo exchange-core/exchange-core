@@ -26,11 +26,12 @@ public final class PerfPersistence {
 
 
     /**
-     * This is serialization test for simplified conditions
-     * - one symbol
-     * - ~1K active users (2K currency accounts)
-     * - 1K pending limit-orders (in one order book)
-     * 6-threads CPU can run this test
+     * Single-symbol margin snapshot test.
+     * - 1K users with 2K currency accounts
+     * - 1K limit orders targeted for prefill
+     * - 3M benchmark commands per pass, run before and after restore in each of 10 iterations
+     * - 1 RE / 1 ME
+     * Checks the restored state hash and balances.
      */
     @Test
     public void testPersistenceMargin() throws Exception {
@@ -63,8 +64,12 @@ public final class PerfPersistence {
     }
 
     /**
-     * This is serialization test for verifying "triple million" capability.
-     * This test requires 10+ GiB free disk space, 16+ GiB of RAM and 12-threads CPU
+     * Medium snapshot test.
+     * - About 1M generated users with 3.3M currency accounts
+     * - 1M limit orders targeted for prefill across 10K symbols
+     * - 3M benchmark commands per pass, run before and after restore in each of 25 iterations
+     * - 2 RE / 4 ME
+     * Checks the restored state hash and balances. Each iteration writes a snapshot to disk.
      */
     @Test
     public void testPersistenceMultiSymbolMedium() throws Exception {

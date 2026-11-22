@@ -42,6 +42,10 @@ import static org.hamcrest.core.Is.is;
 import static org.hamcrest.number.OrderingComparison.greaterThan;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+/**
+ * Runs a single-symbol stress scenario with 1,000 users, 1,000 prefill orders and 1 million
+ * subsequent commands. Checks the final L2 book, book depth and total client balances by currency.
+ */
 public abstract class ITExchangeCoreIntegrationStress {
 
     private static final Logger log = LoggerFactory.getLogger(ITExchangeCoreIntegrationStress.class);
@@ -109,8 +113,8 @@ public abstract class ITExchangeCoreIntegrationStress {
             }
             ordersLatch.await();
 
-            // compare orderBook final state just to make sure all commands executed same way
-            // TODO compare events, wait until finish
+            // Check the final L2 snapshot and depth after all command results arrive.
+            // TODO compare matcher events.
             final L2MarketData l2MarketData = container.requestCurrentOrderBook(symbolSpec.getSymbolId());
             assertEquals(genResult.getFinalOrderBookSnapshot(), l2MarketData);
             assertThat(l2MarketData.askSize, greaterThan(10));
