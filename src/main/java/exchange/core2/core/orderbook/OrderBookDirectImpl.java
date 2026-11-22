@@ -69,6 +69,12 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
     private final OrdersProcessingConfiguration.SelfTradeProtectionMode cfgSelfTradeProtectionMode;
 
+    // CANCEL_NEWEST, checked for every maker order in the matching loop
+    private final boolean cfgCancelNewestOnSelfTrade;
+
+    // shares OrderFees instances between resting orders with the same overrides
+    private final OrderFees.Cache feesCache = new OrderFees.Cache();
+
     public OrderBookDirectImpl(final CoreSymbolSpecification symbolSpec,
                                final ObjectsPool objectsPool,
                                final OrderBookEventsHelper eventsHelper,
@@ -92,6 +98,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         this.cfgSelfTradeProtectionMode = (ordersProcCfg != null && ordersProcCfg.getSelfTradeProtectionMode() != null)
                 ? ordersProcCfg.getSelfTradeProtectionMode()
                 : OrdersProcessingConfiguration.SelfTradeProtectionMode.IGNORE;
+        this.cfgCancelNewestOnSelfTrade = cfgSelfTradeProtectionMode == OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST;
     }
 
     public OrderBookDirectImpl(final BytesIn bytes,
@@ -117,6 +124,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         this.cfgSelfTradeProtectionMode = (ordersProcCfg != null && ordersProcCfg.getSelfTradeProtectionMode() != null)
                 ? ordersProcCfg.getSelfTradeProtectionMode()
                 : OrdersProcessingConfiguration.SelfTradeProtectionMode.IGNORE;
+        this.cfgCancelNewestOnSelfTrade = cfgSelfTradeProtectionMode == OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST;
 
         final int size = bytes.readInt();
         for (int i = 0; i < size; i++) {
@@ -182,8 +190,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         orderRecord.reserveBidPrice = cmd.reserveBidPrice;
         orderRecord.action = cmd.action;
         orderRecord.uid = cmd.uid;
-        orderRecord.orderTakerFee = cmd.orderTakerFee;
-        orderRecord.orderMakerFee = cmd.orderMakerFee;
+        orderRecord.fees = feesCache.get(cmd.orderTakerFee, cmd.orderMakerFee);
         orderRecord.timestamp = cmd.timestamp;
         orderRecord.filled = filledSize;
 
@@ -204,11 +211,45 @@ public final class OrderBookDirectImpl implements IOrderBook {
     }
 
     private void newOrderMatchFokBudget(final OrderCommand cmd) {
-        if (IOrderBook.canFillBudget(this, cmd, cfgSelfTradeProtectionMode)) {
+        final boolean canFill = cfgCancelNewestOnSelfTrade
+                ? IOrderBook.canFillBudget(this, cmd, cfgSelfTradeProtectionMode) // must stop at the first own order
+                : canFillBudgetByBuckets(cmd);
+        if (canFill) {
             tryMatchInstantly(cmd, cmd);
         } else {
             eventsHelper.attachRejectEvent(cmd, cmd.size);
         }
+    }
+
+    /**
+     * Same result as {@link IOrderBook#canFillBudget} without self-trade protection,
+     * but walks price buckets instead of orders and allocates nothing.
+     * All orders of a bucket have the same price, and bucket volume is the sum of their unfilled sizes.
+     */
+    private boolean canFillBudgetByBuckets(final OrderCommand cmd) {
+        if (cmd.size <= 0) {
+            return false;
+        }
+        final boolean buy = cmd.action == OrderAction.BID;
+        DirectOrder makerOrder = buy ? bestAskOrder : bestBidOrder;
+        long remaining = cmd.size;
+        long total = 0;
+        try {
+            while (makerOrder != null) {
+                final Bucket bucket = makerOrder.parent;
+                final long quantity = Math.min(remaining, bucket.volume);
+                total = Math.addExact(total, Math.multiplyExact(quantity, makerOrder.price));
+                remaining -= quantity;
+                if (remaining == 0) {
+                    return buy ? total <= cmd.price : total >= cmd.price;
+                }
+                // first order of the next price
+                makerOrder = bucket.tail.prev;
+            }
+        } catch (ArithmeticException overflow) {
+            return false;
+        }
+        return false;
     }
 
     private long tryMatchInstantly(final IOrder takerOrder,
@@ -256,8 +297,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         // iterate through all orders
         do {
 
-            if (cfgSelfTradeProtectionMode == OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST
-                    && makerOrder.uid == takerUid) {
+            if (cfgCancelNewestOnSelfTrade && makerOrder.uid == takerUid) {
                 selfTradeDetected = true;
                 break;
             }
@@ -745,6 +785,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
                         .reserveBidPrice(order.reserveBidPrice)
                         .action(order.action)
                         .uid(order.uid)
+                        .orderTakerFee(order.getOrderTakerFee())
+                        .orderMakerFee(order.getOrderMakerFee())
                         .timestamp(order.timestamp)
                         .build());
             }
@@ -828,11 +870,10 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         public long uid;
 
-        public long orderTakerFee = -1;
-
-        public long orderMakerFee = -1;
-
         public long timestamp;
+
+        // fee overrides, null for symbol fees; a reference instead of two longs keeps the object at 88 bytes
+        public OrderFees fees;
 
         // fast orders structure
 
@@ -858,9 +899,11 @@ public final class OrderBookDirectImpl implements IOrderBook {
             final byte actionAndFlags = bytes.readByte();
             this.action = OrderAction.of((byte) (actionAndFlags & ~Order.FEE_OVERRIDES_FLAG));
             this.uid = bytes.readLong(); // uid
-            final boolean hasFees = (actionAndFlags & Order.FEE_OVERRIDES_FLAG) != 0;
-            this.orderTakerFee = hasFees ? bytes.readLong() : -1;
-            this.orderMakerFee = hasFees ? bytes.readLong() : -1;
+            if ((actionAndFlags & Order.FEE_OVERRIDES_FLAG) != 0) {
+                final long takerFee = bytes.readLong();
+                final long makerFee = bytes.readLong();
+                this.fees = OrderFees.of(takerFee, makerFee);
+            }
             this.timestamp = bytes.readLong(); // timestamp
             // this.userCookie = bytes.readInt();  // userCookie
 
@@ -877,7 +920,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
             return "[" + orderId + " " + (action == OrderAction.ASK ? 'A' : 'B')
                     + price + ":" + size + "F" + filled
                     // + " C" + userCookie
-                    + " U" + uid + " fX" + orderTakerFee + " fY" + orderMakerFee + "]";
+                    + " U" + uid + " fX" + getOrderTakerFee() + " fY" + getOrderMakerFee() + "]";
         }
 
         @Override
@@ -905,8 +948,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
                     && reserveBidPrice == other.reserveBidPrice
                     && filled == other.filled
                     && uid == other.uid
-                    && orderTakerFee == other.orderTakerFee
-                    && orderMakerFee == other.orderMakerFee;
+                    && getOrderTakerFee() == other.getOrderTakerFee()
+                    && getOrderMakerFee() == other.getOrderMakerFee();
         }
 
         @Override
@@ -938,8 +981,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
             this.reserveBidPrice = reserveBidPrice;
             this.action = action;
             this.uid = uid;
-            this.orderTakerFee = orderTakerFee;
-            this.orderMakerFee = orderMakerFee;
+            this.fees = OrderFees.of(orderTakerFee, orderMakerFee);
             this.timestamp = timestamp;
             this.parent = parent;
             this.next = next;
@@ -980,12 +1022,17 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         @Override
         public long getOrderTakerFee() {
-            return orderTakerFee;
+            return OrderFees.takerFee(fees);
         }
 
         @Override
         public long getOrderMakerFee() {
-            return orderMakerFee;
+            return OrderFees.makerFee(fees);
+        }
+
+        @Override
+        public OrderFees getOrderFees() {
+            return fees;
         }
 
         public long getTimestamp() {
@@ -1000,8 +1047,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
             private long reserveBidPrice;
             private OrderAction action;
             private long uid;
-            private long orderTakerFee;
-            private long orderMakerFee;
+            private long orderTakerFee = -1;
+            private long orderMakerFee = -1;
             private long timestamp;
             private Bucket parent;
             private DirectOrder next;

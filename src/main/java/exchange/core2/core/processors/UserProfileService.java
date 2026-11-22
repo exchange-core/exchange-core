@@ -190,7 +190,7 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
 
         } else {
             userProfiles.remove(uid);
-            log.debug("Suspended user profile: {}", userProfile);
+            log.debug("Removed user profile: {}", userProfile);
             // TODO pool UserProfile objects
             return CommandResultCode.SUCCESS;
         }
