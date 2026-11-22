@@ -141,7 +141,7 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
         } else if (userProfile.userStatus == UserStatus.SUSPENDED) {
             return CommandResultCode.USER_MGMT_USER_ALREADY_SUSPENDED;
 
-        } else if (userProfile.positions.anySatisfy(pos -> !pos.isEmpty())) {
+        } else if (userProfile.anyPosition(pos -> !pos.isEmpty())) {
             return CommandResultCode.USER_MGMT_USER_NOT_SUSPENDABLE_HAS_POSITIONS;
 
         } else if (userProfile.accounts.anySatisfy(acc -> acc != 0)) {
@@ -182,7 +182,7 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
         if (userProfile == null) {
             return CommandResultCode.USER_MGMT_USER_NOT_FOUND;
 
-        } else if (userProfile.positions.anySatisfy(pos -> !pos.isEmpty())) {
+        } else if (userProfile.anyPosition(pos -> !pos.isEmpty())) {
             return CommandResultCode.USER_MGMT_USER_NOT_REMOVABLE_HAS_POSITIONS;
 
         } else if (userProfile.accounts.anySatisfy(acc -> acc != 0)) {
