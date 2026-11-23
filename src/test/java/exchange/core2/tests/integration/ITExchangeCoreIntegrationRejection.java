@@ -22,6 +22,7 @@ import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.OrderType;
 import exchange.core2.core.common.SymbolType;
 import exchange.core2.core.common.api.ApiPlaceOrder;
+import exchange.core2.core.common.api.reports.TotalCurrencyBalanceReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
@@ -281,6 +282,11 @@ public abstract class ITExchangeCoreIntegrationRejection {
                         container.submitCommandSync(builderPlace(sym, UID_2, BID, GTC).orderId(orderId++).price(1000L).size(1L).build(), CommandResultCode.SUCCESS);
                         container.requestCurrentOrderBook(sym);
                     }
+
+                    // The report starts a new group, so risk release applies the trades and book prices first.
+                    final TotalCurrencyBalanceReportResult positions = container.totalBalanceReport();
+                    assertThat(positions.getOpenInterestLong().get(symbolA), Is.is(1L));
+                    assertThat(positions.getOpenInterestLong().get(symbolB), Is.is(1L));
 
                     container.submitCommandSync(builderPlace(targetSymbol, UID_1, BID, GTC).orderId(orderId).price(1000L).size(1L).build(), expected);
                     assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
