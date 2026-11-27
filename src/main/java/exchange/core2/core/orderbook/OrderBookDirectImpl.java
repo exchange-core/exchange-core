@@ -172,14 +172,6 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         final long orderIdHi = cmd.orderIdHi;
         final long orderIdLo = cmd.orderIdLo;
-        // TODO eliminate double hashtable lookup?
-        if (orderIdIndex.get(orderIdHi, orderIdLo) != null) { // containsKey for hashtable
-            // duplicate order id - can match, but can not place
-            eventsHelper.attachRejectEvent(cmd, size - filledSize);
-            log.warn("duplicate order id: {}", cmd);
-            return;
-        }
-
         final long price = cmd.price;
 
         // normally placing regular GTC order
@@ -197,7 +189,14 @@ public final class OrderBookDirectImpl implements IOrderBook {
         orderRecord.timestamp = cmd.timestamp;
         orderRecord.filled = filledSize;
 
-        orderIdIndex.put(orderIdHi, orderIdLo, orderRecord);
+        // one probe checks for a duplicate and inserts
+        if (orderIdIndex.putIfAbsent(orderIdHi, orderIdLo, orderRecord) != null) {
+            // duplicate order id - can match, but can not place
+            objectsPool.put(ObjectsPool.DIRECT_ORDER, orderRecord);
+            eventsHelper.attachRejectEvent(cmd, size - filledSize);
+            log.warn("duplicate order id: {}", cmd);
+            return;
+        }
         insertOrder(orderRecord, null);
     }
 
