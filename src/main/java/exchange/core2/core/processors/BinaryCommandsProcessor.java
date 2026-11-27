@@ -102,13 +102,13 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
         final TransferRecord record = incomingData.getIfAbsentPut(
                 transferId,
                 () -> {
-                    final int bytesLength = (int) (cmd.orderId >> 32) & 0x7FFF_FFFF;
+                    final int bytesLength = (int) (cmd.orderIdLo >> 32) & 0x7FFF_FFFF;
                     final int longArraySize = SerializationUtils.requiredLongArraySize(bytesLength, ExchangeApi.LONGS_PER_MESSAGE);
 //            log.debug("EXPECTED: bytesLength={} longArraySize={}", bytesLength, longArraySize);
                     return new TransferRecord(longArraySize);
                 });
 
-        record.addWord(cmd.orderId);
+        record.addWord(cmd.orderIdLo);
         record.addWord(cmd.price);
         record.addWord(cmd.reserveBidPrice);
         record.addWord(cmd.size);

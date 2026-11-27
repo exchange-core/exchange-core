@@ -69,13 +69,13 @@ class DiskSerializationProcessorTest {
         final var writer = createProcessor(journalDirectory, initial, compressor);
         writer.enableJournaling(0, new ExchangeApi(RingBuffer.createSingleProducer(OrderCommand::new, 8), compressor));
 
-        final OrderCommand first = OrderCommand.newOrder(OrderType.GTC, 100, TestConstants.uidOf(7), 10, 12, 3, OrderAction.BID);
+        final OrderCommand first = OrderCommand.newOrder(OrderType.GTC, TestConstants.orderIdOf(100), TestConstants.uidOf(7), 10, 12, 3, OrderAction.BID);
         writer.writeToJournal(first, 1, true);
         final OrderCommand suspend = new OrderCommand();
         suspend.command = OrderCommandType.SUSPEND_USER;
         suspend.setUid(TestConstants.uidOf(42));
         writer.writeToJournal(suspend, 2, true);
-        final OrderCommand withFees = OrderCommand.newOrder(OrderType.GTC, 101, TestConstants.uidOf(8), 11, 11, 4, OrderAction.ASK);
+        final OrderCommand withFees = OrderCommand.newOrder(OrderType.GTC, TestConstants.orderIdOf(101), TestConstants.uidOf(8), 11, 11, 4, OrderAction.ASK);
         withFees.orderTakerFee = 4;
         withFees.orderMakerFee = 9;
         writer.writeToJournal(withFees, 3, true);
@@ -83,13 +83,13 @@ class DiskSerializationProcessorTest {
         withdrawal.command = OrderCommandType.BALANCE_ADJUSTMENT;
         withdrawal.setUid(TestConstants.uidOf(7));
         withdrawal.symbol = 20;
-        withdrawal.orderId = 2;
+        withdrawal.orderIdLo = 2;
         withdrawal.price = -3;
         withdrawal.orderType = OrderType.GTC;
         withdrawal.serviceFlags = OrderCommand.LEGACY_WITHDRAWAL_REPLAY;
         writer.writeToJournal(withdrawal, 4, true);
         withdrawal.serviceFlags = 0;
-        withdrawal.orderId = 3;
+        withdrawal.orderIdLo = 3;
         writer.writeToJournal(withdrawal, 5, true);
         final OrderCommand shutdown = new OrderCommand();
         shutdown.command = OrderCommandType.SHUTDOWN_SIGNAL;
@@ -98,7 +98,7 @@ class DiskSerializationProcessorTest {
         // Validate the boundaries of the two legacy records independently of the reader.
         final byte[] data = Files.readAllBytes(journalDirectory.resolve("test_journal_0_0001.ecj"));
         assertEquals(OrderCommandType.PLACE_ORDER.getCode(), data[0]);
-        final int legacyPlaceOrderLength = 86;
+        final int legacyPlaceOrderLength = 94;
         final int legacySuspendLength = 45;
         assertEquals(OrderCommandType.SUSPEND_USER.getCode(), data[legacyPlaceOrderLength]);
         assertEquals(5, data[legacyPlaceOrderLength + legacySuspendLength]);
@@ -107,12 +107,12 @@ class DiskSerializationProcessorTest {
         final var reader = createProcessor(journalDirectory, replay, compressor);
         final var ring = RingBuffer.createSingleProducer(OrderCommand::new, 8);
         assertEquals(5L, reader.replayJournalFull(replay, new ExchangeApi(ring, compressor)));
-        assertEquals(100L, ring.get(1).orderId);
+        assertEquals(TestConstants.orderIdOf(100), ring.get(1).getOrderId());
         assertEquals(-1L, ring.get(1).orderTakerFee);
         assertEquals(-1L, ring.get(1).orderMakerFee);
         assertEquals(OrderCommandType.SUSPEND_USER, ring.get(2).command);
         assertEquals(TestConstants.uidOf(42), ring.get(2).getUid());
-        assertEquals(101L, ring.get(3).orderId);
+        assertEquals(TestConstants.orderIdOf(101), ring.get(3).getOrderId());
         assertEquals(4L, ring.get(3).orderTakerFee);
         assertEquals(9L, ring.get(3).orderMakerFee);
         assertEquals(OrderCommandType.BALANCE_ADJUSTMENT, ring.get(4).command);
@@ -125,7 +125,7 @@ class DiskSerializationProcessorTest {
     void shouldReadLegacyOrdersAndKeepFeeOverridesInSnapshots() {
         final var bytes = Bytes.allocateElasticOnHeap();
         try {
-            bytes.writeLong(77).writeLong(100).writeLong(5).writeLong(2).writeLong(110);
+            bytes.writeLong(0).writeLong(77).writeLong(100).writeLong(5).writeLong(2).writeLong(110);
             bytes.writeByte(OrderAction.BID.getCode()).writeLong(0).writeLong(8).writeLong(1234);
             final var legacy = new Order(bytes);
             assertEquals(1234L, legacy.timestamp);
@@ -134,9 +134,10 @@ class DiskSerializationProcessorTest {
 
             bytes.clear();
             legacy.writeMarshallable(bytes);
-            assertEquals(65L, bytes.writePosition());
+            assertEquals(73L, bytes.writePosition());
             final var direct = new DirectOrder(bytes);
-            assertEquals(77L, direct.orderId);
+            assertEquals(0L, direct.orderIdHi);
+            assertEquals(77L, direct.orderIdLo);
             assertEquals(legacy.stateHash(), direct.stateHash());
 
             bytes.clear();

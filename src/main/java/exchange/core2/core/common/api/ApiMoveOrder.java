@@ -20,7 +20,7 @@ import java.util.UUID;
 
 public final class ApiMoveOrder extends ApiCommand {
 
-    public final long orderId;
+    public final UUID orderId;
 
     public final long newPrice;
 
@@ -32,7 +32,7 @@ public final class ApiMoveOrder extends ApiCommand {
         return "[MOVE " + orderId + " " + newPrice + " u" + uid + " s" + symbol + "]";
     }
 
-    public ApiMoveOrder(long orderId, long newPrice, UUID uid, int symbol) {
+    public ApiMoveOrder(UUID orderId, long newPrice, UUID uid, int symbol) {
         this.orderId = orderId;
         this.newPrice = newPrice;
         this.uid = uid;
@@ -50,7 +50,7 @@ public final class ApiMoveOrder extends ApiCommand {
         }
         return o instanceof ApiMoveOrder other
                 && other.canEqual(this)
-                && this.orderId == other.orderId
+                && Objects.equals(this.orderId, other.orderId)
                 && this.newPrice == other.newPrice
                 && Objects.equals(this.uid, other.uid)
                 && this.symbol == other.symbol;
@@ -64,7 +64,7 @@ public final class ApiMoveOrder extends ApiCommand {
     public int hashCode() {
         final int prime = 59;
         int result = 1;
-        result = result * prime + Long.hashCode(this.orderId);
+        result = result * prime + Objects.hashCode(this.orderId);
         result = result * prime + Long.hashCode(this.newPrice);
         result = result * prime + Objects.hashCode(this.uid);
         result = result * prime + this.symbol;
@@ -72,7 +72,7 @@ public final class ApiMoveOrder extends ApiCommand {
     }
 
     public static class ApiMoveOrderBuilder {
-        private long orderId;
+        private UUID orderId;
         private long newPrice;
         private UUID uid;
         private int symbol;
@@ -80,7 +80,7 @@ public final class ApiMoveOrder extends ApiCommand {
         ApiMoveOrderBuilder() {
         }
 
-        public ApiMoveOrderBuilder orderId(long orderId) {
+        public ApiMoveOrderBuilder orderId(UUID orderId) {
             this.orderId = orderId;
             return this;
         }

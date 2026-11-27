@@ -47,6 +47,34 @@ public final class TestConstants {
         return new UUID((hi & ~0xF000L) | 0x4000L, (lo & 0x3FFF_FFFF_FFFF_FFFFL) | 0x8000_0000_0000_0000L);
     }
 
+    // order UUIDs: random-looking version 4 ids that keep the test order number in the low 62 bits through
+    // an odd multiplier (a bijection modulo 2^62), so orderSeqOf gives the number back
+    private static final long ORDER_MUL = 0x9E3779B97F4A7C15L;
+    private static final long ORDER_MUL_INV = inverseOdd(ORDER_MUL);
+    private static final long LOW_62_BITS = 0x3FFF_FFFF_FFFF_FFFFL;
+
+    public static UUID orderIdOf(final long n) {
+        final long hi = mix64(n * 0xD1B54A32D192ED03L + 0x8CB92BA72F3D8DD7L);
+        final long lo = (n * ORDER_MUL) & LOW_62_BITS;
+        return new UUID((hi & ~0xF000L) | 0x4000L, lo | 0x8000_0000_0000_0000L);
+    }
+
+    public static long orderSeqOf(final long orderIdLo) {
+        return ((orderIdLo & LOW_62_BITS) * ORDER_MUL_INV) & LOW_62_BITS;
+    }
+
+    public static long orderSeqOf(final UUID orderId) {
+        return orderSeqOf(orderId.getLeastSignificantBits());
+    }
+
+    private static long inverseOdd(final long a) {
+        long x = a; // correct to 3 bits, every Newton step doubles that
+        for (int i = 0; i < 5; i++) {
+            x *= 2 - a * x;
+        }
+        return x;
+    }
+
     private static long mix64(long z) {
         z = (z ^ (z >>> 33)) * 0xff51afd7ed558ccdL;
         z = (z ^ (z >>> 33)) * 0xc4ceb9fe1a85ec53L;

@@ -48,7 +48,7 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
                     firstEvent.size,
                     firstEvent.activeOrderCompleted,
                     firstEvent.price,
-                    cmd.orderId,
+                    cmd.getOrderId(),
                     cmd.getUid(),
                     cmd.timestamp);
 
@@ -77,7 +77,7 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
             if (evt.eventType == MatcherEventType.TRADE) {
 
                 final IEventsHandler.Trade trade = new IEventsHandler.Trade(
-                        evt.matchedOrderId,
+                        evt.getMatchedOrderId(),
                         new UUID(evt.matchedOrderUidHi, evt.matchedOrderUidLo),
                         evt.matchedOrderCompleted,
                         evt.price,
@@ -98,7 +98,7 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
                         cmd.symbol,
                         evt.size,
                         evt.price,
-                        cmd.orderId,
+                        cmd.getOrderId(),
                         cmd.getUid(),
                         cmd.timestamp));
             }
@@ -109,7 +109,7 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
             final IEventsHandler.TradeEvent evt = new IEventsHandler.TradeEvent(
                     cmd.symbol,
                     mutableLong.value,
-                    cmd.orderId,
+                    cmd.getOrderId(),
                     cmd.getUid(),
                     cmd.action,
                     takerOrderCompleted.value,
@@ -146,14 +146,14 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
     private void sendCommandResult(OrderCommand cmd, long seq) {
         final ApiCommand apiCommand = switch (cmd.command) {
             case PLACE_ORDER -> new ApiPlaceOrder(
-                    cmd.price, cmd.size, cmd.orderId, cmd.action, cmd.orderType,
+                    cmd.price, cmd.size, cmd.getOrderId(), cmd.action, cmd.orderType,
                     cmd.getUid(), cmd.symbol, cmd.userCookie, cmd.reserveBidPrice, cmd.orderTakerFee, cmd.orderMakerFee);
-            case MOVE_ORDER -> new ApiMoveOrder(cmd.orderId, cmd.price, cmd.getUid(), cmd.symbol);
-            case CANCEL_ORDER -> new ApiCancelOrder(cmd.orderId, cmd.getUid(), cmd.symbol);
-            case REDUCE_ORDER -> new ApiReduceOrder(cmd.orderId, cmd.getUid(), cmd.symbol, cmd.size);
+            case MOVE_ORDER -> new ApiMoveOrder(cmd.getOrderId(), cmd.price, cmd.getUid(), cmd.symbol);
+            case CANCEL_ORDER -> new ApiCancelOrder(cmd.getOrderId(), cmd.getUid(), cmd.symbol);
+            case REDUCE_ORDER -> new ApiReduceOrder(cmd.getOrderId(), cmd.getUid(), cmd.symbol, cmd.size);
             case ADD_USER -> new ApiAddUser(cmd.getUid());
             case BALANCE_ADJUSTMENT -> new ApiAdjustUserBalance(
-                    cmd.getUid(), cmd.symbol, cmd.price, cmd.orderId, BalanceAdjustmentType.of(cmd.orderType.getCode()));
+                    cmd.getUid(), cmd.symbol, cmd.price, cmd.orderIdLo, BalanceAdjustmentType.of(cmd.orderType.getCode()));
             case BINARY_DATA_COMMAND -> cmd.resultCode == CommandResultCode.ACCEPTED
                     ? null : new ApiBinaryDataCommand(cmd.userCookie, null);
             case ORDER_BOOK_REQUEST -> new ApiOrderBookRequest(cmd.symbol, (int) cmd.size);

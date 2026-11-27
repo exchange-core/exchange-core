@@ -66,7 +66,7 @@ public final class SingleUserReportResult implements ReportResult {
         return new SingleUserReportResult(uid, null, null, null, null, QueryExecutionStatus.USER_NOT_FOUND);
     }
 
-    public Map<Long, Order> fetchIndexedOrders() {
+    public Map<UUID, Order> fetchIndexedOrders() {
         return orders.stream()
                 .flatMap(Collection::stream)
                 .collect(Collectors.toMap(Order::getOrderId, ord -> ord));

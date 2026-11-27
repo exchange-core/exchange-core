@@ -16,7 +16,7 @@ public final class ResultsHandler implements EventHandler<OrderCommand> {
     public void onEvent(OrderCommand cmd, long sequence, boolean endOfBatch) {
 
         if (cmd.command == OrderCommandType.GROUPING_CONTROL) {
-            processingEnabled = cmd.orderId == 1;
+            processingEnabled = cmd.orderIdLo == 1;
         }
 
         if (processingEnabled) {

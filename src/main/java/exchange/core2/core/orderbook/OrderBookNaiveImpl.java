@@ -15,6 +15,7 @@
  */
 package exchange.core2.core.orderbook;
 
+import exchange.core2.collections.hashtable.UuidObjectHashtable;
 import exchange.core2.collections.objpool.ObjectsPool;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.cmd.CommandResultCode;
@@ -24,7 +25,6 @@ import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.utils.SerializationUtils;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
-import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,7 +41,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
     private final CoreSymbolSpecification symbolSpec;
 
-    private final LongObjectHashMap<Order> idMap = new LongObjectHashMap<>();
+    private final UuidObjectHashtable<Order> idMap = new UuidObjectHashtable<>();
 
     private final OrderBookEventsHelper eventsHelper;
 
@@ -103,8 +103,8 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         this.eventsHelper = OrderBookEventsHelper.NON_POOLED_EVENTS_HELPER;
         // reconstruct ordersId-> Order cache
         // TODO check resulting performance
-        askBuckets.values().forEach(bucket -> bucket.forEachOrder(order -> idMap.put(order.orderId, order)));
-        bidBuckets.values().forEach(bucket -> bucket.forEachOrder(order -> idMap.put(order.orderId, order)));
+        askBuckets.values().forEach(bucket -> bucket.forEachOrder(order -> idMap.put(order.orderIdHi, order.orderIdLo, order)));
+        bidBuckets.values().forEach(bucket -> bucket.forEachOrder(order -> idMap.put(order.orderIdHi, order.orderIdLo, order)));
 
         this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
         this.cfgSelfTradeProtectionMode = (ordersProcCfg != null && ordersProcCfg.getSelfTradeProtectionMode() != null)
@@ -151,8 +151,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
             return;
         }
 
-        long newOrderId = cmd.orderId;
-        if (idMap.containsKey(newOrderId)) {
+        if (idMap.containsKey(cmd.orderIdHi, cmd.orderIdLo)) {
             // duplicate order id - can match, but can not place
             eventsHelper.attachRejectEvent(cmd, cmd.size - filledSize);
             log.warn("duplicate order id: {}", cmd);
@@ -161,7 +160,8 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
         // normally placing regular GTC limit order
         final Order orderRecord = new Order(
-                newOrderId,
+                cmd.orderIdHi,
+                cmd.orderIdLo,
                 price,
                 size,
                 filledSize,
@@ -177,7 +177,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
                 .computeIfAbsent(price, OrdersBucketNaive::new)
                 .put(orderRecord);
 
-        idMap.put(newOrderId, orderRecord);
+        idMap.put(cmd.orderIdHi, cmd.orderIdLo, orderRecord);
     }
 
     private void newOrderMatchIoc(final OrderCommand cmd) {
@@ -297,16 +297,17 @@ public final class OrderBookNaiveImpl implements IOrderBook {
      * @return true if order removed, false if not found (can be removed/matched earlier)
      */
     public CommandResultCode cancelOrder(OrderCommand cmd) {
-        final long orderId = cmd.orderId;
+        final long orderIdHi = cmd.orderIdHi;
+        final long orderIdLo = cmd.orderIdLo;
 
-        final Order order = idMap.get(orderId);
+        final Order order = idMap.get(orderIdHi, orderIdLo);
         if (order == null || (order.uidHi != cmd.uidHi || order.uidLo != cmd.uidLo)) {
             // order already matched and removed from order book previously
             return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
 
         // now can remove it
-        idMap.remove(orderId);
+        idMap.remove(orderIdHi, orderIdLo);
 
         final NavigableMap<Long, OrdersBucketNaive> buckets = getBucketsByAction(order.action);
         final long price = order.price;
@@ -317,7 +318,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         }
 
         // remove order and whole bucket if its empty
-        ordersBucket.remove(orderId, cmd.uidHi, cmd.uidLo);
+        ordersBucket.remove(orderIdHi, orderIdLo, cmd.uidHi, cmd.uidLo);
         if (ordersBucket.getTotalVolume() == 0) {
             buckets.remove(price);
         }
@@ -333,14 +334,15 @@ public final class OrderBookNaiveImpl implements IOrderBook {
 
     @Override
     public CommandResultCode reduceOrder(OrderCommand cmd) {
-        final long orderId = cmd.orderId;
+        final long orderIdHi = cmd.orderIdHi;
+        final long orderIdLo = cmd.orderIdLo;
         final long requestedReduceSize = cmd.size;
 
         if (requestedReduceSize <= 0) {
             return CommandResultCode.MATCHING_REDUCE_FAILED_WRONG_SIZE;
         }
 
-        final Order order = idMap.get(orderId);
+        final Order order = idMap.get(orderIdHi, orderIdLo);
         if (order == null || (order.uidHi != cmd.uidHi || order.uidLo != cmd.uidLo)) {
             // already matched, moved or cancelled
             return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
@@ -361,10 +363,10 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         if (canRemove) {
 
             // now can remove order
-            idMap.remove(orderId);
+            idMap.remove(orderIdHi, orderIdLo);
 
             // canRemove order and whole bucket if it is empty
-            ordersBucket.remove(orderId, cmd.uidHi, cmd.uidLo);
+            ordersBucket.remove(orderIdHi, orderIdLo, cmd.uidHi, cmd.uidLo);
             if (ordersBucket.getTotalVolume() == 0) {
                 buckets.remove(order.price);
             }
@@ -387,11 +389,12 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     @Override
     public CommandResultCode moveOrder(OrderCommand cmd) {
 
-        final long orderId = cmd.orderId;
+        final long orderIdHi = cmd.orderIdHi;
+        final long orderIdLo = cmd.orderIdLo;
         final long newPrice = cmd.price;
         final long newTimestamp = cmd.timestamp;
 
-        final Order order = idMap.get(orderId);
+        final Order order = idMap.get(orderIdHi, orderIdLo);
         if (order == null || (order.uidHi != cmd.uidHi || order.uidLo != cmd.uidLo)) {
             // already matched, moved or cancelled
             return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
@@ -410,7 +413,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         }
 
         // take order out of the original bucket and clean bucket if its empty
-        bucket.remove(orderId, cmd.uidHi, cmd.uidLo);
+        bucket.remove(orderIdHi, orderIdLo, cmd.uidHi, cmd.uidLo);
 
         if (bucket.getTotalVolume() == 0) {
             buckets.remove(price);
@@ -425,12 +428,12 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         final long filled = tryMatchInstantly(order, matchingArea, order.filled, cmd);
         if (filled == order.size) {
             // order was fully matched (100% marketable) - removing from order book
-            idMap.remove(orderId);
+            idMap.remove(orderIdHi, orderIdLo);
             return CommandResultCode.SUCCESS;
         }
 
         if (cmd.matcherEvent != null && cmd.matcherEvent.eventType == MatcherEventType.REJECT) {
-            idMap.remove(orderId);
+            idMap.remove(orderIdHi, orderIdLo);
             return CommandResultCode.SUCCESS;
         }
         order.filled = filled;
@@ -459,12 +462,13 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     /**
      * Get order from internal map
      *
-     * @param orderId - order Id
+     * @param orderIdHi - order UUID, most significant bits
+     * @param orderIdLo - order UUID, least significant bits
      * @return order from map
      */
     @Override
-    public IOrder getOrderById(long orderId) {
-        return idMap.get(orderId);
+    public IOrder getOrderById(long orderIdHi, long orderIdLo) {
+        return idMap.get(orderIdHi, orderIdLo);
     }
 
     @Override

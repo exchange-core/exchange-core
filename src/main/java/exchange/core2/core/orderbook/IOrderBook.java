@@ -87,7 +87,11 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     long getTotalOrdersVolume(OrderAction action);
 
     // testing only ?
-    IOrder getOrderById(long orderId);
+    IOrder getOrderById(long orderIdHi, long orderIdLo);
+
+    default IOrder getOrderById(UUID orderId) {
+        return getOrderById(orderId.getMostSignificantBits(), orderId.getLeastSignificantBits());
+    }
 
     // testing only - validateInternalState without changing state
     void validateInternalState();

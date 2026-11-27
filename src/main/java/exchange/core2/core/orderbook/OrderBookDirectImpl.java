@@ -15,7 +15,7 @@
  */
 package exchange.core2.core.orderbook;
 
-import exchange.core2.collections.hashtable.LongObjectHashtable;
+import exchange.core2.collections.hashtable.UuidObjectHashtable;
 import exchange.core2.collections.art.LongAdaptiveRadixTreeMap;
 import exchange.core2.collections.objpool.ObjectsPool;
 import exchange.core2.core.common.*;
@@ -27,7 +27,6 @@ import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
-import org.agrona.collections.Long2ObjectHashMap;
 import org.agrona.collections.MutableInteger;
 import org.agrona.collections.MutableLong;
 import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
@@ -54,8 +53,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
     // symbol specification
     private final CoreSymbolSpecification symbolSpec;
 
-    // index: orderId -> order
-    private final LongObjectHashtable<DirectOrder> orderIdIndex;
+    // index: order UUID -> order
+    private final UuidObjectHashtable<DirectOrder> orderIdIndex;
 
     // heads (nullable)
     private DirectOrder bestAskOrder = null;
@@ -94,7 +93,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         this.askPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.bidPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.eventsHelper = eventsHelper;
-        this.orderIdIndex = new LongObjectHashtable<>();
+        this.orderIdIndex = new UuidObjectHashtable<>();
         this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
         this.cfgSelfTradeProtectionMode = (ordersProcCfg != null && ordersProcCfg.getSelfTradeProtectionMode() != null)
                 ? ordersProcCfg.getSelfTradeProtectionMode()
@@ -127,11 +126,11 @@ public final class OrderBookDirectImpl implements IOrderBook {
         this.cfgCancelNewestOnSelfTrade = cfgSelfTradeProtectionMode == OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST;
 
         final int size = bytes.readInt();
-        this.orderIdIndex = new LongObjectHashtable<>(size);
+        this.orderIdIndex = new UuidObjectHashtable<>(size);
         for (int i = 0; i < size; i++) {
             DirectOrder order = new DirectOrder(bytes);
             insertOrder(order, null);
-            orderIdIndex.put(order.orderId, order);
+            orderIdIndex.put(order.orderIdHi, order.orderIdLo, order);
         }
     }
 
@@ -171,9 +170,10 @@ public final class OrderBookDirectImpl implements IOrderBook {
             return;
         }
 
-        final long orderId = cmd.orderId;
+        final long orderIdHi = cmd.orderIdHi;
+        final long orderIdLo = cmd.orderIdLo;
         // TODO eliminate double hashtable lookup?
-        if (orderIdIndex.get(orderId) != null) { // containsKey for hashtable
+        if (orderIdIndex.get(orderIdHi, orderIdLo) != null) { // containsKey for hashtable
             // duplicate order id - can match, but can not place
             eventsHelper.attachRejectEvent(cmd, size - filledSize);
             log.warn("duplicate order id: {}", cmd);
@@ -185,7 +185,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
         // normally placing regular GTC order
         final DirectOrder orderRecord = objectsPool.get(ObjectsPool.DIRECT_ORDER, (Supplier<DirectOrder>) DirectOrder::new);
 
-        orderRecord.orderId = orderId;
+        orderRecord.orderIdHi = orderIdHi;
+        orderRecord.orderIdLo = orderIdLo;
         orderRecord.price = price;
         orderRecord.size = size;
         orderRecord.reserveBidPrice = cmd.reserveBidPrice;
@@ -196,7 +197,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         orderRecord.timestamp = cmd.timestamp;
         orderRecord.filled = filledSize;
 
-        orderIdIndex.put(orderId, orderRecord);
+        orderIdIndex.put(orderIdHi, orderIdLo, orderRecord);
         insertOrder(orderRecord, null);
     }
 
@@ -338,7 +339,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
             }
 
             // if completed can remove maker order
-            orderIdIndex.remove(makerOrder.orderId);
+            orderIdIndex.remove(makerOrder.orderIdHi, makerOrder.orderIdLo);
             objectsPool.put(ObjectsPool.DIRECT_ORDER, makerOrder);
 
 
@@ -389,11 +390,11 @@ public final class OrderBookDirectImpl implements IOrderBook {
     public CommandResultCode cancelOrder(OrderCommand cmd) {
 
         // TODO avoid double lookup ?
-        final DirectOrder order = orderIdIndex.get(cmd.orderId);
+        final DirectOrder order = orderIdIndex.get(cmd.orderIdHi, cmd.orderIdLo);
         if (order == null || (order.uidHi != cmd.uidHi || order.uidLo != cmd.uidLo)) {
             return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
-        orderIdIndex.remove(cmd.orderId);
+        orderIdIndex.remove(cmd.orderIdHi, cmd.orderIdLo);
         objectsPool.put(ObjectsPool.DIRECT_ORDER, order);
 
         final Bucket freeBucket = removeOrder(order);
@@ -412,13 +413,14 @@ public final class OrderBookDirectImpl implements IOrderBook {
     @Override
     public CommandResultCode reduceOrder(OrderCommand cmd) {
 
-        final long orderId = cmd.orderId;
+        final long orderIdHi = cmd.orderIdHi;
+        final long orderIdLo = cmd.orderIdLo;
         final long requestedReduceSize = cmd.size;
         if (requestedReduceSize <= 0) {
             return CommandResultCode.MATCHING_REDUCE_FAILED_WRONG_SIZE;
         }
 
-        final DirectOrder order = orderIdIndex.get(orderId);
+        final DirectOrder order = orderIdIndex.get(orderIdHi, orderIdLo);
         if (order == null || (order.uidHi != cmd.uidHi || order.uidLo != cmd.uidLo)) {
             return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
@@ -429,7 +431,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         if (canRemove) {
 
-            orderIdIndex.remove(orderId);
+            orderIdIndex.remove(orderIdHi, orderIdLo);
             objectsPool.put(ObjectsPool.DIRECT_ORDER, order);
 
             final Bucket freeBucket = removeOrder(order);
@@ -454,7 +456,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
     public CommandResultCode moveOrder(OrderCommand cmd) {
 
         // order lookup
-        final DirectOrder orderToMove = orderIdIndex.get(cmd.orderId);
+        final DirectOrder orderToMove = orderIdIndex.get(cmd.orderIdHi, cmd.orderIdLo);
         if (orderToMove == null || orderToMove.uidHi != cmd.uidHi || orderToMove.uidLo != cmd.uidLo) {
             return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
@@ -481,7 +483,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         final long filled = tryMatchInstantly(orderToMove, cmd);
         if (filled == orderToMove.size
                 || (cmd.matcherEvent != null && cmd.matcherEvent.eventType == MatcherEventType.REJECT)) {
-            orderIdIndex.remove(cmd.orderId);
+            orderIdIndex.remove(cmd.orderIdHi, cmd.orderIdLo);
             objectsPool.put(ObjectsPool.DIRECT_ORDER, orderToMove);
             if (freeBucket != null) {
                 objectsPool.put(ObjectsPool.DIRECT_BUCKET, freeBucket);
@@ -634,13 +636,13 @@ public final class OrderBookDirectImpl implements IOrderBook {
     }
 
     @Override
-    public IOrder getOrderById(final long orderId) {
-        return orderIdIndex.get(orderId);
+    public IOrder getOrderById(final long orderIdHi, final long orderIdLo) {
+        return orderIdIndex.get(orderIdHi, orderIdLo);
     }
 
     @Override
     public void validateInternalState() {
-        final Long2ObjectHashMap<DirectOrder> ordersInChain = new Long2ObjectHashMap<>(Math.toIntExact(orderIdIndex.size()), 0.8f);
+        final UuidObjectHashtable<DirectOrder> ordersInChain = new UuidObjectHashtable<>(Math.toIntExact(orderIdIndex.size()));
         validateChain(true, ordersInChain);
         validateChain(false, ordersInChain);
 //        log.debug("ordersInChain={}", ordersInChain);
@@ -648,9 +650,9 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
 //        log.debug("orderIdIndex.keySet()={}", orderIdIndex.keySet().toSortedArray());
 //        log.debug("ordersInChain=        {}", ordersInChain.toSortedArray());
-        orderIdIndex.forEach((k, v) -> {
-            if (ordersInChain.remove(k) != v) {
-                thrw("chained orders does not contain orderId=" + k);
+        orderIdIndex.forEach((hi, lo, v) -> {
+            if (ordersInChain.remove(hi, lo) != v) {
+                thrw("chained orders does not contain orderId=" + new UUID(hi, lo));
             }
         });
 
@@ -659,7 +661,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         }
     }
 
-    private void validateChain(boolean asksChain, Long2ObjectHashMap<DirectOrder> ordersInChain) {
+    private void validateChain(boolean asksChain, UuidObjectHashtable<DirectOrder> ordersInChain) {
 
         // buckets index
         final LongAdaptiveRadixTreeMap<Bucket> buckets = asksChain ? askPriceBuckets : bidPriceBuckets;
@@ -681,12 +683,12 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         while (order != null) {
 
-            if (ordersInChain.containsKey(order.orderId)) {
+            if (ordersInChain.containsKey(order.orderIdHi, order.orderIdLo)) {
                 thrw("duplicate orderid in the chain");
             }
-            ordersInChain.put(order.orderId, order);
+            ordersInChain.put(order.orderIdHi, order.orderIdLo, order);
 
-            //log.debug("id:{} p={} +{}", order.orderId, order.price, order.size - order.filled);
+            //log.debug("id:{} p={} +{}", order.getOrderId(), order.price, order.size - order.filled);
             expectedBucketVolume += order.size - order.filled;
             expectedBucketOrders++;
 
@@ -778,10 +780,10 @@ public final class OrderBookDirectImpl implements IOrderBook {
     @Override
     public List<Order> findUserOrders(long uidHi, long uidLo) {
         final List<Order> list = new ArrayList<>();
-        orderIdIndex.forEach((orderId, order) -> {
+        orderIdIndex.forEach((orderIdHi, orderIdLo, order) -> {
             if (order.uidHi == uidHi && order.uidLo == uidLo) {
                 list.add(Order.builder()
-                        .orderId(orderId)
+                        .orderId(orderIdHi, orderIdLo)
                         .price(order.price)
                         .size(order.size)
                         .filled(order.filled)
@@ -794,7 +796,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
                         .build());
             }
         });
-        list.sort(Comparator.comparingLong(Order::getOrderId));
+        // UUID order: signed most significant bits, then signed least significant bits
+        list.sort(Comparator.comparingLong(Order::getOrderIdHi).thenComparingLong(Order::getOrderIdLo));
 
         return list;
     }
@@ -858,7 +861,9 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
     public static final class DirectOrder implements WriteBytesMarshallable, IOrder {
 
-        public long orderId;
+        // order UUID halves
+        public long orderIdHi;
+        public long orderIdLo;
 
         public long price;
 
@@ -878,7 +883,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         public long timestamp;
 
-        // fee overrides, null for symbol fees; a reference instead of two longs keeps the object at 88 bytes
+        // fee overrides, null for symbol fees; a reference instead of two longs keeps the object smaller
         public OrderFees fees;
 
         // fast orders structure
@@ -897,7 +902,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
         public DirectOrder(BytesIn bytes) {
 
 
-            this.orderId = bytes.readLong(); // orderId
+            this.orderIdHi = bytes.readLong(); // orderId
+            this.orderIdLo = bytes.readLong();
             this.price = bytes.readLong();  // price
             this.size = bytes.readLong(); // size
             this.filled = bytes.readLong(); // filled
@@ -924,7 +930,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         @Override
         public String toString() {
-            return "[" + orderId + " " + (action == OrderAction.ASK ? 'A' : 'B')
+            return "[" + new UUID(orderIdHi, orderIdLo) + " " + (action == OrderAction.ASK ? 'A' : 'B')
                     + price + ":" + size + "F" + filled
                     // + " C" + userCookie
                     + " U" + new UUID(uidHi, uidLo) + " fX" + getOrderTakerFee() + " fY" + getOrderMakerFee() + "]";
@@ -948,7 +954,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
             DirectOrder other = (DirectOrder) o;
 
             // ignore userCookie && timestamp
-            return orderId == other.orderId
+            return orderIdHi == other.orderIdHi
+                    && orderIdLo == other.orderIdLo
                     && action == other.action
                     && price == other.price
                     && size == other.size
@@ -969,7 +976,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
         }
 
         public DirectOrder(
-                long orderId,
+                long orderIdHi,
+                long orderIdLo,
                 long price,
                 long size,
                 long filled,
@@ -983,7 +991,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
                 Bucket parent,
                 DirectOrder next,
                 DirectOrder prev) {
-            this.orderId = orderId;
+            this.orderIdHi = orderIdHi;
+            this.orderIdLo = orderIdLo;
             this.price = price;
             this.size = size;
             this.filled = filled;
@@ -1002,8 +1011,14 @@ public final class OrderBookDirectImpl implements IOrderBook {
             return new OrderBookDirectImpl.DirectOrder.DirectOrderBuilder();
         }
 
-        public long getOrderId() {
-            return this.orderId;
+        @Override
+        public long getOrderIdHi() {
+            return this.orderIdHi;
+        }
+
+        @Override
+        public long getOrderIdLo() {
+            return this.orderIdLo;
         }
 
         public long getPrice() {
@@ -1056,7 +1071,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
         }
 
         public static class DirectOrderBuilder {
-            private long orderId;
+            private long orderIdHi;
+            private long orderIdLo;
             private long price;
             private long size;
             private long filled;
@@ -1074,8 +1090,9 @@ public final class OrderBookDirectImpl implements IOrderBook {
             DirectOrderBuilder() {
             }
 
-            public OrderBookDirectImpl.DirectOrder.DirectOrderBuilder orderId(long orderId) {
-                this.orderId = orderId;
+            public OrderBookDirectImpl.DirectOrder.DirectOrderBuilder orderId(UUID orderId) {
+                this.orderIdHi = orderId.getMostSignificantBits();
+                this.orderIdLo = orderId.getLeastSignificantBits();
                 return this;
             }
 
@@ -1141,13 +1158,13 @@ public final class OrderBookDirectImpl implements IOrderBook {
             }
 
             public OrderBookDirectImpl.DirectOrder build() {
-                return new DirectOrder(orderId, price, size, filled, reserveBidPrice, action, uidHi, uidLo,
+                return new DirectOrder(orderIdHi, orderIdLo, price, size, filled, reserveBidPrice, action, uidHi, uidLo,
                         orderTakerFee, orderMakerFee, timestamp, parent, next, prev);
             }
 
             @Override
             public String toString() {
-                return "OrderBookDirectImpl.DirectOrder.DirectOrderBuilder(orderId=" + this.orderId
+                return "OrderBookDirectImpl.DirectOrder.DirectOrderBuilder(orderId=" + new UUID(this.orderIdHi, this.orderIdLo)
                         + ", price=" + this.price
                         + ", size=" + this.size
                         + ", filled=" + this.filled

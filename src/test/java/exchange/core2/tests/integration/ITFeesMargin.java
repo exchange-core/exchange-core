@@ -24,6 +24,7 @@ import exchange.core2.core.common.api.reports.TotalCurrencyBalanceReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
+import exchange.core2.tests.util.TestConstants;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
@@ -59,7 +60,7 @@ public abstract class ITFeesMargin {
 
             final ApiPlaceOrder order101 = ApiPlaceOrder.builder()
                     .uid(UID_1)
-                    .orderId(101L)
+                    .orderId(TestConstants.orderIdOf(101L))
                     .price(10770L)
                     .reservePrice(0L)
                     .size(40L)
@@ -73,7 +74,7 @@ public abstract class ITFeesMargin {
             // verify order placed
             container.validateUserState(UID_1, profile -> {
                 assertThat(profile.getAccounts().get(CURRENECY_XBT), is(0L));
-                assertThat(profile.fetchIndexedOrders().get(101L).price, is(order101.price));
+                assertThat(profile.fetchIndexedOrders().get(TestConstants.orderIdOf(101L)).price, is(order101.price));
             });
 
             // create second user
@@ -89,7 +90,7 @@ public abstract class ITFeesMargin {
 
             final ApiPlaceOrder order102 = ApiPlaceOrder.builder()
                     .uid(UID_2)
-                    .orderId(102)
+                    .orderId(TestConstants.orderIdOf(102))
                     .price(10770L)
                     .reservePrice(10770L)
                     .size(30L)
@@ -145,7 +146,7 @@ public abstract class ITFeesMargin {
 
             final ApiPlaceOrder order101 = ApiPlaceOrder.builder()
                     .uid(UID_1)
-                    .orderId(101L)
+                    .orderId(TestConstants.orderIdOf(101L))
                     .price(10770L)
                     .reservePrice(0L)
                     .size(50L)
@@ -159,7 +160,7 @@ public abstract class ITFeesMargin {
             // verify order placed
             container.validateUserState(UID_1, profile -> {
                 assertThat(profile.getAccounts().get(CURRENECY_XBT), is(0L));
-                assertThat(profile.fetchIndexedOrders().get(101L).price, is(order101.price));
+                assertThat(profile.fetchIndexedOrders().get(TestConstants.orderIdOf(101L)).price, is(order101.price));
             });
 
             // create second user
@@ -175,7 +176,7 @@ public abstract class ITFeesMargin {
 
             final ApiPlaceOrder order102 = ApiPlaceOrder.builder()
                     .uid(UID_2)
-                    .orderId(102)
+                    .orderId(TestConstants.orderIdOf(102))
                     .price(10770L)
                     .reservePrice(10770L)
                     .size(30L)
@@ -232,7 +233,7 @@ public abstract class ITFeesMargin {
 
             final ApiPlaceOrder order101 = ApiPlaceOrder.builder()
                     .uid(UID_1)
-                    .orderId(101L)
+                    .orderId(TestConstants.orderIdOf(101L))
                     .price(10770L)
                     .reservePrice(0L)
                     .size(40L)
@@ -246,7 +247,7 @@ public abstract class ITFeesMargin {
             // verify order placed
             container.validateUserState(UID_1, profile -> {
                 assertThat(profile.getAccounts().get(CURRENECY_XBT), is(0L));
-                assertThat(profile.fetchIndexedOrders().get(101L).price, is(order101.price));
+                assertThat(profile.fetchIndexedOrders().get(TestConstants.orderIdOf(101L)).price, is(order101.price));
             });
 
 
@@ -264,7 +265,7 @@ public abstract class ITFeesMargin {
 
             // cancel
             container.submitCommandSync(
-                    ApiCancelOrder.builder().orderId(101L).uid(UID_1).symbol(symbolId).build(),
+                    ApiCancelOrder.builder().orderId(TestConstants.orderIdOf(101L)).uid(UID_1).symbol(symbolId).build(),
                     CommandResultCode.SUCCESS);
 
             // verify balance

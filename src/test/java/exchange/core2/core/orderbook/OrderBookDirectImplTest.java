@@ -28,6 +28,7 @@ import org.slf4j.LoggerFactory;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 import static exchange.core2.core.common.OrderAction.ASK;
 import static exchange.core2.core.common.OrderAction.BID;
@@ -47,10 +48,11 @@ public abstract class OrderBookDirectImplTest extends OrderBookBaseTest {
     public void userOrderReportKeepsOrderIdOrdering() {
         clearOrderBook();
         for (long id : List.of(91L, 0L, Long.MAX_VALUE, 7L)) {
-            processAndValidate(OrderCommand.newOrder(GTC, id, UID_1, INITIAL_PRICE, 0L, 1L, ASK), SUCCESS);
+            processAndValidate(OrderCommand.newOrder(GTC, TestConstants.orderIdOf(id), UID_1, INITIAL_PRICE, 0L, 1L, ASK), SUCCESS);
         }
-        processAndValidate(OrderCommand.newOrder(GTC, 2L, UID_2, INITIAL_PRICE, 0L, 1L, ASK), SUCCESS);
-        assertEquals(List.of(0L, 7L, 91L, Long.MAX_VALUE),
+        processAndValidate(OrderCommand.newOrder(GTC, TestConstants.orderIdOf(2L), UID_2, INITIAL_PRICE, 0L, 1L, ASK), SUCCESS);
+        // the report lists orders in UUID order
+        assertEquals(Stream.of(91L, 0L, Long.MAX_VALUE, 7L).map(TestConstants::orderIdOf).sorted().toList(),
                 orderBook.findUserOrders(UID_1).stream().map(Order::getOrderId).toList());
     }
 
@@ -86,7 +88,7 @@ public abstract class OrderBookDirectImplTest extends OrderBookBaseTest {
         long i = 0;
         for (OrderCommand cmd : genResult.getCommands()) {
             i++;
-            cmd.orderId += 100;
+            cmd.setOrderId(TestConstants.orderIdOf(TestConstants.orderSeqOf(cmd.orderIdLo) + 100));
 
             cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
             IOrderBook.processCommand(orderBook, cmd);
@@ -154,7 +156,7 @@ public abstract class OrderBookDirectImplTest extends OrderBookBaseTest {
 
         // placing limit bid orders
         for (long price = bottomPrice; price < INITIAL_PRICE; price++) {
-            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_1, price, price * 10, 1, BID);
+            OrderCommand cmd = OrderCommand.newOrder(GTC, TestConstants.orderIdOf(orderId++), UID_1, price, price * 10, 1, BID);
 //            log.debug("BID {}", price);
             processAndValidate(cmd, SUCCESS);
             results.put(price, -1L);
@@ -163,7 +165,7 @@ public abstract class OrderBookDirectImplTest extends OrderBookBaseTest {
 
         for (long price = topPrice; price >= bottomPrice; price--) {
             long size = price * price;
-            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_2, price, 0, size, ASK);
+            OrderCommand cmd = OrderCommand.newOrder(GTC, TestConstants.orderIdOf(orderId++), UID_2, price, 0, size, ASK);
 //            log.debug("ASK {}", price);
             processAndValidate(cmd, SUCCESS);
             results.compute(price, (p, v) -> v == null ? size : v + size);
@@ -213,7 +215,7 @@ public abstract class OrderBookDirectImplTest extends OrderBookBaseTest {
 
         // placing limit ask orders
         for (long price = topPrice; price > INITIAL_PRICE; price--) {
-            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_1, price, 0, 1, ASK);
+            OrderCommand cmd = OrderCommand.newOrder(GTC, TestConstants.orderIdOf(orderId++), UID_1, price, 0, 1, ASK);
 //            log.debug("BID {}", price);
             processAndValidate(cmd, SUCCESS);
             results.put(price, -1L);
@@ -221,7 +223,7 @@ public abstract class OrderBookDirectImplTest extends OrderBookBaseTest {
 
         for (long price = bottomPrice; price <= topPrice; price++) {
             long size = price * price;
-            OrderCommand cmd = OrderCommand.newOrder(GTC, orderId++, UID_2, price, price * 10, size, BID);
+            OrderCommand cmd = OrderCommand.newOrder(GTC, TestConstants.orderIdOf(orderId++), UID_2, price, price * 10, size, BID);
 //            log.debug("ASK {}", price);
             processAndValidate(cmd, SUCCESS);
             results.compute(price, (p, v) -> v == null ? size : v + size);

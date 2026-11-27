@@ -234,12 +234,16 @@ Both order books support three order types.
   For spot buys, set `reservePrice` to the same limit.
 
 ```java
+// the client picks order ids; any UUID works, a duplicate of a resting order is rejected
+UUID order1 = UUID.randomUUID();
+UUID order2 = UUID.randomUUID();
+
 // first user places Good-till-Cancel Bid order
 // he assumes BTCLTC exchange rate 154 LTC for 1 BTC
 // bid price for 1 lot (0.01BTC) is 1.54 LTC => 1_5400_0000 litoshi => 10K * 15_400 (in price steps)
 future = api.submitCommandAsync(ApiPlaceOrder.builder()
         .uid(user1)
-        .orderId(5001L)
+        .orderId(order1)
         .price(15_400L)
         .reservePrice(15_600L) // can move bid order up to the 1.56 LTC, without replacing it
         .size(12L) // order size is 12 lots
@@ -252,7 +256,7 @@ future = api.submitCommandAsync(ApiPlaceOrder.builder()
 // he assumes worst rate to sell 152.5 LTC for 1 BTC
 future = api.submitCommandAsync(ApiPlaceOrder.builder()
         .uid(user2)
-        .orderId(5002L)
+        .orderId(order2)
         .price(15_250L)
         .size(10L) // order size is 10 lots
         .action(OrderAction.ASK)
@@ -274,7 +278,7 @@ GtC orders manipulations:
 // first user moves remaining order to price 1.53 LTC
 future = api.submitCommandAsync(ApiMoveOrder.builder()
         .uid(user1)
-        .orderId(5001L)
+        .orderId(order1)
         .newPrice(15_300L)
         .symbol(symbolXbtLtc)
         .build());
@@ -282,7 +286,7 @@ future = api.submitCommandAsync(ApiMoveOrder.builder()
 // first user cancel remaining order
 future = api.submitCommandAsync(ApiCancelOrder.builder()
         .uid(user1)
-        .orderId(5001L)
+        .orderId(order1)
         .symbol(symbolXbtLtc)
         .build());
 ```

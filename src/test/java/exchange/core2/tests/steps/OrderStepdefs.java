@@ -213,11 +213,11 @@ public class OrderStepdefs implements En {
             //remove header
             lists = lists.subList(1, lists.size());
 
-            Map<Long, Order> orders = profile.fetchIndexedOrders();
+            Map<UUID, Order> orders = profile.fetchIndexedOrders();
 
             for (List<String> record : lists) {
                 long orderId = Long.parseLong(record.get(fieldNameByIndex.get("id")));
-                Order order = orders.get(orderId);
+                Order order = orders.get(TestConstants.orderIdOf(orderId));
                 assertNotNull(order);
 
                 checkField(fieldNameByIndex, record, "price", order.getPrice());
@@ -252,7 +252,7 @@ public class OrderStepdefs implements En {
             (UUID clientId, Long size, Long orderId) -> {
                 ApiPlaceOrder initialOrder = orders.get(orderId);
 
-                ApiCancelOrder order = ApiCancelOrder.builder().orderId(orderId).uid(clientId)
+                ApiCancelOrder order = ApiCancelOrder.builder().orderId(TestConstants.orderIdOf(orderId)).uid(clientId)
                     .symbol(initialOrder.symbol)
                     .build();
 
@@ -260,7 +260,7 @@ public class OrderStepdefs implements En {
                     cmd -> {
                         assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
                         assertThat(cmd.command, is(OrderCommandType.CANCEL_ORDER));
-                        assertThat(cmd.orderId, is(orderId));
+                        assertThat(cmd.getOrderId(), is(TestConstants.orderIdOf(orderId)));
                         assertThat(cmd.getUid(), is(clientId));
                         assertThat(cmd.symbol, is(initialOrder.symbol));
                         assertThat(cmd.action, is(initialOrder.action));
@@ -295,7 +295,7 @@ public class OrderStepdefs implements En {
     private void aClientPassAnOrder(UUID clientId, String side, long orderId, long price, long size, String orderType,
         CoreSymbolSpecification symbol, long reservePrice, CommandResultCode resultCode) {
 
-        ApiPlaceOrder.ApiPlaceOrderBuilder builder = ApiPlaceOrder.builder().uid(clientId).orderId(orderId).price(price)
+        ApiPlaceOrder.ApiPlaceOrderBuilder builder = ApiPlaceOrder.builder().uid(clientId).orderId(TestConstants.orderIdOf(orderId)).price(price)
             .size(size)
             .action(OrderAction.valueOf(side)).orderType(OrderType.valueOf(orderType))
             .symbol(symbol.symbolId);
@@ -310,7 +310,7 @@ public class OrderStepdefs implements En {
 
         log.debug("PLACE : {}", order);
         container.getApi().submitCommandAsyncFullResponse(order).thenAccept(cmd -> {
-            assertThat(cmd.orderId, is(orderId));
+            assertThat(cmd.getOrderId(), is(TestConstants.orderIdOf(orderId)));
             assertThat(cmd.resultCode, is(resultCode));
             assertThat(cmd.getUid(), is(clientId));
             assertThat(cmd.price, is(price));
@@ -327,7 +327,7 @@ public class OrderStepdefs implements En {
         assertThat(matcherEvents.size(), is(1));
 
         MatcherTradeEvent evt = matcherEvents.get(0);
-        assertThat(evt.matchedOrderId, is(orderId));
+        assertThat(evt.getMatchedOrderId(), is(TestConstants.orderIdOf(orderId)));
         assertThat(evt.getMatchedOrderUid(), is(orders.get(orderId).uid));
         assertThat(evt.matchedOrderCompleted, is(completed));
         assertThat(evt.eventType, is(MatcherEventType.TRADE));
@@ -341,12 +341,12 @@ public class OrderStepdefs implements En {
     private void moveOrder(UUID clientId, long newPrice, long orderId, CommandResultCode resultCode2) {
         ApiPlaceOrder initialOrder = orders.get(orderId);
 
-        final ApiMoveOrder moveOrder = ApiMoveOrder.builder().symbol(initialOrder.symbol).uid(clientId).orderId(orderId)
+        final ApiMoveOrder moveOrder = ApiMoveOrder.builder().symbol(initialOrder.symbol).uid(clientId).orderId(TestConstants.orderIdOf(orderId))
             .newPrice(newPrice).build();
         log.debug("MOVE : {}", moveOrder);
         container.submitCommandSync(moveOrder, cmd -> {
             assertThat(cmd.resultCode, is(resultCode2));
-            assertThat(cmd.orderId, is(orderId));
+            assertThat(cmd.getOrderId(), is(TestConstants.orderIdOf(orderId)));
             assertThat(cmd.getUid(), is(clientId));
 
             matcherEvents = cmd.extractEvents();

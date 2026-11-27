@@ -290,18 +290,18 @@ public final class TestOrdersGenerator {
     }
 
     private static void matcherTradeEventEventHandler(final TestOrdersGeneratorSession session, final MatcherTradeEvent ev, final OrderCommand orderCommand) {
-        int activeOrderId = (int) orderCommand.orderId;
+        int activeOrderId = (int) TestConstants.orderSeqOf(orderCommand.orderIdLo);
         if (ev.eventType == MatcherEventType.TRADE) {
             if (ev.activeOrderCompleted) {
                 session.numCompleted++;
             }
             if (ev.matchedOrderCompleted) {
-                session.orderUids.remove((int) ev.matchedOrderId);
+                session.orderUids.remove((int) TestConstants.orderSeqOf(ev.matchedOrderIdLo));
                 session.numCompleted++;
             }
 
             // decrease size (important for reduce operation)
-            if (session.orderSizes.addToValue((int) ev.matchedOrderId, (int) -ev.size) < 0) {
+            if (session.orderSizes.addToValue((int) TestConstants.orderSeqOf(ev.matchedOrderIdLo), (int) -ev.size) < 0) {
                 throw new IllegalStateException();
             }
 
@@ -408,14 +408,14 @@ public final class TestOrdersGenerator {
         if (q == 2) {
             session.orderUids.remove(orderId);
             session.counterCancel++;
-            return OrderCommand.cancel(orderId, TestConstants.uidOf(uid));
+            return OrderCommand.cancel(TestConstants.orderIdOf(orderId), TestConstants.uidOf(uid));
 
         } else if (q == 3) {
             session.counterReduce++;
 
             int prevSize = session.orderSizes.get(orderId);
             int reduceBy = session.rand.nextInt(prevSize) + 1;
-            return OrderCommand.reduce(orderId, TestConstants.uidOf(uid), reduceBy);
+            return OrderCommand.reduce(TestConstants.orderIdOf(orderId), TestConstants.uidOf(uid), reduceBy);
 
         } else {
             int prevPrice = session.orderPrices.get(orderId);
@@ -442,7 +442,7 @@ public final class TestOrdersGenerator {
 
             session.orderPrices.put(orderId, newPrice);
 
-            return OrderCommand.update(orderId, TestConstants.uidOf(uid), newPrice);
+            return OrderCommand.update(TestConstants.orderIdOf(orderId), TestConstants.uidOf(uid), newPrice);
         }
     }
 
@@ -481,7 +481,7 @@ public final class TestOrdersGenerator {
         return OrderCommand.builder()
                 .command(OrderCommandType.PLACE_ORDER)
                 .uid(TestConstants.uidOf(uid))
-                .orderId(newOrderId)
+                .orderId(TestConstants.orderIdOf(newOrderId))
                 .action(action)
                 .orderType(OrderType.GTC)
                 .size(size)
@@ -552,7 +552,7 @@ public final class TestOrdersGenerator {
                 .command(OrderCommandType.PLACE_ORDER)
                 .orderType(orderType)
                 .uid(TestConstants.uidOf(uid))
-                .orderId(newOrderId)
+                .orderId(TestConstants.orderIdOf(newOrderId))
                 .action(action)
                 .size(size)
                 .price(priceOrBudget)
@@ -577,20 +577,20 @@ public final class TestOrdersGenerator {
                 final OrderCommand cmd = commands.get(i);
                 switch (cmd.command) {
                     case PLACE_ORDER:
-                        apiCommands.add(ApiPlaceOrder.builder().symbol(cmd.symbol).uid(cmd.getUid()).orderId(cmd.orderId).price(cmd.price)
+                        apiCommands.add(ApiPlaceOrder.builder().symbol(cmd.symbol).uid(cmd.getUid()).orderId(cmd.getOrderId()).price(cmd.price)
                                 .size(cmd.size).action(cmd.action).orderType(cmd.orderType).reservePrice(cmd.reserveBidPrice).build());
                         break;
 
                     case MOVE_ORDER:
-                        apiCommands.add(new ApiMoveOrder(cmd.orderId, cmd.price, cmd.getUid(), cmd.symbol));
+                        apiCommands.add(new ApiMoveOrder(cmd.getOrderId(), cmd.price, cmd.getUid(), cmd.symbol));
                         break;
 
                     case CANCEL_ORDER:
-                        apiCommands.add(new ApiCancelOrder(cmd.orderId, cmd.getUid(), cmd.symbol));
+                        apiCommands.add(new ApiCancelOrder(cmd.getOrderId(), cmd.getUid(), cmd.symbol));
                         break;
 
                     case REDUCE_ORDER:
-                        apiCommands.add(new ApiReduceOrder(cmd.orderId, cmd.getUid(), cmd.symbol, cmd.size));
+                        apiCommands.add(new ApiReduceOrder(cmd.getOrderId(), cmd.getUid(), cmd.symbol, cmd.size));
                         break;
 
                     default:

@@ -31,7 +31,9 @@ import java.util.UUID;
  */
 public final class Order implements WriteBytesMarshallable, IOrder {
 
-    public long orderId;
+    // order UUID halves
+    public long orderIdHi;
+    public long orderIdLo;
 
     public long price;
 
@@ -60,16 +62,17 @@ public final class Order implements WriteBytesMarshallable, IOrder {
     // The existing action is 0 or 1. Default-fee orders retain the original format.
     public static final int FEE_OVERRIDES_FLAG = 2;
 
-    public Order(long orderId, long price, long size, long filled, long reserveBidPrice,
+    public Order(UUID orderId, long price, long size, long filled, long reserveBidPrice,
                  OrderAction action, UUID uid, long timestamp) {
-        this(orderId, price, size, filled, reserveBidPrice, action,
+        this(orderId.getMostSignificantBits(), orderId.getLeastSignificantBits(), price, size, filled, reserveBidPrice, action,
                 uid.getMostSignificantBits(), uid.getLeastSignificantBits(), -1, -1, timestamp);
     }
 
     public Order(BytesIn bytes) {
 
 
-        this.orderId = bytes.readLong(); // orderId
+        this.orderIdHi = bytes.readLong(); // orderId
+        this.orderIdLo = bytes.readLong();
         this.price = bytes.readLong();  // price
         this.size = bytes.readLong(); // size
         this.filled = bytes.readLong(); // filled
@@ -93,7 +96,8 @@ public final class Order implements WriteBytesMarshallable, IOrder {
 
     public static void writeOrder(IOrder order, BytesOut bytes) {
         final boolean hasFees = order.getOrderTakerFee() != -1 || order.getOrderMakerFee() != -1;
-        bytes.writeLong(order.getOrderId());
+        bytes.writeLong(order.getOrderIdHi());
+        bytes.writeLong(order.getOrderIdLo());
         bytes.writeLong(order.getPrice());
         bytes.writeLong(order.getSize());
         bytes.writeLong(order.getFilled());
@@ -110,7 +114,7 @@ public final class Order implements WriteBytesMarshallable, IOrder {
 
     @Override
     public String toString() {
-        return "[" + orderId + " " + (action == OrderAction.ASK ? 'A' : 'B')
+        return "[" + new UUID(orderIdHi, orderIdLo) + " " + (action == OrderAction.ASK ? 'A' : 'B')
                 + price + ":" + size + "F" + filled
                 // + " C" + userCookie
                 + " U" + new UUID(uidHi, uidLo) + "]";
@@ -123,7 +127,7 @@ public final class Order implements WriteBytesMarshallable, IOrder {
 
 
     public static int hashOrder(IOrder order) {
-        final int base = Objects.hash(order.getOrderId(), order.getAction(), order.getPrice(),
+        final int base = Objects.hash(order.getOrderIdHi(), order.getOrderIdLo(), order.getAction(), order.getPrice(),
                 order.getSize(), order.getReserveBidPrice(), order.getFilled(), order.getUidHi(), order.getUidLo());
         return order.getOrderTakerFee() == -1 && order.getOrderMakerFee() == -1
                 ? base
@@ -142,7 +146,8 @@ public final class Order implements WriteBytesMarshallable, IOrder {
         Order other = (Order) o;
 
         // ignore timestamp and userCookie
-        return orderId == other.orderId
+        return orderIdHi == other.orderIdHi
+                && orderIdLo == other.orderIdLo
                 && action == other.action
                 && price == other.price
                 && size == other.size
@@ -163,7 +168,8 @@ public final class Order implements WriteBytesMarshallable, IOrder {
     }
 
     public Order(
-            long orderId,
+            long orderIdHi,
+            long orderIdLo,
             long price,
             long size,
             long filled,
@@ -174,7 +180,8 @@ public final class Order implements WriteBytesMarshallable, IOrder {
             long orderTakerFee,
             long orderMakerFee,
             long timestamp) {
-        this.orderId = orderId;
+        this.orderIdHi = orderIdHi;
+        this.orderIdLo = orderIdLo;
         this.price = price;
         this.size = size;
         this.filled = filled;
@@ -191,8 +198,14 @@ public final class Order implements WriteBytesMarshallable, IOrder {
         return new OrderBuilder();
     }
 
-    public long getOrderId() {
-        return this.orderId;
+    @Override
+    public long getOrderIdHi() {
+        return this.orderIdHi;
+    }
+
+    @Override
+    public long getOrderIdLo() {
+        return this.orderIdLo;
     }
 
     public long getPrice() {
@@ -240,7 +253,8 @@ public final class Order implements WriteBytesMarshallable, IOrder {
     }
 
     public static class OrderBuilder {
-        private long orderId;
+        private long orderIdHi;
+        private long orderIdLo;
         private long price;
         private long size;
         private long filled;
@@ -255,8 +269,15 @@ public final class Order implements WriteBytesMarshallable, IOrder {
         OrderBuilder() {
         }
 
-        public OrderBuilder orderId(long orderId) {
-            this.orderId = orderId;
+        public OrderBuilder orderId(long orderIdHi, long orderIdLo) {
+            this.orderIdHi = orderIdHi;
+            this.orderIdLo = orderIdLo;
+            return this;
+        }
+
+        public OrderBuilder orderId(UUID orderId) {
+            this.orderIdHi = orderId.getMostSignificantBits();
+            this.orderIdLo = orderId.getLeastSignificantBits();
             return this;
         }
 
@@ -314,7 +335,8 @@ public final class Order implements WriteBytesMarshallable, IOrder {
 
         public Order build() {
             return new Order(
-                    this.orderId,
+                    this.orderIdHi,
+                    this.orderIdLo,
                     this.price,
                     this.size,
                     this.filled,
@@ -329,7 +351,7 @@ public final class Order implements WriteBytesMarshallable, IOrder {
 
         @Override
         public String toString() {
-            return "Order.OrderBuilder(orderId=" + this.orderId
+            return "Order.OrderBuilder(orderId=" + new UUID(this.orderIdHi, this.orderIdLo)
                     + ", price=" + this.price
                     + ", size=" + this.size
                     + ", filled=" + this.filled

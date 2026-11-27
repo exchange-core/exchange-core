@@ -137,7 +137,7 @@ public class ITCoreExample {
         // bid price for 1 lot (0.01BTC) is 1.54 LTC => 1_5400_0000 litoshi => 10K * 15_400 (in price steps)
         future = api.submitCommandAsync(ApiPlaceOrder.builder()
                 .uid(TestConstants.uidOf(301))
-                .orderId(5001L)
+                .orderId(TestConstants.orderIdOf(5001L))
                 .price(15_400L)
                 .reservePrice(15_600L) // can move bid order up to the 1.56 LTC, without replacing it
                 .size(12L) // order size is 12 lots
@@ -153,7 +153,7 @@ public class ITCoreExample {
         // he assumes wost rate to sell 152.5 LTC for 1 BTC
         future = api.submitCommandAsync(ApiPlaceOrder.builder()
                 .uid(TestConstants.uidOf(302))
-                .orderId(5002L)
+                .orderId(TestConstants.orderIdOf(5002L))
                 .price(15_250L)
                 .size(10L) // order size is 10 lots
                 .action(OrderAction.ASK)
@@ -172,7 +172,7 @@ public class ITCoreExample {
         // first user moves remaining order to price 1.53 LTC
         future = api.submitCommandAsync(ApiMoveOrder.builder()
                 .uid(TestConstants.uidOf(301))
-                .orderId(5001L)
+                .orderId(TestConstants.orderIdOf(5001L))
                 .newPrice(15_300L)
                 .symbol(symbolXbtLtc)
                 .build());
@@ -182,7 +182,7 @@ public class ITCoreExample {
         // first user cancel remaining order
         future = api.submitCommandAsync(ApiCancelOrder.builder()
                 .uid(TestConstants.uidOf(301))
-                .orderId(5001L)
+                .orderId(TestConstants.orderIdOf(5001L))
                 .symbol(symbolXbtLtc)
                 .build());
 
@@ -327,7 +327,7 @@ public class ITCoreExample {
         // bid price for 1 lot (0.01BTC) is 1.54 LTC => 1_5400_0000 litoshi => 10K * 15_400 (in price steps)
         future = api.submitCommandAsync(ApiPlaceOrder.builder()
                 .uid(TestConstants.uidOf(301))
-                .orderId(5001L)
+                .orderId(TestConstants.orderIdOf(5001L))
                 .price(15_400L)
                 .reservePrice(15_400L) // can move bid order up to the 1.56 LTC, without replacing it
                 .size(12L) // order size is 12 lots
@@ -355,7 +355,7 @@ public class ITCoreExample {
         // he assumes wost rate to sell 152.5 LTC for 1 BTC
         future = api.submitCommandAsync(ApiPlaceOrder.builder()
                 .uid(TestConstants.uidOf(302))
-                .orderId(5002L)
+                .orderId(TestConstants.orderIdOf(5002L))
                 .price(15_250L)
                 .size(20L)
                 .action(OrderAction.ASK)
@@ -383,7 +383,7 @@ public class ITCoreExample {
         // first user places another Good-till-Cancel Bid order
         future = api.submitCommandAsync(ApiPlaceOrder.builder()
                 .uid(TestConstants.uidOf(301))
-                .orderId(5003L)
+                .orderId(TestConstants.orderIdOf(5003L))
                 .price(15_400L)
                 .reservePrice(15_400L) // can move bid order up to the 1.56 LTC, without replacing it
                 .size(10L) // order size is 12 lots
@@ -412,7 +412,7 @@ public class ITCoreExample {
         // second user places another Good-till-Cancel Ask (Sell) order
         future = api.submitCommandAsync(ApiPlaceOrder.builder()
                 .uid(TestConstants.uidOf(302))
-                .orderId(5004L)
+                .orderId(TestConstants.orderIdOf(5004L))
                 .price(15_250L)
                 .size(5L)
                 .action(OrderAction.ASK)
@@ -440,7 +440,7 @@ public class ITCoreExample {
         // second user cancel remaining order
         future = api.submitCommandAsync(ApiCancelOrder.builder()
                 .uid(TestConstants.uidOf(302))
-                .orderId(5004L)
+                .orderId(TestConstants.orderIdOf(5004L))
                 .symbol(symbolXbtLtc)
                 .build());
 

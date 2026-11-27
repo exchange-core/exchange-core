@@ -20,7 +20,7 @@ import java.util.UUID;
 
 public final class ApiReduceOrder extends ApiCommand {
 
-    public final long orderId;
+    public final UUID orderId;
 
     public final UUID uid;
     public final int symbol;
@@ -31,7 +31,7 @@ public final class ApiReduceOrder extends ApiCommand {
         return "[REDUCE " + orderId + " by " + reduceSize + "]";
     }
 
-    public ApiReduceOrder(long orderId, UUID uid, int symbol, long reduceSize) {
+    public ApiReduceOrder(UUID orderId, UUID uid, int symbol, long reduceSize) {
         this.orderId = orderId;
         this.uid = uid;
         this.symbol = symbol;
@@ -49,7 +49,7 @@ public final class ApiReduceOrder extends ApiCommand {
         }
         return o instanceof ApiReduceOrder other
                 && other.canEqual(this)
-                && this.orderId == other.orderId
+                && Objects.equals(this.orderId, other.orderId)
                 && Objects.equals(this.uid, other.uid)
                 && this.symbol == other.symbol
                 && this.reduceSize == other.reduceSize;
@@ -63,7 +63,7 @@ public final class ApiReduceOrder extends ApiCommand {
     public int hashCode() {
         final int prime = 59;
         int result = 1;
-        result = result * prime + Long.hashCode(this.orderId);
+        result = result * prime + Objects.hashCode(this.orderId);
         result = result * prime + Objects.hashCode(this.uid);
         result = result * prime + this.symbol;
         result = result * prime + Long.hashCode(this.reduceSize);
@@ -71,7 +71,7 @@ public final class ApiReduceOrder extends ApiCommand {
     }
 
     public static class ApiReduceOrderBuilder {
-        private long orderId;
+        private UUID orderId;
         private UUID uid;
         private int symbol;
         private long reduceSize;
@@ -79,7 +79,7 @@ public final class ApiReduceOrder extends ApiCommand {
         ApiReduceOrderBuilder() {
         }
 
-        public ApiReduceOrderBuilder orderId(long orderId) {
+        public ApiReduceOrderBuilder orderId(UUID orderId) {
             this.orderId = orderId;
             return this;
         }

@@ -20,7 +20,6 @@ import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.Order;
 import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.config.OrdersProcessingConfiguration;
-import exchange.core2.core.utils.SerializationUtils;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
@@ -33,7 +32,7 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
 
     private final long price;
 
-    private final LinkedHashMap<Long, Order> entries;
+    private final LinkedHashMap<UUID, Order> entries;
 
     private long totalVolume;
 
@@ -45,7 +44,13 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
 
     public OrdersBucketNaive(BytesIn bytes) {
         this.price = bytes.readLong();
-        this.entries = SerializationUtils.readLongMap(bytes, LinkedHashMap::new, Order::new);
+        // orders carry their ids
+        final int numOrders = bytes.readInt();
+        this.entries = new LinkedHashMap<>();
+        for (int i = 0; i < numOrders; i++) {
+            final Order order = new Order(bytes);
+            entries.put(order.getOrderId(), order);
+        }
         this.totalVolume = bytes.readLong();
     }
 
@@ -55,19 +60,21 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
      * @param order - order
      */
     public void put(Order order) {
-        entries.put(order.orderId, order);
+        entries.put(order.getOrderId(), order);
         totalVolume += order.size - order.filled;
     }
 
     /**
      * Remove order from the bucket
      *
-     * @param orderId - order id
+     * @param orderIdHi - order UUID, most significant bits
+     * @param orderIdLo - order UUID, least significant bits
      * @param uidHi   - order user UUID, most significant bits
      * @param uidLo   - order user UUID, least significant bits
      * @return order if removed, or null if not found
      */
-    public Order remove(long orderId, long uidHi, long uidLo) {
+    public Order remove(long orderIdHi, long orderIdLo, long uidHi, long uidLo) {
+        final UUID orderId = new UUID(orderIdHi, orderIdLo);
         Order order = entries.get(orderId);
 //        log.debug("removing order: {}", order);
         if (order == null || order.uidHi != uidHi || order.uidLo != uidLo) {
@@ -100,11 +107,11 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
 
 //        log.debug("---- match: {}", volumeToCollect);
 
-        final Iterator<Map.Entry<Long, Order>> iterator = entries.entrySet().iterator();
+        final Iterator<Map.Entry<UUID, Order>> iterator = entries.entrySet().iterator();
 
         long totalMatchingVolume = 0;
 
-        final List<Long> ordersToRemove = new ArrayList<>();
+        final List<UUID> ordersToRemove = new ArrayList<>();
 
         MatcherTradeEvent eventsHead = null;
         MatcherTradeEvent eventsTail = null;
@@ -115,7 +122,7 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
 
         // iterate through all orders
         while (iterator.hasNext() && volumeToCollect > 0) {
-            final Map.Entry<Long, Order> next = iterator.next();
+            final Map.Entry<UUID, Order> next = iterator.next();
             final Order order = next.getValue();
 
             if (stpMode == OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST
@@ -148,7 +155,7 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
             eventsTail = tradeEvent;
 
             if (fullMatch) {
-                ordersToRemove.add(order.orderId);
+                ordersToRemove.add(order.getOrderId());
                 iterator.remove();
             }
         }
@@ -183,7 +190,7 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
         }
     }
 
-    public Order findOrder(long orderId) {
+    public Order findOrder(UUID orderId) {
         return entries.get(orderId);
     }
 
@@ -208,7 +215,7 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
 
     public String dumpToSingleLine() {
         String orders = getAllOrders().stream()
-                .map(o -> String.format("id%d_L%d_F%d", o.orderId, o.size, o.filled))
+                .map(o -> String.format("id%s_L%d_F%d", o.getOrderId(), o.size, o.filled))
                 .collect(Collectors.joining(", "));
 
         return String.format("%d : vol:%d num:%d : %s", getPrice(), getTotalVolume(), getNumOrders(), orders);
@@ -217,7 +224,8 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
     @Override
     public void writeMarshallable(BytesOut bytes) {
         bytes.writeLong(price);
-        SerializationUtils.marshallLongMap(entries, bytes);
+        bytes.writeInt(entries.size());
+        entries.values().forEach(order -> order.writeMarshallable(bytes));
         bytes.writeLong(totalVolume);
     }
 
@@ -247,15 +255,15 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
         public MatcherTradeEvent eventsChainHead;
         public MatcherTradeEvent eventsChainTail;
         public long volume;
-        public List<Long> ordersToRemove;
+        public List<UUID> ordersToRemove;
         public boolean selfTradeDetected;
 
-        public MatcherResult(MatcherTradeEvent eventsChainHead, MatcherTradeEvent eventsChainTail, long volume, List<Long> ordersToRemove) {
+        public MatcherResult(MatcherTradeEvent eventsChainHead, MatcherTradeEvent eventsChainTail, long volume, List<UUID> ordersToRemove) {
             this(eventsChainHead, eventsChainTail, volume, ordersToRemove, false);
         }
 
         public MatcherResult(MatcherTradeEvent eventsChainHead, MatcherTradeEvent eventsChainTail,
-                             long volume, List<Long> ordersToRemove, boolean selfTradeDetected) {
+                             long volume, List<UUID> ordersToRemove, boolean selfTradeDetected) {
             this.eventsChainHead = eventsChainHead;
             this.eventsChainTail = eventsChainTail;
             this.volume = volume;

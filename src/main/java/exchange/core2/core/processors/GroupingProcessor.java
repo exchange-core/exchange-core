@@ -141,7 +141,7 @@ public final class GroupingProcessor implements EventProcessor {
                         nextSequence++;
 
                         if (cmd.command == OrderCommandType.GROUPING_CONTROL) {
-                            groupingEnabled = cmd.orderId == 1;
+                            groupingEnabled = cmd.orderIdLo == 1;
                             cmd.resultCode = CommandResultCode.SUCCESS;
                         }
 
