@@ -151,13 +151,6 @@ public final class OrderBookNaiveImpl implements IOrderBook {
             return;
         }
 
-        if (idMap.containsKey(cmd.orderIdHi, cmd.orderIdLo)) {
-            // duplicate order id - can match, but can not place
-            eventsHelper.attachRejectEvent(cmd, cmd.size - filledSize);
-            log.warn("duplicate order id: {}", cmd);
-            return;
-        }
-
         // normally placing regular GTC limit order
         final Order orderRecord = new Order(
                 cmd.orderIdHi,
@@ -173,11 +166,17 @@ public final class OrderBookNaiveImpl implements IOrderBook {
                 cmd.orderMakerFee,
                 cmd.timestamp);
 
+        // one probe checks for a duplicate and inserts
+        if (idMap.putIfAbsent(cmd.orderIdHi, cmd.orderIdLo, orderRecord) != null) {
+            // duplicate order id - can match, but can not place
+            eventsHelper.attachRejectEvent(cmd, cmd.size - filledSize);
+            log.warn("duplicate order id: {}", cmd);
+            return;
+        }
+
         getBucketsByAction(action)
                 .computeIfAbsent(price, OrdersBucketNaive::new)
                 .put(orderRecord);
-
-        idMap.put(cmd.orderIdHi, cmd.orderIdLo, orderRecord);
     }
 
     private void newOrderMatchIoc(final OrderCommand cmd) {

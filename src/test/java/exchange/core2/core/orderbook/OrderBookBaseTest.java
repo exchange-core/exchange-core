@@ -44,7 +44,6 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * TODO tests where IOC order is not fully matched because of limit price (similar to GTC tests)
- * TODO tests where GTC order has duplicate id - rejection event should be sent
  * TODO add tests for exchange mode (moves)
  * TODO test reserve price validation for BID orders in exchange mode
  */
@@ -187,6 +186,27 @@ public abstract class OrderBookBaseTest {
         processAndValidate(orderCommand, SUCCESS);
         List<MatcherTradeEvent> events = orderCommand.extractEvents();
         assertThat(events.size(), is(1));
+        checkEventRejection(events.get(0), 100L, 81600L, null);
+        assertEquals(expectedState.build(), orderBook.getL2MarketDataSnapshot(25));
+        // the resting order keeps its id: it can still be cancelled
+        processAndValidate(OrderCommand.cancel(TestConstants.orderIdOf(1), UID_1), SUCCESS);
+        assertEquals(expectedState.removeAsk(1).build(), orderBook.getL2MarketDataSnapshot(25));
+    }
+
+    /**
+     * Order with duplicate orderId still matches, the rest is rejected instead of placed
+     */
+    @Test
+    public void shouldMatchDuplicateOrderAndRejectRest() {
+        // id of the resting ask 81600 (size 100), matches both asks at 81599 (75 in total)
+        OrderCommand cmd = OrderCommand.newOrder(GTC, TestConstants.orderIdOf(1), UID_2, 81599, 82000, 100, BID);
+        processAndValidate(cmd, SUCCESS);
+        List<MatcherTradeEvent> events = cmd.extractEvents();
+        assertThat(events.size(), is(3));
+        checkEventRejection(events.get(0), 25L, 81599L, 82000L);
+        checkEventTrade(events.get(1), 2L, 81599, 50L);
+        checkEventTrade(events.get(2), 3L, 81599, 25L);
+        assertEquals(expectedState.removeAsk(0).build(), orderBook.getL2MarketDataSnapshot(25));
     }
 
     /**
