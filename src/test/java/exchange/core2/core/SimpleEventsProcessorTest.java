@@ -66,7 +66,7 @@ public final class SimpleEventsProcessorTest {
         verify(handler, never()).reduceEvent(any());
 
         assertThat(commandResultCaptor.getValue().getCommand(),
-                Is.is(ApiCancelOrder.builder().orderId(123L).symbol(3).uid(TestConstants.uidOf(29851)).build()));
+                Is.is(ApiCancelOrder.builder().orderId(TestConstants.orderIdOf(123L)).symbol(3).uid(TestConstants.uidOf(29851)).build()));
     }
 
     @Test
@@ -90,9 +90,9 @@ public final class SimpleEventsProcessorTest {
         verify(handler, times(1)).reduceEvent(reduceEventCaptor.capture());
 
         assertThat(commandResultCaptor.getValue().getCommand(),
-                Is.is(ApiReduceOrder.builder().orderId(123L).reduceSize(3200L).symbol(3).uid(TestConstants.uidOf(29851)).build()));
+                Is.is(ApiReduceOrder.builder().orderId(TestConstants.orderIdOf(123L)).reduceSize(3200L).symbol(3).uid(TestConstants.uidOf(29851)).build()));
 
-        assertThat(reduceEventCaptor.getValue().getOrderId(), Is.is(123L));
+        assertThat(reduceEventCaptor.getValue().getOrderId(), Is.is(TestConstants.orderIdOf(123L)));
         assertThat(reduceEventCaptor.getValue().getPrice(), Is.is(20100L));
         assertThat(reduceEventCaptor.getValue().getReducedVolume(), Is.is(8272L));
         assertTrue(reduceEventCaptor.getValue().isOrderCompleted());
@@ -106,7 +106,7 @@ public final class SimpleEventsProcessorTest {
         cmd.matcherEvent = MatcherTradeEvent.builder()
                 .eventType(MatcherEventType.TRADE)
                 .activeOrderCompleted(false)
-                .matchedOrderId(276810L)
+                .matchedOrderId(TestConstants.orderIdOf(276810L))
                 .matchedOrderUid(TestConstants.uidOf(10332))
                 .matchedOrderCompleted(true)
                 .price(20100L)
@@ -124,7 +124,7 @@ public final class SimpleEventsProcessorTest {
 
         assertThat(commandResultCaptor.getValue().getCommand(),
                 Is.is(ApiPlaceOrder.builder()
-                        .orderId(123L)
+                        .orderId(TestConstants.orderIdOf(123L))
                         .symbol(3)
                         .price(52200L)
                         .size(3200L)
@@ -138,7 +138,7 @@ public final class SimpleEventsProcessorTest {
         IEventsHandler.TradeEvent tradeEvent = tradeEventCaptor.getValue();
         assertThat(tradeEvent.getSymbol(), Is.is(3));
         assertThat(tradeEvent.getTotalVolume(), Is.is(8272L));
-        assertThat(tradeEvent.getTakerOrderId(), Is.is(123L));
+        assertThat(tradeEvent.getTakerOrderId(), Is.is(TestConstants.orderIdOf(123L)));
         assertThat(tradeEvent.getTakerUid(), Is.is(TestConstants.uidOf(29851)));
         assertThat(tradeEvent.getTakerAction(), Is.is(OrderAction.BID));
         assertFalse(tradeEvent.isTakeOrderCompleted());
@@ -147,7 +147,7 @@ public final class SimpleEventsProcessorTest {
         assertThat(trades.size(), Is.is(1));
         IEventsHandler.Trade trade = trades.get(0);
 
-        assertThat(trade.getMakerOrderId(), Is.is(276810L));
+        assertThat(trade.getMakerOrderId(), Is.is(TestConstants.orderIdOf(276810L)));
         assertThat(trade.getMakerUid(), Is.is(TestConstants.uidOf(10332)));
         assertTrue(trade.isMakerOrderCompleted());
         assertThat(trade.getPrice(), Is.is(20100L));
@@ -163,7 +163,7 @@ public final class SimpleEventsProcessorTest {
         MatcherTradeEvent firstTrade = MatcherTradeEvent.builder()
                 .eventType(MatcherEventType.TRADE)
                 .activeOrderCompleted(false)
-                .matchedOrderId(276810L)
+                .matchedOrderId(TestConstants.orderIdOf(276810L))
                 .matchedOrderUid(TestConstants.uidOf(10332))
                 .matchedOrderCompleted(true)
                 .price(20100L)
@@ -174,7 +174,7 @@ public final class SimpleEventsProcessorTest {
         MatcherTradeEvent secondTrade = MatcherTradeEvent.builder()
                 .eventType(MatcherEventType.TRADE)
                 .activeOrderCompleted(true)
-                .matchedOrderId(100293L)
+                .matchedOrderId(TestConstants.orderIdOf(100293L))
                 .matchedOrderUid(TestConstants.uidOf(1982))
                 .matchedOrderCompleted(false)
                 .price(20110L)
@@ -194,7 +194,7 @@ public final class SimpleEventsProcessorTest {
 
         assertThat(commandResultCaptor.getValue().getCommand(),
                 Is.is(ApiPlaceOrder.builder()
-                        .orderId(123L)
+                        .orderId(TestConstants.orderIdOf(123L))
                         .symbol(3)
                         .price(52200L)
                         .size(3200L)
@@ -209,7 +209,7 @@ public final class SimpleEventsProcessorTest {
         IEventsHandler.TradeEvent tradeEvent = tradeEventCaptor.getAllValues().get(0);
         assertThat(tradeEvent.getSymbol(), Is.is(3));
         assertThat(tradeEvent.getTotalVolume(), Is.is(11393L));
-        assertThat(tradeEvent.getTakerOrderId(), Is.is(123L));
+        assertThat(tradeEvent.getTakerOrderId(), Is.is(TestConstants.orderIdOf(123L)));
         assertThat(tradeEvent.getTakerUid(), Is.is(TestConstants.uidOf(29851)));
         assertThat(tradeEvent.getTakerAction(), Is.is(OrderAction.BID));
         assertTrue(tradeEvent.isTakeOrderCompleted());
@@ -218,14 +218,14 @@ public final class SimpleEventsProcessorTest {
         assertThat(trades.size(), Is.is(2));
 
         IEventsHandler.Trade trade = trades.get(0);
-        assertThat(trade.getMakerOrderId(), Is.is(276810L));
+        assertThat(trade.getMakerOrderId(), Is.is(TestConstants.orderIdOf(276810L)));
         assertThat(trade.getMakerUid(), Is.is(TestConstants.uidOf(10332)));
         assertTrue(trade.isMakerOrderCompleted());
         assertThat(trade.getPrice(), Is.is(20100L));
         assertThat(trade.getVolume(), Is.is(8272L));
 
         trade = trades.get(1);
-        assertThat(trade.getMakerOrderId(), Is.is(100293L));
+        assertThat(trade.getMakerOrderId(), Is.is(TestConstants.orderIdOf(100293L)));
         assertThat(trade.getMakerUid(), Is.is(TestConstants.uidOf(1982)));
         assertFalse(trade.isMakerOrderCompleted());
         assertThat(trade.getPrice(), Is.is(20110L));
@@ -240,7 +240,7 @@ public final class SimpleEventsProcessorTest {
         MatcherTradeEvent firstTrade = MatcherTradeEvent.builder()
                 .eventType(MatcherEventType.TRADE)
                 .activeOrderCompleted(false)
-                .matchedOrderId(276810L)
+                .matchedOrderId(TestConstants.orderIdOf(276810L))
                 .matchedOrderUid(TestConstants.uidOf(10332))
                 .matchedOrderCompleted(true)
                 .price(20100L)
@@ -251,7 +251,7 @@ public final class SimpleEventsProcessorTest {
         MatcherTradeEvent secondTrade = MatcherTradeEvent.builder()
                 .eventType(MatcherEventType.TRADE)
                 .activeOrderCompleted(true)
-                .matchedOrderId(100293L)
+                .matchedOrderId(TestConstants.orderIdOf(100293L))
                 .matchedOrderUid(TestConstants.uidOf(1982))
                 .matchedOrderCompleted(false)
                 .price(20110L)
@@ -279,7 +279,7 @@ public final class SimpleEventsProcessorTest {
 
         assertThat(commandResultCaptor.getValue().getCommand(),
                 Is.is(ApiPlaceOrder.builder()
-                        .orderId(123L)
+                        .orderId(TestConstants.orderIdOf(123L))
                         .symbol(3)
                         .price(52200L)
                         .size(3200L)
@@ -294,7 +294,7 @@ public final class SimpleEventsProcessorTest {
         IEventsHandler.TradeEvent tradeEvent = tradeEventCaptor.getAllValues().get(0);
         assertThat(tradeEvent.getSymbol(), Is.is(3));
         assertThat(tradeEvent.getTotalVolume(), Is.is(11393L));
-        assertThat(tradeEvent.getTakerOrderId(), Is.is(123L));
+        assertThat(tradeEvent.getTakerOrderId(), Is.is(TestConstants.orderIdOf(123L)));
         assertThat(tradeEvent.getTakerUid(), Is.is(TestConstants.uidOf(29851)));
         assertThat(tradeEvent.getTakerAction(), Is.is(OrderAction.BID));
         assertTrue(tradeEvent.isTakeOrderCompleted());
@@ -303,14 +303,14 @@ public final class SimpleEventsProcessorTest {
         assertThat(trades.size(), Is.is(2));
 
         IEventsHandler.Trade trade = trades.get(0);
-        assertThat(trade.getMakerOrderId(), Is.is(276810L));
+        assertThat(trade.getMakerOrderId(), Is.is(TestConstants.orderIdOf(276810L)));
         assertThat(trade.getMakerUid(), Is.is(TestConstants.uidOf(10332)));
         assertTrue(trade.isMakerOrderCompleted());
         assertThat(trade.getPrice(), Is.is(20100L));
         assertThat(trade.getVolume(), Is.is(8272L));
 
         trade = trades.get(1);
-        assertThat(trade.getMakerOrderId(), Is.is(100293L));
+        assertThat(trade.getMakerOrderId(), Is.is(TestConstants.orderIdOf(100293L)));
         assertThat(trade.getMakerUid(), Is.is(TestConstants.uidOf(1982)));
         assertFalse(trade.isMakerOrderCompleted());
         assertThat(trade.getPrice(), Is.is(20110L));
@@ -340,7 +340,7 @@ public final class SimpleEventsProcessorTest {
 
         assertThat(commandResultCaptor.getValue().getCommand(),
                 Is.is(ApiPlaceOrder.builder()
-                        .orderId(123L)
+                        .orderId(TestConstants.orderIdOf(123L))
                         .symbol(3)
                         .price(52200L)
                         .size(3200L)
@@ -353,7 +353,7 @@ public final class SimpleEventsProcessorTest {
 
         IEventsHandler.RejectEvent rejectEvent = rejectEventCaptor.getValue();
         assertThat(rejectEvent.getSymbol(), Is.is(3));
-        assertThat(rejectEvent.getOrderId(), Is.is(123L));
+        assertThat(rejectEvent.getOrderId(), Is.is(TestConstants.orderIdOf(123L)));
         assertThat(rejectEvent.getRejectedVolume(), Is.is(8272L));
         assertThat(rejectEvent.getPrice(), Is.is(52201L));
         assertThat(rejectEvent.getUid(), Is.is(TestConstants.uidOf(29851)));
@@ -364,7 +364,7 @@ public final class SimpleEventsProcessorTest {
 
         return OrderCommand.builder()
                 .command(OrderCommandType.CANCEL_ORDER)
-                .orderId(123L)
+                .orderId(TestConstants.orderIdOf(123L))
                 .symbol(3)
                 .price(12800L)
                 .size(3L)
@@ -385,7 +385,7 @@ public final class SimpleEventsProcessorTest {
 
         return OrderCommand.builder()
                 .command(OrderCommandType.REDUCE_ORDER)
-                .orderId(123L)
+                .orderId(TestConstants.orderIdOf(123L))
                 .symbol(3)
                 .price(52200L)
                 .size(3200L)
@@ -405,7 +405,7 @@ public final class SimpleEventsProcessorTest {
 
         return OrderCommand.builder()
                 .command(OrderCommandType.PLACE_ORDER)
-                .orderId(123L)
+                .orderId(TestConstants.orderIdOf(123L))
                 .symbol(3)
                 .price(52200L)
                 .size(3200L)
@@ -424,7 +424,7 @@ public final class SimpleEventsProcessorTest {
     private void verifyOriginalFields(OrderCommand source, OrderCommand result) {
 
         assertThat(source.command, Is.is(result.command));
-        assertThat(source.orderId, Is.is(result.orderId));
+        assertThat(source.getOrderId(), Is.is(result.getOrderId()));
         assertThat(source.symbol, Is.is(result.symbol));
         assertThat(source.price, Is.is(result.price));
         assertThat(source.size, Is.is(result.size));

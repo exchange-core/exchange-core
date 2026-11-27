@@ -24,6 +24,7 @@ import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.core.orderbook.OrderBookDirectImpl;
 import exchange.core2.tests.util.ExchangeTestContainer;
+import exchange.core2.tests.util.TestConstants;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
@@ -68,18 +69,18 @@ class FullAsyncResponseIntegrationTest {
             final ExchangeApi api = container.getApi();
             final ApiPlaceOrder.ApiPlaceOrderBuilder ask = ApiPlaceOrder.builder()
                     .symbol(SYMBOL_EXCHANGE).uid(UID_1).action(ASK).orderType(GTC);
-            assertEquals(SUCCESS, api.submitCommandAsync(ask.orderId(101).price(1600).size(1).build()).get(3, SECONDS));
-            assertEquals(SUCCESS, api.submitCommandAsync(ask.orderId(102).price(1650).size(3).build()).get(3, SECONDS));
+            assertEquals(SUCCESS, api.submitCommandAsync(ask.orderId(TestConstants.orderIdOf(101)).price(1600).size(1).build()).get(3, SECONDS));
+            assertEquals(SUCCESS, api.submitCommandAsync(ask.orderId(TestConstants.orderIdOf(102)).price(1650).size(3).build()).get(3, SECONDS));
 
             final ApiPlaceOrder taker = ApiPlaceOrder.builder()
                     .symbol(SYMBOL_EXCHANGE).uid(UID_2).action(BID).orderType(IOC)
-                    .orderId(201).price(1700).reservePrice(1800).size(3).userCookie(42)
+                    .orderId(TestConstants.orderIdOf(201)).price(1700).reservePrice(1800).size(3).userCookie(42)
                     .build();
             taker.timestamp = 123_456;
             final AtomicReference<MatcherTradeEvent> engineTrades = new AtomicReference<>();
             final AtomicReference<L2MarketData> engineBook = new AtomicReference<>();
             container.setConsumer((cmd, seq) -> {
-                if (cmd.command == PLACE_ORDER && cmd.orderId == taker.orderId) {
+                if (cmd.command == PLACE_ORDER && cmd.getOrderId().equals(taker.orderId)) {
                     engineTrades.set(cmd.matcherEvent);
                     engineBook.set(cmd.marketData);
                 }
@@ -93,13 +94,13 @@ class FullAsyncResponseIntegrationTest {
 
             assertEquals(PLACE_ORDER, response.command);
             assertEquals(SUCCESS, response.resultCode);
-            assertEquals(taker.orderId, response.orderId);
+            assertEquals(taker.orderId, response.getOrderId());
             assertEquals(taker.timestamp, response.timestamp);
             assertEquals(taker.userCookie, response.userCookie);
             assertEquals(taker.reservePrice, response.reserveBidPrice);
 
             final List<MatcherTradeEvent> trades = response.extractEvents();
-            assertEquals(List.of(101L, 102L), trades.stream().map(event -> event.matchedOrderId).toList());
+            assertEquals(List.of(TestConstants.orderIdOf(101L), TestConstants.orderIdOf(102L)), trades.stream().map(MatcherTradeEvent::getMatchedOrderId).toList());
             assertEquals(List.of(1L, 2L), trades.stream().map(event -> event.size).toList());
             assertEquals(List.of(TRADE, TRADE), trades.stream().map(event -> event.eventType).toList());
             assertNotSame(engineTrades.get(), trades.get(0));

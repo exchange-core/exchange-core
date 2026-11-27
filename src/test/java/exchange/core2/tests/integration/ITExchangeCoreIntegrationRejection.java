@@ -26,6 +26,7 @@ import exchange.core2.core.common.api.reports.TotalCurrencyBalanceReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.tests.util.ExchangeTestContainer;
+import exchange.core2.tests.util.TestConstants;
 import org.hamcrest.core.Is;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -278,9 +279,9 @@ public abstract class ITExchangeCoreIntegrationRejection {
 
                     long orderId = 1L;
                     for (final int sym : new int[]{symbolA, symbolB}) {
-                        container.submitCommandSync(builderPlace(sym, UID_2, ASK, GTC).orderId(orderId++).price(1000L).size(1L).build(), CommandResultCode.SUCCESS);
-                        container.submitCommandSync(builderPlace(sym, UID_1, BID, IOC).orderId(orderId++).price(1000L).size(1L).build(), CommandResultCode.SUCCESS);
-                        container.submitCommandSync(builderPlace(sym, UID_2, BID, GTC).orderId(orderId++).price(1000L).size(1L).build(), CommandResultCode.SUCCESS);
+                        container.submitCommandSync(builderPlace(sym, UID_2, ASK, GTC).orderId(TestConstants.orderIdOf(orderId++)).price(1000L).size(1L).build(), CommandResultCode.SUCCESS);
+                        container.submitCommandSync(builderPlace(sym, UID_1, BID, IOC).orderId(TestConstants.orderIdOf(orderId++)).price(1000L).size(1L).build(), CommandResultCode.SUCCESS);
+                        container.submitCommandSync(builderPlace(sym, UID_2, BID, GTC).orderId(TestConstants.orderIdOf(orderId++)).price(1000L).size(1L).build(), CommandResultCode.SUCCESS);
                         container.requestCurrentOrderBook(sym);
                     }
 
@@ -289,7 +290,7 @@ public abstract class ITExchangeCoreIntegrationRejection {
                     assertThat(positions.getOpenInterestLong().get(symbolA), Is.is(1L));
                     assertThat(positions.getOpenInterestLong().get(symbolB), Is.is(1L));
 
-                    container.submitCommandSync(builderPlace(targetSymbol, UID_1, BID, GTC).orderId(orderId).price(1000L).size(1L).build(), expected);
+                    container.submitCommandSync(builderPlace(targetSymbol, UID_1, BID, GTC).orderId(TestConstants.orderIdOf(orderId)).price(1000L).size(1L).build(), expected);
                     assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
                 }
             }
@@ -318,10 +319,10 @@ public abstract class ITExchangeCoreIntegrationRejection {
 
             container.setConsumer(processor);
 
-            container.submitCommandSync(builderPlace(symbolId, UID_1, ASK, GTC).orderId(101L).price(160000L).size(7L).build(), CommandResultCode.SUCCESS);
-            container.submitCommandSync(builderPlace(symbolId, UID_2, ASK, GTC).orderId(202L).price(159900L).size(10L).build(), CommandResultCode.SUCCESS);
-            container.submitCommandSync(builderPlace(symbolId, UID_3, ASK, GTC).orderId(303L).price(160000L).size(3L).build(), CommandResultCode.SUCCESS);
-            container.submitCommandSync(builderPlace(symbolId, UID_3, ASK, GTC).orderId(304L).price(160500L).size(20L).build(), CommandResultCode.SUCCESS);
+            container.submitCommandSync(builderPlace(symbolId, UID_1, ASK, GTC).orderId(TestConstants.orderIdOf(101L)).price(160000L).size(7L).build(), CommandResultCode.SUCCESS);
+            container.submitCommandSync(builderPlace(symbolId, UID_2, ASK, GTC).orderId(TestConstants.orderIdOf(202L)).price(159900L).size(10L).build(), CommandResultCode.SUCCESS);
+            container.submitCommandSync(builderPlace(symbolId, UID_3, ASK, GTC).orderId(TestConstants.orderIdOf(303L)).price(160000L).size(3L).build(), CommandResultCode.SUCCESS);
+            container.submitCommandSync(builderPlace(symbolId, UID_3, ASK, GTC).orderId(TestConstants.orderIdOf(304L)).price(160500L).size(20L).build(), CommandResultCode.SUCCESS);
 
 
             long price = 160500L;
@@ -329,7 +330,7 @@ public abstract class ITExchangeCoreIntegrationRejection {
                 price = 160000L * 7L + 159900L * 10L + 160000L * 3L + 160500L * 20L + (rejectionCause == REJECTION_BY_BUDGET ? -1 : 0);
             }
 
-            container.submitCommandSync(builderPlace(symbolId, UID_4, BID, orderType).orderId(405L).price(price).reservePrice(price).size(size).build(), CommandResultCode.SUCCESS);
+            container.submitCommandSync(builderPlace(symbolId, UID_4, BID, orderType).orderId(TestConstants.orderIdOf(405L)).price(price).reservePrice(price).size(size).build(), CommandResultCode.SUCCESS);
 
             assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
         }
@@ -348,7 +349,7 @@ public abstract class ITExchangeCoreIntegrationRejection {
             final IEventsHandler.TradeEvent tradeEvent = tradeEventCaptor.getAllValues().get(0);
             assertThat(tradeEvent.getSymbol(), Is.is(symbolId));
             assertThat(tradeEvent.getTotalVolume(), Is.is(40L));
-            assertThat(tradeEvent.getTakerOrderId(), Is.is(405L));
+            assertThat(tradeEvent.getTakerOrderId(), Is.is(TestConstants.orderIdOf(405L)));
             assertThat(tradeEvent.getTakerUid(), Is.is(UID_4));
             assertThat(tradeEvent.getTakerAction(), Is.is(OrderAction.BID));
             assertThat(tradeEvent.isTakeOrderCompleted(), Is.is(rejectionCause == NO_REJECTION)); // completed only if no rejection was happened
@@ -356,25 +357,25 @@ public abstract class ITExchangeCoreIntegrationRejection {
             final List<IEventsHandler.Trade> trades = tradeEvent.getTrades();
             assertThat(trades.size(), Is.is(4));
 
-            assertThat(trades.get(0).getMakerOrderId(), Is.is(202L));
+            assertThat(trades.get(0).getMakerOrderId(), Is.is(TestConstants.orderIdOf(202L)));
             assertThat(trades.get(0).getMakerUid(), Is.is(UID_2));
             assertTrue(trades.get(0).isMakerOrderCompleted());
             assertThat(trades.get(0).getPrice(), Is.is(159900L));
             assertThat(trades.get(0).getVolume(), Is.is(10L));
 
-            assertThat(trades.get(1).getMakerOrderId(), Is.is(101L));
+            assertThat(trades.get(1).getMakerOrderId(), Is.is(TestConstants.orderIdOf(101L)));
             assertThat(trades.get(1).getMakerUid(), Is.is(UID_1));
             assertTrue(trades.get(1).isMakerOrderCompleted());
             assertThat(trades.get(1).getPrice(), Is.is(160000L));
             assertThat(trades.get(1).getVolume(), Is.is(7L));
 
-            assertThat(trades.get(2).getMakerOrderId(), Is.is(303L));
+            assertThat(trades.get(2).getMakerOrderId(), Is.is(TestConstants.orderIdOf(303L)));
             assertThat(trades.get(2).getMakerUid(), Is.is(UID_3));
             assertTrue(trades.get(2).isMakerOrderCompleted());
             assertThat(trades.get(2).getPrice(), Is.is(160000L));
             assertThat(trades.get(2).getVolume(), Is.is(3L));
 
-            assertThat(trades.get(3).getMakerOrderId(), Is.is(304L));
+            assertThat(trades.get(3).getMakerOrderId(), Is.is(TestConstants.orderIdOf(304L)));
             assertThat(trades.get(3).getMakerUid(), Is.is(UID_3));
             assertTrue(trades.get(3).isMakerOrderCompleted());
             assertThat(trades.get(3).getPrice(), Is.is(160500L));
@@ -386,7 +387,7 @@ public abstract class ITExchangeCoreIntegrationRejection {
             final IEventsHandler.RejectEvent rejectEvent = rejectEventCaptor.getValue();
             assertThat(rejectEvent.getSymbol(), Is.is(symbolId));
             assertThat(rejectEvent.getRejectedVolume(), Is.is((orderType == FOK_BUDGET) ? size : 1L));
-            assertThat(rejectEvent.getOrderId(), Is.is(405L));
+            assertThat(rejectEvent.getOrderId(), Is.is(TestConstants.orderIdOf(405L)));
             assertThat(rejectEvent.getUid(), Is.is(UID_4));
         } else {
             verify(handler, never()).rejectEvent(any());
@@ -411,12 +412,12 @@ public abstract class ITExchangeCoreIntegrationRejection {
                 price = 160_500L + 160_000L * 20L + 159_900L + (rejectionCause == REJECTION_BY_BUDGET ? 1 : 0);
             }
 
-            container.submitCommandSync(builderPlace(symbolId, UID_1, BID, GTC).orderId(101L).price(160_000L).reservePrice(166_000L).size(12L).build(), CommandResultCode.SUCCESS);
-            container.submitCommandSync(builderPlace(symbolId, UID_2, BID, GTC).orderId(202L).price(159_900L).reservePrice(166_000L).size(1L).build(), CommandResultCode.SUCCESS);
-            container.submitCommandSync(builderPlace(symbolId, UID_3, BID, GTC).orderId(303L).price(160_000L).reservePrice(166_000L).size(8L).build(), CommandResultCode.SUCCESS);
-            container.submitCommandSync(builderPlace(symbolId, UID_3, BID, GTC).orderId(304L).price(160_500L).reservePrice(166_000L).size(1L).build(), CommandResultCode.SUCCESS);
+            container.submitCommandSync(builderPlace(symbolId, UID_1, BID, GTC).orderId(TestConstants.orderIdOf(101L)).price(160_000L).reservePrice(166_000L).size(12L).build(), CommandResultCode.SUCCESS);
+            container.submitCommandSync(builderPlace(symbolId, UID_2, BID, GTC).orderId(TestConstants.orderIdOf(202L)).price(159_900L).reservePrice(166_000L).size(1L).build(), CommandResultCode.SUCCESS);
+            container.submitCommandSync(builderPlace(symbolId, UID_3, BID, GTC).orderId(TestConstants.orderIdOf(303L)).price(160_000L).reservePrice(166_000L).size(8L).build(), CommandResultCode.SUCCESS);
+            container.submitCommandSync(builderPlace(symbolId, UID_3, BID, GTC).orderId(TestConstants.orderIdOf(304L)).price(160_500L).reservePrice(166_000L).size(1L).build(), CommandResultCode.SUCCESS);
 
-            container.submitCommandSync(builderPlace(symbolId, UID_4, ASK, orderType).orderId(405L).price(price).size(size).build(), CommandResultCode.SUCCESS);
+            container.submitCommandSync(builderPlace(symbolId, UID_4, ASK, orderType).orderId(TestConstants.orderIdOf(405L)).price(price).size(size).build(), CommandResultCode.SUCCESS);
 
             assertTrue(container.totalBalanceReport().isGlobalBalancesAllZero());
         }
@@ -435,7 +436,7 @@ public abstract class ITExchangeCoreIntegrationRejection {
             final IEventsHandler.TradeEvent tradeEvent = tradeEventCaptor.getAllValues().get(0);
             assertThat(tradeEvent.getSymbol(), Is.is(symbolId));
             assertThat(tradeEvent.getTotalVolume(), Is.is(22L));
-            assertThat(tradeEvent.getTakerOrderId(), Is.is(405L));
+            assertThat(tradeEvent.getTakerOrderId(), Is.is(TestConstants.orderIdOf(405L)));
             assertThat(tradeEvent.getTakerUid(), Is.is(UID_4));
             assertThat(tradeEvent.getTakerAction(), Is.is(ASK));
             assertThat(tradeEvent.isTakeOrderCompleted(), Is.is(rejectionCause == NO_REJECTION)); // completed only if no rejection was happened
@@ -443,25 +444,25 @@ public abstract class ITExchangeCoreIntegrationRejection {
             final List<IEventsHandler.Trade> trades = tradeEvent.getTrades();
             assertThat(trades.size(), Is.is(4));
 
-            assertThat(trades.get(0).getMakerOrderId(), Is.is(304L));
+            assertThat(trades.get(0).getMakerOrderId(), Is.is(TestConstants.orderIdOf(304L)));
             assertThat(trades.get(0).getMakerUid(), Is.is(UID_3));
             assertTrue(trades.get(0).isMakerOrderCompleted());
             assertThat(trades.get(0).getPrice(), Is.is(160500L));
             assertThat(trades.get(0).getVolume(), Is.is(1L));
 
-            assertThat(trades.get(1).getMakerOrderId(), Is.is(101L));
+            assertThat(trades.get(1).getMakerOrderId(), Is.is(TestConstants.orderIdOf(101L)));
             assertThat(trades.get(1).getMakerUid(), Is.is(UID_1));
             assertTrue(trades.get(1).isMakerOrderCompleted());
             assertThat(trades.get(1).getPrice(), Is.is(160000L));
             assertThat(trades.get(1).getVolume(), Is.is(12L));
 
-            assertThat(trades.get(2).getMakerOrderId(), Is.is(303L));
+            assertThat(trades.get(2).getMakerOrderId(), Is.is(TestConstants.orderIdOf(303L)));
             assertThat(trades.get(2).getMakerUid(), Is.is(UID_3));
             assertTrue(trades.get(2).isMakerOrderCompleted());
             assertThat(trades.get(2).getPrice(), Is.is(160000L));
             assertThat(trades.get(2).getVolume(), Is.is(8L));
 
-            assertThat(trades.get(3).getMakerOrderId(), Is.is(202L));
+            assertThat(trades.get(3).getMakerOrderId(), Is.is(TestConstants.orderIdOf(202L)));
             assertThat(trades.get(3).getMakerUid(), Is.is(UID_2));
             assertTrue(trades.get(3).isMakerOrderCompleted());
             assertThat(trades.get(3).getPrice(), Is.is(159900L));
@@ -473,7 +474,7 @@ public abstract class ITExchangeCoreIntegrationRejection {
             final IEventsHandler.RejectEvent rejectEvent = rejectEventCaptor.getValue();
             assertThat(rejectEvent.getSymbol(), Is.is(symbolId));
             assertThat(rejectEvent.getRejectedVolume(), Is.is((orderType == FOK_BUDGET) ? size : 1L));
-            assertThat(rejectEvent.getOrderId(), Is.is(405L));
+            assertThat(rejectEvent.getOrderId(), Is.is(TestConstants.orderIdOf(405L)));
             assertThat(rejectEvent.getUid(), Is.is(UID_4));
         } else {
             verify(handler, never()).rejectEvent(any());

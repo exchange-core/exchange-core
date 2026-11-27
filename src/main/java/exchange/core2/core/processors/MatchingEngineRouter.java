@@ -202,7 +202,7 @@ public final class MatchingEngineRouter implements WriteBytesMarshallable {
 
         } else if (command == OrderCommandType.PERSIST_STATE_MATCHING) {
             final boolean isSuccess = serializationProcessor.storeData(
-                    cmd.orderId,
+                    cmd.orderIdLo,
                     seq,
                     cmd.timestamp,
                     ISerializationProcessor.SerializedModuleType.MATCHING_ENGINE_ROUTER,

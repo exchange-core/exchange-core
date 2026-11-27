@@ -54,7 +54,8 @@ public final class OrderBookEventsHelper {
 
         event.activeOrderCompleted = takerCompleted;
 
-        event.matchedOrderId = matchingOrder.getOrderId();
+        event.matchedOrderIdHi = matchingOrder.getOrderIdHi();
+        event.matchedOrderIdLo = matchingOrder.getOrderIdLo();
         event.matchedOrderUidHi = matchingOrder.getUidHi();
         event.matchedOrderUidLo = matchingOrder.getUidLo();
 
@@ -78,7 +79,8 @@ public final class OrderBookEventsHelper {
         event.section = 0;
         event.activeOrderCompleted = completed;
 //        event.activeOrderSeq = order.seq;
-        event.matchedOrderId = 0;
+        event.matchedOrderIdHi = 0;
+        event.matchedOrderIdLo = 0;
         event.matchedOrderCompleted = false;
         event.price = order.getPrice();
 //        event.size = order.getSize() - order.getFilled();
@@ -103,7 +105,8 @@ public final class OrderBookEventsHelper {
         event.activeOrderCompleted = true;
 //        event.activeOrderSeq = cmd.seq;
 
-        event.matchedOrderId = 0;
+        event.matchedOrderIdHi = 0;
+        event.matchedOrderIdLo = 0;
         event.matchedOrderCompleted = false;
 
         event.price = cmd.price;
@@ -116,8 +119,8 @@ public final class OrderBookEventsHelper {
         cmd.matcherEvent = event;
     }
 
-    // a binary event carries six longs: matchedOrderId, the two halves of matchedOrderUid, price, size, bidderHoldPrice
-    private static final int LONGS_PER_BINARY_EVENT = 6;
+    // a binary event carries seven longs: the two halves of matchedOrderId and of matchedOrderUid, price, size, bidderHoldPrice
+    private static final int LONGS_PER_BINARY_EVENT = 7;
 
     public MatcherTradeEvent createBinaryEventsChain(final long timestamp,
                                                      final int section,
@@ -134,12 +137,13 @@ public final class OrderBookEventsHelper {
             event.eventType = MatcherEventType.BINARY_EVENT;
 
             event.section = section;
-            event.matchedOrderId = dataArray[i];
-            event.matchedOrderUidHi = dataArray[i + 1];
-            event.matchedOrderUidLo = dataArray[i + 2];
-            event.price = dataArray[i + 3];
-            event.size = dataArray[i + 4];
-            event.bidderHoldPrice = dataArray[i + 5];
+            event.matchedOrderIdHi = dataArray[i];
+            event.matchedOrderIdLo = dataArray[i + 1];
+            event.matchedOrderUidHi = dataArray[i + 2];
+            event.matchedOrderUidLo = dataArray[i + 3];
+            event.price = dataArray[i + 4];
+            event.size = dataArray[i + 5];
+            event.bidderHoldPrice = dataArray[i + 6];
 
             event.nextEvent = null;
 
@@ -168,7 +172,8 @@ public final class OrderBookEventsHelper {
         sections.forEach((section, events) -> {
             final long[] dataArray = events.stream()
                     .flatMap(evt -> Stream.of(
-                            evt.matchedOrderId,
+                            evt.matchedOrderIdHi,
+                            evt.matchedOrderIdLo,
                             evt.matchedOrderUidHi,
                             evt.matchedOrderUidLo,
                             evt.price,

@@ -25,7 +25,7 @@ public final class ApiPlaceOrder extends ApiCommand {
 
     public final long price;
     public final long size;
-    public final long orderId;
+    public final UUID orderId;
     public final OrderAction action;
     public final OrderType orderType;
     public final UUID uid;
@@ -47,7 +47,7 @@ public final class ApiPlaceOrder extends ApiCommand {
     public ApiPlaceOrder(
             long price,
             long size,
-            long orderId,
+            UUID orderId,
             OrderAction action,
             OrderType orderType,
             UUID uid,
@@ -82,7 +82,7 @@ public final class ApiPlaceOrder extends ApiCommand {
                 && other.canEqual(this)
                 && this.price == other.price
                 && this.size == other.size
-                && this.orderId == other.orderId
+                && Objects.equals(this.orderId, other.orderId)
                 && Objects.equals(this.uid, other.uid)
                 && this.symbol == other.symbol
                 && this.userCookie == other.userCookie
@@ -103,7 +103,7 @@ public final class ApiPlaceOrder extends ApiCommand {
         int result = 1;
         result = result * prime + Long.hashCode(this.price);
         result = result * prime + Long.hashCode(this.size);
-        result = result * prime + Long.hashCode(this.orderId);
+        result = result * prime + Objects.hashCode(this.orderId);
         result = result * prime + Objects.hashCode(this.uid);
         result = result * prime + this.symbol;
         result = result * prime + this.userCookie;
@@ -120,7 +120,7 @@ public final class ApiPlaceOrder extends ApiCommand {
     public static class ApiPlaceOrderBuilder {
         private long price;
         private long size;
-        private long orderId;
+        private UUID orderId;
         private OrderAction action;
         private OrderType orderType;
         private UUID uid;
@@ -143,7 +143,7 @@ public final class ApiPlaceOrder extends ApiCommand {
             return this;
         }
 
-        public ApiPlaceOrderBuilder orderId(long orderId) {
+        public ApiPlaceOrderBuilder orderId(UUID orderId) {
             this.orderId = orderId;
             return this;
         }

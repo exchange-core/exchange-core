@@ -257,7 +257,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
             case BALANCE_ADJUSTMENT:
                 if (uidForThisHandler(cmd.uidHi, cmd.uidLo)) {
                     cmd.resultCode = adjustBalance(
-                            cmd.uidHi, cmd.uidLo, cmd.symbol, cmd.price, cmd.orderId, BalanceAdjustmentType.of(cmd.orderType.getCode()),
+                            cmd.uidHi, cmd.uidLo, cmd.symbol, cmd.price, cmd.orderIdLo, BalanceAdjustmentType.of(cmd.orderType.getCode()),
                             (cmd.serviceFlags & OrderCommand.LEGACY_WITHDRAWAL_REPLAY) == 0);
                 }
                 return false;
@@ -301,7 +301,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
 
             case PERSIST_STATE_RISK:
                 final boolean isSuccess = serializationProcessor.storeData(
-                        cmd.orderId,
+                        cmd.orderIdLo,
                         seq,
                         cmd.timestamp,
                         MODULE_RE,
@@ -432,8 +432,8 @@ public final class RiskEngine implements WriteBytesMarshallable {
         final CommandResultCode resultCode = placeOrder(cmd, userProfile, spec);
 
         if (resultCode != CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
-            log.warn("{} risk result={} uid={}: Can not place {}", cmd.orderId, resultCode, userProfile.uid(), cmd);
-            log.warn("{} accounts:{}", cmd.orderId, userProfile.accounts);
+            log.warn("{} risk result={} uid={}: Can not place {}", cmd.getOrderId(), resultCode, userProfile.uid(), cmd);
+            log.warn("{} accounts:{}", cmd.getOrderId(), userProfile.accounts);
             return CommandResultCode.RISK_NSF;
         }
 

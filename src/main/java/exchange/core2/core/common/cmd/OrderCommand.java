@@ -28,7 +28,10 @@ public final class OrderCommand implements IOrder {
 
     public OrderCommandType command;
 
-    public long orderId;
+    // order UUID: the most and the least significant bits;
+    // other commands keep their long argument in orderIdLo (transaction id, dump id, binary frame word 0, mode)
+    public long orderIdHi;
+    public long orderIdLo;
 
     public int symbol;
 
@@ -75,10 +78,10 @@ public final class OrderCommand implements IOrder {
     //public long matcherEventSequence;
     // ---- potential false sharing section ------
 
-    public static OrderCommand newOrder(OrderType orderType, long orderId, UUID uid, long price, long reserveBidPrice, long size, OrderAction action) {
+    public static OrderCommand newOrder(OrderType orderType, UUID orderId, UUID uid, long price, long reserveBidPrice, long size, OrderAction action) {
         OrderCommand cmd = new OrderCommand();
         cmd.command = OrderCommandType.PLACE_ORDER;
-        cmd.orderId = orderId;
+        cmd.setOrderId(orderId);
         cmd.setUid(uid);
         cmd.price = price;
         cmd.reserveBidPrice = reserveBidPrice;
@@ -89,29 +92,29 @@ public final class OrderCommand implements IOrder {
         return cmd;
     }
 
-    public static OrderCommand cancel(long orderId, UUID uid) {
+    public static OrderCommand cancel(UUID orderId, UUID uid) {
         OrderCommand cmd = new OrderCommand();
         cmd.command = OrderCommandType.CANCEL_ORDER;
-        cmd.orderId = orderId;
+        cmd.setOrderId(orderId);
         cmd.setUid(uid);
         cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
         return cmd;
     }
 
-    public static OrderCommand reduce(long orderId, UUID uid, long reduceSize) {
+    public static OrderCommand reduce(UUID orderId, UUID uid, long reduceSize) {
         OrderCommand cmd = new OrderCommand();
         cmd.command = OrderCommandType.REDUCE_ORDER;
-        cmd.orderId = orderId;
+        cmd.setOrderId(orderId);
         cmd.setUid(uid);
         cmd.size = reduceSize;
         cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
         return cmd;
     }
 
-    public static OrderCommand update(long orderId, UUID uid, long price) {
+    public static OrderCommand update(UUID orderId, UUID uid, long price) {
         OrderCommand cmd = new OrderCommand();
         cmd.command = OrderCommandType.MOVE_ORDER;
-        cmd.orderId = orderId;
+        cmd.setOrderId(orderId);
         cmd.setUid(uid);
         cmd.price = price;
         cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
@@ -163,7 +166,8 @@ public final class OrderCommand implements IOrder {
      */
     public void writeTo(OrderCommand cmd2) {
         cmd2.command = this.command;
-        cmd2.orderId = this.orderId;
+        cmd2.orderIdHi = this.orderIdHi;
+        cmd2.orderIdLo = this.orderIdLo;
         cmd2.symbol = this.symbol;
         cmd2.uidHi = this.uidHi;
         cmd2.uidLo = this.uidLo;
@@ -232,7 +236,8 @@ public final class OrderCommand implements IOrder {
 
     public OrderCommand(
             OrderCommandType command,
-            long orderId,
+            long orderIdHi,
+            long orderIdLo,
             int symbol,
             long price,
             long size,
@@ -251,7 +256,8 @@ public final class OrderCommand implements IOrder {
             MatcherTradeEvent matcherEvent,
             L2MarketData marketData) {
         this.command = command;
-        this.orderId = orderId;
+        this.orderIdHi = orderIdHi;
+        this.orderIdLo = orderIdLo;
         this.symbol = symbol;
         this.price = price;
         this.size = size;
@@ -297,8 +303,19 @@ public final class OrderCommand implements IOrder {
                 + ", marketData=" + this.marketData + ")";
     }
 
-    public long getOrderId() {
-        return this.orderId;
+    @Override
+    public long getOrderIdHi() {
+        return this.orderIdHi;
+    }
+
+    @Override
+    public long getOrderIdLo() {
+        return this.orderIdLo;
+    }
+
+    public void setOrderId(UUID orderId) {
+        this.orderIdHi = orderId.getMostSignificantBits();
+        this.orderIdLo = orderId.getLeastSignificantBits();
     }
 
     public long getPrice() {
@@ -348,7 +365,8 @@ public final class OrderCommand implements IOrder {
 
     public static class OrderCommandBuilder {
         private OrderCommandType command;
-        private long orderId;
+        private long orderIdHi;
+        private long orderIdLo;
         private int symbol;
         private long price;
         private long size;
@@ -375,8 +393,9 @@ public final class OrderCommand implements IOrder {
             return this;
         }
 
-        public OrderCommandBuilder orderId(long orderId) {
-            this.orderId = orderId;
+        public OrderCommandBuilder orderId(UUID orderId) {
+            this.orderIdHi = orderId.getMostSignificantBits();
+            this.orderIdLo = orderId.getLeastSignificantBits();
             return this;
         }
 
@@ -464,7 +483,8 @@ public final class OrderCommand implements IOrder {
         public OrderCommand build() {
             return new OrderCommand(
                     this.command,
-                    this.orderId,
+                    this.orderIdHi,
+                    this.orderIdLo,
                     this.symbol,
                     this.price,
                     this.size,
@@ -487,7 +507,7 @@ public final class OrderCommand implements IOrder {
         @Override
         public String toString() {
             return "OrderCommand.OrderCommandBuilder(command=" + this.command
-                    + ", orderId=" + this.orderId
+                    + ", orderId=" + new UUID(this.orderIdHi, this.orderIdLo)
                     + ", symbol=" + this.symbol
                     + ", price=" + this.price
                     + ", size=" + this.size

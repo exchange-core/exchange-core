@@ -121,7 +121,7 @@ public interface IEventsHandler {
     class TradeEvent {
         public final int symbol;
         public final long totalVolume;
-        public final long takerOrderId;
+        public final UUID takerOrderId;
         public final UUID takerUid;
         public final OrderAction takerAction;
         public final boolean takeOrderCompleted;
@@ -132,7 +132,7 @@ public interface IEventsHandler {
         public TradeEvent(
                 int symbol,
                 long totalVolume,
-                long takerOrderId,
+                UUID takerOrderId,
                 UUID takerUid,
                 OrderAction takerAction,
                 boolean takeOrderCompleted,
@@ -158,7 +158,7 @@ public interface IEventsHandler {
             return this.totalVolume;
         }
 
-        public long getTakerOrderId() {
+        public UUID getTakerOrderId() {
             return this.takerOrderId;
         }
 
@@ -195,7 +195,7 @@ public interface IEventsHandler {
                     && other.canEqual(this)
                     && this.getSymbol() == other.getSymbol()
                     && this.getTotalVolume() == other.getTotalVolume()
-                    && this.getTakerOrderId() == other.getTakerOrderId()
+                    && Objects.equals(this.getTakerOrderId(), other.getTakerOrderId())
                     && Objects.equals(this.getTakerUid(), other.getTakerUid())
                     && this.isTakeOrderCompleted() == other.isTakeOrderCompleted()
                     && this.getTimestamp() == other.getTimestamp()
@@ -214,7 +214,7 @@ public interface IEventsHandler {
             int result = 1;
             result = result * prime + this.getSymbol();
             result = result * prime + Long.hashCode(this.getTotalVolume());
-            result = result * prime + Long.hashCode(this.getTakerOrderId());
+            result = result * prime + Objects.hashCode(this.getTakerOrderId());
             result = result * prime + Objects.hashCode(this.getTakerUid());
             result = result * prime + (this.isTakeOrderCompleted() ? 79 : 97);
             result = result * prime + Long.hashCode(this.getTimestamp());
@@ -241,7 +241,7 @@ public interface IEventsHandler {
     }
 
     class Trade {
-        public final long makerOrderId;
+        public final UUID makerOrderId;
         public final UUID makerUid;
         public final boolean makerOrderCompleted;
         public final long price;
@@ -249,7 +249,7 @@ public interface IEventsHandler {
         public final long makerFee;
         public final long takerFee;
 
-        public Trade(long makerOrderId, UUID makerUid, boolean makerOrderCompleted,
+        public Trade(UUID makerOrderId, UUID makerUid, boolean makerOrderCompleted,
                      long price, long volume, long makerFee, long takerFee) {
             this.makerOrderId = makerOrderId;
             this.makerUid = makerUid;
@@ -260,7 +260,7 @@ public interface IEventsHandler {
             this.takerFee = takerFee;
         }
 
-        public long getMakerOrderId() {
+        public UUID getMakerOrderId() {
             return this.makerOrderId;
         }
 
@@ -295,7 +295,7 @@ public interface IEventsHandler {
             }
             return o instanceof Trade other
                     && other.canEqual(this)
-                    && this.getMakerOrderId() == other.getMakerOrderId()
+                    && Objects.equals(this.getMakerOrderId(), other.getMakerOrderId())
                     && Objects.equals(this.getMakerUid(), other.getMakerUid())
                     && this.isMakerOrderCompleted() == other.isMakerOrderCompleted()
                     && this.getPrice() == other.getPrice()
@@ -312,7 +312,7 @@ public interface IEventsHandler {
         public int hashCode() {
             final int prime = 59;
             int result = 1;
-            result = result * prime + Long.hashCode(this.getMakerOrderId());
+            result = result * prime + Objects.hashCode(this.getMakerOrderId());
             result = result * prime + Objects.hashCode(this.getMakerUid());
             result = result * prime + (this.isMakerOrderCompleted() ? 79 : 97);
             result = result * prime + Long.hashCode(this.getPrice());
@@ -339,7 +339,7 @@ public interface IEventsHandler {
         public final long reducedVolume;
         public final boolean orderCompleted;
         public final long price;
-        public final long orderId;
+        public final UUID orderId;
         public final UUID uid;
         public final long timestamp;
 
@@ -348,7 +348,7 @@ public interface IEventsHandler {
                 long reducedVolume,
                 boolean orderCompleted,
                 long price,
-                long orderId,
+                UUID orderId,
                 UUID uid,
                 long timestamp) {
             this.symbol = symbol;
@@ -376,7 +376,7 @@ public interface IEventsHandler {
             return this.price;
         }
 
-        public long getOrderId() {
+        public UUID getOrderId() {
             return this.orderId;
         }
 
@@ -399,7 +399,7 @@ public interface IEventsHandler {
                     && this.getReducedVolume() == other.getReducedVolume()
                     && this.isOrderCompleted() == other.isOrderCompleted()
                     && this.getPrice() == other.getPrice()
-                    && this.getOrderId() == other.getOrderId()
+                    && Objects.equals(this.getOrderId(), other.getOrderId())
                     && Objects.equals(this.getUid(), other.getUid())
                     && this.getTimestamp() == other.getTimestamp();
         }
@@ -416,7 +416,7 @@ public interface IEventsHandler {
             result = result * prime + Long.hashCode(this.getReducedVolume());
             result = result * prime + (this.isOrderCompleted() ? 79 : 97);
             result = result * prime + Long.hashCode(this.getPrice());
-            result = result * prime + Long.hashCode(this.getOrderId());
+            result = result * prime + Objects.hashCode(this.getOrderId());
             result = result * prime + Objects.hashCode(this.getUid());
             result = result * prime + Long.hashCode(this.getTimestamp());
             return result;
@@ -438,11 +438,11 @@ public interface IEventsHandler {
         public final int symbol;
         public final long rejectedVolume;
         public final long price;
-        public final long orderId;
+        public final UUID orderId;
         public final UUID uid;
         public final long timestamp;
 
-        public RejectEvent(int symbol, long rejectedVolume, long price, long orderId, UUID uid, long timestamp) {
+        public RejectEvent(int symbol, long rejectedVolume, long price, UUID orderId, UUID uid, long timestamp) {
             this.symbol = symbol;
             this.rejectedVolume = rejectedVolume;
             this.price = price;
@@ -463,7 +463,7 @@ public interface IEventsHandler {
             return this.price;
         }
 
-        public long getOrderId() {
+        public UUID getOrderId() {
             return this.orderId;
         }
 
@@ -485,7 +485,7 @@ public interface IEventsHandler {
                     && this.getSymbol() == other.getSymbol()
                     && this.getRejectedVolume() == other.getRejectedVolume()
                     && this.getPrice() == other.getPrice()
-                    && this.getOrderId() == other.getOrderId()
+                    && Objects.equals(this.getOrderId(), other.getOrderId())
                     && Objects.equals(this.getUid(), other.getUid())
                     && this.getTimestamp() == other.getTimestamp();
         }
@@ -501,7 +501,7 @@ public interface IEventsHandler {
             result = result * prime + this.getSymbol();
             result = result * prime + Long.hashCode(this.getRejectedVolume());
             result = result * prime + Long.hashCode(this.getPrice());
-            result = result * prime + Long.hashCode(this.getOrderId());
+            result = result * prime + Objects.hashCode(this.getOrderId());
             result = result * prime + Objects.hashCode(this.getUid());
             result = result * prime + Long.hashCode(this.getTimestamp());
             return result;
@@ -522,11 +522,11 @@ public interface IEventsHandler {
         public final int symbol;
         public final long volume;
         public final long price;
-        public final long orderId;
+        public final UUID orderId;
         public final UUID uid;
         public final long timestamp;
 
-        public CommandExecutionResult(int symbol, long volume, long price, long orderId, UUID uid, long timestamp) {
+        public CommandExecutionResult(int symbol, long volume, long price, UUID orderId, UUID uid, long timestamp) {
             this.symbol = symbol;
             this.volume = volume;
             this.price = price;
@@ -547,7 +547,7 @@ public interface IEventsHandler {
             return this.price;
         }
 
-        public long getOrderId() {
+        public UUID getOrderId() {
             return this.orderId;
         }
 
@@ -569,7 +569,7 @@ public interface IEventsHandler {
                     && this.getSymbol() == other.getSymbol()
                     && this.getVolume() == other.getVolume()
                     && this.getPrice() == other.getPrice()
-                    && this.getOrderId() == other.getOrderId()
+                    && Objects.equals(this.getOrderId(), other.getOrderId())
                     && Objects.equals(this.getUid(), other.getUid())
                     && this.getTimestamp() == other.getTimestamp();
         }
@@ -585,7 +585,7 @@ public interface IEventsHandler {
             result = result * prime + this.getSymbol();
             result = result * prime + Long.hashCode(this.getVolume());
             result = result * prime + Long.hashCode(this.getPrice());
-            result = result * prime + Long.hashCode(this.getOrderId());
+            result = result * prime + Objects.hashCode(this.getOrderId());
             result = result * prime + Objects.hashCode(this.getUid());
             result = result * prime + Long.hashCode(this.getTimestamp());
             return result;

@@ -88,21 +88,21 @@ class MergedOrdersCorrectnessTest {
                 addUser(api, 1, QUOTE, 2000);
                 submit(api, new ApiAdjustUserBalance(TestConstants.uidOf(1), BASE, 2, 2), SUCCESS);
                 submit(api, order(11, 1, ASK, GTC, 105, 1, 0, 0), SUCCESS);
-                submit(api, ApiPlaceOrder.builder().symbol(SYMBOL).orderId(12).uid(TestConstants.uidOf(1))
+                submit(api, ApiPlaceOrder.builder().symbol(SYMBOL).orderId(TestConstants.orderIdOf(12)).uid(TestConstants.uidOf(1))
                         .action(BID).orderType(GTC).price(100).reservePrice(110).size(5)
                         .orderTakerFee(3).orderMakerFee(10).build(), SUCCESS);
                 assertEquals(1400L, balance(api, 1, QUOTE));
-                submit(api, ApiReduceOrder.builder().symbol(SYMBOL).uid(TestConstants.uidOf(1)).orderId(12).reduceSize(1).build(), SUCCESS);
+                submit(api, ApiReduceOrder.builder().symbol(SYMBOL).uid(TestConstants.uidOf(1)).orderId(TestConstants.orderIdOf(12)).reduceSize(1).build(), SUCCESS);
                 assertEquals(1520L, balance(api, 1, QUOTE));
-                submit(api, ApiMoveOrder.builder().symbol(SYMBOL).uid(TestConstants.uidOf(1)).orderId(12).newPrice(105).build(), SUCCESS);
+                submit(api, ApiMoveOrder.builder().symbol(SYMBOL).uid(TestConstants.uidOf(1)).orderId(TestConstants.orderIdOf(12)).newPrice(105).build(), SUCCESS);
                 assertEquals(2000L, balance(api, 1, QUOTE));
                 final var orders = user(api, 1).fetchIndexedOrders();
-                assertTrue(orders.containsKey(11L));
-                assertFalse(orders.containsKey(12L));
+                assertTrue(orders.containsKey(TestConstants.orderIdOf(11L)));
+                assertFalse(orders.containsKey(TestConstants.orderIdOf(12L)));
 
                 submit(api, order(13, 1, BID, GTC, 100, 2, 3, 10), SUCCESS);
                 assertEquals(1780L, balance(api, 1, QUOTE));
-                submit(api, ApiCancelOrder.builder().symbol(SYMBOL).uid(TestConstants.uidOf(1)).orderId(13).build(), SUCCESS);
+                submit(api, ApiCancelOrder.builder().symbol(SYMBOL).uid(TestConstants.uidOf(1)).orderId(TestConstants.orderIdOf(13)).build(), SUCCESS);
                 assertEquals(2000L, balance(api, 1, QUOTE));
             } finally {
                 core.shutdown(5, SECONDS);
@@ -125,7 +125,7 @@ class MergedOrdersCorrectnessTest {
             submit(api, new ApiAdjustUserBalance(TestConstants.uidOf(1), QUOTE, -200, 2),
                     USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_ALREADY_APPLIED_SAME);
             assertEquals(300L, balance(api, 1, QUOTE));
-            submit(api, ApiCancelOrder.builder().symbol(SYMBOL).uid(TestConstants.uidOf(1)).orderId(11).build(), SUCCESS);
+            submit(api, ApiCancelOrder.builder().symbol(SYMBOL).uid(TestConstants.uidOf(1)).orderId(TestConstants.orderIdOf(11)).build(), SUCCESS);
             submit(api, new ApiAdjustUserBalance(TestConstants.uidOf(1), QUOTE, -300, 3), SUCCESS);
             assertEquals(0L, balance(api, 1, QUOTE));
         } finally {
@@ -159,7 +159,7 @@ class MergedOrdersCorrectnessTest {
 
     private static ApiPlaceOrder order(long id, long user, OrderAction side, OrderType type,
                                        long price, long size, long takerFee, long makerFee) {
-        return ApiPlaceOrder.builder().orderId(id).uid(TestConstants.uidOf(user)).symbol(SYMBOL).action(side)
+        return ApiPlaceOrder.builder().orderId(TestConstants.orderIdOf(id)).uid(TestConstants.uidOf(user)).symbol(SYMBOL).action(side)
                 .orderType(type).price(price).reservePrice(price).size(size)
                 .orderTakerFee(takerFee).orderMakerFee(makerFee).build();
     }

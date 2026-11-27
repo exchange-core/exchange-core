@@ -37,7 +37,15 @@ public interface IOrder extends StateHash {
 
     OrderAction getAction();
 
-    long getOrderId();
+    // order UUID halves
+    long getOrderIdHi();
+
+    long getOrderIdLo();
+
+    // allocates; for reports and logs
+    default UUID getOrderId() {
+        return new UUID(getOrderIdHi(), getOrderIdLo());
+    }
 
     long getTimestamp();
 
