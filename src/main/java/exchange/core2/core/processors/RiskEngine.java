@@ -15,6 +15,7 @@
  */
 package exchange.core2.core.processors;
 
+import exchange.core2.collections.hashtable.IntLongHashtable;
 import exchange.core2.collections.objpool.ObjectsPool;
 import exchange.core2.core.common.*;
 import exchange.core2.core.common.api.binary.BatchAddAccountsCommand;
@@ -64,7 +65,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
     private final UserProfileService userProfileService;
     private final BinaryCommandsProcessor binaryCommandsProcessor;
     private final IntObjectHashMap<LastPriceCacheRecord> lastPriceCache;
-    private final IntLongHashMap fees;
+    private final IntLongHashtable fees;
     private final IntLongHashMap adjustments;
     private final IntLongHashMap suspends;
     private final ObjectsPool objectsPool;
@@ -133,7 +134,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
                                 bytesIn,
                                 shardId);
                         final IntObjectHashMap<LastPriceCacheRecord> lastPriceCache = SerializationUtils.readIntHashMap(bytesIn, LastPriceCacheRecord::new);
-                        final IntLongHashMap fees = SerializationUtils.readIntLongHashMap(bytesIn);
+                        final IntLongHashtable fees = SerializationUtils.readIntLongHashtable(bytesIn);
                         final IntLongHashMap adjustments = SerializationUtils.readIntLongHashMap(bytesIn);
                         final IntLongHashMap suspends = SerializationUtils.readIntLongHashMap(bytesIn);
 
@@ -165,7 +166,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
                     exchangeConfiguration.getReportsQueriesCfg(),
                     shardId);
             this.lastPriceCache = new IntObjectHashMap<>();
-            this.fees = new IntLongHashMap();
+            this.fees = new IntLongHashtable();
             this.adjustments = new IntLongHashMap();
             this.suspends = new IntLongHashMap();
         }
@@ -719,7 +720,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
                 final long sizeOpen = takerSpr.updatePositionForMarginTrade(takerAction, ev.size, ev.price);
                 final long fee = ((takerFee != -1) ? takerFee : spec.takerFee) * sizeOpen;
                 takerUp.accounts.addAndGet(spec.quoteCurrency, -fee);
-                fees.addToValue(spec.quoteCurrency, fee);
+                fees.addAndGet(spec.quoteCurrency, fee);
             } else if (ev.eventType == MatcherEventType.REJECT || ev.eventType == MatcherEventType.REDUCE) {
                 takerSpr.pendingRelease(takerAction, ev.size);
             }
@@ -735,7 +736,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
             long sizeOpen = makerSpr.updatePositionForMarginTrade(takerAction.opposite(), ev.size, ev.price);
             final long fee = ((makerFee != -1) ? makerFee : spec.makerFee) * sizeOpen;
             maker.accounts.addAndGet(spec.quoteCurrency, -fee);
-            fees.addToValue(spec.quoteCurrency, fee);
+            fees.addAndGet(spec.quoteCurrency, fee);
             if (makerSpr.isEmpty()) {
                 removePositionRecord(makerSpr, maker);
             }
@@ -818,7 +819,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
         }
 
         if (takerSizeForThisHandler != 0 || makerFees != 0) {
-            fees.addToValue(quoteCurrency, takerFees + makerFees);
+            fees.addAndGet(quoteCurrency, takerFees + makerFees);
         }
     }
 
@@ -876,7 +877,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
         }
 
         if (takerSizeForThisHandler != 0 || makerFees != 0) {
-            fees.addToValue(quoteCurrency, takerFee * takerSizeForThisHandler + makerFees);
+            fees.addAndGet(quoteCurrency, takerFee * takerSizeForThisHandler + makerFees);
         }
     }
 
@@ -895,7 +896,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
         userProfileService.writeMarshallable(bytes);
         binaryCommandsProcessor.writeMarshallable(bytes);
         SerializationUtils.marshallIntHashMap(lastPriceCache, bytes);
-        SerializationUtils.marshallIntLongHashMap(fees, bytes);
+        SerializationUtils.marshallIntLongHashtable(fees, bytes);
         SerializationUtils.marshallIntLongHashMap(adjustments, bytes);
         SerializationUtils.marshallIntLongHashMap(suspends, bytes);
     }
@@ -926,8 +927,10 @@ public final class RiskEngine implements WriteBytesMarshallable {
         return this.lastPriceCache;
     }
 
-    public IntLongHashMap getFees() {
-        return this.fees;
+    public IntLongHashMap copyFees() {
+        final IntLongHashMap snapshot = new IntLongHashMap(Math.toIntExact(fees.size()));
+        fees.forEach(snapshot::put);
+        return snapshot;
     }
 
     public IntLongHashMap getAdjustments() {
@@ -978,7 +981,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
                          UserProfileService userProfileService,
                          BinaryCommandsProcessor binaryCommandsProcessor,
                          IntObjectHashMap<LastPriceCacheRecord> lastPriceCache,
-                         IntLongHashMap fees,
+                         IntLongHashtable fees,
                          IntLongHashMap adjustments,
                          IntLongHashMap suspends) {
     }

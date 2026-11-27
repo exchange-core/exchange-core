@@ -90,7 +90,7 @@ public final class StateHashReportQuery implements ReportQuery<StateHashReportRe
 
         hashCodes.put(
                 StateHashReportResult.createKey(moduleId, StateHashReportResult.SubmoduleType.RISK_FEES),
-                riskEngine.getFees().hashCode());
+                riskEngine.copyFees().hashCode());
 
         hashCodes.put(
                 StateHashReportResult.createKey(moduleId, StateHashReportResult.SubmoduleType.RISK_ADJUSTMENTS),

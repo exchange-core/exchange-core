@@ -102,7 +102,7 @@ public final class TotalCurrencyBalanceReportQuery implements ReportQuery<TotalC
         return Optional.of(
                 new TotalCurrencyBalanceReportResult(
                         currencyBalance,
-                        new IntLongHashMap(riskEngine.getFees()),
+                        riskEngine.copyFees(),
                         new IntLongHashMap(riskEngine.getAdjustments()),
                         new IntLongHashMap(riskEngine.getSuspends()),
                         null,
