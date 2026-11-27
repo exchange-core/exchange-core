@@ -16,6 +16,7 @@
 package exchange.core2.core.orderbook;
 
 import exchange.core2.core.common.L2MarketData;
+import exchange.core2.core.common.Order;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.config.LoggingConfiguration;
@@ -25,6 +26,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static exchange.core2.core.common.OrderAction.ASK;
@@ -39,6 +41,17 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 public abstract class OrderBookDirectImplTest extends OrderBookBaseTest {
 
     private static final Logger log = LoggerFactory.getLogger(OrderBookDirectImplTest.class);
+
+    @Test
+    public void userOrderReportKeepsOrderIdOrdering() {
+        clearOrderBook();
+        for (long id : List.of(91L, 0L, Long.MAX_VALUE, 7L)) {
+            processAndValidate(OrderCommand.newOrder(GTC, id, UID_1, INITIAL_PRICE, 0L, 1L, ASK), SUCCESS);
+        }
+        processAndValidate(OrderCommand.newOrder(GTC, 2L, UID_2, INITIAL_PRICE, 0L, 1L, ASK), SUCCESS);
+        assertEquals(List.of(0L, 7L, 91L, Long.MAX_VALUE),
+                orderBook.findUserOrders(UID_1).stream().map(Order::getOrderId).toList());
+    }
 
     @Test
     public void multipleCommandsCompareTest() {
