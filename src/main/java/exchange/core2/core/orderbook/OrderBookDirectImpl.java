@@ -579,7 +579,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
             newBucket.numOrders = 1;
             order.parent = newBucket;
             buckets.put(order.price, newBucket);
-            final Bucket lowerBucket = isAsk ? buckets.getLowerValue(order.price) : buckets.getHigherValue(order.price);
+            final Bucket lowerBucket = isAsk ? buckets.lowerValue(order.price) : buckets.higherValue(order.price);
             if (lowerBucket != null) {
                 // attache new bucket and event to the lower entry
                 DirectOrder lowerTail = lowerBucket.tail;
@@ -637,7 +637,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
     @Override
     public void validateInternalState() {
-        final Long2ObjectHashMap<DirectOrder> ordersInChain = new Long2ObjectHashMap<>(orderIdIndex.size(Integer.MAX_VALUE), 0.8f);
+        final Long2ObjectHashMap<DirectOrder> ordersInChain = new Long2ObjectHashMap<>(orderIdIndex.size(), 0.8f);
         validateChain(true, ordersInChain);
         validateChain(false, ordersInChain);
 //        log.debug("ordersInChain={}", ordersInChain);
@@ -834,19 +834,19 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
     @Override
     public int getTotalAskBuckets(final int limit) {
-        return askPriceBuckets.size(limit);
+        return Math.min(askPriceBuckets.size(), limit);
     }
 
     @Override
     public int getTotalBidBuckets(final int limit) {
-        return bidPriceBuckets.size(limit);
+        return Math.min(bidPriceBuckets.size(), limit);
     }
 
     @Override
     public void writeMarshallable(BytesOut bytes) {
         bytes.writeByte(getImplementationType().getCode());
         symbolSpec.writeMarshallable(bytes);
-        bytes.writeInt(orderIdIndex.size(Integer.MAX_VALUE));
+        bytes.writeInt(orderIdIndex.size());
         askOrdersStream(true).forEach(order -> order.writeMarshallable(bytes));
         bidOrdersStream(true).forEach(order -> order.writeMarshallable(bytes));
     }
