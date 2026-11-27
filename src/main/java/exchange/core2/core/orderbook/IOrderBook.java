@@ -30,6 +30,7 @@ import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.stream.Stream;
 
 public interface IOrderBook extends WriteBytesMarshallable, StateHash {
@@ -102,10 +103,15 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
      * Produces garbage.<p>
      * Orders must be processed before doing any other mutable call.<p>
      *
-     * @param uid user id
+     * @param uidHi user UUID, most significant bits
+     * @param uidLo user UUID, least significant bits
      * @return list of orders
      */
-    List<Order> findUserOrders(long uid);
+    List<Order> findUserOrders(long uidHi, long uidLo);
+
+    default List<Order> findUserOrders(UUID uid) {
+        return findUserOrders(uid.getMostSignificantBits(), uid.getLeastSignificantBits());
+    }
 
     CoreSymbolSpecification getSymbolSpec();
 
@@ -262,7 +268,7 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
             while (makers.hasNext()) {
                 final IOrder maker = makers.next();
                 if (stpMode == OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST
-                        && maker.getUid() == cmd.uid) {
+                        && maker.getUidHi() == cmd.uidHi && maker.getUidLo() == cmd.uidLo) {
                     return false;
                 }
                 final long quantity = Math.min(remaining, maker.getSize() - maker.getFilled());

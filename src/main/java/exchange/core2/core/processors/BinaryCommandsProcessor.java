@@ -112,7 +112,8 @@ public final class BinaryCommandsProcessor implements WriteBytesMarshallable, St
         record.addWord(cmd.price);
         record.addWord(cmd.reserveBidPrice);
         record.addWord(cmd.size);
-        record.addWord(cmd.uid);
+        record.addWord(cmd.uidHi);
+        record.addWord(cmd.uidLo);
 
         if (cmd.symbol == -1) {
             // all frames received

@@ -167,7 +167,8 @@ public final class OrderBookNaiveImpl implements IOrderBook {
                 filledSize,
                 cmd.reserveBidPrice,
                 action,
-                cmd.uid,
+                cmd.uidHi,
+                cmd.uidLo,
                 cmd.orderTakerFee,
                 cmd.orderMakerFee,
                 cmd.timestamp);
@@ -299,7 +300,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         final long orderId = cmd.orderId;
 
         final Order order = idMap.get(orderId);
-        if (order == null || order.uid != cmd.uid) {
+        if (order == null || (order.uidHi != cmd.uidHi || order.uidLo != cmd.uidLo)) {
             // order already matched and removed from order book previously
             return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
@@ -316,7 +317,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         }
 
         // remove order and whole bucket if its empty
-        ordersBucket.remove(orderId, cmd.uid);
+        ordersBucket.remove(orderId, cmd.uidHi, cmd.uidLo);
         if (ordersBucket.getTotalVolume() == 0) {
             buckets.remove(price);
         }
@@ -340,7 +341,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         }
 
         final Order order = idMap.get(orderId);
-        if (order == null || order.uid != cmd.uid) {
+        if (order == null || (order.uidHi != cmd.uidHi || order.uidLo != cmd.uidLo)) {
             // already matched, moved or cancelled
             return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
@@ -363,7 +364,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
             idMap.remove(orderId);
 
             // canRemove order and whole bucket if it is empty
-            ordersBucket.remove(orderId, cmd.uid);
+            ordersBucket.remove(orderId, cmd.uidHi, cmd.uidLo);
             if (ordersBucket.getTotalVolume() == 0) {
                 buckets.remove(order.price);
             }
@@ -391,7 +392,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         final long newTimestamp = cmd.timestamp;
 
         final Order order = idMap.get(orderId);
-        if (order == null || order.uid != cmd.uid) {
+        if (order == null || (order.uidHi != cmd.uidHi || order.uidLo != cmd.uidLo)) {
             // already matched, moved or cancelled
             return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
@@ -409,7 +410,7 @@ public final class OrderBookNaiveImpl implements IOrderBook {
         }
 
         // take order out of the original bucket and clean bucket if its empty
-        bucket.remove(orderId, cmd.uid);
+        bucket.remove(orderId, cmd.uidHi, cmd.uidLo);
 
         if (bucket.getTotalVolume() == 0) {
             buckets.remove(price);
@@ -526,10 +527,10 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     }
 
     @Override
-    public List<Order> findUserOrders(final long uid) {
+    public List<Order> findUserOrders(final long uidHi, final long uidLo) {
         List<Order> list = new ArrayList<>();
         Consumer<OrdersBucketNaive> bucketConsumer = bucket -> bucket.forEachOrder(order -> {
-            if (order.uid == uid) {
+            if (order.uidHi == uidHi && order.uidLo == uidLo) {
                 list.add(order);
             }
         });

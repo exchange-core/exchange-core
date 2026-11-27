@@ -15,16 +15,19 @@
  */
 package exchange.core2.core.common.api;
 
+import java.util.Objects;
+import java.util.UUID;
+
 public final class ApiRemoveUser extends ApiCommand {
 
-    public final long uid;
+    public final UUID uid;
 
     @Override
     public String toString() {
         return "[REMOVE_USER " + uid + "]";
     }
 
-    ApiRemoveUser(long uid) {
+    ApiRemoveUser(UUID uid) {
         this.uid = uid;
     }
 
@@ -39,7 +42,7 @@ public final class ApiRemoveUser extends ApiCommand {
         }
         return o instanceof ApiRemoveUser other
                 && other.canEqual(this)
-                && this.uid == other.uid;
+                && Objects.equals(this.uid, other.uid);
     }
 
     protected boolean canEqual(Object other) {
@@ -48,16 +51,16 @@ public final class ApiRemoveUser extends ApiCommand {
 
     @Override
     public int hashCode() {
-        return 59 + Long.hashCode(uid);
+        return 59 + Objects.hashCode(uid);
     }
 
     public static class ApiRemoveUserBuilder {
-        private long uid;
+        private UUID uid;
 
         ApiRemoveUserBuilder() {
         }
 
-        public ApiRemoveUserBuilder uid(long uid) {
+        public ApiRemoveUserBuilder uid(UUID uid) {
             this.uid = uid;
             return this;
         }

@@ -186,16 +186,19 @@ Future<CommandResultCode> future = api.submitBinaryDataAsync(new BatchAddSymbols
 For spot symbols, `baseScaleK` is the lot size in base currency units. For `FUTURES_CONTRACT`, order size is a contract count,
 and `marginBuy` and `marginSell` specify margin per contract in the contract currency (`quoteCurrency`).
 
-Create new users:
+Create new users. A user is identified by a `java.util.UUID`; any version works (random v4, time-ordered v7).
 ```java
-// create user uid=301
+UUID user1 = UUID.fromString("0f8fad5b-d9cb-469f-a165-70867728950e");
+UUID user2 = UUID.fromString("7c9e6679-7425-40de-944b-e07fc1f90ae7");
+
+// create first user
 future = api.submitCommandAsync(ApiAddUser.builder()
-        .uid(301L)
+        .uid(user1)
         .build());
 
-// create user uid=302
+// create second user
 future = api.submitCommandAsync(ApiAddUser.builder()
-        .uid(302L)
+        .uid(user2)
         .build());
 ```
 
@@ -203,7 +206,7 @@ Check the deposit result before reading the balance or using the funds.
 ```java
 // first user deposits 20 LTC
 future = api.submitCommandAsync(ApiAdjustUserBalance.builder()
-        .uid(301L)
+        .uid(user1)
         .currency(currencyCodeLtc)
         .amount(2_000_000_000L)
         .transactionId(1L)
@@ -215,7 +218,7 @@ if (depositResult != CommandResultCode.SUCCESS) {
 
 // second user deposits 0.10 BTC
 future = api.submitCommandAsync(ApiAdjustUserBalance.builder()
-        .uid(302L)
+        .uid(user2)
         .currency(currencyCodeXbt)
         .amount(10_000_000L)
         .transactionId(2L)
@@ -235,7 +238,7 @@ Both order books support three order types.
 // he assumes BTCLTC exchange rate 154 LTC for 1 BTC
 // bid price for 1 lot (0.01BTC) is 1.54 LTC => 1_5400_0000 litoshi => 10K * 15_400 (in price steps)
 future = api.submitCommandAsync(ApiPlaceOrder.builder()
-        .uid(301L)
+        .uid(user1)
         .orderId(5001L)
         .price(15_400L)
         .reservePrice(15_600L) // can move bid order up to the 1.56 LTC, without replacing it
@@ -248,7 +251,7 @@ future = api.submitCommandAsync(ApiPlaceOrder.builder()
 // second user places Immediate-or-Cancel Ask (Sell) order
 // he assumes worst rate to sell 152.5 LTC for 1 BTC
 future = api.submitCommandAsync(ApiPlaceOrder.builder()
-        .uid(302L)
+        .uid(user2)
         .orderId(5002L)
         .price(15_250L)
         .size(10L) // order size is 10 lots
@@ -270,7 +273,7 @@ GtC orders manipulations:
 ```java
 // first user moves remaining order to price 1.53 LTC
 future = api.submitCommandAsync(ApiMoveOrder.builder()
-        .uid(301L)
+        .uid(user1)
         .orderId(5001L)
         .newPrice(15_300L)
         .symbol(symbolXbtLtc)
@@ -278,7 +281,7 @@ future = api.submitCommandAsync(ApiMoveOrder.builder()
         
 // first user cancel remaining order
 future = api.submitCommandAsync(ApiCancelOrder.builder()
-        .uid(301L)
+        .uid(user1)
         .orderId(5001L)
         .symbol(symbolXbtLtc)
         .build());
@@ -286,7 +289,7 @@ future = api.submitCommandAsync(ApiCancelOrder.builder()
 
 Query user balances and open orders. After a successful report, read the account map by currency ID.
 ```java
-SingleUserReportResult report = api.processReport(new SingleUserReportQuery(301L), 0).get();
+SingleUserReportResult report = api.processReport(new SingleUserReportQuery(user1), 0).get();
 if (report.getQueryExecutionStatus() == SingleUserReportResult.QueryExecutionStatus.OK) {
     long ltcBalance = report.getAccounts().get(currencyCodeLtc);
     System.out.println("Available LTC balance in litoshi: " + ltcBalance);

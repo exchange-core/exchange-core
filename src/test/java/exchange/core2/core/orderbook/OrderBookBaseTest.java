@@ -15,6 +15,7 @@
  */
 package exchange.core2.core.orderbook;
 
+import exchange.core2.tests.util.TestConstants;
 import exchange.core2.core.common.CoreSymbolSpecification;
 import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.common.L2MarketData;
@@ -31,6 +32,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 
 import static exchange.core2.core.common.OrderAction.ASK;
 import static exchange.core2.core.common.OrderAction.BID;
@@ -56,8 +58,8 @@ public abstract class OrderBookBaseTest {
 
     static final long MAX_PRICE = 400000L;
 
-    static final long UID_1 = 412L;
-    static final long UID_2 = 413L;
+    static final UUID UID_1 = TestConstants.uidOf(412);
+    static final UUID UID_2 = TestConstants.uidOf(413);
 
     protected abstract IOrderBook createNewOrderBook();
 
@@ -121,7 +123,7 @@ public abstract class OrderBookBaseTest {
 
         // match all asks
         long askSum = Arrays.stream(snapshot.askVolumes).sum();
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(IOC, 100000000000L, -1, MAX_PRICE, MAX_PRICE, askSum, BID));
+        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(IOC, 100000000000L, TestConstants.uidOf(-1), MAX_PRICE, MAX_PRICE, askSum, BID));
 
 //        log.debug("{}", orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE).dumpOrderBook());
 
@@ -129,7 +131,7 @@ public abstract class OrderBookBaseTest {
 
         // match all bids
         long bidSum = Arrays.stream(snapshot.bidVolumes).sum();
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(IOC, 100000000001L, -2, 1, 0, bidSum, ASK));
+        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(IOC, 100000000001L, TestConstants.uidOf(-2), 1, 0, bidSum, ASK));
 
 //        log.debug("{}", orderBook.getL2MarketDataSnapshot(Integer.MAX_VALUE).dumpOrderBook());
 
@@ -872,7 +874,7 @@ public abstract class OrderBookBaseTest {
         clearOrderBook();
 
         final long price = 100_000L;
-        final long uid = 5001L;
+        final UUID uid = TestConstants.uidOf(5001);
 
         OrderCommand makerAsk = OrderCommand.newOrder(GTC, 1001L, uid, price, 0L, 10L, ASK);
         processAndValidate(makerAsk, SUCCESS);
@@ -907,8 +909,8 @@ public abstract class OrderBookBaseTest {
         clearOrderBook();
 
         final long price = 100_000L;
-        final long userA = 7001L;
-        final long userB = 7002L;
+        final UUID userA = TestConstants.uidOf(7001);
+        final UUID userB = TestConstants.uidOf(7002);
 
         OrderCommand makerAskB = OrderCommand.newOrder(GTC, 2001L, userB, price, 0L, 5L, ASK);
         processAndValidate(makerAskB, SUCCESS);
@@ -927,7 +929,7 @@ public abstract class OrderBookBaseTest {
         assertNotNull(tradeEvent);
         assertEquals(MatcherEventType.TRADE, tradeEvent.eventType);
         assertEquals(5L, tradeEvent.size);
-        assertEquals(userB, tradeEvent.matchedOrderUid);
+        assertEquals(userB, tradeEvent.getMatchedOrderUid());
 
         L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
         assertEquals(1, snapshot.askSize);
@@ -943,11 +945,11 @@ public abstract class OrderBookBaseTest {
         clearOrderBook();
 
         final long price = 100_000L;
-        processAndValidate(OrderCommand.newOrder(GTC, 3001L, 1, price, 0, 3, ASK), SUCCESS);
-        processAndValidate(OrderCommand.newOrder(GTC, 3002L, 2, price, 0, 2, ASK), SUCCESS);
-        processAndValidate(OrderCommand.newOrder(GTC, 3003L, 3, price, 0, 3, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 3001L, TestConstants.uidOf(1), price, 0, 3, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 3002L, TestConstants.uidOf(2), price, 0, 2, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, 3003L, TestConstants.uidOf(3), price, 0, 3, ASK), SUCCESS);
 
-        final OrderCommand fok = OrderCommand.newOrder(FOK_BUDGET, 3004L, 2, price * 4, price * 4, 4, BID);
+        final OrderCommand fok = OrderCommand.newOrder(FOK_BUDGET, 3004L, TestConstants.uidOf(2), price * 4, price * 4, 4, BID);
         processAndValidate(fok, SUCCESS);
 
         assertNotNull(fok.matcherEvent);
@@ -956,7 +958,7 @@ public abstract class OrderBookBaseTest {
         assertNull(fok.matcherEvent.nextEvent);
         assertEquals(8L, orderBook.getL2MarketDataSnapshot(1).askVolumes[0]);
 
-        final OrderCommand fullyFillable = OrderCommand.newOrder(FOK_BUDGET, 3005L, 2, price * 3, price * 3, 3, BID);
+        final OrderCommand fullyFillable = OrderCommand.newOrder(FOK_BUDGET, 3005L, TestConstants.uidOf(2), price * 3, price * 3, 3, BID);
         processAndValidate(fullyFillable, SUCCESS);
         assertNotNull(fullyFillable.matcherEvent);
         assertEquals(MatcherEventType.TRADE, fullyFillable.matcherEvent.eventType);

@@ -15,6 +15,7 @@
  */
 package exchange.core2.core.orderbook;
 
+import exchange.core2.tests.util.TestConstants;
 import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.Order;
 import exchange.core2.core.common.cmd.OrderCommand;
@@ -25,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Random;
+import java.util.UUID;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
@@ -34,9 +36,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 public final class OrdersBucketNaiveTest {
 
     private static final int PRICE = 1000;
-    private static final int UID_1 = 412;
-    private static final int UID_2 = 413;
-    private static final int UID_9 = 419;
+    private static final UUID UID_1 = TestConstants.uidOf(412);
+    private static final UUID UID_2 = TestConstants.uidOf(413);
+    private static final UUID UID_9 = TestConstants.uidOf(419);
 
     private final OrderBookEventsHelper eventsHelper = new OrderBookEventsHelper(MatcherTradeEvent::new);
 
@@ -65,7 +67,7 @@ public final class OrdersBucketNaiveTest {
 
         bucket.validate();
 
-        bucket.remove(2, UID_2);
+        bucket.remove(2, UID_2.getMostSignificantBits(), UID_2.getLeastSignificantBits());
         assertThat(bucket.getNumOrders(), is(2));
         assertThat(bucket.getTotalVolume(), is(101L));
 
@@ -88,23 +90,23 @@ public final class OrdersBucketNaiveTest {
     @Test
     public void shouldRemoveOrders() {
 
-        Order removed = bucket.remove(1, UID_1);
+        Order removed = bucket.remove(1, UID_1.getMostSignificantBits(), UID_1.getLeastSignificantBits());
         assertNotNull(removed);
         assertThat(bucket.getNumOrders(), is(2));
         assertThat(bucket.getTotalVolume(), is(201L));
 
-        removed = bucket.remove(4, UID_1);
+        removed = bucket.remove(4, UID_1.getMostSignificantBits(), UID_1.getLeastSignificantBits());
         assertNotNull(removed);
         assertThat(bucket.getNumOrders(), is(1));
         assertThat(bucket.getTotalVolume(), is(1L));
 
         // can not remove existing order
-        removed = bucket.remove(4, UID_1);
+        removed = bucket.remove(4, UID_1.getMostSignificantBits(), UID_1.getLeastSignificantBits());
         assertNull(removed);
         assertThat(bucket.getNumOrders(), is(1));
         assertThat(bucket.getTotalVolume(), is(1L));
 
-        removed = bucket.remove(3, UID_1);
+        removed = bucket.remove(3, UID_1.getMostSignificantBits(), UID_1.getLeastSignificantBits());
         assertNotNull(removed);
         assertThat(bucket.getNumOrders(), is(0));
         assertThat(bucket.getTotalVolume(), is(0L));
@@ -145,7 +147,7 @@ public final class OrdersBucketNaiveTest {
         Collections.shuffle(orders, new Random(1));
 
         for (Order order : orders) {
-            bucket.remove(order.orderId, UID_2);
+            bucket.remove(order.orderId, UID_2.getMostSignificantBits(), UID_2.getLeastSignificantBits());
             expectedNumOrders--;
             expectedVolume -= order.size;
             assertThat(bucket.getNumOrders(), is(expectedNumOrders));
@@ -179,7 +181,7 @@ public final class OrdersBucketNaiveTest {
         List<Order> orders1 = orders.subList(0, 80);
 
         for (Order order : orders1) {
-            bucket.remove(order.orderId, UID_2);
+            bucket.remove(order.orderId, UID_2.getMostSignificantBits(), UID_2.getLeastSignificantBits());
             expectedNumOrders--;
             expectedVolume -= order.size;
             assertThat(bucket.getNumOrders(), is(expectedNumOrders));
@@ -230,7 +232,7 @@ public final class OrdersBucketNaiveTest {
             List<Order> orders1 = orders.subList(0, 900);
 
             for (Order order : orders1) {
-                bucket.remove(order.orderId, UID_2);
+                bucket.remove(order.orderId, UID_2.getMostSignificantBits(), UID_2.getLeastSignificantBits());
                 expectedNumOrders--;
                 expectedVolume -= order.size;
                 assertThat(bucket.getNumOrders(), is(expectedNumOrders));

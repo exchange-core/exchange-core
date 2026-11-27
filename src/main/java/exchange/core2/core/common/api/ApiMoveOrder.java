@@ -15,13 +15,16 @@
  */
 package exchange.core2.core.common.api;
 
+import java.util.Objects;
+import java.util.UUID;
+
 public final class ApiMoveOrder extends ApiCommand {
 
     public final long orderId;
 
     public final long newPrice;
 
-    public final long uid;
+    public final UUID uid;
     public final int symbol;
 
     @Override
@@ -29,7 +32,7 @@ public final class ApiMoveOrder extends ApiCommand {
         return "[MOVE " + orderId + " " + newPrice + " u" + uid + " s" + symbol + "]";
     }
 
-    public ApiMoveOrder(long orderId, long newPrice, long uid, int symbol) {
+    public ApiMoveOrder(long orderId, long newPrice, UUID uid, int symbol) {
         this.orderId = orderId;
         this.newPrice = newPrice;
         this.uid = uid;
@@ -49,7 +52,7 @@ public final class ApiMoveOrder extends ApiCommand {
                 && other.canEqual(this)
                 && this.orderId == other.orderId
                 && this.newPrice == other.newPrice
-                && this.uid == other.uid
+                && Objects.equals(this.uid, other.uid)
                 && this.symbol == other.symbol;
     }
 
@@ -63,7 +66,7 @@ public final class ApiMoveOrder extends ApiCommand {
         int result = 1;
         result = result * prime + Long.hashCode(this.orderId);
         result = result * prime + Long.hashCode(this.newPrice);
-        result = result * prime + Long.hashCode(this.uid);
+        result = result * prime + Objects.hashCode(this.uid);
         result = result * prime + this.symbol;
         return result;
     }
@@ -71,7 +74,7 @@ public final class ApiMoveOrder extends ApiCommand {
     public static class ApiMoveOrderBuilder {
         private long orderId;
         private long newPrice;
-        private long uid;
+        private UUID uid;
         private int symbol;
 
         ApiMoveOrderBuilder() {
@@ -87,7 +90,7 @@ public final class ApiMoveOrder extends ApiCommand {
             return this;
         }
 
-        public ApiMoveOrderBuilder uid(long uid) {
+        public ApiMoveOrderBuilder uid(UUID uid) {
             this.uid = uid;
             return this;
         }

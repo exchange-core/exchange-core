@@ -6,6 +6,7 @@ import exchange.core2.core.common.cmd.CommandResultCode;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Convenient events handler interface for non latency-critical applications.<br>
@@ -121,7 +122,7 @@ public interface IEventsHandler {
         public final int symbol;
         public final long totalVolume;
         public final long takerOrderId;
-        public final long takerUid;
+        public final UUID takerUid;
         public final OrderAction takerAction;
         public final boolean takeOrderCompleted;
         public final long timestamp;
@@ -132,7 +133,7 @@ public interface IEventsHandler {
                 int symbol,
                 long totalVolume,
                 long takerOrderId,
-                long takerUid,
+                UUID takerUid,
                 OrderAction takerAction,
                 boolean takeOrderCompleted,
                 long timestamp,
@@ -161,7 +162,7 @@ public interface IEventsHandler {
             return this.takerOrderId;
         }
 
-        public long getTakerUid() {
+        public UUID getTakerUid() {
             return this.takerUid;
         }
 
@@ -195,7 +196,7 @@ public interface IEventsHandler {
                     && this.getSymbol() == other.getSymbol()
                     && this.getTotalVolume() == other.getTotalVolume()
                     && this.getTakerOrderId() == other.getTakerOrderId()
-                    && this.getTakerUid() == other.getTakerUid()
+                    && Objects.equals(this.getTakerUid(), other.getTakerUid())
                     && this.isTakeOrderCompleted() == other.isTakeOrderCompleted()
                     && this.getTimestamp() == other.getTimestamp()
                     && this.getTakerFee() == other.getTakerFee()
@@ -214,7 +215,7 @@ public interface IEventsHandler {
             result = result * prime + this.getSymbol();
             result = result * prime + Long.hashCode(this.getTotalVolume());
             result = result * prime + Long.hashCode(this.getTakerOrderId());
-            result = result * prime + Long.hashCode(this.getTakerUid());
+            result = result * prime + Objects.hashCode(this.getTakerUid());
             result = result * prime + (this.isTakeOrderCompleted() ? 79 : 97);
             result = result * prime + Long.hashCode(this.getTimestamp());
             result = result * prime + Long.hashCode(this.getTakerFee());
@@ -241,14 +242,14 @@ public interface IEventsHandler {
 
     class Trade {
         public final long makerOrderId;
-        public final long makerUid;
+        public final UUID makerUid;
         public final boolean makerOrderCompleted;
         public final long price;
         public final long volume;
         public final long makerFee;
         public final long takerFee;
 
-        public Trade(long makerOrderId, long makerUid, boolean makerOrderCompleted,
+        public Trade(long makerOrderId, UUID makerUid, boolean makerOrderCompleted,
                      long price, long volume, long makerFee, long takerFee) {
             this.makerOrderId = makerOrderId;
             this.makerUid = makerUid;
@@ -263,7 +264,7 @@ public interface IEventsHandler {
             return this.makerOrderId;
         }
 
-        public long getMakerUid() {
+        public UUID getMakerUid() {
             return this.makerUid;
         }
 
@@ -295,7 +296,7 @@ public interface IEventsHandler {
             return o instanceof Trade other
                     && other.canEqual(this)
                     && this.getMakerOrderId() == other.getMakerOrderId()
-                    && this.getMakerUid() == other.getMakerUid()
+                    && Objects.equals(this.getMakerUid(), other.getMakerUid())
                     && this.isMakerOrderCompleted() == other.isMakerOrderCompleted()
                     && this.getPrice() == other.getPrice()
                     && this.getVolume() == other.getVolume()
@@ -312,7 +313,7 @@ public interface IEventsHandler {
             final int prime = 59;
             int result = 1;
             result = result * prime + Long.hashCode(this.getMakerOrderId());
-            result = result * prime + Long.hashCode(this.getMakerUid());
+            result = result * prime + Objects.hashCode(this.getMakerUid());
             result = result * prime + (this.isMakerOrderCompleted() ? 79 : 97);
             result = result * prime + Long.hashCode(this.getPrice());
             result = result * prime + Long.hashCode(this.getVolume());
@@ -339,7 +340,7 @@ public interface IEventsHandler {
         public final boolean orderCompleted;
         public final long price;
         public final long orderId;
-        public final long uid;
+        public final UUID uid;
         public final long timestamp;
 
         public ReduceEvent(
@@ -348,7 +349,7 @@ public interface IEventsHandler {
                 boolean orderCompleted,
                 long price,
                 long orderId,
-                long uid,
+                UUID uid,
                 long timestamp) {
             this.symbol = symbol;
             this.reducedVolume = reducedVolume;
@@ -379,7 +380,7 @@ public interface IEventsHandler {
             return this.orderId;
         }
 
-        public long getUid() {
+        public UUID getUid() {
             return this.uid;
         }
 
@@ -399,7 +400,7 @@ public interface IEventsHandler {
                     && this.isOrderCompleted() == other.isOrderCompleted()
                     && this.getPrice() == other.getPrice()
                     && this.getOrderId() == other.getOrderId()
-                    && this.getUid() == other.getUid()
+                    && Objects.equals(this.getUid(), other.getUid())
                     && this.getTimestamp() == other.getTimestamp();
         }
 
@@ -416,7 +417,7 @@ public interface IEventsHandler {
             result = result * prime + (this.isOrderCompleted() ? 79 : 97);
             result = result * prime + Long.hashCode(this.getPrice());
             result = result * prime + Long.hashCode(this.getOrderId());
-            result = result * prime + Long.hashCode(this.getUid());
+            result = result * prime + Objects.hashCode(this.getUid());
             result = result * prime + Long.hashCode(this.getTimestamp());
             return result;
         }
@@ -438,10 +439,10 @@ public interface IEventsHandler {
         public final long rejectedVolume;
         public final long price;
         public final long orderId;
-        public final long uid;
+        public final UUID uid;
         public final long timestamp;
 
-        public RejectEvent(int symbol, long rejectedVolume, long price, long orderId, long uid, long timestamp) {
+        public RejectEvent(int symbol, long rejectedVolume, long price, long orderId, UUID uid, long timestamp) {
             this.symbol = symbol;
             this.rejectedVolume = rejectedVolume;
             this.price = price;
@@ -466,7 +467,7 @@ public interface IEventsHandler {
             return this.orderId;
         }
 
-        public long getUid() {
+        public UUID getUid() {
             return this.uid;
         }
 
@@ -485,7 +486,7 @@ public interface IEventsHandler {
                     && this.getRejectedVolume() == other.getRejectedVolume()
                     && this.getPrice() == other.getPrice()
                     && this.getOrderId() == other.getOrderId()
-                    && this.getUid() == other.getUid()
+                    && Objects.equals(this.getUid(), other.getUid())
                     && this.getTimestamp() == other.getTimestamp();
         }
 
@@ -501,7 +502,7 @@ public interface IEventsHandler {
             result = result * prime + Long.hashCode(this.getRejectedVolume());
             result = result * prime + Long.hashCode(this.getPrice());
             result = result * prime + Long.hashCode(this.getOrderId());
-            result = result * prime + Long.hashCode(this.getUid());
+            result = result * prime + Objects.hashCode(this.getUid());
             result = result * prime + Long.hashCode(this.getTimestamp());
             return result;
         }
@@ -522,10 +523,10 @@ public interface IEventsHandler {
         public final long volume;
         public final long price;
         public final long orderId;
-        public final long uid;
+        public final UUID uid;
         public final long timestamp;
 
-        public CommandExecutionResult(int symbol, long volume, long price, long orderId, long uid, long timestamp) {
+        public CommandExecutionResult(int symbol, long volume, long price, long orderId, UUID uid, long timestamp) {
             this.symbol = symbol;
             this.volume = volume;
             this.price = price;
@@ -550,7 +551,7 @@ public interface IEventsHandler {
             return this.orderId;
         }
 
-        public long getUid() {
+        public UUID getUid() {
             return this.uid;
         }
 
@@ -569,7 +570,7 @@ public interface IEventsHandler {
                     && this.getVolume() == other.getVolume()
                     && this.getPrice() == other.getPrice()
                     && this.getOrderId() == other.getOrderId()
-                    && this.getUid() == other.getUid()
+                    && Objects.equals(this.getUid(), other.getUid())
                     && this.getTimestamp() == other.getTimestamp();
         }
 
@@ -585,7 +586,7 @@ public interface IEventsHandler {
             result = result * prime + Long.hashCode(this.getVolume());
             result = result * prime + Long.hashCode(this.getPrice());
             result = result * prime + Long.hashCode(this.getOrderId());
-            result = result * prime + Long.hashCode(this.getUid());
+            result = result * prime + Objects.hashCode(this.getUid());
             result = result * prime + Long.hashCode(this.getTimestamp());
             return result;
         }

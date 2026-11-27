@@ -1,5 +1,6 @@
 package exchange.core2.core.common;
 
+import exchange.core2.tests.util.TestConstants;
 import exchange.core2.core.utils.HashingUtils;
 import exchange.core2.core.utils.SerializationUtils;
 import net.openhft.chronicle.bytes.Bytes;
@@ -9,16 +10,17 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class UserProfilePositionsTest {
 
-    private static final long UID = 77L;
+    private static final UUID UID = TestConstants.uidOf(77);
 
     private static SymbolPositionRecord position(int symbol, int currency, long openVolume) {
         final SymbolPositionRecord record = new SymbolPositionRecord();
-        record.initialize(UID, symbol, currency);
+        record.initialize(UID.getMostSignificantBits(), UID.getLeastSignificantBits(), symbol, currency);
         record.openVolume = openVolume;
         record.direction = PositionDirection.LONG;
         return record;
@@ -33,7 +35,7 @@ class UserProfilePositionsTest {
 
     @Test
     void newProfileHasNoPositionsAndNoMap() {
-        final UserProfile profile = new UserProfile(UID, UserStatus.ACTIVE);
+        final UserProfile profile = new UserProfile(UID.getMostSignificantBits(), UID.getLeastSignificantBits(), UserStatus.ACTIVE);
         assertEquals(0, profile.positionsCount());
         assertNull(profile.getSinglePosition());
         assertNull(profile.getPositionsMap());
@@ -44,7 +46,7 @@ class UserProfilePositionsTest {
 
     @Test
     void firstPositionStaysOutsideTheMap() {
-        final UserProfile profile = new UserProfile(UID, UserStatus.ACTIVE);
+        final UserProfile profile = new UserProfile(UID.getMostSignificantBits(), UID.getLeastSignificantBits(), UserStatus.ACTIVE);
         final SymbolPositionRecord a = position(10, 1, 5);
         profile.putPosition(a);
 
@@ -70,7 +72,7 @@ class UserProfilePositionsTest {
 
     @Test
     void secondPositionMovesBothIntoTheMapUntilItIsEmpty() {
-        final UserProfile profile = new UserProfile(UID, UserStatus.ACTIVE);
+        final UserProfile profile = new UserProfile(UID.getMostSignificantBits(), UID.getLeastSignificantBits(), UserStatus.ACTIVE);
         final SymbolPositionRecord a = position(10, 1, 5);
         final SymbolPositionRecord b = position(20, 2, 7);
         profile.putPosition(a);
@@ -104,7 +106,7 @@ class UserProfilePositionsTest {
     @Test
     void stateHashMatchesTheMapBasedHash() {
         for (int count = 0; count <= 3; count++) {
-            final UserProfile profile = new UserProfile(UID, UserStatus.ACTIVE);
+            final UserProfile profile = new UserProfile(UID.getMostSignificantBits(), UID.getLeastSignificantBits(), UserStatus.ACTIVE);
             final IntObjectHashMap<SymbolPositionRecord> reference = new IntObjectHashMap<>();
             for (int i = 0; i < count; i++) {
                 final SymbolPositionRecord p = position(100 + i, 3, 10 + i);
@@ -112,7 +114,8 @@ class UserProfilePositionsTest {
                 reference.put(p.symbol, p);
             }
             final int expected = Objects.hash(
-                    UID,
+                    UID.getMostSignificantBits(),
+                    UID.getLeastSignificantBits(),
                     HashingUtils.stateHash(reference),
                     0L,
                     new org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap().hashCode(),
@@ -124,7 +127,7 @@ class UserProfilePositionsTest {
     @Test
     void serializationKeepsTheMapFormat() {
         for (int count = 0; count <= 3; count++) {
-            final UserProfile profile = new UserProfile(UID, UserStatus.ACTIVE);
+            final UserProfile profile = new UserProfile(UID.getMostSignificantBits(), UID.getLeastSignificantBits(), UserStatus.ACTIVE);
             final IntObjectHashMap<SymbolPositionRecord> reference = new IntObjectHashMap<>();
             for (int i = 0; i < count; i++) {
                 final SymbolPositionRecord p = position(200 + i, 4, 20 + i);
@@ -139,7 +142,8 @@ class UserProfilePositionsTest {
                 profile.writeMarshallable(bytes);
 
                 // the format written by the map-based version
-                referenceBytes.writeLong(UID);
+                referenceBytes.writeLong(UID.getMostSignificantBits());
+                referenceBytes.writeLong(UID.getLeastSignificantBits());
                 SerializationUtils.marshallIntHashMap(reference, referenceBytes);
                 referenceBytes.writeLong(profile.adjustmentsCounter);
                 SerializationUtils.marshallIntLongHashMap(org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap.newWithKeysValues(4, 1000L + count), referenceBytes);

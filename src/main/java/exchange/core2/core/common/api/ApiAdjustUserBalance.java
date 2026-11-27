@@ -18,10 +18,11 @@ package exchange.core2.core.common.api;
 import exchange.core2.core.common.BalanceAdjustmentType;
 
 import java.util.Objects;
+import java.util.UUID;
 
 public final class ApiAdjustUserBalance extends ApiCommand {
 
-    public final long uid;
+    public final UUID uid;
 
     public final int currency;
     public final long amount;
@@ -29,7 +30,7 @@ public final class ApiAdjustUserBalance extends ApiCommand {
 
     public final BalanceAdjustmentType adjustmentType;
 
-    public ApiAdjustUserBalance(long uid, int currency, long amount, long transactionId) {
+    public ApiAdjustUserBalance(UUID uid, int currency, long amount, long transactionId) {
         this(uid, currency, amount, transactionId, BalanceAdjustmentType.ADJUSTMENT);
     }
 
@@ -40,7 +41,7 @@ public final class ApiAdjustUserBalance extends ApiCommand {
 
     }
 
-    public ApiAdjustUserBalance(long uid, int currency, long amount, long transactionId,
+    public ApiAdjustUserBalance(UUID uid, int currency, long amount, long transactionId,
                                 BalanceAdjustmentType adjustmentType) {
         this.uid = uid;
         this.currency = currency;
@@ -60,7 +61,7 @@ public final class ApiAdjustUserBalance extends ApiCommand {
         }
         return o instanceof ApiAdjustUserBalance other
                 && other.canEqual(this)
-                && this.uid == other.uid
+                && Objects.equals(this.uid, other.uid)
                 && this.currency == other.currency
                 && this.amount == other.amount
                 && this.transactionId == other.transactionId
@@ -75,7 +76,7 @@ public final class ApiAdjustUserBalance extends ApiCommand {
     public int hashCode() {
         final int prime = 59;
         int result = 1;
-        result = result * prime + Long.hashCode(this.uid);
+        result = result * prime + Objects.hashCode(this.uid);
         result = result * prime + this.currency;
         result = result * prime + Long.hashCode(this.amount);
         result = result * prime + Long.hashCode(this.transactionId);
@@ -85,7 +86,7 @@ public final class ApiAdjustUserBalance extends ApiCommand {
     }
 
     public static class ApiAdjustUserBalanceBuilder {
-        private long uid;
+        private UUID uid;
         private int currency;
         private long amount;
         private long transactionId;
@@ -94,7 +95,7 @@ public final class ApiAdjustUserBalance extends ApiCommand {
         ApiAdjustUserBalanceBuilder() {
         }
 
-        public ApiAdjustUserBalanceBuilder uid(long uid) {
+        public ApiAdjustUserBalanceBuilder uid(UUID uid) {
             this.uid = uid;
             return this;
         }

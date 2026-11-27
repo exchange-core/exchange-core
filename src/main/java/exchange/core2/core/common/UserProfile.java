@@ -25,12 +25,15 @@ import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
 import java.util.Objects;
+import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 public final class UserProfile implements WriteBytesMarshallable, StateHash {
 
-    public final long uid;
+    // user UUID: the most and the least significant bits
+    public final long uidHi;
+    public final long uidLo;
 
     // Margin positions by symbol. Most users hold none or one, so one position is kept in a field and the
     // map (~200 bytes even when empty) is created for the second one. At most one of the two is not null;
@@ -47,9 +50,9 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
 
     public UserStatus userStatus;
 
-    public UserProfile(long uid, UserStatus userStatus) {
-        //log.debug("New {}", uid);
-        this.uid = uid;
+    public UserProfile(long uidHi, long uidLo, UserStatus userStatus) {
+        this.uidHi = uidHi;
+        this.uidLo = uidLo;
         this.adjustmentsCounter = 0L;
         this.accounts = new IntLongHashtable(2);
         this.userStatus = userStatus;
@@ -57,17 +60,18 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
 
     public UserProfile(BytesIn bytesIn) {
 
-        this.uid = bytesIn.readLong();
+        this.uidHi = bytesIn.readLong();
+        this.uidLo = bytesIn.readLong();
 
         // positions
         final int positionsCount = bytesIn.readInt();
         if (positionsCount == 1) {
             bytesIn.readInt(); // symbol, also stored in the record
-            this.singlePosition = new SymbolPositionRecord(uid, bytesIn);
+            this.singlePosition = new SymbolPositionRecord(uidHi, uidLo, bytesIn);
         } else if (positionsCount > 1) {
             this.positionsMap = new IntObjectHashMap<>(positionsCount);
             for (int i = 0; i < positionsCount; i++) {
-                this.positionsMap.put(bytesIn.readInt(), new SymbolPositionRecord(uid, bytesIn));
+                this.positionsMap.put(bytesIn.readInt(), new SymbolPositionRecord(uidHi, uidLo, bytesIn));
             }
         }
 
@@ -186,7 +190,8 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
     @Override
     public void writeMarshallable(BytesOut bytes) {
 
-        bytes.writeLong(uid);
+        bytes.writeLong(uidHi);
+        bytes.writeLong(uidLo);
 
         // positions, same format as SerializationUtils.marshallIntHashMap
         if (singlePosition != null) {
@@ -210,10 +215,15 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
     }
 
 
+    // allocates; for reports and logs
+    public UUID uid() {
+        return new UUID(uidHi, uidLo);
+    }
+
     @Override
     public String toString() {
         return "UserProfile{" +
-                "uid=" + uid +
+                "uid=" + uid() +
                 ", positions=" + positionsCount() +
                 ", accounts=" + accounts +
                 ", adjustmentsCounter=" + adjustmentsCounter +
@@ -224,7 +234,8 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
     @Override
     public int stateHash() {
         return Objects.hash(
-                uid,
+                uidHi,
+                uidLo,
                 positionsStateHash(),
                 adjustmentsCounter,
                 copyAccounts().hashCode(),

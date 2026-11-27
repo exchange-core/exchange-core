@@ -38,6 +38,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.AfterEach;
@@ -57,16 +58,16 @@ public class OrderStepdefs implements En {
     private final Map<Long, ApiPlaceOrder> orders = new HashMap<>();
 
     final Map<String, CoreSymbolSpecification> symbolSpecificationMap = new HashMap<>();
-    final Map<String, Long> users = new HashMap<>();
+    final Map<String, UUID> users = new HashMap<>();
 
     private AtomicLong uniqueIdCounterLong = new AtomicLong();
 
     public OrderStepdefs() {
         symbolSpecificationMap.put("EUR_USD", SYMBOLSPEC_EUR_USD);
         symbolSpecificationMap.put("ETH_XBT", SYMBOLSPEC_ETH_XBT);
-        users.put("Alice", 1440001L);
-        users.put("Bob", 1440002L);
-        users.put("Charlie", 1440003L);
+        users.put("Alice", TestConstants.UID_1);
+        users.put("Bob", TestConstants.UID_2);
+        users.put("Charlie", TestConstants.UID_3);
 
         ParameterType(
             "symbol",
@@ -110,10 +111,10 @@ public class OrderStepdefs implements En {
         });
 
         Given("^Users and their balances:$", (DataTable datatable) -> {
-            Map<Long, Map<Integer, Long>> userBalances = Maps.newHashMap();
+            Map<UUID, Map<Integer, Long>> userBalances = Maps.newHashMap();
             datatable.cells().stream().skip(1)
                 .forEach(row -> {
-                    Long uid = users.get(row.get(0));
+                    UUID uid = users.get(row.get(0));
                     Map<Integer, Long> balances = userBalances.computeIfAbsent(uid, aLong -> Maps.newHashMap());
                     balances.put(TestConstants.getCurrency(row.get(1)), Long.parseLong(row.get(2)));
                     userBalances.putIfAbsent(uid, balances);
@@ -132,14 +133,14 @@ public class OrderStepdefs implements En {
         });
 
         When("A client {user} places an {word} order {long} at {long}@{long} \\(type: {word}, symbol: {symbol})",
-            (Long clientId, String side, Long orderId, Long price, Long size, String orderType, CoreSymbolSpecification symbol) -> {
+            (UUID clientId, String side, Long orderId, Long price, Long size, String orderType, CoreSymbolSpecification symbol) -> {
                 aClientPassAnOrder(clientId, side, orderId, price, size, orderType, symbol, 0,
                     CommandResultCode.SUCCESS);
             });
 
         When(
             "A client {user} places an {word} order {long} at {long}@{long} \\(type: {word}, symbol: {symbol}, reservePrice: {long})",
-            (Long clientId, String side, Long orderId, Long price, Long size, String orderType, CoreSymbolSpecification symbol, Long reservePrice) -> {
+            (UUID clientId, String side, Long orderId, Long price, Long size, String orderType, CoreSymbolSpecification symbol, Long reservePrice) -> {
                 aClientPassAnOrder(clientId, side, orderId, price, size, orderType, symbol, reservePrice,
                     CommandResultCode.SUCCESS);
             });
@@ -156,12 +157,12 @@ public class OrderStepdefs implements En {
         });
 
         When("A client {user} moves a price to {long} of the order {long}",
-            (Long clientId, Long newPrice, Long orderId) -> {
+            (UUID clientId, Long newPrice, Long orderId) -> {
                 moveOrder(clientId, newPrice, orderId, CommandResultCode.SUCCESS);
             });
 
         When("A client {user} could not move a price to {long} of the order {long} due to {word}",
-            (Long clientId, Long newPrice, Long orderId, String resultCode) -> {
+            (UUID clientId, Long newPrice, Long orderId, String resultCode) -> {
                 moveOrder(clientId, newPrice, orderId, CommandResultCode.valueOf(resultCode));
             });
 
@@ -177,14 +178,14 @@ public class OrderStepdefs implements En {
 
         When(
             "A client {user} could not place an {word} order {long} at {long}@{long} \\(type: {word}, symbol: {symbol}, reservePrice: {long}) due to {word}",
-            (Long clientId, String side, Long orderId, Long price, Long size,
+            (UUID clientId, String side, Long orderId, Long price, Long size,
                 String orderType, CoreSymbolSpecification symbol, Long reservePrice, String resultCode) -> {
                 aClientPassAnOrder(clientId, side, orderId, price, size, orderType, symbol, reservePrice,
                     CommandResultCode.valueOf(resultCode));
             });
 
         And("A balance of a client {user}:",
-            (Long clientId, DataTable table) -> {
+            (UUID clientId, DataTable table) -> {
                 List<List<String>> balance = table.asLists();
                 SingleUserReportResult profile = container.getUserProfile(clientId);
                 for (List<String> record : balance) {
@@ -194,7 +195,7 @@ public class OrderStepdefs implements En {
                 }
             });
 
-        And("A client {user} orders:", (Long clientId, DataTable table) -> {
+        And("A client {user} orders:", (UUID clientId, DataTable table) -> {
             List<List<String>> lists = table.asLists();
             //| id | price | size | filled | reservePrice | side |
 
@@ -232,13 +233,13 @@ public class OrderStepdefs implements En {
             }
         });
 
-        And("A client {user} does not have active orders", (Long clientId) -> {
+        And("A client {user} does not have active orders", (UUID clientId) -> {
             SingleUserReportResult profile = container.getUserProfile(clientId);
             assertEquals(0, profile.fetchIndexedOrders().size());
         });
 
         Given("{long} {word} is added to the balance of a client {user}",
-            (Long ammount, String currency, Long clientId) -> {
+            (Long ammount, String currency, UUID clientId) -> {
 
                 // add 1 szabo more
                 container.submitCommandSync(ApiAdjustUserBalance.builder()
@@ -248,7 +249,7 @@ public class OrderStepdefs implements En {
             });
 
         When("A client {user} cancels the remaining size {long} of the order {long}",
-            (Long clientId, Long size, Long orderId) -> {
+            (UUID clientId, Long size, Long orderId) -> {
                 ApiPlaceOrder initialOrder = orders.get(orderId);
 
                 ApiCancelOrder order = ApiCancelOrder.builder().orderId(orderId).uid(clientId)
@@ -260,7 +261,7 @@ public class OrderStepdefs implements En {
                         assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
                         assertThat(cmd.command, is(OrderCommandType.CANCEL_ORDER));
                         assertThat(cmd.orderId, is(orderId));
-                        assertThat(cmd.uid, is(clientId));
+                        assertThat(cmd.getUid(), is(clientId));
                         assertThat(cmd.symbol, is(initialOrder.symbol));
                         assertThat(cmd.action, is(initialOrder.action));
 
@@ -271,27 +272,27 @@ public class OrderStepdefs implements En {
                     }).join();
             });
 
-        When("Suspend {user} who has balances will return {string}", (Long clientId, String resultCode) -> {
+        When("Suspend {user} who has balances will return {string}", (UUID clientId, String resultCode) -> {
             CompletableFuture<OrderCommand> future = new CompletableFuture<>();
             container.getApi().suspendUser(clientId, future::complete);
             log.debug("Suspend user result: {}", future.get());
             assertSame(future.get().resultCode, CommandResultCode.valueOf(resultCode));
         });
-        When("Suspend {user} who has no balances", (Long clientId) -> {
+        When("Suspend {user} who has no balances", (UUID clientId) -> {
             container.getApi().suspendUser(clientId, CHECK_SUCCESS);
         });
         Then(
                 "Status of {user} is {string}",
-                (Long clientId, String status) ->
+                (UUID clientId, String status) ->
                         assertSame(container.getUserProfile(clientId).getUserStatus(), UserStatus.valueOf(status)));
         Then(
                 "Query {user} will return {string}",
-                (Long clientId, String status) -> assertSame(
+                (UUID clientId, String status) -> assertSame(
                         container.getUserProfile(clientId).getQueryExecutionStatus(),
                         QueryExecutionStatus.valueOf(status)));
     }
 
-    private void aClientPassAnOrder(long clientId, String side, long orderId, long price, long size, String orderType,
+    private void aClientPassAnOrder(UUID clientId, String side, long orderId, long price, long size, String orderType,
         CoreSymbolSpecification symbol, long reservePrice, CommandResultCode resultCode) {
 
         ApiPlaceOrder.ApiPlaceOrderBuilder builder = ApiPlaceOrder.builder().uid(clientId).orderId(orderId).price(price)
@@ -311,7 +312,7 @@ public class OrderStepdefs implements En {
         container.getApi().submitCommandAsyncFullResponse(order).thenAccept(cmd -> {
             assertThat(cmd.orderId, is(orderId));
             assertThat(cmd.resultCode, is(resultCode));
-            assertThat(cmd.uid, is(clientId));
+            assertThat(cmd.getUid(), is(clientId));
             assertThat(cmd.price, is(price));
             assertThat(cmd.size, is(size));
             assertThat(cmd.action, is(OrderAction.valueOf(side)));
@@ -327,7 +328,7 @@ public class OrderStepdefs implements En {
 
         MatcherTradeEvent evt = matcherEvents.get(0);
         assertThat(evt.matchedOrderId, is(orderId));
-        assertThat(evt.matchedOrderUid, is(orders.get(orderId).uid));
+        assertThat(evt.getMatchedOrderUid(), is(orders.get(orderId).uid));
         assertThat(evt.matchedOrderCompleted, is(completed));
         assertThat(evt.eventType, is(MatcherEventType.TRADE));
         assertThat(evt.size, is(lastQty));
@@ -337,7 +338,7 @@ public class OrderStepdefs implements En {
         }
     }
 
-    private void moveOrder(long clientId, long newPrice, long orderId, CommandResultCode resultCode2) {
+    private void moveOrder(UUID clientId, long newPrice, long orderId, CommandResultCode resultCode2) {
         ApiPlaceOrder initialOrder = orders.get(orderId);
 
         final ApiMoveOrder moveOrder = ApiMoveOrder.builder().symbol(initialOrder.symbol).uid(clientId).orderId(orderId)
@@ -346,7 +347,7 @@ public class OrderStepdefs implements En {
         container.submitCommandSync(moveOrder, cmd -> {
             assertThat(cmd.resultCode, is(resultCode2));
             assertThat(cmd.orderId, is(orderId));
-            assertThat(cmd.uid, is(clientId));
+            assertThat(cmd.getUid(), is(clientId));
 
             matcherEvents = cmd.extractEvents();
         });

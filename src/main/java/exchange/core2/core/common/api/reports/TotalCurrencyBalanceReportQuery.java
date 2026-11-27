@@ -83,7 +83,7 @@ public final class TotalCurrencyBalanceReportQuery implements ReportQuery<TotalC
 
         final SymbolSpecificationProvider symbolSpecificationProvider = riskEngine.getSymbolSpecificationProvider();
 
-        riskEngine.getUserProfileService().getUserProfiles().forEach((uid, userProfile) -> {
+        riskEngine.getUserProfileService().getUserProfiles().forEach((uidHi, uidLo, userProfile) -> {
             userProfile.accounts.forEach(currencyBalance::addToValue);
             userProfile.forEachPosition(positionRecord -> {
                 final int symbolId = positionRecord.symbol;

@@ -265,14 +265,14 @@ public final class ExchangeTestContainer implements AutoCloseable {
         initFeeUser(TestConstants.UID_4);
     }
 
-    public void initBasicUser(long uid) {
+    public void initBasicUser(UUID uid) {
         assertThat(api.submitCommandAsync(ApiAddUser.builder().uid(uid).build()).join(), Is.is(CommandResultCode.SUCCESS));
         assertThat(api.submitCommandAsync(ApiAdjustUserBalance.builder().uid(uid).transactionId(1L).amount(10_000_00L).currency(TestConstants.CURRENECY_USD).build()).join(), Is.is(CommandResultCode.SUCCESS));
         assertThat(api.submitCommandAsync(ApiAdjustUserBalance.builder().uid(uid).transactionId(2L).amount(1_0000_0000L).currency(TestConstants.CURRENECY_XBT).build()).join(), Is.is(CommandResultCode.SUCCESS));
         assertThat(api.submitCommandAsync(ApiAdjustUserBalance.builder().uid(uid).transactionId(3L).amount(1_0000_0000L).currency(TestConstants.CURRENECY_ETH).build()).join(), Is.is(CommandResultCode.SUCCESS));
     }
 
-    public void initFeeUser(long uid) {
+    public void initFeeUser(UUID uid) {
         assertThat(api.submitCommandAsync(ApiAddUser.builder().uid(uid).build()).join(), Is.is(CommandResultCode.SUCCESS));
         assertThat(api.submitCommandAsync(ApiAdjustUserBalance.builder().uid(uid).transactionId(1L).amount(10_000_00L).currency(TestConstants.CURRENECY_USD).build()).join(), Is.is(CommandResultCode.SUCCESS));
         assertThat(api.submitCommandAsync(ApiAdjustUserBalance.builder().uid(uid).transactionId(2L).amount(10_000_000L).currency(TestConstants.CURRENECY_JPY).build()).join(), Is.is(CommandResultCode.SUCCESS));
@@ -280,14 +280,14 @@ public final class ExchangeTestContainer implements AutoCloseable {
         assertThat(api.submitCommandAsync(ApiAdjustUserBalance.builder().uid(uid).transactionId(4L).amount(1000_0000_0000L).currency(TestConstants.CURRENECY_LTC).build()).join(), Is.is(CommandResultCode.SUCCESS));
     }
 
-    public void createUserWithMoney(long uid, int currency, long amount) {
+    public void createUserWithMoney(UUID uid, int currency, long amount) {
         final List<ApiCommand> cmds = new ArrayList<>();
         cmds.add(ApiAddUser.builder().uid(uid).build());
         cmds.add(ApiAdjustUserBalance.builder().uid(uid).transactionId(getRandomTransactionId()).amount(amount).currency(currency).build());
         api.submitCommandsSync(cmds);
     }
 
-    public void addMoneyToUser(long uid, int currency, long amount) {
+    public void addMoneyToUser(UUID uid, int currency, long amount) {
         final List<ApiCommand> cmds = new ArrayList<>();
         cmds.add(ApiAdjustUserBalance.builder().uid(uid).transactionId(getRandomTransactionId()).amount(amount).currency(currency).build());
         api.submitCommandsSync(cmds);
@@ -338,10 +338,11 @@ public final class ExchangeTestContainer implements AutoCloseable {
         final int numUsers = userCurrencies.size() - 1;
 
         IntStream.rangeClosed(1, numUsers).forEach(uid -> {
-            api.submitCommand(ApiAddUser.builder().uid(uid).build());
+            final UUID userUid = TestConstants.uidOf(uid);
+            api.submitCommand(ApiAddUser.builder().uid(userUid).build());
             userCurrencies.get(uid).stream().forEach(currency ->
                     api.submitCommand(ApiAdjustUserBalance.builder()
-                            .uid(uid)
+                            .uid(userUid)
                             .transactionId(getRandomTransactionId())
                             .amount(amountPerAccount.get(currency))
                             .currency(currency)
@@ -354,7 +355,8 @@ public final class ExchangeTestContainer implements AutoCloseable {
     public void usersInit(int numUsers, Set<Integer> currencies) {
 
         LongStream.rangeClosed(1, numUsers)
-                .forEach(uid -> {
+                .forEach(n -> {
+                    final UUID uid = TestConstants.uidOf(n);
                     api.submitCommand(ApiAddUser.builder().uid(uid).build());
                     long transactionId = 1L;
                     for (int currency : currencies) {
@@ -387,11 +389,11 @@ public final class ExchangeTestContainer implements AutoCloseable {
     }
 
     // todo rename
-    public void validateUserState(long uid, Consumer<SingleUserReportResult> resultValidator) throws InterruptedException, ExecutionException {
+    public void validateUserState(UUID uid, Consumer<SingleUserReportResult> resultValidator) throws InterruptedException, ExecutionException {
         resultValidator.accept(getUserProfile(uid));
     }
 
-    public SingleUserReportResult getUserProfile(long clientId) throws InterruptedException, ExecutionException {
+    public SingleUserReportResult getUserProfile(UUID clientId) throws InterruptedException, ExecutionException {
         return api.processReport(new SingleUserReportQuery(clientId), getRandomTransferId()).get();
     }
 

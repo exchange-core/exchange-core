@@ -44,6 +44,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.NavigableMap;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -305,36 +306,40 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
         if (cmdType == OrderCommandType.MOVE_ORDER) {
 
-            buffer.putLong(cmd.uid); // 8 bytes can be compressed as dictionary
+            buffer.putLong(cmd.uidHi); // 16 bytes user UUID
+            buffer.putLong(cmd.uidLo);
             buffer.putInt(cmd.symbol); // 4 bytes can be compressed as dictionary
             buffer.putLong(cmd.orderId); // 8 bytes - can be compressed as delta
             buffer.putLong(cmd.price); // 8 bytes - can be compressed as delta
 
             if (debug)
-                log.debug("move order seq={} t={} orderId={} symbol={} uid={} price={}", baseSeq + dSeq, cmd.timestamp, cmd.orderId, cmd.symbol, cmd.uid, cmd.price);
+                log.debug("move order seq={} t={} orderId={} symbol={} uid={} price={}", baseSeq + dSeq, cmd.timestamp, cmd.orderId, cmd.symbol, cmd.getUid(), cmd.price);
 
         } else if (cmdType == OrderCommandType.CANCEL_ORDER) {
 
-            buffer.putLong(cmd.uid); // 8 bytes can be compressed as dictionary
+            buffer.putLong(cmd.uidHi); // 16 bytes user UUID
+            buffer.putLong(cmd.uidLo);
             buffer.putInt(cmd.symbol); // 4 bytes can be compressed as dictionary
             buffer.putLong(cmd.orderId); // 8 bytes - can be compressed as delta
 
             if (debug)
-                log.debug("cancel order seq={} t={} orderId={} symbol={} uid={}", baseSeq + dSeq, cmd.timestamp, cmd.orderId, cmd.symbol, cmd.uid);
+                log.debug("cancel order seq={} t={} orderId={} symbol={} uid={}", baseSeq + dSeq, cmd.timestamp, cmd.orderId, cmd.symbol, cmd.getUid());
 
         } else if (cmdType == OrderCommandType.REDUCE_ORDER) {
 
-            buffer.putLong(cmd.uid); // 8 bytes can be compressed as dictionary
+            buffer.putLong(cmd.uidHi); // 16 bytes user UUID
+            buffer.putLong(cmd.uidLo);
             buffer.putInt(cmd.symbol); // 4 bytes can be compressed as dictionary
             buffer.putLong(cmd.orderId); // 8 bytes - can be compressed as delta
             buffer.putLong(cmd.size); // 8 bytes - can be compressed as low value
 
             if (debug)
-                log.debug("reduce order seq={} t={} orderId={} symbol={} uid={} size={}", baseSeq + dSeq, cmd.timestamp, cmd.orderId, cmd.symbol, cmd.uid, cmd.size);
+                log.debug("reduce order seq={} t={} orderId={} symbol={} uid={} size={}", baseSeq + dSeq, cmd.timestamp, cmd.orderId, cmd.symbol, cmd.getUid(), cmd.size);
 
         } else if (cmdType == OrderCommandType.PLACE_ORDER) {
 
-            buffer.putLong(cmd.uid); // 8 bytes can be compressed as dictionary
+            buffer.putLong(cmd.uidHi); // 16 bytes user UUID
+            buffer.putLong(cmd.uidLo);
             buffer.putInt(cmd.symbol); // 4 bytes can be compressed as dictionary
             buffer.putLong(cmd.orderId); // 8 bytes - can be compressed as delta
             buffer.putLong(cmd.price); // 8 bytes - can be compressed as delta
@@ -352,11 +357,12 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
             if (debug)
                 log.debug("place order seq={} t={} orderId={} symbol={} uid={} price={} reserveBidPrice={} size={} userCookie={} {}/{} actionAndType={}",
-                        baseSeq + dSeq, cmd.timestamp, cmd.orderId, cmd.symbol, cmd.uid, cmd.price, cmd.reserveBidPrice, cmd.size, cmd.userCookie, cmd.action, cmd.orderType, actionAndType1);
+                        baseSeq + dSeq, cmd.timestamp, cmd.orderId, cmd.symbol, cmd.getUid(), cmd.price, cmd.reserveBidPrice, cmd.size, cmd.userCookie, cmd.action, cmd.orderType, actionAndType1);
 
         } else if (cmdType == OrderCommandType.BALANCE_ADJUSTMENT) {
 
-            buffer.putLong(cmd.uid); // 8 bytes can be compressed as dictionary
+            buffer.putLong(cmd.uidHi); // 16 bytes user UUID
+            buffer.putLong(cmd.uidLo);
             buffer.putInt(cmd.symbol); // 4 bytes can be compressed as dictionary (currency)
             buffer.putLong(cmd.orderId); // 8 bytes can be compressed as delta (transaction)
             buffer.putLong(cmd.price); // 8 bytes - can be compressed as low value (amount)
@@ -367,7 +373,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
                 cmdType == OrderCommandType.RESUME_USER ||
                 cmdType == OrderCommandType.REMOVE_USER) {
 
-            buffer.putLong(cmd.uid); // 8 bytes can be compressed as delta
+            buffer.putLong(cmd.uidHi); // 16 bytes user UUID
+            buffer.putLong(cmd.uidLo);
 
         } else if (cmdType == OrderCommandType.BINARY_DATA_COMMAND) {
 
@@ -379,7 +386,8 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
             buffer.putLong(cmd.price); // 8 bytes word1
             buffer.putLong(cmd.reserveBidPrice); // 8 bytes word2
             buffer.putLong(cmd.size); // 8 bytes word3
-            buffer.putLong(cmd.uid); // 8 bytes word4
+            buffer.putLong(cmd.uidHi); // 8 bytes word4
+            buffer.putLong(cmd.uidLo); // 8 bytes word5
 
 //        } else if (cmdType == OrderCommandType.PERSIST_STATE_MATCHING ||
 //                cmdType == OrderCommandType.PERSIST_STATE_RISK) {
@@ -552,42 +560,46 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
                 if (cmdType == OrderCommandType.MOVE_ORDER) {
 
-                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                    final long uidHi = jr.readLong(); // 16 bytes user UUID
+                    final long uidLo = jr.readLong();
                     final int symbol = jr.readInt();// 4 bytes can be compressed as dictionary
                     final long orderId = jr.readLong(); // 8 bytes - can be compressed as delta
                     final long price = jr.readLong(); // 8 bytes - can be compressed as delta
 
                     if (debug)
-                        log.debug("move order seq={} t={} orderId={} symbol={} uid={} price={}", lastSeq, timestampNs, orderId, symbol, uid, price);
+                        log.debug("move order seq={} t={} orderId={} symbol={} uid={} price={}", lastSeq, timestampNs, orderId, symbol, new UUID(uidHi, uidLo), price);
 
-                    api.moveOrder(serviceFlags, eventsGroup, timestampNs, price, orderId, symbol, uid);
+                    api.moveOrder(serviceFlags, eventsGroup, timestampNs, price, orderId, symbol, uidHi, uidLo);
 
                 } else if (cmdType == OrderCommandType.CANCEL_ORDER) {
 
-                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                    final long uidHi = jr.readLong(); // 16 bytes user UUID
+                    final long uidLo = jr.readLong();
                     final int symbol = jr.readInt();// 4 bytes can be compressed as dictionary
                     final long orderId = jr.readLong(); // 8 bytes - can be compressed as delta
 
                     if (debug)
-                        log.debug("cancel order seq={} t={} orderId={} symbol={} uid={}", lastSeq, timestampNs, orderId, symbol, uid);
+                        log.debug("cancel order seq={} t={} orderId={} symbol={} uid={}", lastSeq, timestampNs, orderId, symbol, new UUID(uidHi, uidLo));
 
-                    api.cancelOrder(serviceFlags, eventsGroup, timestampNs, orderId, symbol, uid);
+                    api.cancelOrder(serviceFlags, eventsGroup, timestampNs, orderId, symbol, uidHi, uidLo);
 
                 } else if (cmdType == OrderCommandType.REDUCE_ORDER) {
 
-                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                    final long uidHi = jr.readLong(); // 16 bytes user UUID
+                    final long uidLo = jr.readLong();
                     final int symbol = jr.readInt();// 4 bytes can be compressed as dictionary
                     final long orderId = jr.readLong(); // 8 bytes - can be compressed as delta
                     final long reduceSize = jr.readLong(); // 8 bytes - can be compressed as low value
 
                     if (debug)
-                        log.debug("reduce order seq={} t={} orderId={} symbol={} uid={} reduceSize={}", lastSeq, timestampNs, orderId, symbol, uid, reduceSize);
+                        log.debug("reduce order seq={} t={} orderId={} symbol={} uid={} reduceSize={}", lastSeq, timestampNs, orderId, symbol, new UUID(uidHi, uidLo), reduceSize);
 
-                    api.reduceOrder(serviceFlags, eventsGroup, timestampNs, reduceSize, orderId, symbol, uid);
+                    api.reduceOrder(serviceFlags, eventsGroup, timestampNs, reduceSize, orderId, symbol, uidHi, uidLo);
 
                 } else if (cmdType == OrderCommandType.PLACE_ORDER) {
 
-                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                    final long uidHi = jr.readLong(); // 16 bytes user UUID
+                    final long uidLo = jr.readLong();
                     final int symbol = jr.readInt();// 4 bytes can be compressed as dictionary
                     final long orderId = jr.readLong(); // 8 bytes - can be compressed as delta
                     final long price = jr.readLong(); // 8 bytes - can be compressed as delta
@@ -602,57 +614,62 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
                     final OrderType orderType = OrderType.of((byte) ((actionAndType >> 1) & 0b1111));
 
                     if (debug)
-                        log.debug("place order seq={} t={} orderId={} symbol={} uid={} price={} reserveBidPrice={} size={} userCookie={} {}/{} actionAndType={}", lastSeq, timestampNs, orderId, symbol, uid, price, reservedBidPrice, size, userCookie, orderAction, orderType, actionAndType);
+                        log.debug("place order seq={} t={} orderId={} symbol={} uid={} price={} reserveBidPrice={} size={} userCookie={} {}/{} actionAndType={}", lastSeq, timestampNs, orderId, symbol, new UUID(uidHi, uidLo), price, reservedBidPrice, size, userCookie, orderAction, orderType, actionAndType);
 
                     api.placeNewOrder(serviceFlags, eventsGroup, timestampNs, orderId, userCookie, price,
-                            reservedBidPrice, size, orderAction, orderType, symbol, uid, orderTakerFee, orderMakerFee);
+                            reservedBidPrice, size, orderAction, orderType, symbol, uidHi, uidLo, orderTakerFee, orderMakerFee);
 
                 } else if (cmdType == OrderCommandType.BALANCE_ADJUSTMENT) {
 
-                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                    final long uidHi = jr.readLong(); // 16 bytes user UUID
+                    final long uidLo = jr.readLong();
                     final int currency = jr.readInt();// 4 bytes can be compressed as dictionary (currency)
                     final long transactionId = jr.readLong(); // 8 bytes can be compressed as delta (transaction)
                     final long amount = jr.readLong(); // 8 bytes - can be compressed as low value (amount)
                     final BalanceAdjustmentType adjustmentType = BalanceAdjustmentType.of(jr.readByte()); // 1 byte (adjustment or suspend)
 
                     if (debug)
-                        log.debug("balanceAdjustment seq={}  {} uid:{} curre:{}", lastSeq, timestampNs, uid, currency);
+                        log.debug("balanceAdjustment seq={}  {} uid:{} curre:{}", lastSeq, timestampNs, new UUID(uidHi, uidLo), currency);
 
                     final int replayFlags = amount < 0 && cmd != WITHDRAWAL_WITH_MARGIN_CHECK
                             ? serviceFlags | OrderCommand.LEGACY_WITHDRAWAL_REPLAY : serviceFlags;
-                    api.balanceAdjustment(replayFlags, eventsGroup, timestampNs, uid, transactionId, currency, amount, adjustmentType);
+                    api.balanceAdjustment(replayFlags, eventsGroup, timestampNs, uidHi, uidLo, transactionId, currency, amount, adjustmentType);
 
                 } else if (cmdType == OrderCommandType.ADD_USER) {
 
-                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                    final long uidHi = jr.readLong(); // 16 bytes user UUID
+                    final long uidLo = jr.readLong();
 
-                    if (debug) log.debug("add user  seq={}  {} uid:{} ", lastSeq, timestampNs, uid);
+                    if (debug) log.debug("add user  seq={}  {} uid:{} ", lastSeq, timestampNs, new UUID(uidHi, uidLo));
 
-                    api.createUser(serviceFlags, eventsGroup, timestampNs, uid);
+                    api.createUser(serviceFlags, eventsGroup, timestampNs, uidHi, uidLo);
 
                 } else if (cmdType == OrderCommandType.SUSPEND_USER) {
 
-                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                    final long uidHi = jr.readLong(); // 16 bytes user UUID
+                    final long uidLo = jr.readLong();
 
-                    if (debug) log.debug("suspend user seq={}  {} uid:{} ", lastSeq, timestampNs, uid);
+                    if (debug) log.debug("suspend user seq={}  {} uid:{} ", lastSeq, timestampNs, new UUID(uidHi, uidLo));
 
-                    api.suspendUser(serviceFlags, eventsGroup, timestampNs, uid);
+                    api.suspendUser(serviceFlags, eventsGroup, timestampNs, uidHi, uidLo);
 
                 } else if (cmdType == OrderCommandType.RESUME_USER) {
 
-                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                    final long uidHi = jr.readLong(); // 16 bytes user UUID
+                    final long uidLo = jr.readLong();
 
-                    if (debug) log.debug("resume user seq={}  {} uid:{} ", lastSeq, timestampNs, uid);
+                    if (debug) log.debug("resume user seq={}  {} uid:{} ", lastSeq, timestampNs, new UUID(uidHi, uidLo));
 
-                    api.resumeUser(serviceFlags, eventsGroup, timestampNs, uid);
+                    api.resumeUser(serviceFlags, eventsGroup, timestampNs, uidHi, uidLo);
 
                 } else if (cmdType == OrderCommandType.REMOVE_USER) {
 
-                    final long uid = jr.readLong(); // 8 bytes can be compressed as dictionary
+                    final long uidHi = jr.readLong(); // 16 bytes user UUID
+                    final long uidLo = jr.readLong();
 
-                    if (debug) log.debug("remove user seq={}  {} uid:{} ", lastSeq, timestampNs, uid);
+                    if (debug) log.debug("remove user seq={}  {} uid:{} ", lastSeq, timestampNs, new UUID(uidHi, uidLo));
 
-                    api.removeUser(serviceFlags, eventsGroup, timestampNs, uid);
+                    api.removeUser(serviceFlags, eventsGroup, timestampNs, uidHi, uidLo);
 
                 } else if (cmdType == OrderCommandType.BINARY_DATA_COMMAND) {
 
@@ -662,11 +679,12 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
                     final long word2 = jr.readLong(); // 8 bytes word2
                     final long word3 = jr.readLong(); // 8 bytes word3
                     final long word4 = jr.readLong(); // 8 bytes word4
+                    final long word5 = jr.readLong(); // 8 bytes word5
 
                     if (debug)
                         log.debug("binary data seq={} t:{} {}", lastSeq, timestampNs, String.format("f=%d word0=%X word1=%X word2=%X word3=%X word4=%X", lastFlag, word0, word1, word2, word3, word4));
 
-                    api.binaryData(serviceFlags, eventsGroup, timestampNs, lastFlag, word0, word1, word2, word3, word4);
+                    api.binaryData(serviceFlags, eventsGroup, timestampNs, lastFlag, word0, word1, word2, word3, word4, word5);
 
                 } else if (cmdType == OrderCommandType.RESET) {
 

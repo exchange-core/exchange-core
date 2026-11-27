@@ -38,6 +38,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
@@ -189,7 +190,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
         orderRecord.size = size;
         orderRecord.reserveBidPrice = cmd.reserveBidPrice;
         orderRecord.action = cmd.action;
-        orderRecord.uid = cmd.uid;
+        orderRecord.uidHi = cmd.uidHi;
+        orderRecord.uidLo = cmd.uidLo;
         orderRecord.fees = feesCache.get(cmd.orderTakerFee, cmd.orderMakerFee);
         orderRecord.timestamp = cmd.timestamp;
         orderRecord.filled = filledSize;
@@ -291,13 +293,14 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         MatcherTradeEvent eventsTail = null;
 
-        final long takerUid = takerOrder.getUid();
+        final long takerUidHi = takerOrder.getUidHi();
+        final long takerUidLo = takerOrder.getUidLo();
         boolean selfTradeDetected = false;
 
         // iterate through all orders
         do {
 
-            if (cfgCancelNewestOnSelfTrade && makerOrder.uid == takerUid) {
+            if (cfgCancelNewestOnSelfTrade && makerOrder.uidHi == takerUidHi && makerOrder.uidLo == takerUidLo) {
                 selfTradeDetected = true;
                 break;
             }
@@ -387,7 +390,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         // TODO avoid double lookup ?
         final DirectOrder order = orderIdIndex.get(cmd.orderId);
-        if (order == null || order.uid != cmd.uid) {
+        if (order == null || (order.uidHi != cmd.uidHi || order.uidLo != cmd.uidLo)) {
             return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
         orderIdIndex.remove(cmd.orderId);
@@ -416,7 +419,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         }
 
         final DirectOrder order = orderIdIndex.get(orderId);
-        if (order == null || order.uid != cmd.uid) {
+        if (order == null || (order.uidHi != cmd.uidHi || order.uidLo != cmd.uidLo)) {
             return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
 
@@ -452,7 +455,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
         // order lookup
         final DirectOrder orderToMove = orderIdIndex.get(cmd.orderId);
-        if (orderToMove == null || orderToMove.uid != cmd.uid) {
+        if (orderToMove == null || orderToMove.uidHi != cmd.uidHi || orderToMove.uidLo != cmd.uidLo) {
             return CommandResultCode.MATCHING_UNKNOWN_ORDER_ID;
         }
 
@@ -773,10 +776,10 @@ public final class OrderBookDirectImpl implements IOrderBook {
     }
 
     @Override
-    public List<Order> findUserOrders(long uid) {
+    public List<Order> findUserOrders(long uidHi, long uidLo) {
         final List<Order> list = new ArrayList<>();
         orderIdIndex.forEach((orderId, order) -> {
-            if (order.uid == uid) {
+            if (order.uidHi == uidHi && order.uidLo == uidLo) {
                 list.add(Order.builder()
                         .orderId(orderId)
                         .price(order.price)
@@ -784,7 +787,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
                         .filled(order.filled)
                         .reserveBidPrice(order.reserveBidPrice)
                         .action(order.action)
-                        .uid(order.uid)
+                        .uid(order.uidHi, order.uidLo)
                         .orderTakerFee(order.getOrderTakerFee())
                         .orderMakerFee(order.getOrderMakerFee())
                         .timestamp(order.timestamp)
@@ -869,7 +872,9 @@ public final class OrderBookDirectImpl implements IOrderBook {
         // required for PLACE_ORDER only;
         public OrderAction action;
 
-        public long uid;
+        // user UUID halves
+        public long uidHi;
+        public long uidLo;
 
         public long timestamp;
 
@@ -899,7 +904,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
             this.reserveBidPrice = bytes.readLong(); // price2
             final byte actionAndFlags = bytes.readByte();
             this.action = OrderAction.of((byte) (actionAndFlags & ~Order.FEE_OVERRIDES_FLAG));
-            this.uid = bytes.readLong(); // uid
+            this.uidHi = bytes.readLong(); // uid
+            this.uidLo = bytes.readLong();
             if ((actionAndFlags & Order.FEE_OVERRIDES_FLAG) != 0) {
                 final long takerFee = bytes.readLong();
                 final long makerFee = bytes.readLong();
@@ -921,7 +927,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
             return "[" + orderId + " " + (action == OrderAction.ASK ? 'A' : 'B')
                     + price + ":" + size + "F" + filled
                     // + " C" + userCookie
-                    + " U" + uid + " fX" + getOrderTakerFee() + " fY" + getOrderMakerFee() + "]";
+                    + " U" + new UUID(uidHi, uidLo) + " fX" + getOrderTakerFee() + " fY" + getOrderMakerFee() + "]";
         }
 
         @Override
@@ -948,7 +954,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
                     && size == other.size
                     && reserveBidPrice == other.reserveBidPrice
                     && filled == other.filled
-                    && uid == other.uid
+                    && uidHi == other.uidHi
+                    && uidLo == other.uidLo
                     && getOrderTakerFee() == other.getOrderTakerFee()
                     && getOrderMakerFee() == other.getOrderMakerFee();
         }
@@ -968,7 +975,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
                 long filled,
                 long reserveBidPrice,
                 OrderAction action,
-                long uid,
+                long uidHi,
+                long uidLo,
                 long orderTakerFee,
                 long orderMakerFee,
                 long timestamp,
@@ -981,7 +989,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
             this.filled = filled;
             this.reserveBidPrice = reserveBidPrice;
             this.action = action;
-            this.uid = uid;
+            this.uidHi = uidHi;
+            this.uidLo = uidLo;
             this.fees = OrderFees.of(orderTakerFee, orderMakerFee);
             this.timestamp = timestamp;
             this.parent = parent;
@@ -1017,8 +1026,14 @@ public final class OrderBookDirectImpl implements IOrderBook {
             return this.action;
         }
 
-        public long getUid() {
-            return this.uid;
+        @Override
+        public long getUidHi() {
+            return this.uidHi;
+        }
+
+        @Override
+        public long getUidLo() {
+            return this.uidLo;
         }
 
         @Override
@@ -1047,7 +1062,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
             private long filled;
             private long reserveBidPrice;
             private OrderAction action;
-            private long uid;
+            private long uidHi;
+            private long uidLo;
             private long orderTakerFee = -1;
             private long orderMakerFee = -1;
             private long timestamp;
@@ -1088,8 +1104,9 @@ public final class OrderBookDirectImpl implements IOrderBook {
                 return this;
             }
 
-            public OrderBookDirectImpl.DirectOrder.DirectOrderBuilder uid(long uid) {
-                this.uid = uid;
+            public OrderBookDirectImpl.DirectOrder.DirectOrderBuilder uid(UUID uid) {
+                this.uidHi = uid.getMostSignificantBits();
+                this.uidLo = uid.getLeastSignificantBits();
                 return this;
             }
 
@@ -1124,7 +1141,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
             }
 
             public OrderBookDirectImpl.DirectOrder build() {
-                return new DirectOrder(orderId, price, size, filled, reserveBidPrice, action, uid,
+                return new DirectOrder(orderId, price, size, filled, reserveBidPrice, action, uidHi, uidLo,
                         orderTakerFee, orderMakerFee, timestamp, parent, next, prev);
             }
 
@@ -1136,7 +1153,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
                         + ", filled=" + this.filled
                         + ", reserveBidPrice=" + this.reserveBidPrice
                         + ", action=" + this.action
-                        + ", uid=" + this.uid
+                        + ", uid=" + new UUID(this.uidHi, this.uidLo)
                         + ", orderTakerFee=" + this.orderTakerFee
                         + ", orderMakerFee=" + this.orderMakerFee
                         + ", timestamp=" + this.timestamp

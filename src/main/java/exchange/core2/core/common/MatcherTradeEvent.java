@@ -20,6 +20,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 // TODO move activeOrderCompleted, eventType, section into the order?
 // TODO REDUCE needs remaining size (can write into size), bidderHoldPrice - can write into price
@@ -39,7 +40,9 @@ public final class MatcherTradeEvent {
 
     // maker (for TRADE event type only)
     public long matchedOrderId;
-    public long matchedOrderUid; // 0 for rejection
+    // user UUID halves of the matched order, 0 for rejection
+    public long matchedOrderUidHi;
+    public long matchedOrderUidLo;
     public boolean matchedOrderCompleted; // false, except when matchedOrder is completely filled
 
     // actual price of the deal (from maker order), 0 for rejection (price can be take from original order)
@@ -63,6 +66,11 @@ public final class MatcherTradeEvent {
     public MatcherTradeEvent nextEvent;
 
 
+    // allocates; for reports, logs and tests
+    public UUID getMatchedOrderUid() {
+        return new UUID(matchedOrderUidHi, matchedOrderUidLo);
+    }
+
     // Copies a single event.
     public MatcherTradeEvent copy() {
         MatcherTradeEvent evt = new MatcherTradeEvent();
@@ -70,7 +78,8 @@ public final class MatcherTradeEvent {
         evt.section = this.section;
         evt.activeOrderCompleted = this.activeOrderCompleted;
         evt.matchedOrderId = this.matchedOrderId;
-        evt.matchedOrderUid = this.matchedOrderUid;
+        evt.matchedOrderUidHi = this.matchedOrderUidHi;
+        evt.matchedOrderUidLo = this.matchedOrderUidLo;
         evt.matchedOrderCompleted = this.matchedOrderCompleted;
         evt.price = this.price;
         evt.size = this.size;
@@ -146,7 +155,8 @@ public final class MatcherTradeEvent {
         return section == other.section
                 && activeOrderCompleted == other.activeOrderCompleted
                 && matchedOrderId == other.matchedOrderId
-                && matchedOrderUid == other.matchedOrderUid
+                && matchedOrderUidHi == other.matchedOrderUidHi
+                && matchedOrderUidLo == other.matchedOrderUidLo
                 && matchedOrderCompleted == other.matchedOrderCompleted
                 && price == other.price
                 && size == other.size
@@ -164,7 +174,8 @@ public final class MatcherTradeEvent {
                 section,
                 activeOrderCompleted,
                 matchedOrderId,
-                matchedOrderUid,
+                matchedOrderUidHi,
+                matchedOrderUidLo,
                 matchedOrderCompleted,
                 price,
                 size,
@@ -181,7 +192,7 @@ public final class MatcherTradeEvent {
                 ", section=" + section +
                 ", activeOrderCompleted=" + activeOrderCompleted +
                 ", matchedOrderId=" + matchedOrderId +
-                ", matchedOrderUid=" + matchedOrderUid +
+                ", matchedOrderUid=" + new UUID(matchedOrderUidHi, matchedOrderUidLo) +
                 ", matchedOrderCompleted=" + matchedOrderCompleted +
                 ", price=" + price +
                 ", size=" + size +
@@ -196,7 +207,8 @@ public final class MatcherTradeEvent {
             int section,
             boolean activeOrderCompleted,
             long matchedOrderId,
-            long matchedOrderUid,
+            long matchedOrderUidHi,
+            long matchedOrderUidLo,
             boolean matchedOrderCompleted,
             long price,
             long size,
@@ -208,7 +220,8 @@ public final class MatcherTradeEvent {
         this.section = section;
         this.activeOrderCompleted = activeOrderCompleted;
         this.matchedOrderId = matchedOrderId;
-        this.matchedOrderUid = matchedOrderUid;
+        this.matchedOrderUidHi = matchedOrderUidHi;
+        this.matchedOrderUidLo = matchedOrderUidLo;
         this.matchedOrderCompleted = matchedOrderCompleted;
         this.price = price;
         this.size = size;
@@ -229,7 +242,8 @@ public final class MatcherTradeEvent {
         private int section;
         private boolean activeOrderCompleted;
         private long matchedOrderId;
-        private long matchedOrderUid;
+        private long matchedOrderUidHi;
+        private long matchedOrderUidLo;
         private boolean matchedOrderCompleted;
         private long price;
         private long size;
@@ -261,8 +275,9 @@ public final class MatcherTradeEvent {
             return this;
         }
 
-        public MatcherTradeEventBuilder matchedOrderUid(long matchedOrderUid) {
-            this.matchedOrderUid = matchedOrderUid;
+        public MatcherTradeEventBuilder matchedOrderUid(UUID matchedOrderUid) {
+            this.matchedOrderUidHi = matchedOrderUid.getMostSignificantBits();
+            this.matchedOrderUidLo = matchedOrderUid.getLeastSignificantBits();
             return this;
         }
 
@@ -307,7 +322,8 @@ public final class MatcherTradeEvent {
                     this.section,
                     this.activeOrderCompleted,
                     this.matchedOrderId,
-                    this.matchedOrderUid,
+                    this.matchedOrderUidHi,
+                    this.matchedOrderUidLo,
                     this.matchedOrderCompleted,
                     this.price,
                     this.size,
@@ -323,7 +339,7 @@ public final class MatcherTradeEvent {
                     + ", section=" + this.section
                     + ", activeOrderCompleted=" + this.activeOrderCompleted
                     + ", matchedOrderId=" + this.matchedOrderId
-                    + ", matchedOrderUid=" + this.matchedOrderUid
+                    + ", matchedOrderUid=" + new UUID(this.matchedOrderUidHi, this.matchedOrderUidLo)
                     + ", matchedOrderCompleted=" + this.matchedOrderCompleted
                     + ", price=" + this.price
                     + ", size=" + this.size

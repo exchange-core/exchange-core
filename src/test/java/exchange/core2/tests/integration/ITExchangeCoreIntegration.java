@@ -92,7 +92,7 @@ public abstract class ITExchangeCoreIntegration {
             container.submitCommandSync(order101, cmd -> {
                 assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
                 assertThat(cmd.orderId, is(101L));
-                assertThat(cmd.uid, is(UID_1));
+                assertThat(cmd.getUid(), is(UID_1));
                 assertThat(cmd.price, is(1600L));
                 assertThat(cmd.size, is(7L));
                 assertThat(cmd.action, is(ASK));
@@ -125,12 +125,12 @@ public abstract class ITExchangeCoreIntegration {
 
                 assertThat(cmd.action, is(OrderAction.BID));
                 assertThat(cmd.orderId, is(201L));
-                assertThat(cmd.uid, is(UID_2));
+                assertThat(cmd.getUid(), is(UID_2));
 
                 MatcherTradeEvent evt = matcherEvents.get(0);
                 assertThat(evt.activeOrderCompleted, is(true));
                 assertThat(evt.matchedOrderId, is(101L));
-                assertThat(evt.matchedOrderUid, is(UID_1));
+                assertThat(evt.getMatchedOrderUid(), is(UID_1));
                 assertThat(evt.matchedOrderCompleted, is(false));
                 assertThat(evt.eventType, is(MatcherEventType.TRADE));
                 assertThat(evt.size, is(2L));
@@ -169,12 +169,12 @@ public abstract class ITExchangeCoreIntegration {
 
                 assertThat(cmd.action, is(ASK));
                 assertThat(cmd.orderId, is(101L));
-                assertThat(cmd.uid, is(UID_1));
+                assertThat(cmd.getUid(), is(UID_1));
 
                 MatcherTradeEvent evt = matcherEvents.get(0);
                 assertThat(evt.activeOrderCompleted, is(false));
                 assertThat(evt.matchedOrderId, is(202L));
-                assertThat(evt.matchedOrderUid, is(UID_2));
+                assertThat(evt.getMatchedOrderUid(), is(UID_2));
                 assertThat(evt.matchedOrderCompleted, is(true));
                 assertThat(evt.eventType, is(MatcherEventType.TRADE));
                 assertThat(evt.size, is(4L));
@@ -219,7 +219,7 @@ public abstract class ITExchangeCoreIntegration {
             container.submitCommandSync(order101, cmd -> {
                 assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
                 assertThat(cmd.orderId, is(101L));
-                assertThat(cmd.uid, is(UID_1));
+                assertThat(cmd.getUid(), is(UID_1));
                 assertThat(cmd.price, is(30_000L));
                 assertThat(cmd.reserveBidPrice, is(30_000L));
                 assertThat(cmd.size, is(7L));
@@ -256,7 +256,7 @@ public abstract class ITExchangeCoreIntegration {
             container.submitCommandSync(order102, cmd -> {
                 assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
                 assertThat(cmd.orderId, is(102L));
-                assertThat(cmd.uid, is(UID_2));
+                assertThat(cmd.getUid(), is(UID_2));
                 assertThat(cmd.price, is(30_000L));
                 assertThat(cmd.size, is(7L));
                 assertThat(cmd.action, is(ASK));
@@ -308,7 +308,7 @@ public abstract class ITExchangeCoreIntegration {
                         assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
                         assertThat(cmd.command, is(OrderCommandType.PLACE_ORDER));
                         assertThat(cmd.orderId, is(202L));
-                        assertThat(cmd.uid, is(UID_1));
+                        assertThat(cmd.getUid(), is(UID_1));
                         assertThat(cmd.price, is(30_000L));
                         assertThat(cmd.size, is(1000L));
                         assertThat(cmd.action, is(ASK));
@@ -329,7 +329,7 @@ public abstract class ITExchangeCoreIntegration {
                         assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
                         assertThat(cmd.command, is(OrderCommandType.MOVE_ORDER));
                         assertThat(cmd.orderId, is(202L));
-                        assertThat(cmd.uid, is(UID_1));
+                        assertThat(cmd.getUid(), is(UID_1));
                         assertThat(cmd.price, is(40_000L));
                         assertThat(cmd.symbol, is(SYMBOL_EXCHANGE));
                         assertNull(cmd.matcherEvent);
@@ -347,7 +347,7 @@ public abstract class ITExchangeCoreIntegration {
                         assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
                         assertThat(cmd.command, is(OrderCommandType.MOVE_ORDER));
                         assertThat(cmd.orderId, is(202L));
-                        assertThat(cmd.uid, is(UID_1));
+                        assertThat(cmd.getUid(), is(UID_1));
                         assertThat(cmd.price, is(20_000L));
                         assertThat(cmd.symbol, is(SYMBOL_EXCHANGE));
                         assertNull(cmd.matcherEvent);
@@ -380,7 +380,7 @@ public abstract class ITExchangeCoreIntegration {
                         assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
                         assertThat(cmd.command, is(OrderCommandType.PLACE_ORDER));
                         assertThat(cmd.orderId, is(203L));
-                        assertThat(cmd.uid, is(UID_2));
+                        assertThat(cmd.getUid(), is(UID_2));
                         assertThat(cmd.price, is(18_000L));
                         assertThat(cmd.reserveBidPrice, is(18_500L));
                         assertThat(cmd.size, is(500L));
@@ -406,7 +406,7 @@ public abstract class ITExchangeCoreIntegration {
                         assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
                         assertThat(cmd.command, is(OrderCommandType.MOVE_ORDER));
                         assertThat(cmd.orderId, is(203L));
-                        assertThat(cmd.uid, is(UID_2));
+                        assertThat(cmd.getUid(), is(UID_2));
                         assertThat(cmd.price, is(15_000L));
                         assertThat(cmd.symbol, is(SYMBOL_EXCHANGE));
                         assertNull(cmd.matcherEvent);
@@ -436,7 +436,7 @@ public abstract class ITExchangeCoreIntegration {
                         assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
                         assertThat(cmd.command, is(OrderCommandType.MOVE_ORDER));
                         assertThat(cmd.orderId, is(203L));
-                        assertThat(cmd.uid, is(UID_2));
+                        assertThat(cmd.getUid(), is(UID_2));
                         assertThat(cmd.price, is(18_500L));
                         assertThat(cmd.symbol, is(SYMBOL_EXCHANGE));
                         assertNull(cmd.matcherEvent);
@@ -466,7 +466,7 @@ public abstract class ITExchangeCoreIntegration {
                         assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
                         assertThat(cmd.command, is(OrderCommandType.MOVE_ORDER));
                         assertThat(cmd.orderId, is(202L));
-                        assertThat(cmd.uid, is(UID_1));
+                        assertThat(cmd.getUid(), is(UID_1));
                         assertThat(cmd.price, is(16_900L));
                         assertThat(cmd.symbol, is(SYMBOL_EXCHANGE));
 
@@ -477,7 +477,7 @@ public abstract class ITExchangeCoreIntegration {
                         assertThat(evt.eventType, is(MatcherEventType.TRADE));
                         assertThat(evt.activeOrderCompleted, is(false));
                         assertThat(evt.matchedOrderId, is(203L));
-                        assertThat(evt.matchedOrderUid, is(UID_2));
+                        assertThat(evt.getMatchedOrderUid(), is(UID_2));
                         assertThat(evt.matchedOrderCompleted, is(true));
                         assertThat(evt.price, is(17_500L)); // user price from maker order
                         assertThat(evt.bidderHoldPrice, is(18_500L)); // user original reserve price from bidder order (203)
@@ -505,7 +505,7 @@ public abstract class ITExchangeCoreIntegration {
                         assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
                         assertThat(cmd.command, is(OrderCommandType.CANCEL_ORDER));
                         assertThat(cmd.orderId, is(202L));
-                        assertThat(cmd.uid, is(UID_1));
+                        assertThat(cmd.getUid(), is(UID_1));
                         assertThat(cmd.symbol, is(SYMBOL_EXCHANGE));
 
                         assertThat(cmd.action, is(ASK));
@@ -557,7 +557,7 @@ public abstract class ITExchangeCoreIntegration {
                         assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS));
                         assertThat(cmd.command, is(OrderCommandType.CANCEL_ORDER));
                         assertThat(cmd.orderId, is(203L));
-                        assertThat(cmd.uid, is(UID_2));
+                        assertThat(cmd.getUid(), is(UID_2));
                         assertThat(cmd.symbol, is(SYMBOL_EXCHANGE));
 
                         assertThat(cmd.action, is(OrderAction.BID));

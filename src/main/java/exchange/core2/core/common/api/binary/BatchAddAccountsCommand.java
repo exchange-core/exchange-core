@@ -19,21 +19,34 @@ import exchange.core2.core.utils.SerializationUtils;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
-import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 
 public final class BatchAddAccountsCommand implements BinaryDataCommand {
 
-    private final LongObjectHashMap<IntLongHashMap> users;
+    // user UUID -> currency -> balance, in the order users are added
+    private final LinkedHashMap<UUID, IntLongHashMap> users;
 
     public BatchAddAccountsCommand(final BytesIn bytes) {
-        users = SerializationUtils.readLongHashMap(bytes, c -> SerializationUtils.readIntLongHashMap(bytes));
+        final int size = bytes.readInt();
+        users = new LinkedHashMap<>(Math.max(16, size * 4 / 3 + 1));
+        for (int i = 0; i < size; i++) {
+            final UUID uid = new UUID(bytes.readLong(), bytes.readLong());
+            users.put(uid, SerializationUtils.readIntLongHashMap(bytes));
+        }
     }
 
     @Override
     public void writeMarshallable(BytesOut bytes) {
-        SerializationUtils.marshallLongHashMap(users, SerializationUtils::marshallIntLongHashMap, bytes);
+        bytes.writeInt(users.size());
+        users.forEach((uid, accounts) -> {
+            bytes.writeLong(uid.getMostSignificantBits());
+            bytes.writeLong(uid.getLeastSignificantBits());
+            SerializationUtils.marshallIntLongHashMap(accounts, bytes);
+        });
     }
 
     @Override
@@ -41,8 +54,8 @@ public final class BatchAddAccountsCommand implements BinaryDataCommand {
         return BinaryCommandType.ADD_ACCOUNTS.getCode();
     }
 
-    public BatchAddAccountsCommand(LongObjectHashMap<IntLongHashMap> users) {
-        this.users = users;
+    public BatchAddAccountsCommand(Map<UUID, IntLongHashMap> users) {
+        this.users = new LinkedHashMap<>(users);
     }
 
     @Override
@@ -63,7 +76,7 @@ public final class BatchAddAccountsCommand implements BinaryDataCommand {
         return result;
     }
 
-    public LongObjectHashMap<IntLongHashMap> getUsers() {
+    public Map<UUID, IntLongHashMap> getUsers() {
         return this.users;
     }
 }

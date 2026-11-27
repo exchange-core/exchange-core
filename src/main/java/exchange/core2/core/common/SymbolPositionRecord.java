@@ -23,12 +23,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Objects;
+import java.util.UUID;
 
 public final class SymbolPositionRecord implements WriteBytesMarshallable, StateHash {
 
     private static final Logger log = LoggerFactory.getLogger(SymbolPositionRecord.class);
 
-    public long uid;
+    // user UUID halves
+    public long uidHi;
+    public long uidLo;
 
     public int symbol;
     public int currency;
@@ -45,8 +48,9 @@ public final class SymbolPositionRecord implements WriteBytesMarshallable, State
     public long pendingSellSize = 0;
     public long pendingBuySize = 0;
 
-    public void initialize(long uid, int symbol, int currency) {
-        this.uid = uid;
+    public void initialize(long uidHi, long uidLo, int symbol, int currency) {
+        this.uidHi = uidHi;
+        this.uidLo = uidLo;
 
         this.symbol = symbol;
         this.currency = currency;
@@ -60,8 +64,9 @@ public final class SymbolPositionRecord implements WriteBytesMarshallable, State
         this.pendingBuySize = 0;
     }
 
-    public SymbolPositionRecord(long uid, BytesIn bytes) {
-        this.uid = uid;
+    public SymbolPositionRecord(long uidHi, long uidLo, BytesIn bytes) {
+        this.uidHi = uidHi;
+        this.uidLo = uidLo;
 
         this.symbol = bytes.readInt();
         this.currency = bytes.readInt();
@@ -103,7 +108,7 @@ public final class SymbolPositionRecord implements WriteBytesMarshallable, State
         }
 
 //        if (pendingSellSize < 0 || pendingBuySize < 0) {
-//            log.error("uid {} : pendingSellSize:{} pendingBuySize:{}", uid, pendingSellSize, pendingBuySize);
+//            log.error("uid {} : pendingSellSize:{} pendingBuySize:{}", new UUID(uidHi, uidLo), pendingSellSize, pendingBuySize);
 //        }
     }
 
@@ -267,16 +272,16 @@ public final class SymbolPositionRecord implements WriteBytesMarshallable, State
 
     public void validateInternalState() {
         if (direction == PositionDirection.EMPTY && (openVolume != 0 || openPriceSum != 0)) {
-            log.error("uid {} : position:{} totalSize:{} openPriceSum:{}", uid, direction, openVolume, openPriceSum);
+            log.error("uid {} : position:{} totalSize:{} openPriceSum:{}", new UUID(uidHi, uidLo), direction, openVolume, openPriceSum);
             throw new IllegalStateException();
         }
         if (direction != PositionDirection.EMPTY && (openVolume <= 0 || openPriceSum <= 0)) {
-            log.error("uid {} : position:{} totalSize:{} openPriceSum:{}", uid, direction, openVolume, openPriceSum);
+            log.error("uid {} : position:{} totalSize:{} openPriceSum:{}", new UUID(uidHi, uidLo), direction, openVolume, openPriceSum);
             throw new IllegalStateException();
         }
 
         if (pendingSellSize < 0 || pendingBuySize < 0) {
-            log.error("uid {} : pendingSellSize:{} pendingBuySize:{}", uid, pendingSellSize, pendingBuySize);
+            log.error("uid {} : pendingSellSize:{} pendingBuySize:{}", new UUID(uidHi, uidLo), pendingSellSize, pendingBuySize);
             throw new IllegalStateException();
         }
     }
@@ -289,7 +294,7 @@ public final class SymbolPositionRecord implements WriteBytesMarshallable, State
     @Override
     public String toString() {
         return "SPR{" +
-                "u" + uid +
+                "u" + new UUID(uidHi, uidLo) +
                 " sym" + symbol +
                 " cur" + currency +
                 " pos" + direction +

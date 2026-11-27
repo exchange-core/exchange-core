@@ -24,22 +24,24 @@ import net.openhft.chronicle.bytes.BytesOut;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Stream;
 
 public final class SingleUserReportQuery implements ReportQuery<SingleUserReportResult> {
 
-    private final long uid;
+    private final UUID uid;
 
-    public SingleUserReportQuery(long uid) {
+    public SingleUserReportQuery(UUID uid) {
         this.uid = uid;
     }
 
     public SingleUserReportQuery(final BytesIn bytesIn) {
-        this.uid = bytesIn.readLong();
+        this.uid = new UUID(bytesIn.readLong(), bytesIn.readLong());
     }
 
-    public long getUid() {
+    public UUID getUid() {
         return uid;
     }
 
@@ -58,7 +60,7 @@ public final class SingleUserReportQuery implements ReportQuery<SingleUserReport
         final IntObjectHashMap<List<Order>> orders = new IntObjectHashMap<>();
 
         matchingEngine.getOrderBooks().forEach(ob -> {
-            final List<Order> userOrders = ob.findUserOrders(this.uid);
+            final List<Order> userOrders = ob.findUserOrders(uid.getMostSignificantBits(), uid.getLeastSignificantBits());
             // dont put empty results, so that the report result merge procedure would be simple
             if (!userOrders.isEmpty()) {
                 orders.put(ob.getSymbolSpec().symbolId, userOrders);
@@ -72,10 +74,10 @@ public final class SingleUserReportQuery implements ReportQuery<SingleUserReport
     @Override
     public Optional<SingleUserReportResult> process(final RiskEngine riskEngine) {
 
-        if (!riskEngine.uidForThisHandler(this.uid)) {
+        if (!riskEngine.uidForThisHandler(uid.getMostSignificantBits(), uid.getLeastSignificantBits())) {
             return Optional.empty();
         }
-        final UserProfile userProfile = riskEngine.getUserProfileService().getUserProfile(this.uid);
+        final UserProfile userProfile = riskEngine.getUserProfileService().getUserProfile(uid.getMostSignificantBits(), uid.getLeastSignificantBits());
 
         if (userProfile != null) {
             final IntObjectHashMap<SingleUserReportResult.Position> positions = new IntObjectHashMap<>(userProfile.positionsCount());
@@ -102,7 +104,8 @@ public final class SingleUserReportQuery implements ReportQuery<SingleUserReport
 
     @Override
     public void writeMarshallable(final BytesOut bytes) {
-        bytes.writeLong(uid);
+        bytes.writeLong(uid.getMostSignificantBits());
+        bytes.writeLong(uid.getLeastSignificantBits());
     }
 
     @Override
@@ -111,14 +114,14 @@ public final class SingleUserReportQuery implements ReportQuery<SingleUserReport
             return true;
         }
         return o instanceof SingleUserReportQuery other
-                && this.getUid() == other.getUid();
+                && Objects.equals(this.getUid(), other.getUid());
     }
 
     @Override
     public int hashCode() {
         final int prime = 59;
         int result = 1;
-        result = result * prime + Long.hashCode(this.getUid());
+        result = result * prime + Objects.hashCode(this.getUid());
         return result;
     }
 

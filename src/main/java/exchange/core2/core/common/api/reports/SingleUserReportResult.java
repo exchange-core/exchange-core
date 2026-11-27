@@ -29,14 +29,15 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public final class SingleUserReportResult implements ReportResult {
 
-    public static SingleUserReportResult IDENTITY = new SingleUserReportResult(0L, null, null, null, null, QueryExecutionStatus.OK);
+    public static SingleUserReportResult IDENTITY = new SingleUserReportResult(new UUID(0L, 0L), null, null, null, null, QueryExecutionStatus.OK);
 
-    private final long uid;
+    private final UUID uid;
 
     // risk engine: user profile from
     //private final UserProfile userProfile;
@@ -53,15 +54,15 @@ public final class SingleUserReportResult implements ReportResult {
     private final QueryExecutionStatus queryExecutionStatus;
 
 
-    public static SingleUserReportResult createFromMatchingEngine(long uid, IntObjectHashMap<List<Order>> orders) {
+    public static SingleUserReportResult createFromMatchingEngine(UUID uid, IntObjectHashMap<List<Order>> orders) {
         return new SingleUserReportResult(uid, null, null, null, orders, QueryExecutionStatus.OK);
     }
 
-    public static SingleUserReportResult createFromRiskEngineFound(long uid, UserStatus userStatus, IntLongHashMap accounts, IntObjectHashMap<Position> positions) {
+    public static SingleUserReportResult createFromRiskEngineFound(UUID uid, UserStatus userStatus, IntLongHashMap accounts, IntObjectHashMap<Position> positions) {
         return new SingleUserReportResult(uid, userStatus, accounts, positions, null, QueryExecutionStatus.OK);
     }
 
-    public static SingleUserReportResult createFromRiskEngineNotFound(long uid) {
+    public static SingleUserReportResult createFromRiskEngineNotFound(UUID uid) {
         return new SingleUserReportResult(uid, null, null, null, null, QueryExecutionStatus.USER_NOT_FOUND);
     }
 
@@ -72,7 +73,7 @@ public final class SingleUserReportResult implements ReportResult {
     }
 
     private SingleUserReportResult(final BytesIn bytesIn) {
-        this.uid = bytesIn.readLong();
+        this.uid = new UUID(bytesIn.readLong(), bytesIn.readLong());
 //        this.userProfile = bytesIn.readBoolean() ? new UserProfile(bytesIn) : null;
         this.userStatus = bytesIn.readBoolean() ? UserStatus.of(bytesIn.readByte()) : null;
         this.accounts = bytesIn.readBoolean() ? SerializationUtils.readIntLongHashMap(bytesIn) : null;
@@ -84,7 +85,8 @@ public final class SingleUserReportResult implements ReportResult {
     @Override
     public void writeMarshallable(final BytesOut bytes) {
 
-        bytes.writeLong(uid);
+        bytes.writeLong(uid.getMostSignificantBits());
+        bytes.writeLong(uid.getLeastSignificantBits());
 
 //        bytes.writeBoolean(userProfile != null);
 //        if (userProfile != null) {
@@ -246,7 +248,7 @@ public final class SingleUserReportResult implements ReportResult {
     }
 
     private SingleUserReportResult(
-            long uid,
+            UUID uid,
             UserStatus userStatus,
             IntLongHashMap accounts,
             IntObjectHashMap<Position> positions,
@@ -266,7 +268,7 @@ public final class SingleUserReportResult implements ReportResult {
             return true;
         }
         return o instanceof SingleUserReportResult other
-                && this.getUid() == other.getUid()
+                && Objects.equals(this.getUid(), other.getUid())
                 && Objects.equals(this.getUserStatus(), other.getUserStatus())
                 && Objects.equals(this.getAccounts(), other.getAccounts())
                 && Objects.equals(this.getPositions(), other.getPositions())
@@ -278,7 +280,7 @@ public final class SingleUserReportResult implements ReportResult {
     public int hashCode() {
         final int prime = 59;
         int result = 1;
-        result = result * prime + Long.hashCode(this.getUid());
+        result = result * prime + Objects.hashCode(this.getUid());
         var userStatus = this.getUserStatus();
         result = result * prime + (userStatus == null ? 43 : userStatus.hashCode());
         var accounts = this.getAccounts();
@@ -292,7 +294,7 @@ public final class SingleUserReportResult implements ReportResult {
         return result;
     }
 
-    public long getUid() {
+    public UUID getUid() {
         return this.uid;
     }
 

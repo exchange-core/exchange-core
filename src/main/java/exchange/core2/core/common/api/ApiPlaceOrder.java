@@ -19,6 +19,7 @@ import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.OrderType;
 
 import java.util.Objects;
+import java.util.UUID;
 
 public final class ApiPlaceOrder extends ApiCommand {
 
@@ -27,7 +28,7 @@ public final class ApiPlaceOrder extends ApiCommand {
     public final long orderId;
     public final OrderAction action;
     public final OrderType orderType;
-    public final long uid;
+    public final UUID uid;
     public final int symbol;
     public final int userCookie;
     public final long reservePrice;
@@ -49,7 +50,7 @@ public final class ApiPlaceOrder extends ApiCommand {
             long orderId,
             OrderAction action,
             OrderType orderType,
-            long uid,
+            UUID uid,
             int symbol,
             int userCookie,
             long reservePrice,
@@ -82,7 +83,7 @@ public final class ApiPlaceOrder extends ApiCommand {
                 && this.price == other.price
                 && this.size == other.size
                 && this.orderId == other.orderId
-                && this.uid == other.uid
+                && Objects.equals(this.uid, other.uid)
                 && this.symbol == other.symbol
                 && this.userCookie == other.userCookie
                 && this.reservePrice == other.reservePrice
@@ -103,7 +104,7 @@ public final class ApiPlaceOrder extends ApiCommand {
         result = result * prime + Long.hashCode(this.price);
         result = result * prime + Long.hashCode(this.size);
         result = result * prime + Long.hashCode(this.orderId);
-        result = result * prime + Long.hashCode(this.uid);
+        result = result * prime + Objects.hashCode(this.uid);
         result = result * prime + this.symbol;
         result = result * prime + this.userCookie;
         result = result * prime + Long.hashCode(this.reservePrice);
@@ -122,7 +123,7 @@ public final class ApiPlaceOrder extends ApiCommand {
         private long orderId;
         private OrderAction action;
         private OrderType orderType;
-        private long uid;
+        private UUID uid;
         private int symbol;
         private int userCookie;
         private long reservePrice;
@@ -157,7 +158,7 @@ public final class ApiPlaceOrder extends ApiCommand {
             return this;
         }
 
-        public ApiPlaceOrderBuilder uid(long uid) {
+        public ApiPlaceOrderBuilder uid(UUID uid) {
             this.uid = uid;
             return this;
         }
