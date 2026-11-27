@@ -20,11 +20,10 @@ import exchange.core2.core.common.UserProfile;
 import exchange.core2.core.common.UserStatus;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.utils.HashingUtils;
-import exchange.core2.core.utils.SerializationUtils;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
-import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
+import exchange.core2.collections.hashtable.LongObjectHashtable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,14 +39,18 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
     /*
      * State: uid to UserProfile
      */
-    private final LongObjectHashMap<UserProfile> userProfiles;
+    private final LongObjectHashtable<UserProfile> userProfiles;
 
     public UserProfileService() {
-        this.userProfiles = new LongObjectHashMap<>(1024);
+        this.userProfiles = new LongObjectHashtable<>(1024);
     }
 
     public UserProfileService(BytesIn bytes) {
-        this.userProfiles = SerializationUtils.readLongHashMap(bytes, UserProfile::new);
+        final int size = bytes.readInt();
+        this.userProfiles = new LongObjectHashtable<>(size);
+        for (int i = 0; i < size; i++) {
+            userProfiles.put(bytes.readLong(), new UserProfile(bytes));
+        }
     }
 
     /**
@@ -61,7 +64,7 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
     }
 
     public UserProfile getUserProfileOrAddSuspended(long uid) {
-        return userProfiles.getIfAbsentPut(uid, () -> new UserProfile(uid, UserStatus.SUSPENDED));
+        return userProfiles.computeIfAbsent(uid, key -> new UserProfile(key, UserStatus.SUSPENDED));
     }
 
 
@@ -207,7 +210,11 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
     public void writeMarshallable(BytesOut bytes) {
 
         // write symbolSpecs
-        SerializationUtils.marshallLongHashMap(userProfiles, bytes);
+        bytes.writeInt(Math.toIntExact(userProfiles.size()));
+        userProfiles.forEach((uid, profile) -> {
+            bytes.writeLong(uid);
+            profile.writeMarshallable(bytes);
+        });
     }
 
     @Override
@@ -216,7 +223,7 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
     }
 
 
-    public LongObjectHashMap<UserProfile> getUserProfiles() {
+    public LongObjectHashtable<UserProfile> getUserProfiles() {
         return this.userProfiles;
     }
 }
