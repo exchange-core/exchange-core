@@ -19,6 +19,7 @@ import exchange.core2.core.common.*;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.function.Consumer;
 
 public final class OrderCommand implements IOrder {
@@ -48,7 +49,9 @@ public final class OrderCommand implements IOrder {
 
     public OrderType orderType;
 
-    public long uid;
+    // user UUID: the most and the least significant bits
+    public long uidHi;
+    public long uidLo;
 
     public long timestamp;
 
@@ -72,11 +75,11 @@ public final class OrderCommand implements IOrder {
     //public long matcherEventSequence;
     // ---- potential false sharing section ------
 
-    public static OrderCommand newOrder(OrderType orderType, long orderId, long uid, long price, long reserveBidPrice, long size, OrderAction action) {
+    public static OrderCommand newOrder(OrderType orderType, long orderId, UUID uid, long price, long reserveBidPrice, long size, OrderAction action) {
         OrderCommand cmd = new OrderCommand();
         cmd.command = OrderCommandType.PLACE_ORDER;
         cmd.orderId = orderId;
-        cmd.uid = uid;
+        cmd.setUid(uid);
         cmd.price = price;
         cmd.reserveBidPrice = reserveBidPrice;
         cmd.size = size;
@@ -86,30 +89,30 @@ public final class OrderCommand implements IOrder {
         return cmd;
     }
 
-    public static OrderCommand cancel(long orderId, long uid) {
+    public static OrderCommand cancel(long orderId, UUID uid) {
         OrderCommand cmd = new OrderCommand();
         cmd.command = OrderCommandType.CANCEL_ORDER;
         cmd.orderId = orderId;
-        cmd.uid = uid;
+        cmd.setUid(uid);
         cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
         return cmd;
     }
 
-    public static OrderCommand reduce(long orderId, long uid, long reduceSize) {
+    public static OrderCommand reduce(long orderId, UUID uid, long reduceSize) {
         OrderCommand cmd = new OrderCommand();
         cmd.command = OrderCommandType.REDUCE_ORDER;
         cmd.orderId = orderId;
-        cmd.uid = uid;
+        cmd.setUid(uid);
         cmd.size = reduceSize;
         cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
         return cmd;
     }
 
-    public static OrderCommand update(long orderId, long uid, long price) {
+    public static OrderCommand update(long orderId, UUID uid, long price) {
         OrderCommand cmd = new OrderCommand();
         cmd.command = OrderCommandType.MOVE_ORDER;
         cmd.orderId = orderId;
-        cmd.uid = uid;
+        cmd.setUid(uid);
         cmd.price = price;
         cmd.resultCode = CommandResultCode.VALID_FOR_MATCHING_ENGINE;
         return cmd;
@@ -162,7 +165,8 @@ public final class OrderCommand implements IOrder {
         cmd2.command = this.command;
         cmd2.orderId = this.orderId;
         cmd2.symbol = this.symbol;
-        cmd2.uid = this.uid;
+        cmd2.uidHi = this.uidHi;
+        cmd2.uidLo = this.uidLo;
         cmd2.timestamp = this.timestamp;
 
         cmd2.reserveBidPrice = this.reserveBidPrice;
@@ -237,7 +241,8 @@ public final class OrderCommand implements IOrder {
             long reserveBidPrice,
             OrderAction action,
             OrderType orderType,
-            long uid,
+            long uidHi,
+            long uidLo,
             long timestamp,
             int userCookie,
             long eventsGroup,
@@ -255,7 +260,8 @@ public final class OrderCommand implements IOrder {
         this.reserveBidPrice = reserveBidPrice;
         this.action = action;
         this.orderType = orderType;
-        this.uid = uid;
+        this.uidHi = uidHi;
+        this.uidLo = uidLo;
         this.timestamp = timestamp;
         this.userCookie = userCookie;
         this.eventsGroup = eventsGroup;
@@ -321,8 +327,19 @@ public final class OrderCommand implements IOrder {
         return this.action;
     }
 
-    public long getUid() {
-        return this.uid;
+    @Override
+    public long getUidHi() {
+        return this.uidHi;
+    }
+
+    @Override
+    public long getUidLo() {
+        return this.uidLo;
+    }
+
+    public void setUid(UUID uid) {
+        this.uidHi = uid.getMostSignificantBits();
+        this.uidLo = uid.getLeastSignificantBits();
     }
 
     public long getTimestamp() {
@@ -340,7 +357,8 @@ public final class OrderCommand implements IOrder {
         private long reserveBidPrice;
         private OrderAction action;
         private OrderType orderType;
-        private long uid;
+        private long uidHi;
+        private long uidLo;
         private long timestamp;
         private int userCookie;
         private long eventsGroup;
@@ -402,8 +420,9 @@ public final class OrderCommand implements IOrder {
             return this;
         }
 
-        public OrderCommandBuilder uid(long uid) {
-            this.uid = uid;
+        public OrderCommandBuilder uid(UUID uid) {
+            this.uidHi = uid.getMostSignificantBits();
+            this.uidLo = uid.getLeastSignificantBits();
             return this;
         }
 
@@ -454,7 +473,8 @@ public final class OrderCommand implements IOrder {
                     this.reserveBidPrice,
                     this.action,
                     this.orderType,
-                    this.uid,
+                    this.uidHi,
+                    this.uidLo,
                     this.timestamp,
                     this.userCookie,
                     this.eventsGroup,
@@ -476,7 +496,7 @@ public final class OrderCommand implements IOrder {
                     + ", reserveBidPrice=" + this.reserveBidPrice
                     + ", action=" + this.action
                     + ", orderType=" + this.orderType
-                    + ", uid=" + this.uid
+                    + ", uid=" + new UUID(this.uidHi, this.uidLo)
                     + ", timestamp=" + this.timestamp
                     + ", userCookie=" + this.userCookie
                     + ", eventsGroup=" + this.eventsGroup

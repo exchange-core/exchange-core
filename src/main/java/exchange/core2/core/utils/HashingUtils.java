@@ -16,6 +16,7 @@
 package exchange.core2.core.utils;
 
 import exchange.core2.collections.hashtable.LongObjectHashtable;
+import exchange.core2.collections.hashtable.UuidObjectHashtable;
 import exchange.core2.core.common.StateHash;
 import org.agrona.collections.MutableLong;
 import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
@@ -44,6 +45,13 @@ public final class HashingUtils {
 
         final MutableLong mutableLong = new MutableLong();
         hashMap.forEach((k, v) -> mutableLong.addAndGet(Objects.hash(k, v.stateHash())));
+        return Long.hashCode(mutableLong.value);
+    }
+
+    public static <T extends StateHash> int stateHash(final UuidObjectHashtable<T> hashMap) {
+
+        final MutableLong mutableLong = new MutableLong();
+        hashMap.forEach((hi, lo, v) -> mutableLong.addAndGet(Objects.hash(hi, lo, v.stateHash())));
         return Long.hashCode(mutableLong.value);
     }
 

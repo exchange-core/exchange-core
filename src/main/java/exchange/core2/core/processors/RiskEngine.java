@@ -241,40 +241,40 @@ public final class RiskEngine implements WriteBytesMarshallable {
                 return false;
 
             case PLACE_ORDER:
-                if (uidForThisHandler(cmd.uid)) {
+                if (uidForThisHandler(cmd.uidHi, cmd.uidLo)) {
                     cmd.resultCode = placeOrderRiskCheck(cmd);
                 }
                 return false;
 
             case ADD_USER:
-                if (uidForThisHandler(cmd.uid)) {
-                    cmd.resultCode = userProfileService.addEmptyUserProfile(cmd.uid)
+                if (uidForThisHandler(cmd.uidHi, cmd.uidLo)) {
+                    cmd.resultCode = userProfileService.addEmptyUserProfile(cmd.uidHi, cmd.uidLo)
                             ? CommandResultCode.SUCCESS
                             : CommandResultCode.USER_MGMT_USER_ALREADY_EXISTS;
                 }
                 return false;
 
             case BALANCE_ADJUSTMENT:
-                if (uidForThisHandler(cmd.uid)) {
+                if (uidForThisHandler(cmd.uidHi, cmd.uidLo)) {
                     cmd.resultCode = adjustBalance(
-                            cmd.uid, cmd.symbol, cmd.price, cmd.orderId, BalanceAdjustmentType.of(cmd.orderType.getCode()),
+                            cmd.uidHi, cmd.uidLo, cmd.symbol, cmd.price, cmd.orderId, BalanceAdjustmentType.of(cmd.orderType.getCode()),
                             (cmd.serviceFlags & OrderCommand.LEGACY_WITHDRAWAL_REPLAY) == 0);
                 }
                 return false;
 
             case SUSPEND_USER:
-                if (uidForThisHandler(cmd.uid)) {
-                    cmd.resultCode = userProfileService.suspendUserProfile(cmd.uid);
+                if (uidForThisHandler(cmd.uidHi, cmd.uidLo)) {
+                    cmd.resultCode = userProfileService.suspendUserProfile(cmd.uidHi, cmd.uidLo);
                 }
                 return false;
             case RESUME_USER:
-                if (uidForThisHandler(cmd.uid)) {
-                    cmd.resultCode = userProfileService.resumeUserProfile(cmd.uid);
+                if (uidForThisHandler(cmd.uidHi, cmd.uidLo)) {
+                    cmd.resultCode = userProfileService.resumeUserProfile(cmd.uidHi, cmd.uidLo);
                 }
                 return false;
             case REMOVE_USER:
-                if (uidForThisHandler(cmd.uid)) {
-                    cmd.resultCode = userProfileService.removeUserProfile(cmd.uid);
+                if (uidForThisHandler(cmd.uidHi, cmd.uidLo)) {
+                    cmd.resultCode = userProfileService.removeUserProfile(cmd.uidHi, cmd.uidLo);
                 }
                 return false;
 
@@ -314,10 +314,10 @@ public final class RiskEngine implements WriteBytesMarshallable {
     }
 
 
-    private CommandResultCode adjustBalance(long uid, int currency, long amountDiff, long fundingTransactionId,
+    private CommandResultCode adjustBalance(long uidHi, long uidLo, int currency, long amountDiff, long fundingTransactionId,
                                             BalanceAdjustmentType adjustmentType, boolean checkMargin) {
         if (checkMargin && cfgMarginTradingEnabled && amountDiff < 0) {
-            final UserProfile profile = userProfileService.getUserProfile(uid);
+            final UserProfile profile = userProfileService.getUserProfile(uidHi, uidLo);
             if (profile != null && fundingTransactionId > profile.adjustmentsCounter) {
                 final long balance = profile.accounts.get(currency);
                 final long lockedMargin = calculateLockedMargin(profile, currency);
@@ -327,7 +327,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
             }
         }
 
-        final CommandResultCode res = userProfileService.balanceAdjustment(uid, currency, amountDiff, fundingTransactionId);
+        final CommandResultCode res = userProfileService.balanceAdjustment(uidHi, uidLo, currency, amountDiff, fundingTransactionId);
         if (res == CommandResultCode.SUCCESS) {
             switch (adjustmentType) {
                 case ADJUSTMENT: // adjust total adjustments amount
@@ -357,10 +357,12 @@ public final class RiskEngine implements WriteBytesMarshallable {
 
         } else if (message instanceof BatchAddAccountsCommand) {
 
-            ((BatchAddAccountsCommand) message).getUsers().forEachKeyValue((uid, accounts) -> {
-                if (userProfileService.addEmptyUserProfile(uid)) {
+            ((BatchAddAccountsCommand) message).getUsers().forEach((uid, accounts) -> {
+                final long uidHi = uid.getMostSignificantBits();
+                final long uidLo = uid.getLeastSignificantBits();
+                if (userProfileService.addEmptyUserProfile(uidHi, uidLo)) {
                     accounts.forEachKeyValue((cur, bal) ->
-                            adjustBalance(uid, cur, bal, 1_000_000_000 + cur, BalanceAdjustmentType.ADJUSTMENT, true));
+                            adjustBalance(uidHi, uidLo, cur, bal, 1_000_000_000 + cur, BalanceAdjustmentType.ADJUSTMENT, true));
                 } else {
                     log.debug("User already exist: {}", uid);
                 }
@@ -372,23 +374,37 @@ public final class RiskEngine implements WriteBytesMarshallable {
         return reportQuery.process(this);
     }
 
-    public boolean uidForThisHandler(final long uid) {
-        return (shardMask == 0) || ((uid & shardMask) == shardId);
+    public boolean uidForThisHandler(final long uidHi, final long uidLo) {
+        return (shardMask == 0) || (uidShard(uidHi, uidLo, shardMask) == shardId);
+    }
+
+    /**
+     * Risk engine shard of a user: the two halves of its UUID mixed by one multiplication, so random (v4),
+     * time-ordered (v7) and sequential UUIDs spread alike. Snapshots and journals depend on it: it must not change
+     * between JVMs or versions.
+     *
+     * @param uidHi     user UUID, most significant bits
+     * @param uidLo     user UUID, least significant bits
+     * @param shardMask number of shards - 1 (a power of two - 1)
+     * @return shard id
+     */
+    public static int uidShard(final long uidHi, final long uidLo, final long shardMask) {
+        return (int) ((((uidHi ^ uidLo) * 0x9E3779B97F4A7C15L) >>> 32) & shardMask);
     }
 
     private CommandResultCode placeOrderRiskCheck(final OrderCommand cmd) {
 
-        final UserProfile userProfile = userProfileService.getUserProfile(cmd.uid);
+        final UserProfile userProfile = userProfileService.getUserProfile(cmd.uidHi, cmd.uidLo);
         if (userProfile == null) {
             cmd.resultCode = CommandResultCode.AUTH_INVALID_USER;
-            log.warn("User profile {} not found", cmd.uid);
+            log.warn("User profile {} not found", cmd.getUid());
             return CommandResultCode.AUTH_INVALID_USER;
         }
 
         if (userProfile.userStatus == UserStatus.SUSPENDED) {
             cmd.resultCode = CommandResultCode.RISK_USER_SUSPENDED;
             // expected rejection: no warn per order on the R1 thread
-            if (logDebug) log.debug("User profile {} suspended", cmd.uid);
+            if (logDebug) log.debug("User profile {} suspended", cmd.getUid());
             return CommandResultCode.RISK_USER_SUSPENDED;
         }
 
@@ -416,7 +432,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
         final CommandResultCode resultCode = placeOrder(cmd, userProfile, spec);
 
         if (resultCode != CommandResultCode.VALID_FOR_MATCHING_ENGINE) {
-            log.warn("{} risk result={} uid={}: Can not place {}", cmd.orderId, resultCode, userProfile.uid, cmd);
+            log.warn("{} risk result={} uid={}: Can not place {}", cmd.orderId, resultCode, userProfile.uid(), cmd);
             log.warn("{} accounts:{}", cmd.orderId, userProfile.accounts);
             return CommandResultCode.RISK_NSF;
         }
@@ -443,7 +459,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
             SymbolPositionRecord position = userProfile.getPosition(spec.symbolId);
             if (position == null) {
                 position = objectsPool.get(ObjectsPool.SYMBOL_POSITION_RECORD, SymbolPositionRecord::new);
-                position.initialize(userProfile.uid, spec.symbolId, spec.quoteCurrency);
+                position.initialize(userProfile.uidHi, userProfile.uidLo, spec.symbolId, spec.quoteCurrency);
                 userProfile.putPosition(position);
             }
 
@@ -515,7 +531,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
 
         if (logDebug) {
             log.debug("R1 uid={} : orderHoldAmount={} vs serProfile.accounts.get({})={} + freeFuturesMargin={}",
-                    userProfile.uid, orderHoldAmount, currency, userProfile.accounts.get(currency), freeFuturesMargin);
+                    userProfile.uid(), orderHoldAmount, currency, userProfile.accounts.get(currency), freeFuturesMargin);
         }
 
         final long balance = userProfile.accounts.get(currency);
@@ -644,8 +660,8 @@ public final class RiskEngine implements WriteBytesMarshallable {
             // TODO processing order is reversed
             if (spec.type == SymbolType.CURRENCY_EXCHANGE_PAIR) {
 
-                final UserProfile takerUp = uidForThisHandler(cmd.uid)
-                        ? userProfileService.getUserProfileOrAddSuspended(cmd.uid)
+                final UserProfile takerUp = uidForThisHandler(cmd.uidHi, cmd.uidLo)
+                        ? userProfileService.getUserProfileOrAddSuspended(cmd.uidHi, cmd.uidLo)
                         : null;
 
                 // REJECT always comes first; REDUCE is always single event
@@ -665,7 +681,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
                 }
             } else {
 
-                final UserProfile takerUp = uidForThisHandler(cmd.uid) ? userProfileService.getUserProfileOrAddSuspended(cmd.uid) : null;
+                final UserProfile takerUp = uidForThisHandler(cmd.uidHi, cmd.uidLo) ? userProfileService.getUserProfileOrAddSuspended(cmd.uidHi, cmd.uidLo) : null;
 
                 // for margin-mode symbols also resolve position record
                 final SymbolPositionRecord takerSpr = (takerUp != null) ? takerUp.getPositionRecordOrThrowEx(symbol) : null;
@@ -729,9 +745,9 @@ public final class RiskEngine implements WriteBytesMarshallable {
             }
         }
 
-        if (ev.eventType == MatcherEventType.TRADE && uidForThisHandler(ev.matchedOrderUid)) {
+        if (ev.eventType == MatcherEventType.TRADE && uidForThisHandler(ev.matchedOrderUidHi, ev.matchedOrderUidLo)) {
             // update maker's position
-            final UserProfile maker = userProfileService.getUserProfileOrAddSuspended(ev.matchedOrderUid);
+            final UserProfile maker = userProfileService.getUserProfileOrAddSuspended(ev.matchedOrderUidHi, ev.matchedOrderUidLo);
             final SymbolPositionRecord makerSpr = maker.getPositionRecordOrThrowEx(spec.symbolId);
             long sizeOpen = makerSpr.updatePositionForMarginTrade(takerAction.opposite(), ev.size, ev.price);
             final long fee = ((makerFee != -1) ? makerFee : spec.makerFee) * sizeOpen;
@@ -793,9 +809,9 @@ public final class RiskEngine implements WriteBytesMarshallable {
             }
 
             // process transfers for buying maker
-            if (uidForThisHandler(ev.matchedOrderUid)) {
+            if (uidForThisHandler(ev.matchedOrderUidHi, ev.matchedOrderUidLo)) {
                 final long size = ev.size;
-                final UserProfile maker = userProfileService.getUserProfileOrAddSuspended(ev.matchedOrderUid);
+                final UserProfile maker = userProfileService.getUserProfileOrAddSuspended(ev.matchedOrderUidHi, ev.matchedOrderUidLo);
 
 
                 // buying, use bidderHoldPrice to calculate released amount based on price difference
@@ -850,9 +866,9 @@ public final class RiskEngine implements WriteBytesMarshallable {
             }
 
             // process transfers for maker
-            if (uidForThisHandler(ev.matchedOrderUid)) {
+            if (uidForThisHandler(ev.matchedOrderUidHi, ev.matchedOrderUidLo)) {
                 final long size = ev.size;
-                final UserProfile maker = userProfileService.getUserProfileOrAddSuspended(ev.matchedOrderUid);
+                final UserProfile maker = userProfileService.getUserProfileOrAddSuspended(ev.matchedOrderUidHi, ev.matchedOrderUidLo);
                 final long makerFee = CoreArithmeticUtils.resolveFee(ev.getMatchedOrderMakerFee(), spec.makerFee) * size;
                 maker.accounts.addAndGet(quoteCurrency, CoreArithmeticUtils.calculateAmountBid(size, ev.price, spec) - makerFee);
                 makerFees += makerFee;

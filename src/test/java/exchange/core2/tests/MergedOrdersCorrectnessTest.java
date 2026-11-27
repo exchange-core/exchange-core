@@ -36,6 +36,9 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import exchange.core2.tests.util.TestConstants;
+
+import java.util.UUID;
 
 class MergedOrdersCorrectnessTest {
     private static final int BASE = 10;
@@ -83,15 +86,15 @@ class MergedOrdersCorrectnessTest {
                 final ExchangeApi api = core.getApi();
                 addSymbol(api, SymbolType.CURRENCY_EXCHANGE_PAIR);
                 addUser(api, 1, QUOTE, 2000);
-                submit(api, new ApiAdjustUserBalance(1, BASE, 2, 2), SUCCESS);
+                submit(api, new ApiAdjustUserBalance(TestConstants.uidOf(1), BASE, 2, 2), SUCCESS);
                 submit(api, order(11, 1, ASK, GTC, 105, 1, 0, 0), SUCCESS);
-                submit(api, ApiPlaceOrder.builder().symbol(SYMBOL).orderId(12).uid(1)
+                submit(api, ApiPlaceOrder.builder().symbol(SYMBOL).orderId(12).uid(TestConstants.uidOf(1))
                         .action(BID).orderType(GTC).price(100).reservePrice(110).size(5)
                         .orderTakerFee(3).orderMakerFee(10).build(), SUCCESS);
                 assertEquals(1400L, balance(api, 1, QUOTE));
-                submit(api, ApiReduceOrder.builder().symbol(SYMBOL).uid(1).orderId(12).reduceSize(1).build(), SUCCESS);
+                submit(api, ApiReduceOrder.builder().symbol(SYMBOL).uid(TestConstants.uidOf(1)).orderId(12).reduceSize(1).build(), SUCCESS);
                 assertEquals(1520L, balance(api, 1, QUOTE));
-                submit(api, ApiMoveOrder.builder().symbol(SYMBOL).uid(1).orderId(12).newPrice(105).build(), SUCCESS);
+                submit(api, ApiMoveOrder.builder().symbol(SYMBOL).uid(TestConstants.uidOf(1)).orderId(12).newPrice(105).build(), SUCCESS);
                 assertEquals(2000L, balance(api, 1, QUOTE));
                 final var orders = user(api, 1).fetchIndexedOrders();
                 assertTrue(orders.containsKey(11L));
@@ -99,7 +102,7 @@ class MergedOrdersCorrectnessTest {
 
                 submit(api, order(13, 1, BID, GTC, 100, 2, 3, 10), SUCCESS);
                 assertEquals(1780L, balance(api, 1, QUOTE));
-                submit(api, ApiCancelOrder.builder().symbol(SYMBOL).uid(1).orderId(13).build(), SUCCESS);
+                submit(api, ApiCancelOrder.builder().symbol(SYMBOL).uid(TestConstants.uidOf(1)).orderId(13).build(), SUCCESS);
                 assertEquals(2000L, balance(api, 1, QUOTE));
             } finally {
                 core.shutdown(5, SECONDS);
@@ -117,13 +120,13 @@ class MergedOrdersCorrectnessTest {
             addSymbol(api, SymbolType.FUTURES_CONTRACT);
             addUser(api, 1, QUOTE, 500);
             submit(api, order(11, 1, BID, GTC, 100, 3, -1, -1), SUCCESS);
-            submit(api, new ApiAdjustUserBalance(1, QUOTE, -201, 2), RISK_NSF);
-            submit(api, new ApiAdjustUserBalance(1, QUOTE, -200, 2), SUCCESS);
-            submit(api, new ApiAdjustUserBalance(1, QUOTE, -200, 2),
+            submit(api, new ApiAdjustUserBalance(TestConstants.uidOf(1), QUOTE, -201, 2), RISK_NSF);
+            submit(api, new ApiAdjustUserBalance(TestConstants.uidOf(1), QUOTE, -200, 2), SUCCESS);
+            submit(api, new ApiAdjustUserBalance(TestConstants.uidOf(1), QUOTE, -200, 2),
                     USER_MGMT_ACCOUNT_BALANCE_ADJUSTMENT_ALREADY_APPLIED_SAME);
             assertEquals(300L, balance(api, 1, QUOTE));
-            submit(api, ApiCancelOrder.builder().symbol(SYMBOL).uid(1).orderId(11).build(), SUCCESS);
-            submit(api, new ApiAdjustUserBalance(1, QUOTE, -300, 3), SUCCESS);
+            submit(api, ApiCancelOrder.builder().symbol(SYMBOL).uid(TestConstants.uidOf(1)).orderId(11).build(), SUCCESS);
+            submit(api, new ApiAdjustUserBalance(TestConstants.uidOf(1), QUOTE, -300, 3), SUCCESS);
             assertEquals(0L, balance(api, 1, QUOTE));
         } finally {
             core.shutdown(5, SECONDS);
@@ -154,27 +157,27 @@ class MergedOrdersCorrectnessTest {
         assertEquals(SUCCESS, api.submitBinaryDataAsync(new BatchAddSymbolsCommand(spec)).get(5, SECONDS));
     }
 
-    private static ApiPlaceOrder order(long id, long uid, OrderAction side, OrderType type,
+    private static ApiPlaceOrder order(long id, long user, OrderAction side, OrderType type,
                                        long price, long size, long takerFee, long makerFee) {
-        return ApiPlaceOrder.builder().orderId(id).uid(uid).symbol(SYMBOL).action(side)
+        return ApiPlaceOrder.builder().orderId(id).uid(TestConstants.uidOf(user)).symbol(SYMBOL).action(side)
                 .orderType(type).price(price).reservePrice(price).size(size)
                 .orderTakerFee(takerFee).orderMakerFee(makerFee).build();
     }
 
-    private static void addUser(ExchangeApi api, long uid, int currency, long amount) throws Exception {
-        submit(api, ApiAddUser.builder().uid(uid).build(), SUCCESS);
-        submit(api, new ApiAdjustUserBalance(uid, currency, amount, 1), SUCCESS);
+    private static void addUser(ExchangeApi api, long user, int currency, long amount) throws Exception {
+        submit(api, ApiAddUser.builder().uid(TestConstants.uidOf(user)).build(), SUCCESS);
+        submit(api, new ApiAdjustUserBalance(TestConstants.uidOf(user), currency, amount, 1), SUCCESS);
     }
 
     private static void submit(ExchangeApi api, ApiCommand cmd, CommandResultCode expected) throws Exception {
         assertEquals(expected, api.submitCommandAsync(cmd).get(5, SECONDS), cmd::toString);
     }
 
-    private static SingleUserReportResult user(ExchangeApi api, long uid) throws Exception {
-        return api.processReport(new SingleUserReportQuery(uid), 0).get(5, SECONDS);
+    private static SingleUserReportResult user(ExchangeApi api, long user) throws Exception {
+        return api.processReport(new SingleUserReportQuery(TestConstants.uidOf(user)), 0).get(5, SECONDS);
     }
 
-    private static long balance(ExchangeApi api, long uid, int currency) throws Exception {
-        return user(api, uid).getAccounts().get(currency);
+    private static long balance(ExchangeApi api, long user, int currency) throws Exception {
+        return user(api, user).getAccounts().get(currency);
     }
 }

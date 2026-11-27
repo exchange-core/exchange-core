@@ -23,9 +23,11 @@ import exchange.core2.core.utils.HashingUtils;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
-import exchange.core2.collections.hashtable.LongObjectHashtable;
+import exchange.core2.collections.hashtable.UuidObjectHashtable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.UUID;
 
 /**
  * Stateful (!) User profile service
@@ -37,51 +39,54 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
     private static final Logger log = LoggerFactory.getLogger(UserProfileService.class);
 
     /*
-     * State: uid to UserProfile
+     * State: user UUID to UserProfile
      */
-    private final LongObjectHashtable<UserProfile> userProfiles;
+    private final UuidObjectHashtable<UserProfile> userProfiles;
 
     public UserProfileService() {
-        this.userProfiles = new LongObjectHashtable<>(1024);
+        this.userProfiles = new UuidObjectHashtable<>(1024);
     }
 
     public UserProfileService(BytesIn bytes) {
         final int size = bytes.readInt();
-        this.userProfiles = new LongObjectHashtable<>(size);
+        this.userProfiles = new UuidObjectHashtable<>(size);
         for (int i = 0; i < size; i++) {
-            userProfiles.put(bytes.readLong(), new UserProfile(bytes));
+            final UserProfile profile = new UserProfile(bytes);
+            userProfiles.put(profile.uidHi, profile.uidLo, profile);
         }
     }
 
     /**
      * Find user profile
      *
-     * @param uid uid
+     * @param uidHi user UUID, most significant bits
+     * @param uidLo user UUID, least significant bits
      * @return user profile
      */
-    public UserProfile getUserProfile(long uid) {
-        return userProfiles.get(uid);
+    public UserProfile getUserProfile(long uidHi, long uidLo) {
+        return userProfiles.get(uidHi, uidLo);
     }
 
-    public UserProfile getUserProfileOrAddSuspended(long uid) {
-        return userProfiles.computeIfAbsent(uid, key -> new UserProfile(key, UserStatus.SUSPENDED));
+    public UserProfile getUserProfileOrAddSuspended(long uidHi, long uidLo) {
+        return userProfiles.computeIfAbsent(uidHi, uidLo, (hi, lo) -> new UserProfile(hi, lo, UserStatus.SUSPENDED));
     }
 
 
     /**
      * Perform balance adjustment for specific user
      *
-     * @param uid                  uid
+     * @param uidHi user UUID, most significant bits
+     * @param uidLo user UUID, least significant bits
      * @param currency             account currency
      * @param amount               balance difference
      * @param fundingTransactionId transaction id (should increment only)
      * @return result code
      */
-    public CommandResultCode balanceAdjustment(final long uid, final int currency, final long amount, final long fundingTransactionId) {
+    public CommandResultCode balanceAdjustment(final long uidHi, final long uidLo, final int currency, final long amount, final long fundingTransactionId) {
 
-        final UserProfile userProfile = getUserProfile(uid);
+        final UserProfile userProfile = getUserProfile(uidHi, uidLo);
         if (userProfile == null) {
-            log.warn("User profile {} not found", uid);
+            log.warn("User profile {} not found", new UUID(uidHi, uidLo));
             return CommandResultCode.AUTH_INVALID_USER;
         }
 
@@ -112,15 +117,16 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
     /**
      * Create a new user profile with known unique uid
      *
-     * @param uid uid
+     * @param uidHi user UUID, most significant bits
+     * @param uidLo user UUID, least significant bits
      * @return true if user was added
      */
-    public boolean addEmptyUserProfile(long uid) {
-        if (userProfiles.get(uid) == null) {
-            userProfiles.put(uid, new UserProfile(uid, UserStatus.ACTIVE));
+    public boolean addEmptyUserProfile(long uidHi, long uidLo) {
+        if (userProfiles.get(uidHi, uidLo) == null) {
+            userProfiles.put(uidHi, uidLo, new UserProfile(uidHi, uidLo, UserStatus.ACTIVE));
             return true;
         } else {
-            log.debug("Can not add user, already exists: {}", uid);
+            log.debug("Can not add user, already exists: {}", new UUID(uidHi, uidLo));
             return false;
         }
     }
@@ -133,11 +139,12 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
      * if pending orders or pending commands was not processed yet.
      * Therefore resume operation must be able to merge profile.
      *
-     * @param uid client id
+     * @param uidHi user UUID, most significant bits
+     * @param uidLo user UUID, least significant bits
      * @return result code
      */
-    public CommandResultCode suspendUserProfile(long uid) {
-        final UserProfile userProfile = userProfiles.get(uid);
+    public CommandResultCode suspendUserProfile(long uidHi, long uidLo) {
+        final UserProfile userProfile = userProfiles.get(uidHi, uidLo);
         if (userProfile == null) {
             return CommandResultCode.USER_MGMT_USER_NOT_FOUND;
 
@@ -152,18 +159,18 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
 
         } else {
             log.debug("Suspended user profile: {}", userProfile);
-            userProfiles.remove(uid);
+            userProfiles.remove(uidHi, uidLo);
             // TODO pool UserProfile objects
             return CommandResultCode.SUCCESS;
         }
     }
 
-    public CommandResultCode resumeUserProfile(long uid) {
-        final UserProfile userProfile = userProfiles.get(uid);
+    public CommandResultCode resumeUserProfile(long uidHi, long uidLo) {
+        final UserProfile userProfile = userProfiles.get(uidHi, uidLo);
         if (userProfile == null) {
             // create new empty user profile
             // account balance adjustments should be applied later
-            userProfiles.put(uid, new UserProfile(uid, UserStatus.ACTIVE));
+            userProfiles.put(uidHi, uidLo, new UserProfile(uidHi, uidLo, UserStatus.ACTIVE));
             return CommandResultCode.SUCCESS;
         } else if (userProfile.userStatus != UserStatus.SUSPENDED) {
             // attempt to resume non-suspended account (or resume twice)
@@ -177,11 +184,12 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
     }
 
      /**
-     * @param uid client id
+     * @param uidHi user UUID, most significant bits
+     * @param uidLo user UUID, least significant bits
      * @return result code
      */
-    public CommandResultCode removeUserProfile(long uid) {
-        final UserProfile userProfile = userProfiles.get(uid);
+    public CommandResultCode removeUserProfile(long uidHi, long uidLo) {
+        final UserProfile userProfile = userProfiles.get(uidHi, uidLo);
         if (userProfile == null) {
             return CommandResultCode.USER_MGMT_USER_NOT_FOUND;
 
@@ -192,7 +200,7 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
             return CommandResultCode.USER_MGMT_USER_NOT_REMOVABLE_NON_EMPTY_ACCOUNTS;
 
         } else {
-            userProfiles.remove(uid);
+            userProfiles.remove(uidHi, uidLo);
             log.debug("Removed user profile: {}", userProfile);
             // TODO pool UserProfile objects
             return CommandResultCode.SUCCESS;
@@ -209,12 +217,9 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
     @Override
     public void writeMarshallable(BytesOut bytes) {
 
-        // write symbolSpecs
+        // the profile carries its UUID
         bytes.writeInt(Math.toIntExact(userProfiles.size()));
-        userProfiles.forEach((uid, profile) -> {
-            bytes.writeLong(uid);
-            profile.writeMarshallable(bytes);
-        });
+        userProfiles.forEach((hi, lo, profile) -> profile.writeMarshallable(bytes));
     }
 
     @Override
@@ -223,7 +228,7 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
     }
 
 
-    public LongObjectHashtable<UserProfile> getUserProfiles() {
+    public UuidObjectHashtable<UserProfile> getUserProfiles() {
         return this.userProfiles;
     }
 }

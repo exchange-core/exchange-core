@@ -36,6 +36,7 @@ import org.mockito.Captor;
 import org.mockito.Mock;
 
 import java.util.List;
+import java.util.UUID;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static exchange.core2.core.common.OrderAction.ASK;
@@ -300,7 +301,7 @@ public abstract class ITExchangeCoreIntegrationRejection {
 
     // ------------------------------------------------------------------------------
 
-    private ApiPlaceOrder.ApiPlaceOrderBuilder builderPlace(int symbolId, long uid, OrderAction action, OrderType type) {
+    private ApiPlaceOrder.ApiPlaceOrderBuilder builderPlace(int symbolId, UUID uid, OrderAction action, OrderType type) {
         return ApiPlaceOrder.builder().uid(uid).action(action).orderType(type).symbol(symbolId);
     }
 

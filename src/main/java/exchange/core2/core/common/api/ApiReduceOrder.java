@@ -15,11 +15,14 @@
  */
 package exchange.core2.core.common.api;
 
+import java.util.Objects;
+import java.util.UUID;
+
 public final class ApiReduceOrder extends ApiCommand {
 
     public final long orderId;
 
-    public final long uid;
+    public final UUID uid;
     public final int symbol;
     public final long reduceSize;
 
@@ -28,7 +31,7 @@ public final class ApiReduceOrder extends ApiCommand {
         return "[REDUCE " + orderId + " by " + reduceSize + "]";
     }
 
-    public ApiReduceOrder(long orderId, long uid, int symbol, long reduceSize) {
+    public ApiReduceOrder(long orderId, UUID uid, int symbol, long reduceSize) {
         this.orderId = orderId;
         this.uid = uid;
         this.symbol = symbol;
@@ -47,7 +50,7 @@ public final class ApiReduceOrder extends ApiCommand {
         return o instanceof ApiReduceOrder other
                 && other.canEqual(this)
                 && this.orderId == other.orderId
-                && this.uid == other.uid
+                && Objects.equals(this.uid, other.uid)
                 && this.symbol == other.symbol
                 && this.reduceSize == other.reduceSize;
     }
@@ -61,7 +64,7 @@ public final class ApiReduceOrder extends ApiCommand {
         final int prime = 59;
         int result = 1;
         result = result * prime + Long.hashCode(this.orderId);
-        result = result * prime + Long.hashCode(this.uid);
+        result = result * prime + Objects.hashCode(this.uid);
         result = result * prime + this.symbol;
         result = result * prime + Long.hashCode(this.reduceSize);
         return result;
@@ -69,7 +72,7 @@ public final class ApiReduceOrder extends ApiCommand {
 
     public static class ApiReduceOrderBuilder {
         private long orderId;
-        private long uid;
+        private UUID uid;
         private int symbol;
         private long reduceSize;
 
@@ -81,7 +84,7 @@ public final class ApiReduceOrder extends ApiCommand {
             return this;
         }
 
-        public ApiReduceOrderBuilder uid(long uid) {
+        public ApiReduceOrderBuilder uid(UUID uid) {
             this.uid = uid;
             return this;
         }

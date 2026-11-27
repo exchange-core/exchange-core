@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.function.ObjLongConsumer;
 
 public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
@@ -48,7 +49,7 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
                     firstEvent.activeOrderCompleted,
                     firstEvent.price,
                     cmd.orderId,
-                    cmd.uid,
+                    cmd.getUid(),
                     cmd.timestamp);
 
             eventsHandler.reduceEvent(evt);
@@ -77,7 +78,7 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
 
                 final IEventsHandler.Trade trade = new IEventsHandler.Trade(
                         evt.matchedOrderId,
-                        evt.matchedOrderUid,
+                        new UUID(evt.matchedOrderUidHi, evt.matchedOrderUidLo),
                         evt.matchedOrderCompleted,
                         evt.price,
                         evt.size,
@@ -98,7 +99,7 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
                         evt.size,
                         evt.price,
                         cmd.orderId,
-                        cmd.uid,
+                        cmd.getUid(),
                         cmd.timestamp));
             }
         });
@@ -109,7 +110,7 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
                     cmd.symbol,
                     mutableLong.value,
                     cmd.orderId,
-                    cmd.uid,
+                    cmd.getUid(),
                     cmd.action,
                     takerOrderCompleted.value,
                     cmd.timestamp,
@@ -146,13 +147,13 @@ public class SimpleEventsProcessor implements ObjLongConsumer<OrderCommand> {
         final ApiCommand apiCommand = switch (cmd.command) {
             case PLACE_ORDER -> new ApiPlaceOrder(
                     cmd.price, cmd.size, cmd.orderId, cmd.action, cmd.orderType,
-                    cmd.uid, cmd.symbol, cmd.userCookie, cmd.reserveBidPrice, cmd.orderTakerFee, cmd.orderMakerFee);
-            case MOVE_ORDER -> new ApiMoveOrder(cmd.orderId, cmd.price, cmd.uid, cmd.symbol);
-            case CANCEL_ORDER -> new ApiCancelOrder(cmd.orderId, cmd.uid, cmd.symbol);
-            case REDUCE_ORDER -> new ApiReduceOrder(cmd.orderId, cmd.uid, cmd.symbol, cmd.size);
-            case ADD_USER -> new ApiAddUser(cmd.uid);
+                    cmd.getUid(), cmd.symbol, cmd.userCookie, cmd.reserveBidPrice, cmd.orderTakerFee, cmd.orderMakerFee);
+            case MOVE_ORDER -> new ApiMoveOrder(cmd.orderId, cmd.price, cmd.getUid(), cmd.symbol);
+            case CANCEL_ORDER -> new ApiCancelOrder(cmd.orderId, cmd.getUid(), cmd.symbol);
+            case REDUCE_ORDER -> new ApiReduceOrder(cmd.orderId, cmd.getUid(), cmd.symbol, cmd.size);
+            case ADD_USER -> new ApiAddUser(cmd.getUid());
             case BALANCE_ADJUSTMENT -> new ApiAdjustUserBalance(
-                    cmd.uid, cmd.symbol, cmd.price, cmd.orderId, BalanceAdjustmentType.of(cmd.orderType.getCode()));
+                    cmd.getUid(), cmd.symbol, cmd.price, cmd.orderId, BalanceAdjustmentType.of(cmd.orderType.getCode()));
             case BINARY_DATA_COMMAND -> cmd.resultCode == CommandResultCode.ACCEPTED
                     ? null : new ApiBinaryDataCommand(cmd.userCookie, null);
             case ORDER_BOOK_REQUEST -> new ApiOrderBookRequest(cmd.symbol, (int) cmd.size);

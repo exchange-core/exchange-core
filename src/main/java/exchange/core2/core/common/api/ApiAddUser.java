@@ -15,16 +15,19 @@
  */
 package exchange.core2.core.common.api;
 
+import java.util.Objects;
+import java.util.UUID;
+
 public final class ApiAddUser extends ApiCommand {
 
-    public final long uid;
+    public final UUID uid;
 
     @Override
     public String toString() {
         return "[ADDUSER " + uid + "]";
     }
 
-    public ApiAddUser(long uid) {
+    public ApiAddUser(UUID uid) {
         this.uid = uid;
     }
 
@@ -39,7 +42,7 @@ public final class ApiAddUser extends ApiCommand {
         }
         return o instanceof ApiAddUser other
                 && other.canEqual(this)
-                && this.uid == other.uid;
+                && Objects.equals(this.uid, other.uid);
     }
 
     protected boolean canEqual(Object other) {
@@ -50,17 +53,17 @@ public final class ApiAddUser extends ApiCommand {
     public int hashCode() {
         final int prime = 59;
         int result = 1;
-        result = result * prime + Long.hashCode(this.uid);
+        result = result * prime + Objects.hashCode(this.uid);
         return result;
     }
 
     public static class ApiAddUserBuilder {
-        private long uid;
+        private UUID uid;
 
         ApiAddUserBuilder() {
         }
 
-        public ApiAddUserBuilder uid(long uid) {
+        public ApiAddUserBuilder uid(UUID uid) {
             this.uid = uid;
             return this;
         }

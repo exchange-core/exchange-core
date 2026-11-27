@@ -15,6 +15,8 @@
  */
 package exchange.core2.core.common;
 
+import java.util.UUID;
+
 public interface IOrder extends StateHash {
 
     long getPrice();
@@ -23,7 +25,15 @@ public interface IOrder extends StateHash {
 
     long getFilled();
 
-    long getUid();
+    // user UUID halves
+    long getUidHi();
+
+    long getUidLo();
+
+    // allocates; for reports and logs
+    default UUID getUid() {
+        return new UUID(getUidHi(), getUidLo());
+    }
 
     OrderAction getAction();
 

@@ -1,5 +1,6 @@
 package exchange.core2.core.processors.journaling;
 
+import exchange.core2.tests.util.TestConstants;
 import com.lmax.disruptor.RingBuffer;
 import exchange.core2.core.ExchangeApi;
 import exchange.core2.core.common.Order;
@@ -68,19 +69,19 @@ class DiskSerializationProcessorTest {
         final var writer = createProcessor(journalDirectory, initial, compressor);
         writer.enableJournaling(0, new ExchangeApi(RingBuffer.createSingleProducer(OrderCommand::new, 8), compressor));
 
-        final OrderCommand first = OrderCommand.newOrder(OrderType.GTC, 100, 7, 10, 12, 3, OrderAction.BID);
+        final OrderCommand first = OrderCommand.newOrder(OrderType.GTC, 100, TestConstants.uidOf(7), 10, 12, 3, OrderAction.BID);
         writer.writeToJournal(first, 1, true);
         final OrderCommand suspend = new OrderCommand();
         suspend.command = OrderCommandType.SUSPEND_USER;
-        suspend.uid = 42;
+        suspend.setUid(TestConstants.uidOf(42));
         writer.writeToJournal(suspend, 2, true);
-        final OrderCommand withFees = OrderCommand.newOrder(OrderType.GTC, 101, 8, 11, 11, 4, OrderAction.ASK);
+        final OrderCommand withFees = OrderCommand.newOrder(OrderType.GTC, 101, TestConstants.uidOf(8), 11, 11, 4, OrderAction.ASK);
         withFees.orderTakerFee = 4;
         withFees.orderMakerFee = 9;
         writer.writeToJournal(withFees, 3, true);
         final OrderCommand withdrawal = new OrderCommand();
         withdrawal.command = OrderCommandType.BALANCE_ADJUSTMENT;
-        withdrawal.uid = 7;
+        withdrawal.setUid(TestConstants.uidOf(7));
         withdrawal.symbol = 20;
         withdrawal.orderId = 2;
         withdrawal.price = -3;
@@ -97,8 +98,8 @@ class DiskSerializationProcessorTest {
         // Validate the boundaries of the two legacy records independently of the reader.
         final byte[] data = Files.readAllBytes(journalDirectory.resolve("test_journal_0_0001.ecj"));
         assertEquals(OrderCommandType.PLACE_ORDER.getCode(), data[0]);
-        final int legacyPlaceOrderLength = 78;
-        final int legacySuspendLength = 37;
+        final int legacyPlaceOrderLength = 86;
+        final int legacySuspendLength = 45;
         assertEquals(OrderCommandType.SUSPEND_USER.getCode(), data[legacyPlaceOrderLength]);
         assertEquals(5, data[legacyPlaceOrderLength + legacySuspendLength]);
 
@@ -110,7 +111,7 @@ class DiskSerializationProcessorTest {
         assertEquals(-1L, ring.get(1).orderTakerFee);
         assertEquals(-1L, ring.get(1).orderMakerFee);
         assertEquals(OrderCommandType.SUSPEND_USER, ring.get(2).command);
-        assertEquals(42L, ring.get(2).uid);
+        assertEquals(TestConstants.uidOf(42), ring.get(2).getUid());
         assertEquals(101L, ring.get(3).orderId);
         assertEquals(4L, ring.get(3).orderTakerFee);
         assertEquals(9L, ring.get(3).orderMakerFee);
@@ -125,7 +126,7 @@ class DiskSerializationProcessorTest {
         final var bytes = Bytes.allocateElasticOnHeap();
         try {
             bytes.writeLong(77).writeLong(100).writeLong(5).writeLong(2).writeLong(110);
-            bytes.writeByte(OrderAction.BID.getCode()).writeLong(8).writeLong(1234);
+            bytes.writeByte(OrderAction.BID.getCode()).writeLong(0).writeLong(8).writeLong(1234);
             final var legacy = new Order(bytes);
             assertEquals(1234L, legacy.timestamp);
             assertEquals(-1L, legacy.orderTakerFee);
@@ -133,7 +134,7 @@ class DiskSerializationProcessorTest {
 
             bytes.clear();
             legacy.writeMarshallable(bytes);
-            assertEquals(57L, bytes.writePosition());
+            assertEquals(65L, bytes.writePosition());
             final var direct = new DirectOrder(bytes);
             assertEquals(77L, direct.orderId);
             assertEquals(legacy.stateHash(), direct.stateHash());

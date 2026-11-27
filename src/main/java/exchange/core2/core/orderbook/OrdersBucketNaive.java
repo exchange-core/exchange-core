@@ -63,13 +63,14 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
      * Remove order from the bucket
      *
      * @param orderId - order id
-     * @param uid     - order uid
+     * @param uidHi   - order user UUID, most significant bits
+     * @param uidLo   - order user UUID, least significant bits
      * @return order if removed, or null if not found
      */
-    public Order remove(long orderId, long uid) {
+    public Order remove(long orderId, long uidHi, long uidLo) {
         Order order = entries.get(orderId);
 //        log.debug("removing order: {}", order);
-        if (order == null || order.uid != uid) {
+        if (order == null || order.uidHi != uidHi || order.uidLo != uidLo) {
             return null;
         }
 
@@ -109,7 +110,8 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
         MatcherTradeEvent eventsTail = null;
         boolean selfTradeDetected = false;
 
-        final long takerUid = activeOrder.getUid();
+        final long takerUidHi = activeOrder.getUidHi();
+        final long takerUidLo = activeOrder.getUidLo();
 
         // iterate through all orders
         while (iterator.hasNext() && volumeToCollect > 0) {
@@ -117,7 +119,7 @@ public final class OrdersBucketNaive implements Comparable<OrdersBucketNaive>, W
             final Order order = next.getValue();
 
             if (stpMode == OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST
-                    && order.uid == takerUid) {
+                    && order.uidHi == takerUidHi && order.uidLo == takerUidLo) {
                 selfTradeDetected = true;
                 break;
             }

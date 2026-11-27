@@ -408,14 +408,14 @@ public final class TestOrdersGenerator {
         if (q == 2) {
             session.orderUids.remove(orderId);
             session.counterCancel++;
-            return OrderCommand.cancel(orderId, uid);
+            return OrderCommand.cancel(orderId, TestConstants.uidOf(uid));
 
         } else if (q == 3) {
             session.counterReduce++;
 
             int prevSize = session.orderSizes.get(orderId);
             int reduceBy = session.rand.nextInt(prevSize) + 1;
-            return OrderCommand.reduce(orderId, uid, reduceBy);
+            return OrderCommand.reduce(orderId, TestConstants.uidOf(uid), reduceBy);
 
         } else {
             int prevPrice = session.orderPrices.get(orderId);
@@ -442,7 +442,7 @@ public final class TestOrdersGenerator {
 
             session.orderPrices.put(orderId, newPrice);
 
-            return OrderCommand.update(orderId, (int) (long) uid, newPrice);
+            return OrderCommand.update(orderId, TestConstants.uidOf(uid), newPrice);
         }
     }
 
@@ -480,7 +480,7 @@ public final class TestOrdersGenerator {
 
         return OrderCommand.builder()
                 .command(OrderCommandType.PLACE_ORDER)
-                .uid(uid)
+                .uid(TestConstants.uidOf(uid))
                 .orderId(newOrderId)
                 .action(action)
                 .orderType(OrderType.GTC)
@@ -551,7 +551,7 @@ public final class TestOrdersGenerator {
         return OrderCommand.builder()
                 .command(OrderCommandType.PLACE_ORDER)
                 .orderType(orderType)
-                .uid(uid)
+                .uid(TestConstants.uidOf(uid))
                 .orderId(newOrderId)
                 .action(action)
                 .size(size)
@@ -577,20 +577,20 @@ public final class TestOrdersGenerator {
                 final OrderCommand cmd = commands.get(i);
                 switch (cmd.command) {
                     case PLACE_ORDER:
-                        apiCommands.add(ApiPlaceOrder.builder().symbol(cmd.symbol).uid(cmd.uid).orderId(cmd.orderId).price(cmd.price)
+                        apiCommands.add(ApiPlaceOrder.builder().symbol(cmd.symbol).uid(cmd.getUid()).orderId(cmd.orderId).price(cmd.price)
                                 .size(cmd.size).action(cmd.action).orderType(cmd.orderType).reservePrice(cmd.reserveBidPrice).build());
                         break;
 
                     case MOVE_ORDER:
-                        apiCommands.add(new ApiMoveOrder(cmd.orderId, cmd.price, cmd.uid, cmd.symbol));
+                        apiCommands.add(new ApiMoveOrder(cmd.orderId, cmd.price, cmd.getUid(), cmd.symbol));
                         break;
 
                     case CANCEL_ORDER:
-                        apiCommands.add(new ApiCancelOrder(cmd.orderId, cmd.uid, cmd.symbol));
+                        apiCommands.add(new ApiCancelOrder(cmd.orderId, cmd.getUid(), cmd.symbol));
                         break;
 
                     case REDUCE_ORDER:
-                        apiCommands.add(new ApiReduceOrder(cmd.orderId, cmd.uid, cmd.symbol, cmd.size));
+                        apiCommands.add(new ApiReduceOrder(cmd.orderId, cmd.getUid(), cmd.symbol, cmd.size));
                         break;
 
                     default:

@@ -20,6 +20,7 @@ import java.util.concurrent.Future;
 import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
+import exchange.core2.tests.util.TestConstants;
 
 public class ITCoreExample {
 
@@ -96,7 +97,7 @@ public class ITCoreExample {
 
         // create user uid=301
         future = api.submitCommandAsync(ApiAddUser.builder()
-                .uid(301L)
+                .uid(TestConstants.uidOf(301))
                 .build());
 
         System.out.println("ApiAddUser 1 result: " + future.get());
@@ -104,14 +105,14 @@ public class ITCoreExample {
 
         // create user uid=302
         future = api.submitCommandAsync(ApiAddUser.builder()
-                .uid(302L)
+                .uid(TestConstants.uidOf(302))
                 .build());
 
         System.out.println("ApiAddUser 2 result: " + future.get());
 
         // first user deposits 20 LTC
         future = api.submitCommandAsync(ApiAdjustUserBalance.builder()
-                .uid(301L)
+                .uid(TestConstants.uidOf(301))
                 .currency(currencyCodeLtc)
                 .amount(2_000_000_000L)
                 .transactionId(1L)
@@ -122,7 +123,7 @@ public class ITCoreExample {
 
         // second user deposits 0.10 BTC
         future = api.submitCommandAsync(ApiAdjustUserBalance.builder()
-                .uid(302L)
+                .uid(TestConstants.uidOf(302))
                 .currency(currencyCodeXbt)
                 .amount(10_000_000L)
                 .transactionId(2L)
@@ -135,7 +136,7 @@ public class ITCoreExample {
         // he assumes BTCLTC exchange rate 154 LTC for 1 BTC
         // bid price for 1 lot (0.01BTC) is 1.54 LTC => 1_5400_0000 litoshi => 10K * 15_400 (in price steps)
         future = api.submitCommandAsync(ApiPlaceOrder.builder()
-                .uid(301L)
+                .uid(TestConstants.uidOf(301))
                 .orderId(5001L)
                 .price(15_400L)
                 .reservePrice(15_600L) // can move bid order up to the 1.56 LTC, without replacing it
@@ -151,7 +152,7 @@ public class ITCoreExample {
         // second user places Immediate-or-Cancel Ask (Sell) order
         // he assumes wost rate to sell 152.5 LTC for 1 BTC
         future = api.submitCommandAsync(ApiPlaceOrder.builder()
-                .uid(302L)
+                .uid(TestConstants.uidOf(302))
                 .orderId(5002L)
                 .price(15_250L)
                 .size(10L) // order size is 10 lots
@@ -170,7 +171,7 @@ public class ITCoreExample {
 
         // first user moves remaining order to price 1.53 LTC
         future = api.submitCommandAsync(ApiMoveOrder.builder()
-                .uid(301L)
+                .uid(TestConstants.uidOf(301))
                 .orderId(5001L)
                 .newPrice(15_300L)
                 .symbol(symbolXbtLtc)
@@ -180,7 +181,7 @@ public class ITCoreExample {
 
         // first user cancel remaining order
         future = api.submitCommandAsync(ApiCancelOrder.builder()
-                .uid(301L)
+                .uid(TestConstants.uidOf(301))
                 .orderId(5001L)
                 .symbol(symbolXbtLtc)
                 .build());
@@ -188,15 +189,15 @@ public class ITCoreExample {
         System.out.println("ApiCancelOrder 2 result: " + future.get());
 
         // check balances
-        Future<SingleUserReportResult> report1 = api.processReport(new SingleUserReportQuery(301), 0);
+        Future<SingleUserReportResult> report1 = api.processReport(new SingleUserReportQuery(TestConstants.uidOf(301)), 0);
         System.out.println("SingleUserReportQuery 1 accounts: " + report1.get().getAccounts());
 
-        Future<SingleUserReportResult> report2 = api.processReport(new SingleUserReportQuery(302), 0);
+        Future<SingleUserReportResult> report2 = api.processReport(new SingleUserReportQuery(TestConstants.uidOf(302)), 0);
         System.out.println("SingleUserReportQuery 2 accounts: " + report2.get().getAccounts());
 
         // first user withdraws 0.10 BTC
         future = api.submitCommandAsync(ApiAdjustUserBalance.builder()
-                .uid(301L)
+                .uid(TestConstants.uidOf(301))
                 .currency(currencyCodeXbt)
                 .amount(-10_000_000L)
                 .transactionId(3L)
@@ -283,7 +284,7 @@ public class ITCoreExample {
 
         // create user uid=301
         future = api.submitCommandAsync(ApiAddUser.builder()
-                .uid(301L)
+                .uid(TestConstants.uidOf(301))
                 .build());
 
         System.out.println("ApiAddUser 1 result: " + future.get());
@@ -291,14 +292,14 @@ public class ITCoreExample {
 
         // create user uid=302
         future = api.submitCommandAsync(ApiAddUser.builder()
-                .uid(302L)
+                .uid(TestConstants.uidOf(302))
                 .build());
 
         System.out.println("ApiAddUser 2 result: " + future.get());
 
         // first user deposits 60 LTC
         future = api.submitCommandAsync(ApiAdjustUserBalance.builder()
-                .uid(301L)
+                .uid(TestConstants.uidOf(301))
                 .currency(currencyCodeLtc)
                 .amount(6_000_000_000L)
                 .transactionId(1L)
@@ -309,7 +310,7 @@ public class ITCoreExample {
 
         // second user deposits 0.30 BTC
         future = api.submitCommandAsync(ApiAdjustUserBalance.builder()
-                .uid(302L)
+                .uid(TestConstants.uidOf(302))
                 .currency(currencyCodeXbt)
                 .amount(30_000_000L)
                 .transactionId(2L)
@@ -325,7 +326,7 @@ public class ITCoreExample {
         // he assumes BTCLTC exchange rate 154 LTC for 1 BTC
         // bid price for 1 lot (0.01BTC) is 1.54 LTC => 1_5400_0000 litoshi => 10K * 15_400 (in price steps)
         future = api.submitCommandAsync(ApiPlaceOrder.builder()
-                .uid(301L)
+                .uid(TestConstants.uidOf(301))
                 .orderId(5001L)
                 .price(15_400L)
                 .reservePrice(15_400L) // can move bid order up to the 1.56 LTC, without replacing it
@@ -340,12 +341,12 @@ public class ITCoreExample {
         System.out.println("ApiPlaceOrder 1 result: " + future.get());
 
         // check balances
-        Future<SingleUserReportResult> report1 = api.processReport(new SingleUserReportQuery(301), 0);
+        Future<SingleUserReportResult> report1 = api.processReport(new SingleUserReportQuery(TestConstants.uidOf(301)), 0);
         IntLongHashMap report1Accounts = report1.get().getAccounts();
         System.out.println("SingleUserReportQuery 1 accounts: " + report1Accounts);
         assertEquals(report1Accounts.get(15),4151999880L);
 
-        Future<SingleUserReportResult> report2 = api.processReport(new SingleUserReportQuery(302), 0);
+        Future<SingleUserReportResult> report2 = api.processReport(new SingleUserReportQuery(TestConstants.uidOf(302)), 0);
         IntLongHashMap report2Accounts = report2.get().getAccounts();
         System.out.println("SingleUserReportQuery 2 accounts: " + report2Accounts);
         assertEquals(report2Accounts.get(11),30000000L);
@@ -353,7 +354,7 @@ public class ITCoreExample {
         // second user places Good-till-Cancel Ask (Sell) order
         // he assumes wost rate to sell 152.5 LTC for 1 BTC
         future = api.submitCommandAsync(ApiPlaceOrder.builder()
-                .uid(302L)
+                .uid(TestConstants.uidOf(302))
                 .orderId(5002L)
                 .price(15_250L)
                 .size(20L)
@@ -367,13 +368,13 @@ public class ITCoreExample {
         System.out.println("ApiPlaceOrder 2 result: " + future.get());
 
         // check balances
-        report1 = api.processReport(new SingleUserReportQuery(301), 0);
+        report1 = api.processReport(new SingleUserReportQuery(TestConstants.uidOf(301)), 0);
         report1Accounts = report1.get().getAccounts();
         System.out.println("SingleUserReportQuery 1 accounts: " + report1Accounts);
         assertEquals(report1Accounts.get(15), 4151999940L);
         assertEquals(report1Accounts.get(11), 12000000L);
 
-        report2 = api.processReport(new SingleUserReportQuery(302), 0);
+        report2 = api.processReport(new SingleUserReportQuery(TestConstants.uidOf(302)), 0);
         report2Accounts = report2.get().getAccounts();
         System.out.println("SingleUserReportQuery 2 accounts: " + report2Accounts);
         assertEquals(report2Accounts.get(15), 1847999904L);
@@ -381,7 +382,7 @@ public class ITCoreExample {
 
         // first user places another Good-till-Cancel Bid order
         future = api.submitCommandAsync(ApiPlaceOrder.builder()
-                .uid(301L)
+                .uid(TestConstants.uidOf(301))
                 .orderId(5003L)
                 .price(15_400L)
                 .reservePrice(15_400L) // can move bid order up to the 1.56 LTC, without replacing it
@@ -396,13 +397,13 @@ public class ITCoreExample {
         System.out.println("ApiPlaceOrder 3 result: " + future.get());
 
         // check balances
-        report1 = api.processReport(new SingleUserReportQuery(301), 0);
+        report1 = api.processReport(new SingleUserReportQuery(TestConstants.uidOf(301)), 0);
         report1Accounts = report1.get().getAccounts();
         System.out.println("SingleUserReportQuery 1 accounts: " + report1Accounts);
         assertEquals(report1Accounts.get(15), 2623999850L);
         assertEquals(report1Accounts.get(11), 20000000L);
 
-        report2 = api.processReport(new SingleUserReportQuery(302), 0);
+        report2 = api.processReport(new SingleUserReportQuery(TestConstants.uidOf(302)), 0);
         report2Accounts = report2.get().getAccounts();
         System.out.println("SingleUserReportQuery 2 accounts: " + report2Accounts);
         assertEquals(report2Accounts.get(15), 3067999880L);
@@ -410,7 +411,7 @@ public class ITCoreExample {
 
         // second user places another Good-till-Cancel Ask (Sell) order
         future = api.submitCommandAsync(ApiPlaceOrder.builder()
-                .uid(302L)
+                .uid(TestConstants.uidOf(302))
                 .orderId(5004L)
                 .price(15_250L)
                 .size(5L)
@@ -424,13 +425,13 @@ public class ITCoreExample {
         System.out.println("ApiPlaceOrder 3 result: " + future.get());
 
         // check balances
-        report1 = api.processReport(new SingleUserReportQuery(301), 0);
+        report1 = api.processReport(new SingleUserReportQuery(TestConstants.uidOf(301)), 0);
         report1Accounts = report1.get().getAccounts();
         System.out.println("SingleUserReportQuery 1 accounts: " + report1Accounts);
         assertEquals(report1Accounts.get(15), 2623999854L);
         assertEquals(report1Accounts.get(11), 22000000L);
 
-        report2 = api.processReport(new SingleUserReportQuery(302), 0);
+        report2 = api.processReport(new SingleUserReportQuery(TestConstants.uidOf(302)), 0);
         report2Accounts = report2.get().getAccounts();
         System.out.println("SingleUserReportQuery 2 accounts: " + report2Accounts);
         assertEquals(report2Accounts.get(15), 3375999866L);
@@ -438,7 +439,7 @@ public class ITCoreExample {
 
         // second user cancel remaining order
         future = api.submitCommandAsync(ApiCancelOrder.builder()
-                .uid(302L)
+                .uid(TestConstants.uidOf(302))
                 .orderId(5004L)
                 .symbol(symbolXbtLtc)
                 .build());
@@ -446,13 +447,13 @@ public class ITCoreExample {
         System.out.println("ApiCancelOrder 3 result: " + future.get());
 
         // check balances
-        report1 = api.processReport(new SingleUserReportQuery(301), 0);
+        report1 = api.processReport(new SingleUserReportQuery(TestConstants.uidOf(301)), 0);
         report1Accounts = report1.get().getAccounts();
         System.out.println("SingleUserReportQuery 1 accounts: " + report1Accounts);
         assertEquals(report1Accounts.get(15), 2623999854L);
         assertEquals(report1Accounts.get(11), 22000000L);
 
-        report2 = api.processReport(new SingleUserReportQuery(302), 0);
+        report2 = api.processReport(new SingleUserReportQuery(TestConstants.uidOf(302)), 0);
         report2Accounts = report2.get().getAccounts();
         System.out.println("SingleUserReportQuery 2 accounts: " + report2Accounts);
         assertEquals(report2Accounts.get(15), 3375999866L);

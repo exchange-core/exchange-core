@@ -20,6 +20,7 @@ import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.chronicle.bytes.WriteBytesMarshallable;
 
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Extending OrderCommand allows to avoid creating new objects
@@ -44,7 +45,9 @@ public final class Order implements WriteBytesMarshallable, IOrder {
     // required for PLACE_ORDER only;
     public OrderAction action;
 
-    public long uid;
+    // user UUID halves
+    public long uidHi;
+    public long uidLo;
 
     public long orderTakerFee = -1;
 
@@ -58,8 +61,9 @@ public final class Order implements WriteBytesMarshallable, IOrder {
     public static final int FEE_OVERRIDES_FLAG = 2;
 
     public Order(long orderId, long price, long size, long filled, long reserveBidPrice,
-                 OrderAction action, long uid, long timestamp) {
-        this(orderId, price, size, filled, reserveBidPrice, action, uid, -1, -1, timestamp);
+                 OrderAction action, UUID uid, long timestamp) {
+        this(orderId, price, size, filled, reserveBidPrice, action,
+                uid.getMostSignificantBits(), uid.getLeastSignificantBits(), -1, -1, timestamp);
     }
 
     public Order(BytesIn bytes) {
@@ -72,7 +76,8 @@ public final class Order implements WriteBytesMarshallable, IOrder {
         this.reserveBidPrice = bytes.readLong(); // price2
         final byte actionAndFlags = bytes.readByte();
         this.action = OrderAction.of((byte) (actionAndFlags & ~FEE_OVERRIDES_FLAG));
-        this.uid = bytes.readLong(); // uid
+        this.uidHi = bytes.readLong(); // uid
+        this.uidLo = bytes.readLong();
         final boolean hasFees = (actionAndFlags & FEE_OVERRIDES_FLAG) != 0;
         this.orderTakerFee = hasFees ? bytes.readLong() : -1;
         this.orderMakerFee = hasFees ? bytes.readLong() : -1;
@@ -94,7 +99,8 @@ public final class Order implements WriteBytesMarshallable, IOrder {
         bytes.writeLong(order.getFilled());
         bytes.writeLong(order.getReserveBidPrice());
         bytes.writeByte((byte) (order.getAction().getCode() | (hasFees ? FEE_OVERRIDES_FLAG : 0)));
-        bytes.writeLong(order.getUid());
+        bytes.writeLong(order.getUidHi());
+        bytes.writeLong(order.getUidLo());
         if (hasFees) {
             bytes.writeLong(order.getOrderTakerFee());
             bytes.writeLong(order.getOrderMakerFee());
@@ -107,7 +113,7 @@ public final class Order implements WriteBytesMarshallable, IOrder {
         return "[" + orderId + " " + (action == OrderAction.ASK ? 'A' : 'B')
                 + price + ":" + size + "F" + filled
                 // + " C" + userCookie
-                + " U" + uid + "]";
+                + " U" + new UUID(uidHi, uidLo) + "]";
     }
 
     @Override
@@ -118,7 +124,7 @@ public final class Order implements WriteBytesMarshallable, IOrder {
 
     public static int hashOrder(IOrder order) {
         final int base = Objects.hash(order.getOrderId(), order.getAction(), order.getPrice(),
-                order.getSize(), order.getReserveBidPrice(), order.getFilled(), order.getUid());
+                order.getSize(), order.getReserveBidPrice(), order.getFilled(), order.getUidHi(), order.getUidLo());
         return order.getOrderTakerFee() == -1 && order.getOrderMakerFee() == -1
                 ? base
                 : Objects.hash(base, order.getOrderTakerFee(), order.getOrderMakerFee());
@@ -142,7 +148,8 @@ public final class Order implements WriteBytesMarshallable, IOrder {
                 && size == other.size
                 && reserveBidPrice == other.reserveBidPrice
                 && filled == other.filled
-                && uid == other.uid
+                && uidHi == other.uidHi
+                && uidLo == other.uidLo
                 && orderTakerFee == other.orderTakerFee
                 && orderMakerFee == other.orderMakerFee;
     }
@@ -162,7 +169,8 @@ public final class Order implements WriteBytesMarshallable, IOrder {
             long filled,
             long reserveBidPrice,
             OrderAction action,
-            long uid,
+            long uidHi,
+            long uidLo,
             long orderTakerFee,
             long orderMakerFee,
             long timestamp) {
@@ -172,7 +180,8 @@ public final class Order implements WriteBytesMarshallable, IOrder {
         this.filled = filled;
         this.reserveBidPrice = reserveBidPrice;
         this.action = action;
-        this.uid = uid;
+        this.uidHi = uidHi;
+        this.uidLo = uidLo;
         this.orderTakerFee = orderTakerFee;
         this.orderMakerFee = orderMakerFee;
         this.timestamp = timestamp;
@@ -206,8 +215,14 @@ public final class Order implements WriteBytesMarshallable, IOrder {
         return this.action;
     }
 
-    public long getUid() {
-        return this.uid;
+    @Override
+    public long getUidHi() {
+        return this.uidHi;
+    }
+
+    @Override
+    public long getUidLo() {
+        return this.uidLo;
     }
 
     @Override
@@ -231,7 +246,8 @@ public final class Order implements WriteBytesMarshallable, IOrder {
         private long filled;
         private long reserveBidPrice;
         private OrderAction action;
-        private long uid;
+        private long uidHi;
+        private long uidLo;
         private long orderTakerFee;
         private long orderMakerFee;
         private long timestamp;
@@ -269,8 +285,15 @@ public final class Order implements WriteBytesMarshallable, IOrder {
             return this;
         }
 
-        public OrderBuilder uid(long uid) {
-            this.uid = uid;
+        public OrderBuilder uid(long uidHi, long uidLo) {
+            this.uidHi = uidHi;
+            this.uidLo = uidLo;
+            return this;
+        }
+
+        public OrderBuilder uid(UUID uid) {
+            this.uidHi = uid.getMostSignificantBits();
+            this.uidLo = uid.getLeastSignificantBits();
             return this;
         }
 
@@ -297,7 +320,8 @@ public final class Order implements WriteBytesMarshallable, IOrder {
                     this.filled,
                     this.reserveBidPrice,
                     this.action,
-                    this.uid,
+                    this.uidHi,
+                    this.uidLo,
                     this.orderTakerFee,
                     this.orderMakerFee,
                     this.timestamp);
@@ -311,7 +335,7 @@ public final class Order implements WriteBytesMarshallable, IOrder {
                     + ", filled=" + this.filled
                     + ", reserveBidPrice=" + this.reserveBidPrice
                     + ", action=" + this.action
-                    + ", uid=" + this.uid
+                    + ", uid=" + new UUID(this.uidHi, this.uidLo)
                     + ", orderTakerFee=" + this.orderTakerFee
                     + ", orderMakerFee=" + this.orderMakerFee
                     + ", timestamp=" + this.timestamp + ")";

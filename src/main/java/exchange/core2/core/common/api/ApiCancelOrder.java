@@ -15,11 +15,14 @@
  */
 package exchange.core2.core.common.api;
 
+import java.util.Objects;
+import java.util.UUID;
+
 public final class ApiCancelOrder extends ApiCommand {
 
     public final long orderId;
 
-    public final long uid;
+    public final UUID uid;
     public final int symbol;
 
     @Override
@@ -27,7 +30,7 @@ public final class ApiCancelOrder extends ApiCommand {
         return "[CANCEL " + orderId + " u" + uid + " s" + symbol + "]";
     }
 
-    public ApiCancelOrder(long orderId, long uid, int symbol) {
+    public ApiCancelOrder(long orderId, UUID uid, int symbol) {
         this.orderId = orderId;
         this.uid = uid;
         this.symbol = symbol;
@@ -45,7 +48,7 @@ public final class ApiCancelOrder extends ApiCommand {
         return o instanceof ApiCancelOrder other
                 && other.canEqual(this)
                 && this.orderId == other.orderId
-                && this.uid == other.uid
+                && Objects.equals(this.uid, other.uid)
                 && this.symbol == other.symbol;
     }
 
@@ -58,14 +61,14 @@ public final class ApiCancelOrder extends ApiCommand {
         final int prime = 59;
         int result = 1;
         result = result * prime + Long.hashCode(this.orderId);
-        result = result * prime + Long.hashCode(this.uid);
+        result = result * prime + Objects.hashCode(this.uid);
         result = result * prime + this.symbol;
         return result;
     }
 
     public static class ApiCancelOrderBuilder {
         private long orderId;
-        private long uid;
+        private UUID uid;
         private int symbol;
 
         ApiCancelOrderBuilder() {
@@ -76,7 +79,7 @@ public final class ApiCancelOrder extends ApiCommand {
             return this;
         }
 
-        public ApiCancelOrderBuilder uid(long uid) {
+        public ApiCancelOrderBuilder uid(UUID uid) {
             this.uid = uid;
             return this;
         }

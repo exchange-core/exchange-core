@@ -42,6 +42,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -58,7 +59,8 @@ public final class ExchangeApi {
     // promises cache (TODO can be changed to queue)
     private final Map<Long, Consumer<OrderCommand>> promises = new ConcurrentHashMap<>();
 
-    public static final int LONGS_PER_MESSAGE = 5;
+    // a binary frame carries six longs in orderId, price, reserveBidPrice, size, uidHi, uidLo
+    public static final int LONGS_PER_MESSAGE = 6;
 
 
     public void processResult(final long seq, final OrderCommand cmd) {
@@ -333,7 +335,8 @@ public final class ExchangeApi {
                 cmd.price = longsArrayData[ptr + 1];
                 cmd.reserveBidPrice = longsArrayData[ptr + 2];
                 cmd.size = longsArrayData[ptr + 3];
-                cmd.uid = longsArrayData[ptr + 4];
+                cmd.uidHi = longsArrayData[ptr + 4];
+                cmd.uidLo = longsArrayData[ptr + 5];
 
                 cmd.timestamp = timestamp;
                 cmd.resultCode = CommandResultCode.NEW;
@@ -369,7 +372,8 @@ public final class ExchangeApi {
             cmdMatching.command = OrderCommandType.PERSIST_STATE_MATCHING;
             cmdMatching.orderId = api.dumpId;
             cmdMatching.symbol = -1;
-            cmdMatching.uid = 0;
+            cmdMatching.uidHi = 0;
+            cmdMatching.uidLo = 0;
             cmdMatching.price = 0;
             cmdMatching.timestamp = api.timestamp;
             cmdMatching.resultCode = CommandResultCode.NEW;
@@ -381,7 +385,8 @@ public final class ExchangeApi {
             cmdRisk.command = OrderCommandType.PERSIST_STATE_RISK;
             cmdRisk.orderId = api.dumpId;
             cmdRisk.symbol = -1;
-            cmdRisk.uid = 0;
+            cmdRisk.uidHi = 0;
+            cmdRisk.uidLo = 0;
             cmdRisk.price = 0;
             cmdRisk.timestamp = api.timestamp;
             cmdRisk.resultCode = CommandResultCode.NEW;
@@ -406,7 +411,7 @@ public final class ExchangeApi {
         cmd.action = api.action;
         cmd.orderType = api.orderType;
         cmd.symbol = api.symbol;
-        cmd.uid = api.uid;
+        cmd.setUid(api.uid);
         cmd.userCookie = api.userCookie;
         cmd.orderTakerFee = api.orderTakerFee;
         cmd.orderMakerFee = api.orderMakerFee;
@@ -418,7 +423,7 @@ public final class ExchangeApi {
         cmd.price = api.newPrice;
         cmd.orderId = api.orderId;
         cmd.symbol = api.symbol;
-        cmd.uid = api.uid;
+        cmd.setUid(api.uid);
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
     };
@@ -427,7 +432,7 @@ public final class ExchangeApi {
         cmd.command = OrderCommandType.CANCEL_ORDER;
         cmd.orderId = api.orderId;
         cmd.symbol = api.symbol;
-        cmd.uid = api.uid;
+        cmd.setUid(api.uid);
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
     };
@@ -436,7 +441,7 @@ public final class ExchangeApi {
         cmd.command = OrderCommandType.REDUCE_ORDER;
         cmd.orderId = api.orderId;
         cmd.symbol = api.symbol;
-        cmd.uid = api.uid;
+        cmd.setUid(api.uid);
         cmd.size = api.reduceSize;
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
@@ -452,28 +457,28 @@ public final class ExchangeApi {
 
     private static final EventTranslatorOneArg<OrderCommand, ApiAddUser> ADD_USER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.ADD_USER;
-        cmd.uid = api.uid;
+        cmd.setUid(api.uid);
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
     };
 
     private static final EventTranslatorOneArg<OrderCommand, ApiSuspendUser> SUSPEND_USER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.SUSPEND_USER;
-        cmd.uid = api.uid;
+        cmd.setUid(api.uid);
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
     };
 
     private static final EventTranslatorOneArg<OrderCommand, ApiRemoveUser> REMOVE_USER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.REMOVE_USER;
-        cmd.uid = api.uid;
+        cmd.setUid(api.uid);
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
     };
 
     private static final EventTranslatorOneArg<OrderCommand, ApiResumeUser> RESUME_USER_TRANSLATOR = (cmd, seq, api) -> {
         cmd.command = OrderCommandType.RESUME_USER;
-        cmd.uid = api.uid;
+        cmd.setUid(api.uid);
         cmd.timestamp = api.timestamp;
         cmd.resultCode = CommandResultCode.NEW;
     };
@@ -482,7 +487,7 @@ public final class ExchangeApi {
         cmd.command = OrderCommandType.BALANCE_ADJUSTMENT;
         cmd.orderId = api.transactionId;
         cmd.symbol = api.currency;
-        cmd.uid = api.uid;
+        cmd.setUid(api.uid);
         cmd.price = api.amount;
         cmd.orderType = OrderType.of(api.adjustmentType.getCode());
         cmd.timestamp = api.timestamp;
@@ -501,7 +506,7 @@ public final class ExchangeApi {
         cmd.resultCode = CommandResultCode.NEW;
     };
 
-    public void binaryData(int serviceFlags, long eventsGroup, long timestampNs, byte lastFlag, long word0, long word1, long word2, long word3, long word4) {
+    public void binaryData(int serviceFlags, long eventsGroup, long timestampNs, byte lastFlag, long word0, long word1, long word2, long word3, long word4, long word5) {
         ringBuffer.publishEvent(((cmd, seq) -> {
 
             cmd.serviceFlags = serviceFlags;
@@ -513,7 +518,8 @@ public final class ExchangeApi {
             cmd.price = word1;
             cmd.reserveBidPrice = word2;
             cmd.size = word3;
-            cmd.uid = word4;
+            cmd.uidHi = word4;
+            cmd.uidLo = word5;
             cmd.timestamp = timestampNs;
             cmd.resultCode = CommandResultCode.NEW;
 //            log.debug("REPLAY {}", String.format("f=%d word0=%X word1=%X word2=%X word3=%X word4=%X", lastFlag, word0, word1, word2, word3, word4));
@@ -521,12 +527,12 @@ public final class ExchangeApi {
         }));
     }
 
-    public void createUser(long userId, Consumer<OrderCommand> callback) {
+    public void createUser(UUID userId, Consumer<OrderCommand> callback) {
         ringBuffer.publishEvent(((cmd, seq) -> {
             cmd.command = OrderCommandType.ADD_USER;
             cmd.orderId = -1;
             cmd.symbol = -1;
-            cmd.uid = userId;
+            cmd.setUid(userId);
             cmd.timestamp = System.currentTimeMillis();
             cmd.resultCode = CommandResultCode.NEW;
 
@@ -534,12 +540,12 @@ public final class ExchangeApi {
         }));
     }
 
-    public void suspendUser(long userId, Consumer<OrderCommand> callback) {
+    public void suspendUser(UUID userId, Consumer<OrderCommand> callback) {
         ringBuffer.publishEvent(((cmd, seq) -> {
             cmd.command = OrderCommandType.SUSPEND_USER;
             cmd.orderId = -1;
             cmd.symbol = -1;
-            cmd.uid = userId;
+            cmd.setUid(userId);
             cmd.timestamp = System.currentTimeMillis();
             cmd.resultCode = CommandResultCode.NEW;
 
@@ -547,12 +553,12 @@ public final class ExchangeApi {
         }));
     }
 
-    public void removeUser(long userId, Consumer<OrderCommand> callback) {
+    public void removeUser(UUID userId, Consumer<OrderCommand> callback) {
         ringBuffer.publishEvent(((cmd, seq) -> {
             cmd.command = OrderCommandType.REMOVE_USER;
             cmd.orderId = -1;
             cmd.symbol = -1;
-            cmd.uid = userId;
+            cmd.setUid(userId);
             cmd.timestamp = System.currentTimeMillis();
             cmd.resultCode = CommandResultCode.NEW;
 
@@ -560,12 +566,12 @@ public final class ExchangeApi {
         }));
     }
 
-    public void resumeUser(long userId, Consumer<OrderCommand> callback) {
+    public void resumeUser(UUID userId, Consumer<OrderCommand> callback) {
         ringBuffer.publishEvent(((cmd, seq) -> {
             cmd.command = OrderCommandType.RESUME_USER;
             cmd.orderId = -1;
             cmd.symbol = -1;
-            cmd.uid = userId;
+            cmd.setUid(userId);
             cmd.timestamp = System.currentTimeMillis();
             cmd.resultCode = CommandResultCode.NEW;
 
@@ -573,7 +579,7 @@ public final class ExchangeApi {
         }));
     }
 
-    public void createUser(int serviceFlags, long eventsGroup, long timestampNs, long userId) {
+    public void createUser(int serviceFlags, long eventsGroup, long timestampNs, long uidHi, long uidLo) {
         ringBuffer.publishEvent(((cmd, seq) -> {
 
             cmd.serviceFlags = serviceFlags;
@@ -582,14 +588,15 @@ public final class ExchangeApi {
             cmd.command = OrderCommandType.ADD_USER;
             cmd.orderId = -1;
             cmd.symbol = -1;
-            cmd.uid = userId;
+            cmd.uidHi = uidHi;
+            cmd.uidLo = uidLo;
             cmd.timestamp = timestampNs;
             cmd.resultCode = CommandResultCode.NEW;
 
         }));
     }
 
-    public void suspendUser(int serviceFlags, long eventsGroup, long timestampNs, long userId) {
+    public void suspendUser(int serviceFlags, long eventsGroup, long timestampNs, long uidHi, long uidLo) {
         ringBuffer.publishEvent(((cmd, seq) -> {
 
             cmd.serviceFlags = serviceFlags;
@@ -598,14 +605,15 @@ public final class ExchangeApi {
             cmd.command = OrderCommandType.SUSPEND_USER;
             cmd.orderId = -1;
             cmd.symbol = -1;
-            cmd.uid = userId;
+            cmd.uidHi = uidHi;
+            cmd.uidLo = uidLo;
             cmd.timestamp = timestampNs;
             cmd.resultCode = CommandResultCode.NEW;
 
         }));
     }
 
-    public void removeUser(int serviceFlags, long eventsGroup, long timestampNs, long userId) {
+    public void removeUser(int serviceFlags, long eventsGroup, long timestampNs, long uidHi, long uidLo) {
         ringBuffer.publishEvent(((cmd, seq) -> {
 
             cmd.serviceFlags = serviceFlags;
@@ -614,14 +622,15 @@ public final class ExchangeApi {
             cmd.command = OrderCommandType.REMOVE_USER;
             cmd.orderId = -1;
             cmd.symbol = -1;
-            cmd.uid = userId;
+            cmd.uidHi = uidHi;
+            cmd.uidLo = uidLo;
             cmd.timestamp = timestampNs;
             cmd.resultCode = CommandResultCode.NEW;
 
         }));
     }
 
-    public void resumeUser(int serviceFlags, long eventsGroup, long timestampNs, long userId) {
+    public void resumeUser(int serviceFlags, long eventsGroup, long timestampNs, long uidHi, long uidLo) {
         ringBuffer.publishEvent(((cmd, seq) -> {
 
             cmd.serviceFlags = serviceFlags;
@@ -630,14 +639,15 @@ public final class ExchangeApi {
             cmd.command = OrderCommandType.RESUME_USER;
             cmd.orderId = -1;
             cmd.symbol = -1;
-            cmd.uid = userId;
+            cmd.uidHi = uidHi;
+            cmd.uidLo = uidLo;
             cmd.timestamp = timestampNs;
             cmd.resultCode = CommandResultCode.NEW;
 
         }));
     }
 
-    public void balanceAdjustment(long uid,
+    public void balanceAdjustment(UUID uid,
                                   long transactionId,
                                   int currency,
                                   long longAmount,
@@ -648,7 +658,7 @@ public final class ExchangeApi {
             cmd.command = OrderCommandType.BALANCE_ADJUSTMENT;
             cmd.orderId = transactionId;
             cmd.symbol = currency;
-            cmd.uid = uid;
+            cmd.setUid(uid);
             cmd.price = longAmount;
             cmd.orderType = OrderType.of(adjustmentType.getCode());
             cmd.size = 0;
@@ -663,7 +673,7 @@ public final class ExchangeApi {
     public void balanceAdjustment(int serviceFlags,
                                   long eventsGroup,
                                   long timestampNs,
-                                  long uid,
+                                  long uidHi, long uidLo,
                                   long transactionId,
                                   int currency,
                                   long longAmount,
@@ -675,7 +685,8 @@ public final class ExchangeApi {
             cmd.command = OrderCommandType.BALANCE_ADJUSTMENT;
             cmd.orderId = transactionId;
             cmd.symbol = currency;
-            cmd.uid = uid;
+            cmd.uidHi = uidHi;
+            cmd.uidLo = uidLo;
             cmd.price = longAmount;
             cmd.orderType = OrderType.of(adjustmentType.getCode());
             cmd.size = 0;
@@ -691,7 +702,8 @@ public final class ExchangeApi {
             cmd.command = OrderCommandType.ORDER_BOOK_REQUEST;
             cmd.orderId = -1;
             cmd.symbol = symbolId;
-            cmd.uid = -1;
+            cmd.uidHi = -1;
+            cmd.uidLo = -1;
             cmd.size = depth;
             cmd.timestamp = System.currentTimeMillis();
             cmd.resultCode = CommandResultCode.NEW;
@@ -709,7 +721,8 @@ public final class ExchangeApi {
             cmd.command = OrderCommandType.ORDER_BOOK_REQUEST;
             cmd.orderId = -1;
             cmd.symbol = symbolId;
-            cmd.uid = -1;
+            cmd.uidHi = -1;
+            cmd.uidLo = -1;
             cmd.size = depth;
             cmd.timestamp = System.currentTimeMillis();
             cmd.resultCode = CommandResultCode.NEW;
@@ -721,7 +734,7 @@ public final class ExchangeApi {
     }
 
     public long placeNewOrder(int userCookie, long price, long reservedBidPrice, long size,
-                              OrderAction action, OrderType orderType, int symbol, long uid,
+                              OrderAction action, OrderType orderType, int symbol, UUID uid,
                               Consumer<OrderCommand> callback) {
         return placeNewOrder(userCookie, price, reservedBidPrice, size, action, orderType, symbol, uid, -1, -1, callback);
     }
@@ -734,7 +747,7 @@ public final class ExchangeApi {
             OrderAction action,
             OrderType orderType,
             int symbol,
-            long uid,
+            UUID uid,
             long orderTakerFee,
             long orderMakerFee,
             Consumer<OrderCommand> callback) {
@@ -753,7 +766,7 @@ public final class ExchangeApi {
             cmd.action = action;
             cmd.orderType = orderType;
             cmd.symbol = symbol;
-            cmd.uid = uid;
+            cmd.setUid(uid);
             cmd.orderTakerFee = orderTakerFee;
             cmd.orderMakerFee = orderMakerFee;
             cmd.userCookie = userCookie;
@@ -768,9 +781,9 @@ public final class ExchangeApi {
 
     public void placeNewOrder(int serviceFlags, long eventsGroup, long timestampNs, long orderId,
                               int userCookie, long price, long reservedBidPrice, long size,
-                              OrderAction action, OrderType orderType, int symbol, long uid) {
+                              OrderAction action, OrderType orderType, int symbol, long uidHi, long uidLo) {
         placeNewOrder(serviceFlags, eventsGroup, timestampNs, orderId, userCookie, price, reservedBidPrice,
-                size, action, orderType, symbol, uid, -1, -1);
+                size, action, orderType, symbol, uidHi, uidLo, -1, -1);
     }
 
     public void placeNewOrder(int serviceFlags,
@@ -784,7 +797,7 @@ public final class ExchangeApi {
                               OrderAction action,
                               OrderType orderType,
                               int symbol,
-                              long uid,
+                              long uidHi, long uidLo,
                               long orderTakerFee,
                               long orderMakerFee) {
 
@@ -803,7 +816,8 @@ public final class ExchangeApi {
             cmd.action = action;
             cmd.orderType = orderType;
             cmd.symbol = symbol;
-            cmd.uid = uid;
+            cmd.uidHi = uidHi;
+            cmd.uidLo = uidLo;
             cmd.orderTakerFee = orderTakerFee;
             cmd.orderMakerFee = orderMakerFee;
             cmd.userCookie = userCookie;
@@ -814,7 +828,7 @@ public final class ExchangeApi {
             long price,
             long orderId,
             int symbol,
-            long uid,
+            UUID uid,
             Consumer<OrderCommand> callback) {
 
         ringBuffer.publishEvent((cmd, seq) -> {
@@ -825,7 +839,7 @@ public final class ExchangeApi {
             cmd.orderId = orderId;
             cmd.timestamp = System.currentTimeMillis();
             cmd.symbol = symbol;
-            cmd.uid = uid;
+            cmd.setUid(uid);
 
             promises.put(seq, callback);
         });
@@ -837,7 +851,7 @@ public final class ExchangeApi {
                           long price,
                           long orderId,
                           int symbol,
-                          long uid) {
+                          long uidHi, long uidLo) {
 
         ringBuffer.publishEvent((cmd, seq) -> {
 
@@ -851,14 +865,15 @@ public final class ExchangeApi {
             cmd.orderId = orderId;
             cmd.timestamp = timestampNs;
             cmd.symbol = symbol;
-            cmd.uid = uid;
+            cmd.uidHi = uidHi;
+            cmd.uidLo = uidLo;
         });
     }
 
     public void cancelOrder(
             long orderId,
             int symbol,
-            long uid,
+            UUID uid,
             Consumer<OrderCommand> callback) {
 
         ringBuffer.publishEvent((cmd, seq) -> {
@@ -868,7 +883,7 @@ public final class ExchangeApi {
             cmd.orderId = orderId;
             cmd.timestamp = System.currentTimeMillis();
             cmd.symbol = symbol;
-            cmd.uid = uid;
+            cmd.setUid(uid);
 
             promises.put(seq, callback);
         });
@@ -880,7 +895,7 @@ public final class ExchangeApi {
                             long timestampNs,
                             long orderId,
                             int symbol,
-                            long uid) {
+                            long uidHi, long uidLo) {
 
         ringBuffer.publishEvent((cmd, seq) -> {
 
@@ -893,7 +908,8 @@ public final class ExchangeApi {
             cmd.orderId = orderId;
             cmd.timestamp = timestampNs;
             cmd.symbol = symbol;
-            cmd.uid = uid;
+            cmd.uidHi = uidHi;
+            cmd.uidLo = uidLo;
         });
     }
 
@@ -901,7 +917,7 @@ public final class ExchangeApi {
             long reduceSize,
             long orderId,
             int symbol,
-            long uid,
+            UUID uid,
             Consumer<OrderCommand> callback) {
 
         ringBuffer.publishEvent((cmd, seq) -> {
@@ -912,7 +928,7 @@ public final class ExchangeApi {
             cmd.orderId = orderId;
             cmd.timestamp = System.currentTimeMillis();
             cmd.symbol = symbol;
-            cmd.uid = uid;
+            cmd.setUid(uid);
 
             promises.put(seq, callback);
         });
@@ -924,7 +940,7 @@ public final class ExchangeApi {
                             long reduceSize,
                             long orderId,
                             int symbol,
-                            long uid) {
+                            long uidHi, long uidLo) {
 
         ringBuffer.publishEvent((cmd, seq) -> {
 
@@ -938,7 +954,8 @@ public final class ExchangeApi {
             cmd.orderId = orderId;
             cmd.timestamp = timestampNs;
             cmd.symbol = symbol;
-            cmd.uid = uid;
+            cmd.uidHi = uidHi;
+            cmd.uidLo = uidLo;
         });
     }
 

@@ -37,6 +37,7 @@ import static exchange.core2.core.common.OrderAction.BID;
 import static exchange.core2.core.common.OrderType.IOC;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
+import exchange.core2.tests.util.TestConstants;
 
 /**
  * TODO add tests where orders for same UID ignored during matching
@@ -58,14 +59,14 @@ public abstract class ITOrderBookBase {
 
         // match all asks
         long askSum = Arrays.stream(snapshot.askVolumes).sum();
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(IOC, 100000000000L, -1, maxPrice, maxPrice, askSum, BID));
+        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(IOC, 100000000000L, TestConstants.uidOf(-1), maxPrice, maxPrice, askSum, BID));
 //        log.debug("{}", dumpOrderBook(orderBook.getL2MarketDataSnapshot(100000)));
 
         // match all bids
         long bidSum = Arrays.stream(snapshot.bidVolumes).sum();
 
 //        log.debug("Matching {} bids", bidSum);
-        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(IOC, 100000000001L, -2, 1, 0, bidSum, ASK));
+        IOrderBook.processCommand(orderBook, OrderCommand.newOrder(IOC, 100000000001L, TestConstants.uidOf(-2), 1, 0, bidSum, ASK));
 
 //        log.debug("{}", dumpOrderBook(orderBook.getL2MarketDataSnapshot(100000)));
 
