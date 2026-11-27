@@ -15,6 +15,7 @@
  */
 package exchange.core2.core.orderbook;
 
+import exchange.core2.collections.hashtable.LongObjectHashtable;
 import exchange.core2.collections.art.LongAdaptiveRadixTreeMap;
 import exchange.core2.collections.objpool.ObjectsPool;
 import exchange.core2.core.common.*;
@@ -34,6 +35,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
@@ -52,9 +54,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
     private final CoreSymbolSpecification symbolSpec;
 
     // index: orderId -> order
-    private final LongAdaptiveRadixTreeMap<DirectOrder> orderIdIndex;
-    //private final Long2ObjectHashMap<DirectOrder> orderIdIndex = new Long2ObjectHashMap<>();
-    //private final LongObjectHashMap<DirectOrder> orderIdIndex = new LongObjectHashMap<>();
+    private final LongObjectHashtable<DirectOrder> orderIdIndex;
 
     // heads (nullable)
     private DirectOrder bestAskOrder = null;
@@ -93,7 +93,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         this.askPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.bidPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.eventsHelper = eventsHelper;
-        this.orderIdIndex = new LongAdaptiveRadixTreeMap<>(objectsPool);
+        this.orderIdIndex = new LongObjectHashtable<>();
         this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
         this.cfgSelfTradeProtectionMode = (ordersProcCfg != null && ordersProcCfg.getSelfTradeProtectionMode() != null)
                 ? ordersProcCfg.getSelfTradeProtectionMode()
@@ -119,7 +119,6 @@ public final class OrderBookDirectImpl implements IOrderBook {
         this.askPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.bidPriceBuckets = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.eventsHelper = eventsHelper;
-        this.orderIdIndex = new LongAdaptiveRadixTreeMap<>(objectsPool);
         this.logDebug = loggingCfg.getLoggingLevels().contains(LoggingConfiguration.LoggingLevel.LOGGING_MATCHING_DEBUG);
         this.cfgSelfTradeProtectionMode = (ordersProcCfg != null && ordersProcCfg.getSelfTradeProtectionMode() != null)
                 ? ordersProcCfg.getSelfTradeProtectionMode()
@@ -127,6 +126,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
         this.cfgCancelNewestOnSelfTrade = cfgSelfTradeProtectionMode == OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST;
 
         final int size = bytes.readInt();
+        this.orderIdIndex = new LongObjectHashtable<>(size);
         for (int i = 0; i < size; i++) {
             DirectOrder order = new DirectOrder(bytes);
             insertOrder(order, null);
@@ -637,7 +637,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
 
     @Override
     public void validateInternalState() {
-        final Long2ObjectHashMap<DirectOrder> ordersInChain = new Long2ObjectHashMap<>(orderIdIndex.size(), 0.8f);
+        final Long2ObjectHashMap<DirectOrder> ordersInChain = new Long2ObjectHashMap<>(Math.toIntExact(orderIdIndex.size()), 0.8f);
         validateChain(true, ordersInChain);
         validateChain(false, ordersInChain);
 //        log.debug("ordersInChain={}", ordersInChain);
@@ -649,7 +649,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
             if (ordersInChain.remove(k) != v) {
                 thrw("chained orders does not contain orderId=" + k);
             }
-        }, Integer.MAX_VALUE);
+        });
 
         if (ordersInChain.size() != 0) {
             thrw("orderIdIndex does not contain each order from chains");
@@ -790,7 +790,8 @@ public final class OrderBookDirectImpl implements IOrderBook {
                         .timestamp(order.timestamp)
                         .build());
             }
-        }, Integer.MAX_VALUE);
+        });
+        list.sort(Comparator.comparingLong(Order::getOrderId));
 
         return list;
     }
@@ -846,7 +847,7 @@ public final class OrderBookDirectImpl implements IOrderBook {
     public void writeMarshallable(BytesOut bytes) {
         bytes.writeByte(getImplementationType().getCode());
         symbolSpec.writeMarshallable(bytes);
-        bytes.writeInt(orderIdIndex.size());
+        bytes.writeInt(Math.toIntExact(orderIdIndex.size()));
         askOrdersStream(true).forEach(order -> order.writeMarshallable(bytes));
         bidOrdersStream(true).forEach(order -> order.writeMarshallable(bytes));
     }
