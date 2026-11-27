@@ -115,7 +115,7 @@ class UserProfilePositionsTest {
                     UID,
                     HashingUtils.stateHash(reference),
                     0L,
-                    profile.accounts.hashCode(),
+                    new org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap().hashCode(),
                     UserStatus.ACTIVE.hashCode());
             assertEquals(expected, profile.stateHash(), "positions: " + count);
         }
@@ -142,7 +142,7 @@ class UserProfilePositionsTest {
                 referenceBytes.writeLong(UID);
                 SerializationUtils.marshallIntHashMap(reference, referenceBytes);
                 referenceBytes.writeLong(profile.adjustmentsCounter);
-                SerializationUtils.marshallIntLongHashMap(profile.accounts, referenceBytes);
+                SerializationUtils.marshallIntLongHashMap(org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap.newWithKeysValues(4, 1000L + count), referenceBytes);
                 referenceBytes.writeByte(profile.userStatus.getCode());
                 if (count <= 1) {
                     // one entry or none: the same bytes in any order

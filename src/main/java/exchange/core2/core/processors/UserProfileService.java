@@ -103,7 +103,7 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
         }
 
         userProfile.adjustmentsCounter = fundingTransactionId;
-        userProfile.accounts.addToValue(currency, amount);
+        userProfile.accounts.addAndGet(currency, amount);
 
         //log.debug("FUND: {}", userProfile);
         return CommandResultCode.SUCCESS;
@@ -147,7 +147,7 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
         } else if (userProfile.anyPosition(pos -> !pos.isEmpty())) {
             return CommandResultCode.USER_MGMT_USER_NOT_SUSPENDABLE_HAS_POSITIONS;
 
-        } else if (userProfile.accounts.anySatisfy(acc -> acc != 0)) {
+        } else if (userProfile.accounts.valuesStream().anyMatch(acc -> acc != 0)) {
             return CommandResultCode.USER_MGMT_USER_NOT_SUSPENDABLE_NON_EMPTY_ACCOUNTS;
 
         } else {
@@ -188,7 +188,7 @@ public final class UserProfileService implements WriteBytesMarshallable, StateHa
         } else if (userProfile.anyPosition(pos -> !pos.isEmpty())) {
             return CommandResultCode.USER_MGMT_USER_NOT_REMOVABLE_HAS_POSITIONS;
 
-        } else if (userProfile.accounts.anySatisfy(acc -> acc != 0)) {
+        } else if (userProfile.accounts.valuesStream().anyMatch(acc -> acc != 0)) {
             return CommandResultCode.USER_MGMT_USER_NOT_REMOVABLE_NON_EMPTY_ACCOUNTS;
 
         } else {

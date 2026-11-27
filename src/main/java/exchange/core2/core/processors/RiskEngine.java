@@ -718,7 +718,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
                 // update taker's position
                 final long sizeOpen = takerSpr.updatePositionForMarginTrade(takerAction, ev.size, ev.price);
                 final long fee = ((takerFee != -1) ? takerFee : spec.takerFee) * sizeOpen;
-                takerUp.accounts.addToValue(spec.quoteCurrency, -fee);
+                takerUp.accounts.addAndGet(spec.quoteCurrency, -fee);
                 fees.addToValue(spec.quoteCurrency, fee);
             } else if (ev.eventType == MatcherEventType.REJECT || ev.eventType == MatcherEventType.REDUCE) {
                 takerSpr.pendingRelease(takerAction, ev.size);
@@ -734,7 +734,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
             final SymbolPositionRecord makerSpr = maker.getPositionRecordOrThrowEx(spec.symbolId);
             long sizeOpen = makerSpr.updatePositionForMarginTrade(takerAction.opposite(), ev.size, ev.price);
             final long fee = ((makerFee != -1) ? makerFee : spec.makerFee) * sizeOpen;
-            maker.accounts.addToValue(spec.quoteCurrency, -fee);
+            maker.accounts.addAndGet(spec.quoteCurrency, -fee);
             fees.addToValue(spec.quoteCurrency, fee);
             if (makerSpr.isEmpty()) {
                 removePositionRecord(makerSpr, maker);
@@ -754,14 +754,14 @@ public final class RiskEngine implements WriteBytesMarshallable {
         // for cancel/rejection only one party is involved
         if (takerSell) {
 
-            taker.accounts.addToValue(spec.baseCurrency, CoreArithmeticUtils.calculateAmountAsk(ev.size, spec));
+            taker.accounts.addAndGet(spec.baseCurrency, CoreArithmeticUtils.calculateAmountAsk(ev.size, spec));
 
         } else {
 
             if (isBudgetOrder(cmd)) {
-                taker.accounts.addToValue(spec.quoteCurrency, CoreArithmeticUtils.calculateAmountBidTakerFeeForBudget(ev.size, ev.price, cmd.orderTakerFee, spec));
+                taker.accounts.addAndGet(spec.quoteCurrency, CoreArithmeticUtils.calculateAmountBidTakerFeeForBudget(ev.size, ev.price, cmd.orderTakerFee, spec));
             } else {
-                taker.accounts.addToValue(spec.quoteCurrency, CoreArithmeticUtils.calculateAmountBidHold(ev.size, ev.bidderHoldPrice, reservationFee(cmd, spec), spec));
+                taker.accounts.addAndGet(spec.quoteCurrency, CoreArithmeticUtils.calculateAmountBidHold(ev.size, ev.bidderHoldPrice, reservationFee(cmd, spec), spec));
             }
             // TODO for OrderType.IOC_BUDGET - for REJECT should release leftover deposit after all trades calculated
         }
@@ -801,10 +801,10 @@ public final class RiskEngine implements WriteBytesMarshallable {
                 final long priceDiff = ev.bidderHoldPrice - ev.price;
                 final long amountDiffToReleaseInQuoteCurrency = CoreArithmeticUtils.calculateAmountBidReleaseCorrMaker(
                         size, priceDiff, spec, ev.getMatchedOrderTakerFee(), ev.getMatchedOrderMakerFee());
-                maker.accounts.addToValue(quoteCurrency, amountDiffToReleaseInQuoteCurrency);
+                maker.accounts.addAndGet(quoteCurrency, amountDiffToReleaseInQuoteCurrency);
 
                 final long gainedAmountInBaseCurrency = CoreArithmeticUtils.calculateAmountAsk(size, spec);
-                maker.accounts.addToValue(spec.baseCurrency, gainedAmountInBaseCurrency);
+                maker.accounts.addAndGet(spec.baseCurrency, gainedAmountInBaseCurrency);
 
                 makerFees += CoreArithmeticUtils.resolveFee(ev.getMatchedOrderMakerFee(), spec.makerFee) * size;
             }
@@ -814,7 +814,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
         final long takerFees = CoreArithmeticUtils.resolveFee(orderTakerFee, spec.takerFee) * takerSizeForThisHandler;
 
         if (taker != null) {
-            taker.accounts.addToValue(quoteCurrency, takerSizePriceForThisHandler * spec.quoteScaleK - takerFees);
+            taker.accounts.addAndGet(quoteCurrency, takerSizePriceForThisHandler * spec.quoteScaleK - takerFees);
         }
 
         if (takerSizeForThisHandler != 0 || makerFees != 0) {
@@ -853,7 +853,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
                 final long size = ev.size;
                 final UserProfile maker = userProfileService.getUserProfileOrAddSuspended(ev.matchedOrderUid);
                 final long makerFee = CoreArithmeticUtils.resolveFee(ev.getMatchedOrderMakerFee(), spec.makerFee) * size;
-                maker.accounts.addToValue(quoteCurrency, CoreArithmeticUtils.calculateAmountBid(size, ev.price, spec) - makerFee);
+                maker.accounts.addAndGet(quoteCurrency, CoreArithmeticUtils.calculateAmountBid(size, ev.price, spec) - makerFee);
                 makerFees += makerFee;
             }
             ev = ev.nextEvent;
@@ -870,9 +870,9 @@ public final class RiskEngine implements WriteBytesMarshallable {
             // TODO IOC_BUDGET - order can be partially rejected - need held taker fee correction
 
             final long unusedFee = reservationFee(cmd, spec) - takerFee;
-            taker.accounts.addToValue(quoteCurrency,
+            taker.accounts.addAndGet(quoteCurrency,
                     (takerSizePriceHeldSum - takerSizePriceSum) * spec.quoteScaleK + unusedFee * takerSizeForThisHandler);
-            taker.accounts.addToValue(spec.baseCurrency, takerSizeForThisHandler * spec.baseScaleK);
+            taker.accounts.addAndGet(spec.baseCurrency, takerSizeForThisHandler * spec.baseScaleK);
         }
 
         if (takerSizeForThisHandler != 0 || makerFees != 0) {
@@ -881,7 +881,7 @@ public final class RiskEngine implements WriteBytesMarshallable {
     }
 
     private void removePositionRecord(SymbolPositionRecord record, UserProfile userProfile) {
-        userProfile.accounts.addToValue(record.currency, record.profit);
+        userProfile.accounts.addAndGet(record.currency, record.profit);
         userProfile.removePosition(record.symbol);
         objectsPool.put(ObjectsPool.SYMBOL_POSITION_RECORD, record);
     }

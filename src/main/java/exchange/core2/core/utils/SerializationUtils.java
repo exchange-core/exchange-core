@@ -15,6 +15,7 @@
  */
 package exchange.core2.core.utils;
 
+import exchange.core2.collections.hashtable.IntLongHashtable;
 import net.jpountz.lz4.LZ4Compressor;
 import net.jpountz.lz4.LZ4Factory;
 import net.jpountz.lz4.LZ4FastDecompressor;
@@ -222,6 +223,28 @@ public final class SerializationUtils {
         int length = bytes.readInt();
         final IntLongHashMap hashMap = new IntLongHashMap(length);
         // TODO shuffle (? performance can be reduced if populating linearly)
+        for (int i = 0; i < length; i++) {
+            int k = bytes.readInt();
+            long v = bytes.readLong();
+            hashMap.put(k, v);
+        }
+        return hashMap;
+    }
+
+
+    public static void marshallIntLongHashtable(final IntLongHashtable hashMap, final BytesOut bytes) {
+
+        bytes.writeInt(Math.toIntExact(hashMap.size()));
+
+        hashMap.forEach((k, v) -> {
+            bytes.writeInt(k);
+            bytes.writeLong(v);
+        });
+    }
+
+    public static IntLongHashtable readIntLongHashtable(final BytesIn bytes) {
+        int length = bytes.readInt();
+        final IntLongHashtable hashMap = new IntLongHashtable(length);
         for (int i = 0; i < length; i++) {
             int k = bytes.readInt();
             long v = bytes.readLong();

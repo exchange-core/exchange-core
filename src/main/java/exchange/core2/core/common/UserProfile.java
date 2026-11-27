@@ -15,6 +15,7 @@
  */
 package exchange.core2.core.common;
 
+import exchange.core2.collections.hashtable.IntLongHashtable;
 import exchange.core2.core.utils.HashingUtils;
 import exchange.core2.core.utils.SerializationUtils;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -42,7 +43,7 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
 
     // currency accounts
     // currency -> balance
-    public final IntLongHashMap accounts;
+    public final IntLongHashtable accounts;
 
     public UserStatus userStatus;
 
@@ -50,7 +51,7 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
         //log.debug("New {}", uid);
         this.uid = uid;
         this.adjustmentsCounter = 0L;
-        this.accounts = new IntLongHashMap();
+        this.accounts = new IntLongHashtable(2);
         this.userStatus = userStatus;
     }
 
@@ -74,10 +75,16 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
         this.adjustmentsCounter = bytesIn.readLong();
 
         // account balances
-        this.accounts = SerializationUtils.readIntLongHashMap(bytesIn);
+        this.accounts = SerializationUtils.readIntLongHashtable(bytesIn);
 
         // suspended
         this.userStatus = UserStatus.of(bytesIn.readByte());
+    }
+
+    public IntLongHashMap copyAccounts() {
+        final IntLongHashMap snapshot = new IntLongHashMap(Math.toIntExact(accounts.size()));
+        accounts.forEach(snapshot::put);
+        return snapshot;
     }
 
     public SymbolPositionRecord getPositionRecordOrThrowEx(int symbol) {
@@ -196,7 +203,7 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
         bytes.writeLong(adjustmentsCounter);
 
         // account balances
-        SerializationUtils.marshallIntLongHashMap(accounts, bytes);
+        SerializationUtils.marshallIntLongHashtable(accounts, bytes);
 
         // suspended
         bytes.writeByte(userStatus.getCode());
@@ -220,7 +227,7 @@ public final class UserProfile implements WriteBytesMarshallable, StateHash {
                 uid,
                 positionsStateHash(),
                 adjustmentsCounter,
-                accounts.hashCode(),
+                copyAccounts().hashCode(),
                 userStatus.hashCode());
     }
 

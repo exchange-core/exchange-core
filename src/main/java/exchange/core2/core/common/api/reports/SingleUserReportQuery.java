@@ -92,7 +92,7 @@ public final class SingleUserReportQuery implements ReportQuery<SingleUserReport
             return Optional.of(SingleUserReportResult.createFromRiskEngineFound(
                     uid,
                     userProfile.userStatus,
-                    userProfile.accounts,
+                    userProfile.copyAccounts(),
                     positions));
         } else {
             // not found
