@@ -1,5 +1,8 @@
 /*
+ * Copyright 2011 LMAX Ltd.
  * Copyright 2019 Maksim Zheravin
+ *
+ * Modified from LMAX Disruptor's BatchEventProcessor to process command groups on demand.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
