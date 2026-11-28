@@ -210,6 +210,10 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
         }
     }
 
+    /*
+     * Modified from OpenHFT Chronicle Wire 2.17.34's WireToOutputStream (Apache-2.0).
+     * This version uses a larger buffer, writes its contents in chunks, and releases it on close.
+     */
     public class WireToOutputStream2 implements AutoCloseable {
         private final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(128 * 1024 * 1024);
         private final Wire wire;
