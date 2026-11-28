@@ -148,7 +148,10 @@ public final class OrderBookDirectImpl implements IOrderBook {
             case FOK_BUDGET:
                 newOrderMatchFokBudget(cmd);
                 break;
-            // TODO IOC_BUDGET and FOK support
+            case FOK:
+                newOrderMatchFok(cmd);
+                break;
+            // TODO IOC_BUDGET
             default:
                 log.warn("Unsupported order type: {}", cmd);
                 eventsHelper.attachRejectEvent(cmd, cmd.size);
@@ -217,6 +220,14 @@ public final class OrderBookDirectImpl implements IOrderBook {
                 ? IOrderBook.canFillBudget(this, cmd, cfgSelfTradeProtectionMode) // must stop at the first own order
                 : canFillBudgetByBuckets(cmd);
         if (canFill) {
+            tryMatchInstantly(cmd, cmd);
+        } else {
+            eventsHelper.attachRejectEvent(cmd, cmd.size);
+        }
+    }
+
+    private void newOrderMatchFok(final OrderCommand cmd) {
+        if (IOrderBook.canFill(this, cmd, cfgSelfTradeProtectionMode)) {
             tryMatchInstantly(cmd, cmd);
         } else {
             eventsHelper.attachRejectEvent(cmd, cmd.size);

@@ -654,6 +654,47 @@ public abstract class OrderBookBaseTest {
     }
 
 
+    // ---------------------- FOK ORDERS ---------------------------
+
+    @Test
+    public void shouldRejectFokBidOrdersWithPartialFill() {
+
+        long size = 176; //1 order not filled
+        long price = 81600L;
+
+        OrderCommand cmd = OrderCommand.newOrder(FOK, TestConstants.orderIdOf(123L), UID_2, price, price, size, BID);
+        processAndValidate(cmd, SUCCESS);
+
+        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
+        assertEquals(expectedState.build(), snapshot);
+
+        List<MatcherTradeEvent> events = cmd.extractEvents();
+        assertThat(events.size(), is(1));
+
+        // no trades generated, rejection with full size unmatched
+        checkEventRejection(events.getFirst(), size, price, price);
+    }
+
+    @Test
+    public void shouldRejectFokAskOrdersWithPartialFill() {
+
+        long size = 82; //1 order not filled
+        long price = 81200;
+
+        OrderCommand cmd = OrderCommand.newOrder(FOK, TestConstants.orderIdOf(123L), UID_2, price, price, size, ASK);
+        processAndValidate(cmd, SUCCESS);
+
+        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
+        assertEquals(expectedState.build(), snapshot);
+
+        List<MatcherTradeEvent> events = cmd.extractEvents();
+        assertThat(events.size(), is(1));
+
+        // no trades generated, rejection with full size unmatched
+        checkEventRejection(events.getFirst(), size, price, price);
+    }
+
+
     // MARKETABLE GTC ORDERS
 
     @Test
