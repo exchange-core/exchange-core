@@ -640,6 +640,14 @@ public final class RiskEngine implements WriteBytesMarshallable {
 
         final int symbol = cmd.symbol;
 
+        if (cmd.command == OrderCommandType.ORDER_BOOK_REQUEST) {
+            // The results stage may release the snapshot while R2 runs, so the matching engine copies the best prices.
+            if (cfgMarginTradingEnabled && cmd.resultCode == CommandResultCode.SUCCESS) {
+                updateLastPrice(symbol, cmd.price, cmd.reserveBidPrice);
+            }
+            return false;
+        }
+
         final L2MarketData marketData = cmd.marketData;
         MatcherTradeEvent mte = cmd.matcherEvent;
 
@@ -694,12 +702,18 @@ public final class RiskEngine implements WriteBytesMarshallable {
 
         // Process marked data
         if (marketData != null && cfgMarginTradingEnabled) {
-            final RiskEngine.LastPriceCacheRecord record = lastPriceCache.getIfAbsentPut(symbol, RiskEngine.LastPriceCacheRecord::new);
-            record.askPrice = (marketData.askSize != 0) ? marketData.askPrices[0] : Long.MAX_VALUE;
-            record.bidPrice = (marketData.bidSize != 0) ? marketData.bidPrices[0] : 0;
+            updateLastPrice(symbol,
+                    (marketData.askSize != 0) ? marketData.askPrices[0] : Long.MAX_VALUE,
+                    (marketData.bidSize != 0) ? marketData.bidPrices[0] : 0);
         }
 
         return false;
+    }
+
+    private void updateLastPrice(final int symbol, final long askPrice, final long bidPrice) {
+        final RiskEngine.LastPriceCacheRecord record = lastPriceCache.getIfAbsentPut(symbol, RiskEngine.LastPriceCacheRecord::new);
+        record.askPrice = askPrice;
+        record.bidPrice = bidPrice;
     }
 
     private long calculateLockedMargin(UserProfile userProfile, int currency) {

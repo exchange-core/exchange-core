@@ -20,15 +20,19 @@ import exchange.core2.core.common.L2MarketData;
 import exchange.core2.core.common.MatcherTradeEvent;
 import exchange.core2.core.common.api.ApiNop;
 import exchange.core2.core.common.api.ApiPlaceOrder;
+import exchange.core2.core.common.api.reports.SingleUserReportQuery;
+import exchange.core2.core.common.api.reports.StateHashReportQuery;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.config.PerformanceConfiguration;
 import exchange.core2.core.orderbook.OrderBookDirectImpl;
+import exchange.core2.core.orderbook.OrderBookEventsHelper;
 import exchange.core2.tests.util.ExchangeTestContainer;
 import exchange.core2.tests.util.TestConstants;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static exchange.core2.core.common.MatcherEventType.TRADE;
@@ -37,6 +41,8 @@ import static exchange.core2.core.common.OrderAction.BID;
 import static exchange.core2.core.common.OrderType.GTC;
 import static exchange.core2.core.common.OrderType.IOC;
 import static exchange.core2.core.common.cmd.CommandResultCode.SUCCESS;
+import static exchange.core2.core.common.cmd.OrderCommandType.BINARY_DATA_QUERY;
+import static exchange.core2.core.common.cmd.OrderCommandType.ORDER_BOOK_REQUEST;
 import static exchange.core2.core.common.cmd.OrderCommandType.PLACE_ORDER;
 import static exchange.core2.tests.util.TestConstants.CURRENECY_ETH;
 import static exchange.core2.tests.util.TestConstants.CURRENECY_XBT;
@@ -47,9 +53,49 @@ import static exchange.core2.tests.util.TestConstants.UID_2;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class FullAsyncResponseIntegrationTest {
+
+    @Test
+    @Timeout(10)
+    void largeResponsesAreReleasedBeforeRingBufferReuse() throws Exception {
+        try (ExchangeTestContainer container = ExchangeTestContainer.create(PerformanceConfiguration.DEFAULT)) {
+            container.addSymbol(SYMBOLSPEC_ETH_XBT);
+            container.createUserWithMoney(UID_1, CURRENECY_ETH, 100_000_000);
+            final ExchangeApi api = container.getApi();
+            assertEquals(SUCCESS, api.submitCommandAsync(ApiPlaceOrder.builder()
+                    .symbol(SYMBOL_EXCHANGE).uid(UID_1).action(ASK).orderType(GTC)
+                    .orderId(TestConstants.orderIdOf(101)).price(1600).size(1).build()).get(3, SECONDS));
+
+            final List<OrderCommand> largeResponseSlots = new CopyOnWriteArrayList<>();
+            container.setConsumer((cmd, seq) -> {
+                if ((cmd.command == BINARY_DATA_QUERY && cmd.matcherEvent != null)
+                        || (cmd.command == ORDER_BOOK_REQUEST && cmd.marketData != null)) {
+                    largeResponseSlots.add(cmd);
+                }
+            });
+
+            final var report = api.processReport(new StateHashReportQuery(), 1).get(3, SECONDS);
+            final int customReportSections = api.submitQueryAsync(new SingleUserReportQuery(UID_1), 2,
+                    cmd -> OrderBookEventsHelper.deserializeEvents(cmd).size()).get(3, SECONDS);
+            final L2MarketData book = api.requestOrderBookAsync(SYMBOL_EXCHANGE, -1).get(3, SECONDS);
+            // The results stage handles commands in order, so the earlier slots are released before this completes.
+            assertEquals(SUCCESS, api.submitCommandAsync(ApiNop.builder().build()).get(3, SECONDS));
+
+            assertFalse(report.getHashCodes().isEmpty());
+            assertTrue(customReportSections > 0);
+            assertArrayEquals(new long[]{1600}, book.getAskPricesCopy());
+            assertEquals(3, largeResponseSlots.size(), "The results consumer must still see the responses");
+            for (OrderCommand slot : largeResponseSlots) {
+                assertNull(slot.matcherEvent, () -> slot.command + " must release its binary events");
+                assertNull(slot.marketData, () -> slot.command + " must release its order book snapshot");
+            }
+        }
+    }
 
     @Test
     @Timeout(10)

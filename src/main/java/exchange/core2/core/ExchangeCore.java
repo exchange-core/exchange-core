@@ -23,6 +23,7 @@ import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.EventHandlerGroup;
 import com.lmax.disruptor.dsl.ProducerType;
 import exchange.core2.core.common.CoreWaitStrategy;
+import exchange.core2.core.common.MatcherEventType;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.cmd.OrderCommand;
 import exchange.core2.core.common.cmd.OrderCommandType;
@@ -220,10 +221,28 @@ public final class ExchangeCore {
         mainHandlerGroup.handleEventsWith((cmd, seq, eob) -> {
             resultsHandler.onEvent(cmd, seq, eob);
             api.processResult(seq, cmd); // TODO SLOW ?(volatile operations)
+            releaseLargeResponse(cmd);
         });
 
         // attach slave processors to master processor
         IntStream.range(0, riskEnginesNum).forEach(i -> procR1.get(i).setSlaveProcessor(procR2.get(i)));
+    }
+
+    /**
+     * Drops report events and order book snapshots once results consumers and promises have seen them.
+     * Otherwise the slot keeps them reachable until the ring wraps, which can take ringBufferSize large responses.
+     * R2 runs in parallel but does not depend on either: it skips binary events and takes the best order book
+     * prices from the price fields the matching engine fills.
+     */
+    static void releaseLargeResponse(final OrderCommand cmd) {
+        if (cmd.command == OrderCommandType.ORDER_BOOK_REQUEST) {
+            cmd.marketData = null;
+        } else if (!EVENTS_POOLING
+                && cmd.matcherEvent != null
+                && cmd.matcherEvent.eventType == MatcherEventType.BINARY_EVENT) {
+            // The grouping processor reclaims pooled chains when it reuses the slot.
+            cmd.matcherEvent = null;
+        }
     }
 
     public synchronized void startup() {

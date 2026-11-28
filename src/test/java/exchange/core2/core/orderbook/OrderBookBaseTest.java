@@ -107,6 +107,11 @@ public abstract class OrderBookBaseTest {
         assertEquals(expectedState.build(), snapshot);
     }
 
+    @Test
+    void negativeSnapshotDepthReturnsTheFullBook() {
+        assertEquals(expectedState.build(), orderBook.getL2MarketDataSnapshot(-1));
+    }
+
     /**
      * In the end of each test remove all orders by sending market orders wit proper size.
      * Check order book is empty.
