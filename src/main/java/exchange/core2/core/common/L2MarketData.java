@@ -143,7 +143,22 @@ public final class L2MarketData {
 
     }
 
-    // TODO hashcode
+    @Override
+    public int hashCode() {
+        final int askHash = hashLevels(1, askSize, askPrices, askVolumes, askOrders);
+        return hashLevels(askHash, bidSize, bidPrices, bidVolumes, bidOrders);
+    }
+
+    private static int hashLevels(final int seed, final int size,
+                                  final long[] prices, final long[] volumes, final long[] orders) {
+        int hash = 31 * seed + size;
+        for (int i = 0; i < size; i++) {
+            hash = 31 * hash + Long.hashCode(prices[i]);
+            hash = 31 * hash + Long.hashCode(volumes[i]);
+            hash = 31 * hash + Long.hashCode(orders[i]);
+        }
+        return hash;
+    }
 
     @Override
     public String toString() {

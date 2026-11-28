@@ -318,8 +318,8 @@ so an abrupt stop can lose buffered commands, including commands that returned `
 
 To recover, use the same exchange ID and storage directory. Set `initStateCfg` to
 `InitialStateConfiguration.lastKnownStateFromJournal(exchangeId, snapshotId, baseSeq)` to restore that snapshot and replay its journal.
-For `baseSeq`, add the previous run's configured base sequence (zero on a clean start) to `seq` from the `RE` entry for that snapshot
-in `<exchangeId>.eca`.
+For `baseSeq`, use `journalSeq` from the `RE` entry for that snapshot in `<exchangeId>.eca`.
+For older entries that only have `seq`, add the previous run's configured base sequence (zero on a clean start) to `seq`.
 
 Keep a complete snapshot and its journal partitions together. Replay stops at a missing partition, and
 corrupted files can prevent startup. Verify balances and open orders before resuming trading, and test

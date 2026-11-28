@@ -149,12 +149,13 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
     /**
      * Obtain current L2 Market Data snapshot
      *
-     * @param size max size for each part (ask, bid)
+     * @param size maximum depth per side, or a negative value for the full book
      * @return L2 Market Data snapshot
      */
     default L2MarketData getL2MarketDataSnapshot(final int size) {
-        final int asksSize = getTotalAskBuckets(size);
-        final int bidsSize = getTotalBidBuckets(size);
+        final int limit = size < 0 ? Integer.MAX_VALUE : size;
+        final int asksSize = getTotalAskBuckets(limit);
+        final int bidsSize = getTotalBidBuckets(limit);
         final L2MarketData data = new L2MarketData(asksSize, bidsSize);
         fillAsks(asksSize, data);
         fillBids(bidsSize, data);
@@ -212,7 +213,11 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
 
         } else if (commandType == OrderCommandType.ORDER_BOOK_REQUEST) {
             int size = (int) cmd.size;
-            cmd.marketData = orderBook.getL2MarketDataSnapshot(size >= 0 ? size : Integer.MAX_VALUE);
+            final L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(size >= 0 ? size : Integer.MAX_VALUE);
+            cmd.marketData = snapshot;
+            // Risk release reads the best prices from these fields because the results stage may drop the snapshot first.
+            cmd.price = snapshot.askSize != 0 ? snapshot.askPrices[0] : Long.MAX_VALUE;
+            cmd.reserveBidPrice = snapshot.bidSize != 0 ? snapshot.bidPrices[0] : 0;
             return CommandResultCode.SUCCESS;
 
         } else {
