@@ -293,6 +293,37 @@ public interface IOrderBook extends WriteBytesMarshallable, StateHash {
         return false;
     }
 
+    static boolean canFill(IOrderBook book, OrderCommand cmd,
+                           OrdersProcessingConfiguration.SelfTradeProtectionMode stpMode) {
+        if (cmd.size <= 0) {
+            return false;
+        }
+
+        final boolean buy = cmd.action == OrderAction.BID;
+        final Iterator<? extends IOrder> makers =
+                (buy ? book.askOrdersStream(true) : book.bidOrdersStream(true)).iterator();
+        long remaining = cmd.size;
+
+        while (makers.hasNext()) {
+            final IOrder maker = makers.next();
+
+            if (buy ? maker.getPrice() > cmd.price : maker.getPrice() < cmd.price) {
+                return false;
+            }
+
+            if (stpMode == OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST
+                    && maker.getUidHi() == cmd.uidHi && maker.getUidLo() == cmd.uidLo) {
+                return false;
+            }
+
+            remaining -= Math.min(remaining, maker.getSize() - maker.getFilled());
+            if (remaining == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @FunctionalInterface
     interface OrderBookFactory {
 

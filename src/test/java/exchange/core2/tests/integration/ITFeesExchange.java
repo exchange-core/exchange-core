@@ -123,6 +123,93 @@ public abstract class ITFeesExchange {
 
     @Test
     @Timeout(10)
+    public void shouldProcessFees_AskGtcMakers_BidFokTaker_RejectThenFill() throws Exception {
+
+        try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {
+            container.initFeeSymbols();
+
+            // seller (maker): two resting asks, 600 lots @ 11,500 and 600 lots @ 11,600
+            final long btcAmount = 2_000_000_000L;
+            container.createUserWithMoney(UID_1, CURRENECY_XBT, btcAmount);
+            for (long[] o : new long[][]{{101L, 11_500L}, {102L, 11_600L}}) {
+                container.submitCommandSync(ApiPlaceOrder.builder()
+                        .uid(UID_1)
+                        .orderId(TestConstants.orderIdOf(o[0]))
+                        .price(o[1])
+                        .size(600L)
+                        .action(OrderAction.ASK)
+                        .orderType(GTC)
+                        .symbol(SYMBOL_EXCHANGE_FEE)
+                        .build(), cmd -> assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS)));
+            }
+
+            // buyer (taker)
+            final long ltcAmount = 200_000_000_000L;
+            container.createUserWithMoney(UID_2, CURRENECY_LTC, ltcAmount);
+
+            // FOK BUY 1,000 lots, limit 11,550 (reserve 11,553): only 600 lots are within the limit -> rejected entirely
+            final ApiPlaceOrder order103 = ApiPlaceOrder.builder()
+                    .uid(UID_2)
+                    .orderId(TestConstants.orderIdOf(103L))
+                    .price(11_550L)
+                    .reservePrice(11_553L)
+                    .size(1000L)
+                    .action(OrderAction.BID)
+                    .orderType(OrderType.FOK)
+                    .symbol(SYMBOL_EXCHANGE_FEE)
+                    .build();
+            container.submitCommandSync(order103, cmd -> assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS)));
+
+            // the whole hold is released, nothing traded, no fees
+            container.validateUserState(UID_2, profile -> {
+                assertThat(profile.getAccounts().get(CURRENECY_LTC), is(ltcAmount));
+                assertThat(profile.getAccounts().get(CURRENECY_XBT), is(0L));
+                assertTrue(profile.fetchIndexedOrders().isEmpty());
+            });
+            container.validateUserState(UID_1, profile -> assertThat(profile.fetchIndexedOrders().size(), is(2)));
+            final TotalCurrencyBalanceReportResult totalBal1 = container.totalBalanceReport();
+            assertTrue(totalBal1.isGlobalBalancesAllZero());
+            assertThat(totalBal1.getFees().get(CURRENECY_LTC), is(0L));
+            assertThat(totalBal1.getClientsBalancesSum().get(CURRENECY_LTC), is(ltcAmount));
+
+            // FOK BUY 500 lots, same limit: fully fillable from the 11,500 ask
+            final ApiPlaceOrder order104 = ApiPlaceOrder.builder()
+                    .uid(UID_2)
+                    .orderId(TestConstants.orderIdOf(104L))
+                    .price(11_550L)
+                    .reservePrice(11_553L)
+                    .size(500L)
+                    .action(OrderAction.BID)
+                    .orderType(OrderType.FOK)
+                    .symbol(SYMBOL_EXCHANGE_FEE)
+                    .build();
+            container.submitCommandSync(order104, cmd -> assertThat(cmd.resultCode, is(CommandResultCode.SUCCESS)));
+
+            // buyer pays the trade price plus the taker fee; the reserve-price surplus is refunded
+            container.validateUserState(UID_2, profile -> {
+                assertThat(profile.getAccounts().get(CURRENECY_LTC), is(ltcAmount - (11_500L * step + takerFee) * 500L));
+                assertThat(profile.getAccounts().get(CURRENECY_XBT), is(500L * SYMBOLSPECFEE_XBT_LTC.baseScaleK));
+                assertTrue(profile.fetchIndexedOrders().isEmpty());
+            });
+
+            // seller receives the trade price minus the maker fee; both asks stay (100 + 600 lots left)
+            container.validateUserState(UID_1, profile -> {
+                assertThat(profile.getAccounts().get(CURRENECY_LTC), is((11_500L * step - makerFee) * 500L));
+                assertThat(profile.getAccounts().get(CURRENECY_XBT), is(btcAmount - 1200L * SYMBOLSPECFEE_XBT_LTC.baseScaleK));
+                assertThat(profile.fetchIndexedOrders().size(), is(2));
+            });
+
+            // money is conserved
+            final TotalCurrencyBalanceReportResult totalBal2 = container.totalBalanceReport();
+            final long ltcFees = (makerFee + takerFee) * 500L;
+            assertTrue(totalBal2.isGlobalBalancesAllZero());
+            assertThat(totalBal2.getFees().get(CURRENECY_LTC), is(ltcFees));
+            assertThat(totalBal2.getClientsBalancesSum().get(CURRENECY_LTC), is(ltcAmount - ltcFees));
+        }
+    }
+
+    @Test
+    @Timeout(10)
     public void shouldProcessFees_BidGtcMaker_AskIocTakerPartial() throws Exception {
 
         try (final ExchangeTestContainer container = ExchangeTestContainer.create(getPerformanceConfiguration())) {

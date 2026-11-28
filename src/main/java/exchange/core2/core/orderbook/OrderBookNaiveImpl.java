@@ -127,7 +127,10 @@ public final class OrderBookNaiveImpl implements IOrderBook {
             case FOK_BUDGET:
                 newOrderMatchFokBudget(cmd);
                 break;
-            // TODO IOC_BUDGET and FOK support
+            case FOK:
+                newOrderMatchFok(cmd);
+                break;
+            // TODO IOC_BUDGET
             default:
                 log.warn("Unsupported order type: {}", cmd);
                 eventsHelper.attachRejectEvent(cmd, cmd.size);
@@ -194,6 +197,14 @@ public final class OrderBookNaiveImpl implements IOrderBook {
     private void newOrderMatchFokBudget(final OrderCommand cmd) {
         if (IOrderBook.canFillBudget(this, cmd, cfgSelfTradeProtectionMode)) {
             tryMatchInstantly(cmd, cmd.action == OrderAction.ASK ? bidBuckets : askBuckets, 0, cmd);
+        } else {
+            eventsHelper.attachRejectEvent(cmd, cmd.size);
+        }
+    }
+
+    private void newOrderMatchFok(final OrderCommand cmd) {
+        if (IOrderBook.canFill(this, cmd, cfgSelfTradeProtectionMode)) {
+            tryMatchInstantly(cmd, subtreeForMatching(cmd.action, cmd.price), 0, cmd);
         } else {
             eventsHelper.attachRejectEvent(cmd, cmd.size);
         }

@@ -148,7 +148,10 @@ public final class OrderBookDirectImpl implements IOrderBook {
             case FOK_BUDGET:
                 newOrderMatchFokBudget(cmd);
                 break;
-            // TODO IOC_BUDGET and FOK support
+            case FOK:
+                newOrderMatchFok(cmd);
+                break;
+            // TODO IOC_BUDGET
             default:
                 log.warn("Unsupported order type: {}", cmd);
                 eventsHelper.attachRejectEvent(cmd, cmd.size);
@@ -221,6 +224,44 @@ public final class OrderBookDirectImpl implements IOrderBook {
         } else {
             eventsHelper.attachRejectEvent(cmd, cmd.size);
         }
+    }
+
+    private void newOrderMatchFok(final OrderCommand cmd) {
+        final boolean canFill = cfgCancelNewestOnSelfTrade
+                ? IOrderBook.canFill(this, cmd, cfgSelfTradeProtectionMode) // must stop at the first own order
+                : canFillByBuckets(cmd);
+        if (canFill) {
+            tryMatchInstantly(cmd, cmd);
+        } else {
+            eventsHelper.attachRejectEvent(cmd, cmd.size);
+        }
+    }
+
+    /**
+     * Same result as {@link IOrderBook#canFill} without self-trade protection,
+     * but walks price buckets instead of orders and allocates nothing.
+     * Stops at the first price level beyond the limit price.
+     */
+    private boolean canFillByBuckets(final OrderCommand cmd) {
+        if (cmd.size <= 0) {
+            return false;
+        }
+        final boolean buy = cmd.action == OrderAction.BID;
+        DirectOrder makerOrder = buy ? bestAskOrder : bestBidOrder;
+        long remaining = cmd.size;
+        while (makerOrder != null) {
+            if (buy ? makerOrder.price > cmd.price : makerOrder.price < cmd.price) {
+                return false;
+            }
+            final Bucket bucket = makerOrder.parent;
+            remaining -= Math.min(remaining, bucket.volume);
+            if (remaining == 0) {
+                return true;
+            }
+            // first order of the next price
+            makerOrder = bucket.tail.prev;
+        }
+        return false;
     }
 
     /**

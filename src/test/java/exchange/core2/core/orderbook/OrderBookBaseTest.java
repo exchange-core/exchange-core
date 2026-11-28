@@ -17,6 +17,7 @@ package exchange.core2.core.orderbook;
 
 import exchange.core2.tests.util.TestConstants;
 import exchange.core2.core.common.CoreSymbolSpecification;
+import exchange.core2.core.common.OrderAction;
 import exchange.core2.core.common.config.OrdersProcessingConfiguration;
 import exchange.core2.core.common.L2MarketData;
 import exchange.core2.core.common.MatcherEventType;
@@ -653,6 +654,194 @@ public abstract class OrderBookBaseTest {
         checkEventTrade(events.get(2), 6L, 81590L, 1L);
     }
 
+
+    // ---------------------- FOK ORDERS ---------------------------
+
+    @Test
+    public void shouldRejectFokBidOrdersWithPartialFill() {
+
+        long size = 176; //1 order not filled
+        long price = 81600L;
+
+        OrderCommand cmd = OrderCommand.newOrder(FOK, TestConstants.orderIdOf(123L), UID_2, price, price, size, BID);
+        processAndValidate(cmd, SUCCESS);
+
+        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
+        assertEquals(expectedState.build(), snapshot);
+
+        List<MatcherTradeEvent> events = cmd.extractEvents();
+        assertThat(events.size(), is(1));
+
+        // no trades generated, rejection with full size unmatched
+        checkEventRejection(events.getFirst(), size, price, price);
+    }
+
+    @Test
+    public void shouldRejectFokAskOrdersWithPartialFill() {
+
+        long size = 82; //1 order not filled
+        long price = 81200;
+
+        OrderCommand cmd = OrderCommand.newOrder(FOK, TestConstants.orderIdOf(123L), UID_2, price, price, size, ASK);
+        processAndValidate(cmd, SUCCESS);
+
+        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
+        assertEquals(expectedState.build(), snapshot);
+
+        List<MatcherTradeEvent> events = cmd.extractEvents();
+        assertThat(events.size(), is(1));
+
+        // no trades generated, rejection with full size unmatched
+        checkEventRejection(events.getFirst(), size, price, price);
+    }
+
+
+    @Test
+    public void shouldMatchFokBidOrderExactlyFillableWithinLimit() {
+
+        long size = 175; // 75 @ 81599 + 100 @ 81600: everything within the limit
+        long price = 81600L;
+
+        OrderCommand cmd = OrderCommand.newOrder(FOK, TestConstants.orderIdOf(123L), UID_2, price, price, size, BID);
+        processAndValidate(cmd, SUCCESS);
+
+        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
+        assertEquals(expectedState.removeAsk(0).removeAsk(0).build(), snapshot);
+
+        List<MatcherTradeEvent> events = cmd.extractEvents();
+        assertThat(events.size(), is(3));
+        checkEventTrade(events.get(0), 2L, 81599L, 50L);
+        checkEventTrade(events.get(1), 3L, 81599L, 25L);
+        checkEventTrade(events.get(2), 1L, 81600L, 100L);
+    }
+
+    @Test
+    public void shouldMatchFokAskOrderExactlyFillableWithinLimit() {
+
+        long size = 81; // 40 @ 81593 + 21 @ 81590 + 20 @ 81200: everything within the limit
+        long price = 81200L;
+
+        OrderCommand cmd = OrderCommand.newOrder(FOK, TestConstants.orderIdOf(123L), UID_2, price, 0L, size, ASK);
+        processAndValidate(cmd, SUCCESS);
+
+        L2MarketData snapshot = orderBook.getL2MarketDataSnapshot(10);
+        assertEquals(expectedState.removeBid(0).removeBid(0).removeBid(0).build(), snapshot);
+
+        List<MatcherTradeEvent> events = cmd.extractEvents();
+        assertThat(events.size(), is(4));
+        checkEventTrade(events.get(0), 4L, 81593L, 40L);
+        checkEventTrade(events.get(1), 5L, 81590L, 20L);
+        checkEventTrade(events.get(2), 6L, 81590L, 1L);
+        checkEventTrade(events.get(3), 7L, 81200L, 20L);
+    }
+
+    @Test
+    void shouldRejectEntireFokWhenOwnOrderBlocksWithinLimit() {
+        orderBook = createNewOrderBook(OrdersProcessingConfiguration.builder()
+                .selfTradeProtectionMode(OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST)
+                .build());
+        clearOrderBook();
+
+        final long price = 100_000L;
+        processAndValidate(OrderCommand.newOrder(GTC, TestConstants.orderIdOf(4001L), TestConstants.uidOf(1), price, 0, 3, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, TestConstants.orderIdOf(4002L), TestConstants.uidOf(2), price, 0, 2, ASK), SUCCESS);
+        processAndValidate(OrderCommand.newOrder(GTC, TestConstants.orderIdOf(4003L), TestConstants.uidOf(3), price, 0, 3, ASK), SUCCESS);
+
+        // uid 2 wants 4: matching would stop at its own order after 3, so the whole FOK is rejected
+        final OrderCommand blocked = OrderCommand.newOrder(FOK, TestConstants.orderIdOf(4004L), TestConstants.uidOf(2), price, price, 4, BID);
+        processAndValidate(blocked, SUCCESS);
+
+        List<MatcherTradeEvent> events = blocked.extractEvents();
+        assertThat(events.size(), is(1));
+        checkEventRejection(events.getFirst(), 4L, price, price);
+        assertEquals(8L, orderBook.getL2MarketDataSnapshot(1).askVolumes[0]);
+
+        // 3 is fillable before the own order
+        final OrderCommand fillable = OrderCommand.newOrder(FOK, TestConstants.orderIdOf(4005L), TestConstants.uidOf(2), price, price, 3, BID);
+        processAndValidate(fillable, SUCCESS);
+
+        events = fillable.extractEvents();
+        assertThat(events.size(), is(1));
+        checkEventTrade(events.getFirst(), 4001L, price, 3L);
+        assertEquals(5L, orderBook.getL2MarketDataSnapshot(1).askVolumes[0]);
+    }
+
+    // ---------------------- canFill (FOK dry run) ---------------------------
+
+    private boolean canFill(OrderAction action, long price, long size) {
+        return canFill(action, price, size, UID_2, OrdersProcessingConfiguration.SelfTradeProtectionMode.IGNORE);
+    }
+
+    private boolean canFill(OrderAction action, long price, long size, UUID uid,
+                            OrdersProcessingConfiguration.SelfTradeProtectionMode stpMode) {
+        final OrderCommand cmd = OrderCommand.newOrder(FOK, TestConstants.orderIdOf(999L), uid, price,
+                action == BID ? price : 0L, size, action);
+        return IOrderBook.canFill(orderBook, cmd, stpMode);
+    }
+
+    @Test
+    public void canFillBidCountsOnlyLiquidityWithinLimit() {
+        // limit 81599: only the 75 @ 81599 level counts
+        assertTrue(canFill(BID, 81599L, 75L));
+        assertFalse(canFill(BID, 81599L, 76L));
+
+        // limit 81600: the maker price equal to the limit counts too (75 + 100)
+        assertTrue(canFill(BID, 81600L, 175L));
+        assertFalse(canFill(BID, 81600L, 176L)); // 245 in total, but only 175 within the limit
+
+        // limit above every ask: the whole side (245) counts
+        assertTrue(canFill(BID, 201000L, 245L));
+        assertFalse(canFill(BID, 201000L, 246L));
+    }
+
+    @Test
+    public void canFillAskCountsOnlyLiquidityWithinLimit() {
+        // limit 81593: only the 40 @ 81593 level counts
+        assertTrue(canFill(ASK, 81593L, 40L));
+        assertFalse(canFill(ASK, 81593L, 41L));
+
+        // limit 81200: 40 + 21 + 20 = 81
+        assertTrue(canFill(ASK, 81200L, 81L));
+        assertFalse(canFill(ASK, 81200L, 82L)); // 96 in total, but only 81 within the limit
+
+        // limit below every bid: the whole side (96) counts
+        assertTrue(canFill(ASK, 9136L, 96L));
+        assertFalse(canFill(ASK, 9136L, 97L));
+    }
+
+    @Test
+    public void canFillIsFalseWithoutLiquidityWithinLimit() {
+        assertFalse(canFill(BID, 81598L, 1L)); // best ask is 81599
+        assertFalse(canFill(ASK, 81594L, 1L)); // best bid is 81593
+    }
+
+    @Test
+    public void canFillIsFalseForNonPositiveSize() {
+        assertFalse(canFill(BID, 81600L, 0L));
+        assertFalse(canFill(BID, 81600L, -1L));
+    }
+
+    @Test
+    public void canFillHonoursSelfTradeProtection() {
+        // every resting order in the fixture belongs to UID_1
+        assertTrue(canFill(BID, 81600L, 175L, UID_1, OrdersProcessingConfiguration.SelfTradeProtectionMode.IGNORE));
+        assertFalse(canFill(BID, 81600L, 1L, UID_1, OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST));
+        assertFalse(canFill(ASK, 81593L, 1L, UID_1, OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST));
+
+        // another user is not affected by the setting
+        assertTrue(canFill(BID, 81600L, 175L, UID_2, OrdersProcessingConfiguration.SelfTradeProtectionMode.CANCEL_NEWEST));
+    }
+
+    @Test
+    public void canFillDoesNotChangeTheBook() {
+        canFill(BID, 81600L, 175L);
+        canFill(BID, 81600L, 176L);
+        canFill(ASK, 81200L, 81L);
+        canFill(ASK, 81200L, 82L);
+
+        assertEquals(expectedState.build(), orderBook.getL2MarketDataSnapshot(25));
+        orderBook.validateInternalState();
+    }
 
     // MARKETABLE GTC ORDERS
 
