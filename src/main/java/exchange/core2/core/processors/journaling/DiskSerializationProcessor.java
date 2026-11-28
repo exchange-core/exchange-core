@@ -40,6 +40,7 @@ import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
@@ -84,7 +85,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
     private long baseSnapshotId;
 
-    private long enableJournalAfterSeq = -1;
+    private volatile JournalPosition journalPosition;
 
     private RandomAccessFile raf;
     private FileChannel channel;
@@ -94,6 +95,10 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
     private long writtenBytes = 0;
 
     private static final int MAX_COMMAND_SIZE_BYTES = 256;
+
+    private record JournalPosition(long sequenceOffset, long afterRingSequence) {}
+
+    private record ReplayResult(long lastSequence, int lastPartition) {}
 
 //    private List<Integer> batchSizes = new ArrayList<>(100000);
 //    final SingleWriterRecorder hdrRecorderRaw = new SingleWriterRecorder(Integer.MAX_VALUE, 2);
@@ -167,10 +172,13 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
             return false;
         }
 
+        final JournalPosition position = journalPosition;
+        final long journalSeq = (position == null ? baseSeq : position.sequenceOffset()) + seq;
         synchronized (this) {
             // TODO improve format
             try (final OutputStream os = Files.newOutputStream(resolveMainLogPath(), StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
-                os.write((System.currentTimeMillis() + " seq=" + seq + " timestampNs=" + timestampNs + " snapshotId=" + snapshotId + " type=" + type.code + " instance=" + instanceId + "\n").getBytes());
+                os.write((System.currentTimeMillis() + " seq=" + seq + " timestampNs=" + timestampNs + " snapshotId=" + snapshotId
+                        + " type=" + type.code + " instance=" + instanceId + " journalSeq=" + journalSeq + "\n").getBytes());
             } catch (final IOException ex) {
                 log.error("Can not write main log file: ", ex);
                 return false;
@@ -252,13 +260,13 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
     @Override
     public void writeToJournal(OrderCommand cmd, long dSeq, boolean eob) throws IOException {
 
-        // TODO improve checks logic
-        // skip
-        if (enableJournalAfterSeq == -1 || dSeq + baseSeq <= enableJournalAfterSeq) {
+        final JournalPosition position = journalPosition;
+        if (position == null || dSeq <= position.afterRingSequence()) {
             return;
         }
-        if (dSeq + baseSeq == enableJournalAfterSeq + 1) {
-            log.info("Enabled journaling at seq = {} ({}+{})", enableJournalAfterSeq + 1, baseSeq, dSeq);
+        final long journalSeq = position.sequenceOffset() + dSeq;
+        if (dSeq == position.afterRingSequence() + 1) {
+            log.info("Enabled journaling at seq = {} ({}+{})", journalSeq, position.sequenceOffset(), dSeq);
         }
 
         boolean debug = false;
@@ -300,13 +308,13 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
         final byte opcode = hasOrderFees ? PLACE_ORDER_WITH_FEES
                 : checkedWithdrawal ? WITHDRAWAL_WITH_MARGIN_CHECK : cmdType.getCode();
         buffer.put(opcode);
-        buffer.putLong(baseSeq + dSeq); // 8 bytes - can be compressed as delta
+        buffer.putLong(journalSeq); // 8 bytes - can be compressed as delta
         buffer.putLong(cmd.timestamp); // 8 bytes - can be compressed as delta
         buffer.putInt(cmd.serviceFlags & ~OrderCommand.LEGACY_WITHDRAWAL_REPLAY);
         buffer.putLong(cmd.eventsGroup); // 8 bytes - can be compressed as delta
 
         if (debug)
-            log.debug("LOG {} eventsGroup={} serviceFlags={}", String.format("seq=%d t=%d cmd=%X (%s) ", baseSeq + dSeq, cmd.timestamp, cmdType.getCode(), cmdType), cmd.eventsGroup, cmd.serviceFlags);
+            log.debug("LOG {} eventsGroup={} serviceFlags={}", String.format("seq=%d t=%d cmd=%X (%s) ", journalSeq, cmd.timestamp, cmdType.getCode(), cmdType), cmd.eventsGroup, cmd.serviceFlags);
 
         if (cmdType == OrderCommandType.MOVE_ORDER) {
 
@@ -318,7 +326,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
             buffer.putLong(cmd.price); // 8 bytes - can be compressed as delta
 
             if (debug)
-                log.debug("move order seq={} t={} orderId={} symbol={} uid={} price={}", baseSeq + dSeq, cmd.timestamp, cmd.getOrderId(), cmd.symbol, cmd.getUid(), cmd.price);
+                log.debug("move order seq={} t={} orderId={} symbol={} uid={} price={}", journalSeq, cmd.timestamp, cmd.getOrderId(), cmd.symbol, cmd.getUid(), cmd.price);
 
         } else if (cmdType == OrderCommandType.CANCEL_ORDER) {
 
@@ -329,7 +337,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
             buffer.putLong(cmd.orderIdLo);
 
             if (debug)
-                log.debug("cancel order seq={} t={} orderId={} symbol={} uid={}", baseSeq + dSeq, cmd.timestamp, cmd.getOrderId(), cmd.symbol, cmd.getUid());
+                log.debug("cancel order seq={} t={} orderId={} symbol={} uid={}", journalSeq, cmd.timestamp, cmd.getOrderId(), cmd.symbol, cmd.getUid());
 
         } else if (cmdType == OrderCommandType.REDUCE_ORDER) {
 
@@ -341,7 +349,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
             buffer.putLong(cmd.size); // 8 bytes - can be compressed as low value
 
             if (debug)
-                log.debug("reduce order seq={} t={} orderId={} symbol={} uid={} size={}", baseSeq + dSeq, cmd.timestamp, cmd.getOrderId(), cmd.symbol, cmd.getUid(), cmd.size);
+                log.debug("reduce order seq={} t={} orderId={} symbol={} uid={} size={}", journalSeq, cmd.timestamp, cmd.getOrderId(), cmd.symbol, cmd.getUid(), cmd.size);
 
         } else if (cmdType == OrderCommandType.PLACE_ORDER) {
 
@@ -365,7 +373,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
             if (debug)
                 log.debug("place order seq={} t={} orderId={} symbol={} uid={} price={} reserveBidPrice={} size={} userCookie={} {}/{} actionAndType={}",
-                        baseSeq + dSeq, cmd.timestamp, cmd.getOrderId(), cmd.symbol, cmd.getUid(), cmd.price, cmd.reserveBidPrice, cmd.size, cmd.userCookie, cmd.action, cmd.orderType, actionAndType1);
+                        journalSeq, cmd.timestamp, cmd.getOrderId(), cmd.symbol, cmd.getUid(), cmd.price, cmd.reserveBidPrice, cmd.size, cmd.userCookie, cmd.action, cmd.orderType, actionAndType1);
 
         } else if (cmdType == OrderCommandType.BALANCE_ADJUSTMENT) {
 
@@ -387,7 +395,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
         } else if (cmdType == OrderCommandType.BINARY_DATA_COMMAND) {
 
 //            if (debug) log.debug("LOG BINARY_DATA_COMMAND {}", String.format("seq=%d f=%d word0=%X word1=%X word2=%X word3=%X word4=%X",
-//                    dSeq + baseSeq, (byte) cmd.symbol, cmd.orderId, cmd.price, cmd.reserveBidPrice, cmd.size, cmd.uid));
+//                    journalSeq, (byte) cmd.symbol, cmd.orderId, cmd.price, cmd.reserveBidPrice, cmd.size, cmd.uid));
 
             buffer.put((byte) cmd.symbol); // 1 byte (0 or -1)
             buffer.putLong(cmd.orderIdLo); // 8 bytes word0
@@ -405,7 +413,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
         if (cmdType == OrderCommandType.PERSIST_STATE_RISK) {
 
             // register snapshot change
-            registerNextSnapshot(cmd.orderIdLo, baseSeq + dSeq, cmd.timestamp);
+            registerNextSnapshot(cmd.orderIdLo, journalSeq, cmd.timestamp);
 
             // start new file
             baseSnapshotId = cmd.orderIdLo;
@@ -428,7 +436,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
     @Override
     public void enableJournaling(long afterSeq, ExchangeApi api) {
-        enableJournalAfterSeq = afterSeq;
+        journalPosition = afterSeq == -1 ? null : new JournalPosition(baseSeq, afterSeq - baseSeq);
         api.groupingControl(0, 1);
     }
 
@@ -451,10 +459,14 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
     @Override
     public long replayJournalFull(InitialStateConfiguration initialCfg, ExchangeApi api) {
+        return replayJournal(initialCfg, api).lastSequence();
+    }
+
+    private ReplayResult replayJournal(InitialStateConfiguration initialCfg, ExchangeApi api) {
         if (initialCfg.getJournalTimestampNs() == 0) {
             log.debug("No need to replay journal, returning baseSeq={}", baseSeq);
 
-            return baseSeq;
+            return new ReplayResult(baseSeq, 0);
         }
         log.debug("Replaying journal...");
 
@@ -463,7 +475,7 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
         api.groupingControl(0, 0);
 
 
-        final MutableLong lastSeq = new MutableLong();
+        final MutableLong lastSeq = new MutableLong(baseSeq);
         // TODO refactor reading, use EOF flag
 
         int partitionCounter = 1;
@@ -472,22 +484,22 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
             final Path path = resolveJournalPath(partitionCounter, initialCfg.getSnapshotId());
 
             log.debug("Reading journal file: {}", path.toFile());
-            try (final FileInputStream fis = new FileInputStream(path.toFile());
-                 final BufferedInputStream bis = new BufferedInputStream(fis);
-                 final DataInputStream dis = new DataInputStream(bis)) {
-
-                readCommands(dis, api, lastSeq, false);
-                partitionCounter++;
-                log.debug("File end reached, try next partition {}...", partitionCounter);
-
-            } catch (FileNotFoundException ex) {
+            final InputStream stream;
+            try {
+                stream = Files.newInputStream(path);
+            } catch (NoSuchFileException ex) {
                 log.debug("return lastSeq={}, file not found: {}", lastSeq, ex.getMessage());
-                return lastSeq.value;
-
+                return new ReplayResult(lastSeq.value, partitionCounter - 1);
             } catch (IOException ex) {
-                partitionCounter++;
+                throw new UncheckedIOException("Could not open journal file " + path, ex);
+            }
+            try (final DataInputStream dis = new DataInputStream(new BufferedInputStream(stream))) {
+                readCommands(dis, api, lastSeq, false);
+            } catch (IOException ex) {
                 log.debug("File end reached through exception");
             }
+            partitionCounter++;
+            log.debug("Trying next partition {}", partitionCounter);
         }
     }
 
@@ -716,8 +728,15 @@ public final class DiskSerializationProcessor implements ISerializationProcessor
 
     @Override
     public void replayJournalFullAndThenEnableJouraling(InitialStateConfiguration initialStateConfiguration, ExchangeApi exchangeApi) {
-        long seq = replayJournalFull(initialStateConfiguration, exchangeApi);
-        enableJournaling(seq, exchangeApi);
+        final ReplayResult replay = replayJournal(initialStateConfiguration, exchangeApi);
+        if (initialStateConfiguration.getJournalTimestampNs() == 0) {
+            enableJournaling(replay.lastSequence(), exchangeApi);
+        } else {
+            filesCounter = replay.lastPartition();
+            // Replay uses new ring slots. Map the end-of-replay slot to the last persisted sequence.
+            exchangeApi.groupingControl(0, 1, ringSeq ->
+                    journalPosition = new JournalPosition(replay.lastSequence() - ringSeq, ringSeq));
+        }
     }
 
     @Override

@@ -61,6 +61,59 @@ class DiskSerializationProcessorTest {
         }
     }
 
+    @Test
+    void continuesWritingAcrossRestartsAndSequenceGaps(@TempDir Path journalDirectory) throws IOException {
+        final var compressor = LZ4Factory.fastestJavaInstance().fastCompressor();
+        final var initial = InitialStateConfiguration.fromSnapshotOnly("test", 17L, 100L);
+        final var recovery = InitialStateConfiguration.lastKnownStateFromJournal("test", 17L, 100L);
+        final var writer = createProcessor(journalDirectory, initial, compressor);
+        writer.enableJournaling(100L, new ExchangeApi(RingBuffer.createSingleProducer(OrderCommand::new, 16), compressor));
+
+        final var reset = new OrderCommand();
+        reset.command = OrderCommandType.RESET;
+        final var shutdown = new OrderCommand();
+        shutdown.command = OrderCommandType.SHUTDOWN_SIGNAL;
+        writer.writeToJournal(addUser(1), 1L, true);
+        writer.writeToJournal(reset, 2L, true);
+        writer.writeToJournal(addUser(2), 3L, true);
+        writer.writeToJournal(shutdown, 4L, true);
+
+        final var firstRestart = createProcessor(journalDirectory, recovery, compressor);
+        final var firstRing = RingBuffer.createSingleProducer(OrderCommand::new, 16);
+        firstRestart.replayJournalFullAndThenEnableJouraling(recovery, new ExchangeApi(firstRing, compressor));
+        firstRestart.writeToJournal(firstRing.get(1L), 1L, true);
+        final long firstNewSequence = firstRing.getCursor() + 1L;
+        firstRestart.writeToJournal(addUser(3), firstNewSequence, true);
+        // Read-only commands consume ring slots but are absent from the journal.
+        firstRestart.writeToJournal(addUser(4), firstNewSequence + 12L, true);
+        firstRestart.writeToJournal(shutdown, firstNewSequence + 13L, true);
+
+        final var secondRestart = createProcessor(journalDirectory, recovery, compressor);
+        final var secondRing = RingBuffer.createSingleProducer(OrderCommand::new, 16);
+        secondRestart.replayJournalFullAndThenEnableJouraling(recovery, new ExchangeApi(secondRing, compressor));
+        final long secondNewSequence = secondRing.getCursor() + 1L;
+        secondRestart.writeToJournal(addUser(5), secondNewSequence, true);
+        secondRestart.writeToJournal(shutdown, secondNewSequence + 1L, true);
+
+        final var reader = createProcessor(journalDirectory, recovery, compressor);
+        final var ring = RingBuffer.createSingleProducer(OrderCommand::new, 16);
+        assertEquals(117L, reader.replayJournalFull(recovery, new ExchangeApi(ring, compressor)));
+        assertEquals(6L, ring.getCursor());
+        assertEquals(TestConstants.uidOf(1), ring.get(1L).getUid());
+        assertEquals(OrderCommandType.RESET, ring.get(2L).command);
+        assertEquals(TestConstants.uidOf(2), ring.get(3L).getUid());
+        assertEquals(TestConstants.uidOf(3), ring.get(4L).getUid());
+        assertEquals(TestConstants.uidOf(4), ring.get(5L).getUid());
+        assertEquals(TestConstants.uidOf(5), ring.get(6L).getUid());
+    }
+
+    private static OrderCommand addUser(long uid) {
+        final var command = new OrderCommand();
+        command.command = OrderCommandType.ADD_USER;
+        command.setUid(TestConstants.uidOf(uid));
+        return command;
+    }
+
     private static DiskSerializationProcessor createProcessor(Path journalDirectory, InitialStateConfiguration initial,
                                                               LZ4Compressor compressor) {
         return new DiskSerializationProcessor(

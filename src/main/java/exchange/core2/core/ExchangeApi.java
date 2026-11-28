@@ -975,15 +975,18 @@ public final class ExchangeApi {
     }
 
     public void groupingControl(long timestampNs, long mode) {
+        groupingControl(timestampNs, mode, ignored -> {});
+    }
 
+    public void groupingControl(long timestampNs, long mode, LongConsumer beforePublish) {
         ringBuffer.publishEvent((cmd, seq) -> {
             cmd.command = OrderCommandType.GROUPING_CONTROL;
             cmd.resultCode = CommandResultCode.NEW;
 
             cmd.orderIdLo = mode;
             cmd.timestamp = timestampNs;
+            beforePublish.accept(seq);
         });
-
     }
 
     public void reset(long timestampNs) {

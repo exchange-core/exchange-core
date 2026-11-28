@@ -107,13 +107,12 @@ public final class InitialStateConfiguration {
 
 
     /**
-     * Configuration that load exchange from last known state including journal replay till last known start. Journal is enabled.
+     * Restore the specified snapshot, replay its journal, and resume journaling.
      *
      * @param exchangeId Exchange ID
      * @param snapshotId snapshot ID
-     * @param baseSeq    bas seq
-     * @return configuration that load exchange from last known state including journal replay till last known start. Journal is enabled.
-     * TODO how to recreate from the next journal section recorded after the first recovery?
+     * @param baseSeq    journal sequence at the snapshot boundary
+     * @return configuration for restoring a snapshot and its journal
      */
     public static InitialStateConfiguration lastKnownStateFromJournal(String exchangeId, long snapshotId, long baseSeq) {
 
